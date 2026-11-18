@@ -1,0 +1,1280 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file test_crash_handler.cpp
+ * @brief Unit tests for crash handler - signal-safe crash file writing and parsing
+ *
+ * Tests the crash file parsing, JSON event creation, file lifecycle,
+ * and TelemetryManager integration. Does NOT trigger real signals --
+ * tests only the file-based parsing and event creation logic.
+ *
+ * Written TDD-style - tests WILL FAIL if crash_handler is removed.
+ */
+
+#include "../test_helpers/breadcrumb_capture.h"
+#include "config.h"
+#include "helix_thread.h"
+#include "system/crash_error_log_sink.h"
+#include "system/crash_handler.h"
+#include "system/crash_record.h"
+#include "system/telemetry_manager.h"
+
+#include <spdlog/spdlog.h>
+
+#include <algorithm>
+#include <chrono>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <sys/mman.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <vector>
+
+#include "../catch_amalgamated.hpp"
+#include "hv/json.hpp"
+
+using json = nlohmann::json;
+namespace fs = std::filesystem;
+
+// ============================================================================
+// Helper: create a temporary directory for test isolation
+// ============================================================================
+
+class CrashTestFixture {
+  public:
+    CrashTestFixture() {
+        temp_dir_ = fs::temp_directory_path() /
+                    ("helix_crash_test_" +
+                     std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        fs::create_directories(temp_dir_);
+        crash_path_ = (temp_dir_ / "crash.txt").string();
+    }
+
+    ~CrashTestFixture() {
+        std::error_code ec;
+        fs::remove_all(temp_dir_, ec);
+    }
+
+    [[nodiscard]] std::string crash_path() const {
+        return crash_path_;
+    }
+    [[nodiscard]] fs::path temp_dir() const {
+        return temp_dir_;
+    }
+
+    /// Write a mock crash file with the given content
+    void write_crash_file(const std::string& content) const {
+        std::ofstream ofs(crash_path_);
+        ofs << content;
+        ofs.close();
+    }
+
+    /// Write a realistic crash file matching the signal handler's output format
+    void write_realistic_crash_file() const {
+        write_crash_file("signal:11\n"
+                         "name:SIGSEGV\n"
+                         "version:0.9.6\n"
+                         "timestamp:1707350400\n"
+                         "uptime:3600\n"
+                         "bt:0x0040abcd\n"
+                         "bt:0x0040ef01\n"
+                         "bt:0x00401234\n");
+    }
+
+  private:
+    fs::path temp_dir_;
+    std::string crash_path_;
+};
+
+// ============================================================================
+// Crash File Detection [telemetry][crash]
+// ============================================================================
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: has_crash_file needs a non-empty file",
+                 "[telemetry][crash]") {
+    REQUIRE_FALSE(crash_handler::has_crash_file(crash_path()));
+    write_crash_file("");
+    REQUIRE_FALSE(crash_handler::has_crash_file(crash_path()));
+    write_realistic_crash_file();
+    REQUIRE(crash_handler::has_crash_file(crash_path()));
+}
+
+// ============================================================================
+// Crash File Format Parsing [telemetry][crash]
+// ============================================================================
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: parse reads the signal handler's record",
+                 "[telemetry][crash]") {
+    write_realistic_crash_file();
+    auto result = crash_handler::read_crash_file(crash_path());
+
+    REQUIRE_FALSE(result.is_null());
+    CHECK(result["signal"] == 11);
+    CHECK(result["signal_name"] == "SIGSEGV");
+    CHECK(result["app_version"] == "0.9.6");
+    CHECK(result["uptime_sec"] == 3600);
+    // 1707350400 = 2024-02-08T00:00:00Z
+    const std::string ts = result["timestamp"];
+    CHECK(ts.find('T') != std::string::npos);
+    CHECK(ts.find('Z') != std::string::npos);
+    CHECK(result["backtrace"] == json::array({"0x0040abcd", "0x0040ef01", "0x00401234"}));
+    // A record without the optional lines reads back without their keys
+    for (const char* key : {"abort_msg", "fault_addr", "fault_code", "fault_code_name", "reg_pc",
+                            "reg_sp", "reg_lr", "queue_callback"}) {
+        INFO("key: " << key);
+        CHECK_FALSE(result.contains(key));
+    }
+}
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: parse rejects a missing or signal-less file",
+                 "[telemetry][crash]") {
+    CHECK(crash_handler::read_crash_file(crash_path()).is_null());
+    write_crash_file("version:1.0.0\nuptime:100\n");
+    CHECK(crash_handler::read_crash_file(crash_path()).is_null());
+}
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: parse handles all signal types", "[telemetry][crash]") {
+    struct SignalCase {
+        int number;
+        const char* name;
+    };
+
+    SignalCase signals[] = {
+        {11, "SIGSEGV"},
+        {6, "SIGABRT"},
+        {7, "SIGBUS"},
+        {8, "SIGFPE"},
+    };
+
+    for (const auto& sig : signals) {
+        std::string content = "signal:" + std::to_string(sig.number) +
+                              "\n"
+                              "name:" +
+                              sig.name +
+                              "\n"
+                              "version:1.0.0\n"
+                              "timestamp:1707350400\n"
+                              "uptime:0\n";
+        write_crash_file(content);
+
+        auto result = crash_handler::read_crash_file(crash_path());
+        REQUIRE_FALSE(result.is_null());
+        REQUIRE(result["signal"] == sig.number);
+        REQUIRE(result["signal_name"] == sig.name);
+    }
+}
+
+// The optional lines a record may carry, each read into its own key, and what
+// their absence leaves out.
+TEST_CASE_METHOD(CrashTestFixture, "Crash: parse reads each optional record line",
+                 "[telemetry][crash]") {
+    const std::string head =
+        "signal:11\nname:SIGSEGV\nversion:0.9.18\ntimestamp:1707350400\nuptime:3174\n";
+    struct Row {
+        const char* name;
+        std::string lines;
+        json expected; // key -> value
+        std::vector<const char*> absent;
+    };
+    const Row rows[] = {
+        {"no backtrace omits the field", "", json::object(), {"backtrace"}},
+        {"abort_msg",
+         "abort_msg:free(): invalid pointer\n",
+         {{"abort_msg", "free(): invalid pointer"}},
+         {}},
+        // "empty" means glibc stored no reason, so there is no abort_msg line (#987)
+        {"abort_msg_state",
+         "abort_msg_state:empty\n",
+         {{"abort_msg_state", "empty"}},
+         {"abort_msg"}},
+        // a re-entrant std::terminate still surfaces its reason (#987)
+        {"terminate_msg",
+         "abort_msg_state:empty\nterminate_msg:std::bad_alloc\n",
+         {{"terminate_msg", "std::bad_alloc"}},
+         {}},
+        {"fault address, code and registers",
+         "fault_addr:0xdeadbeef\nfault_code:2\nfault_code_name:SEGV_ACCERR\n"
+         "reg_pc:0x00920bac\nreg_sp:0xbe8ff420\nreg_lr:0x0091a3c0\nbt:0x920bac\n",
+         {{"fault_addr", "0xdeadbeef"},
+          {"fault_code", 2},
+          {"fault_code_name", "SEGV_ACCERR"},
+          {"reg_pc", "0x00920bac"},
+          {"reg_sp", "0xbe8ff420"},
+          {"reg_lr", "0x0091a3c0"}},
+         {}},
+        // x86_64 records a frame pointer where ARM records a link register
+        {"reg_bp",
+         "reg_pc:0x00400abc\nreg_sp:0x7ffd12345678\nreg_bp:0x7ffd12345690\n",
+         {{"reg_bp", "0x7ffd12345690"}},
+         {"reg_lr"}},
+        {"a fault address alone",
+         "fault_addr:0x00000000\nbt:0x920bac\n",
+         {{"fault_addr", "0x00000000"}},
+         {"fault_code", "reg_pc"}},
+        {"queue_callback",
+         "queue_callback:ToastManager::dismiss\nbt:0x920bac\n",
+         {{"queue_callback", "ToastManager::dismiss"}},
+         {}},
+    };
+    for (const Row& r : rows) {
+        DYNAMIC_SECTION(r.name) {
+            write_crash_file(head + r.lines);
+            auto result = crash_handler::read_crash_file(crash_path());
+            REQUIRE_FALSE(result.is_null());
+            CHECK(result["signal"] == 11);
+            for (const auto& [key, value] : r.expected.items()) {
+                INFO("key: " << key);
+                CHECK(result[key] == value);
+            }
+            for (const char* key : r.absent) {
+                INFO("absent: " << key);
+                CHECK_FALSE(result.contains(key));
+            }
+        }
+    }
+}
+
+TEST_CASE_METHOD(CrashTestFixture,
+                 "Crash: illegal instruction and trap and bad syscall leave a crash file",
+                 "[telemetry][crash][subprocess]") {
+    const int sig = GENERATE(SIGILL, SIGTRAP, SIGSYS);
+    const char* const expected = sig == SIGILL ? "SIGILL" : sig == SIGTRAP ? "SIGTRAP" : "SIGSYS";
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        crash_handler::install(crash_path());
+        raise(sig);
+        _exit(99);
+    }
+    REQUIRE(pid > 0);
+
+    int status = 0;
+    REQUIRE(waitpid(pid, &status, 0) == pid);
+    REQUIRE(WIFEXITED(status));
+    CHECK(WEXITSTATUS(status) == 128 + sig);
+
+    auto result = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(result.is_null());
+    CHECK(result["signal"] == sig);
+    CHECK(result["signal_name"] == expected);
+}
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: a trap instruction records its fault code by name",
+                 "[telemetry][crash][subprocess]") {
+    // __builtin_trap is `brk` on aarch64 and `ud2` (or `udf`) elsewhere.
+#if defined(__aarch64__)
+    const int expected_sig = SIGTRAP;
+    const char* const expected_code = "TRAP_BRKPT";
+#else
+    const int expected_sig = SIGILL;
+    const char* const expected_code = "ILL_ILLOPN";
+#endif
+    pid_t pid = fork();
+    if (pid == 0) {
+        crash_handler::install(crash_path());
+        __builtin_trap();
+    }
+    REQUIRE(pid > 0);
+
+    int status = 0;
+    REQUIRE(waitpid(pid, &status, 0) == pid);
+    REQUIRE(WIFEXITED(status));
+    CHECK(WEXITSTATUS(status) == 128 + expected_sig);
+
+    auto result = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(result.is_null());
+    CHECK(result["signal"] == expected_sig);
+    CHECK(result.value("fault_code_name", "") == expected_code);
+}
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: an external record reads back as a crash",
+                 "[telemetry][crash]") {
+    REQUIRE(helix::crash_record::write_external(crash_path(), SIGILL, "1.2.3", 1707350400,
+                                                "watchdog", 0));
+
+    auto result = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(result.is_null());
+    CHECK(result["signal"] == SIGILL);
+    CHECK(result["signal_name"] == "SIGILL");
+    CHECK(result["app_version"] == "1.2.3");
+    CHECK(result["recorded_by"] == "watchdog");
+}
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: an external record never replaces the app's own",
+                 "[telemetry][crash]") {
+    write_realistic_crash_file();
+    const auto before = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(before.is_null());
+
+    // Written after the process started: the app's own record.
+    const long started = static_cast<long>(time(nullptr)) - 60;
+    CHECK_FALSE(helix::crash_record::write_external(crash_path(), SIGILL, "1.2.3", 1707350400,
+                                                    "watchdog", started));
+    CHECK(crash_handler::read_crash_file(crash_path()) == before);
+}
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: an external record replaces a previous run's leftover",
+                 "[telemetry][crash]") {
+    write_realistic_crash_file();
+    REQUIRE(crash_handler::read_crash_file(crash_path())["signal_name"] == "SIGSEGV");
+
+    // The process started after the file was last written.
+    const long started = static_cast<long>(time(nullptr)) + 60;
+    REQUIRE(helix::crash_record::write_external(crash_path(), SIGILL, "1.2.3", 1707350400,
+                                                "watchdog", started));
+    auto result = crash_handler::read_crash_file(crash_path());
+    CHECK(result["signal_name"] == "SIGILL");
+    CHECK(result["recorded_by"] == "watchdog");
+}
+
+TEST_CASE("Crash: stop requests are not crash signals", "[telemetry][crash]") {
+    for (const int sig : helix::crash_record::kCrashSignals) {
+        CAPTURE(sig);
+        CHECK(helix::crash_record::is_crash_signal(sig));
+        CHECK(std::string(helix::crash_record::signal_name(sig)) != "UNKNOWN");
+    }
+    for (const int sig : {SIGTERM, SIGKILL, SIGINT, SIGHUP}) {
+        CAPTURE(sig);
+        CHECK_FALSE(helix::crash_record::is_crash_signal(sig));
+    }
+}
+
+// ============================================================================
+// Crash File Cleanup [telemetry][crash]
+// ============================================================================
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: remove_crash_file deletes the file, if any",
+                 "[telemetry][crash]") {
+    crash_handler::remove_crash_file(crash_path()); // nothing there: harmless
+    REQUIRE_FALSE(crash_handler::has_crash_file(crash_path()));
+
+    write_realistic_crash_file();
+    REQUIRE(crash_handler::has_crash_file(crash_path()));
+    crash_handler::remove_crash_file(crash_path());
+    REQUIRE_FALSE(crash_handler::has_crash_file(crash_path()));
+}
+
+// ============================================================================
+// recent_error lines
+// ============================================================================
+
+// recent_error* labeled keys collapse into one ordered array (newest first).
+TEST_CASE_METHOD(CrashTestFixture, "Crash: parse crash file groups recent_error lines",
+                 "[telemetry][crash]") {
+    write_crash_file("signal:6\n"
+                     "name:SIGABRT\n"
+                     "version:0.99.72\n"
+                     "timestamp:1707350400\n"
+                     "uptime:100\n"
+                     "abort_msg_state:empty\n"
+                     "recent_error:newest failure\n"
+                     "recent_error2:older failure\n"
+                     "recent_error3:oldest failure\n");
+    auto result = crash_handler::read_crash_file(crash_path());
+
+    REQUIRE_FALSE(result.is_null());
+    REQUIRE(result.contains("recent_errors"));
+    REQUIRE(result["recent_errors"].is_array());
+    REQUIRE(result["recent_errors"].size() == 3);
+    REQUIRE(result["recent_errors"][0] == "newest failure");
+    REQUIRE(result["recent_errors"][2] == "oldest failure");
+}
+
+// ============================================================================
+// End-to-end: real glibc abort propagates via __abort_msg into the crash file.
+// Forks a child, triggers a malloc-corruption abort, parent reads the dump.
+// glibc-only — gated below so musl/uclibc/macOS skip cleanly.
+// ============================================================================
+#if defined(__linux__) && defined(__GLIBC__)
+#include <dlfcn.h>
+#include <sys/wait.h>
+
+// glibc does NOT store the abort reason as a bare string. `__abort_msg` is a
+// pointer to `struct abort_msg_s { unsigned int size; char msg[]; }`, so the
+// text starts at offsetof(msg), not at the pointer itself. `size` is the mmap
+// length rounded up to a page, so its low byte is always 0x00 on little-endian:
+// a reader treating the pointer as `char*` sees a NUL first byte and reports
+// "no message" for every real abort. These helpers publish the real layout, so
+// the cases fail if the handler stops honouring the struct offset.
+namespace {
+
+struct TestAbortMsg {
+    unsigned int size;
+    char msg[1024];
+};
+
+/// Publish `text` into `__abort_msg` using glibc's real struct layout.
+/// Static storage so it stays valid through raise(SIGABRT). Child-process use
+/// only. Returns false if the symbol is unresolvable.
+bool publish_abort_msg(const char* text) {
+    static TestAbortMsg buf;
+    // Page-rounded, exactly as glibc's ROUND_UP(sizeof + len + 1, pagesize)
+    // produces — this is what makes byte 0 a NUL and hides the message from a
+    // char*-style read.
+    buf.size = 4096;
+    std::snprintf(buf.msg, sizeof(buf.msg), "%s", text);
+    void** slot = static_cast<void**>(dlsym(RTLD_DEFAULT, "__abort_msg"));
+    if (slot == nullptr) {
+        return false;
+    }
+    *slot = &buf;
+    return true;
+}
+
+/// Forks a child that publishes @p text into `__abort_msg` (nullptr: clears the
+/// slot, as a bare abort()/raise leaves it), installs the handler and raises
+/// SIGABRT; returns the parsed crash file.
+///
+/// The child raises SIGABRT itself rather than letting glibc abort() drive it,
+/// because Catch2 installs its own SIGABRT handlers. SIGABRT is blocked inside
+/// the handler, so its tail raise() stays pending and `_exit(128 + sig)` runs:
+/// the exit code the production watchdog respawns on.
+json abort_child_and_read(const std::string& crash_path, const char* text) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        if (text) {
+            if (!publish_abort_msg(text)) {
+                _exit(98);
+            }
+        } else {
+            void** slot = static_cast<void**>(dlsym(RTLD_DEFAULT, "__abort_msg"));
+            if (slot == nullptr) {
+                _exit(98);
+            }
+            *slot = nullptr;
+        }
+        crash_handler::install(crash_path);
+        raise(SIGABRT);
+        _exit(99);
+    }
+    REQUIRE(pid > 0);
+    int status = 0;
+    REQUIRE(waitpid(pid, &status, 0) == pid);
+    INFO("raw status = " << status);
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 128 + SIGABRT);
+    REQUIRE(crash_handler::has_crash_file(crash_path));
+    return crash_handler::read_crash_file(crash_path);
+}
+
+} // namespace
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: SIGABRT handler records glibc's abort reason",
+                 "[telemetry][crash][subprocess]") {
+    if (dlsym(RTLD_DEFAULT, "__abort_msg") == nullptr) {
+        SKIP("__abort_msg not resolvable on this libc");
+    }
+
+    SECTION("the message is captured") {
+        auto result = abort_child_and_read(crash_path(), "helixscreen abort_msg capture test");
+        REQUIRE_FALSE(result.is_null());
+        CHECK(result["signal"] == 6);
+        CHECK(result["abort_msg"] == "helixscreen abort_msg capture test");
+    }
+    SECTION("newlines flatten to spaces, keeping the key:value line intact") {
+        auto result = abort_child_and_read(crash_path(), "line one\nline two\rline three");
+        CHECK(result["abort_msg"] == "line one line two line three");
+    }
+    SECTION("an oversized message is cut to the 255-character buffer") {
+        const std::string long_msg = std::string(500, 'a') + "TAILMARKER_SHOULD_BE_TRUNCATED";
+        auto result = abort_child_and_read(crash_path(), long_msg.c_str());
+        const std::string msg = result["abort_msg"];
+        CHECK(msg.size() == 255);
+        CHECK(msg.find_first_not_of('a') == std::string::npos);
+    }
+    // No stored reason is recorded as abort_msg_state:empty, never a blank
+    // abort_msg (#987), decided on the message text, not on the struct's first byte.
+    SECTION("a cleared slot records abort_msg_state:empty") {
+        auto result = abort_child_and_read(crash_path(), nullptr);
+        CHECK(result["signal"] == 6);
+        CHECK(result["abort_msg_state"] == "empty");
+        CHECK_FALSE(result.contains("abort_msg"));
+    }
+    SECTION("a zero-length message records abort_msg_state:empty") {
+        auto result = abort_child_and_read(crash_path(), "");
+        CHECK(result["abort_msg_state"] == "empty");
+        CHECK_FALSE(result.contains("abort_msg"));
+    }
+}
+
+// The one that matters: let REAL glibc populate __abort_msg via its own
+// __libc_message path, rather than modelling the layout ourselves. Every
+// synthetic test above shares our understanding of the struct, so all of them
+// would keep passing if that understanding were wrong — which is exactly how
+// the char*-read shipped. This test has no such blind spot.
+//
+// Skipped under ASan/TSan/Valgrind: those intercept the double free and
+// terminate the child themselves, so glibc never runs and our handler never
+// sees the signal.
+//
+// Both spellings of each guard are required. __SANITIZE_ADDRESS__ and
+// __SANITIZE_THREAD__ are GCC's; clang defines neither and answers only
+// __has_feature, and the sanitizer jobs build with clang.
+#if !defined(__SANITIZE_ADDRESS__) && !defined(__SANITIZE_THREAD__) &&                             \
+    !(defined(__has_feature) && __has_feature(address_sanitizer)) &&                               \
+    !(defined(__has_feature) && __has_feature(thread_sanitizer))
+TEST_CASE_METHOD(CrashTestFixture,
+                 "Crash: real glibc heap-corruption abort reason reaches the crash file",
+                 "[telemetry][crash][subprocess][960]") {
+    if (dlsym(RTLD_DEFAULT, "__abort_msg") == nullptr) {
+        SKIP("__abort_msg not resolvable on this libc");
+    }
+    if (getenv("VALGRIND") != nullptr || getenv("LD_PRELOAD") != nullptr) {
+        SKIP("allocator interposed — glibc's own corruption check would not fire");
+    }
+
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        crash_handler::install(crash_path());
+        // Double free: glibc's malloc_printerr -> __libc_message writes the
+        // reason into __abort_msg and calls abort(). Reason text varies by
+        // glibc version ("free(): double free detected in tcache 2",
+        // "double free or corruption (!prev)"), so the assertion below only
+        // pins the substring every variant shares.
+        //
+        // The pointer MUST be volatile. At -O2 (this build's setting) GCC
+        // recognises the redundant free/free pair as UB and deletes the second
+        // call outright, so the child sails past and _exit(99)s — verified,
+        // that is exactly how this test first failed. volatile forces both
+        // calls to reach glibc.
+        // Announce the corruption before causing it. glibc's message lands on
+        // stderr in the middle of an otherwise-passing suite log, where it reads
+        // as genuine heap corruption in the test binary — it has already sent one
+        // reader off investigating a non-bug. This marker is the only thing that
+        // distinguishes "the test worked" from "something is badly wrong".
+        //
+        // write(2), not fprintf: this is a forked child of a multithreaded
+        // process, so stdio locks may be held by threads that do not exist here,
+        // and glibc writes its own message straight to fd 2 — sharing the raw fd
+        // is what keeps the two lines in order.
+        static const char kMarker[] =
+            "[test] DELIBERATE double free follows (test_crash_handler.cpp) - "
+            "glibc's abort message below is the expected result, not a defect\n";
+        ssize_t marker_rc = write(STDERR_FILENO, kMarker, sizeof(kMarker) - 1);
+        (void)marker_rc;
+
+        void* volatile p = malloc(64);
+        free(const_cast<void*>(p));
+        free(const_cast<void*>(p)); // NOLINT — deliberate corruption, this is the test
+        _exit(99);                  // glibc failed to detect it — parent's exit-code check fails
+    }
+    REQUIRE(pid > 0);
+
+    int status = 0;
+    REQUIRE(waitpid(pid, &status, 0) == pid);
+    INFO("raw status = " << status << ", WIFEXITED=" << WIFEXITED(status) << ", WEXITSTATUS="
+                         << WEXITSTATUS(status) << ", WIFSIGNALED=" << WIFSIGNALED(status));
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 128 + SIGABRT);
+
+    auto result = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(result.is_null());
+    REQUIRE(result["signal"] == 6);
+    REQUIRE(result["abort_msg_state"] == "present");
+    REQUIRE(result.contains("abort_msg"));
+    std::string msg = result["abort_msg"];
+    INFO("abort_msg = " << msg);
+    REQUIRE(msg.find("free") != std::string::npos);
+}
+#endif // sanitizers
+#endif // __linux__ && __GLIBC__
+
+// ============================================================================
+// Wrap-safe monotonic durations (uptime, heap-snapshot age)
+// ============================================================================
+
+TEST_CASE("Crash: elapsed_ms computes wrap-safe monotonic deltas", "[telemetry][crash]") {
+    using crash_handler::detail::elapsed_ms;
+
+    SECTION("ordinary forward delta") {
+        REQUIRE(elapsed_ms(1000, 6000) == 5000);
+    }
+    SECTION("zero delta") {
+        REQUIRE(elapsed_ms(12345, 12345) == 0);
+    }
+    SECTION("crosses the 32-bit wrap at ~49.7 days") {
+        // start near the top of the counter, now just past the fold
+        REQUIRE(elapsed_ms(0xFFFFF000u, 0x00001000u) == 0x2000u);
+    }
+    SECTION("full-range wrap stays exact") {
+        REQUIRE(elapsed_ms(0xFFFFFFFFu, 0u) == 1u);
+    }
+}
+
+// heap_snapshot_age_ms must be an AGE. It previously emitted the snapshot's raw
+// monotonic timestamp under an "age" label, so a snapshot taken 17 ms before the
+// crash was reported as "snapshot age 144712ms" in the auto-filed issue (bundle
+// VP623KVU) — reading as a badly stale snapshot when it was in fact fresh.
+#if defined(__linux__)
+TEST_CASE_METHOD(CrashTestFixture, "Crash: heap_snapshot_age_ms is an age, not a timestamp",
+                 "[telemetry][crash][subprocess]") {
+    struct timespec ts {};
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    const uint64_t boot_ms = static_cast<uint64_t>(ts.tv_sec) * 1000;
+    if (boot_ms < 10000) {
+        SKIP("host booted <10s ago — cannot distinguish an age from a timestamp");
+    }
+
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        crash_handler::install(crash_path());
+        crash_handler::refresh_heap_snapshot();
+        raise(SIGABRT);
+        _exit(99);
+    }
+    REQUIRE(pid > 0);
+
+    int status = 0;
+    REQUIRE(waitpid(pid, &status, 0) == pid);
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 128 + SIGABRT);
+
+    auto result = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(result.is_null());
+    REQUIRE(result.contains("heap_snapshot_age_ms"));
+    long age = result["heap_snapshot_age_ms"];
+    INFO("age = " << age << ", monotonic-since-boot = " << boot_ms);
+    // The snapshot was taken microseconds before the raise, so the age is tiny.
+    // Emitting the timestamp instead would yield >= boot_ms (>= 10000).
+    REQUIRE(age >= 0);
+    REQUIRE(age < 1000);
+}
+
+// The age alone is undiagnosable when it comes out wrong (bundle ED2YC336
+// reported an age exceeding the process uptime, which is impossible). Both raw
+// stamps now ship with it, and they must agree with the age exactly — they are
+// derived from a single clock read, so any drift means the handler took two.
+TEST_CASE_METHOD(CrashTestFixture, "Crash: heap snapshot emits self-consistent raw clock stamps",
+                 "[telemetry][crash][subprocess]") {
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        crash_handler::install(crash_path());
+        crash_handler::refresh_heap_snapshot();
+        raise(SIGABRT);
+        _exit(99);
+    }
+    REQUIRE(pid > 0);
+
+    int status = 0;
+    REQUIRE(waitpid(pid, &status, 0) == pid);
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 128 + SIGABRT);
+
+    auto result = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(result.is_null());
+    REQUIRE(result.contains("heap_snapshot_age_ms"));
+    REQUIRE(result.contains("heap_snapshot_ts_ms"));
+    REQUIRE(result.contains("heap_mono_ms_now"));
+
+    const long age = result["heap_snapshot_age_ms"];
+    const long ts = result["heap_snapshot_ts_ms"];
+    const long now = result["heap_mono_ms_now"];
+    INFO("age=" << age << " ts=" << ts << " now=" << now);
+
+    // Both stamps are the low 32 bits of CLOCK_MONOTONIC, so the age is their
+    // unsigned difference. Reproduce that arithmetic rather than asserting a
+    // constant we also hardcoded.
+    const uint32_t expected =
+        static_cast<uint32_t>(now) - static_cast<uint32_t>(ts); // wraps by design
+    REQUIRE(age == static_cast<long>(expected));
+
+    // And the snapshot is not in the future relative to the crash clock here:
+    // this process has been up for milliseconds, nowhere near the 49.7-day fold.
+    REQUIRE(ts <= now);
+}
+#endif // __linux__
+
+// End-to-end (#987 last-ditch capture): ERROR log lines flow through
+// CrashErrorLogSink into the crash file as recent_error: entries, newest-first,
+// and sub-ERROR lines are excluded. Linux-only (signal-handler crash-file
+// write path); no glibc dependency since this uses our own ring, not
+// __abort_msg.
+#if defined(__linux__)
+#include <sys/wait.h>
+TEST_CASE_METHOD(CrashTestFixture, "Crash: recent ERROR log lines captured into crash file",
+                 "[telemetry][crash][subprocess]") {
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        crash_handler::install(crash_path());
+        // Route logging through the crash error-log sink (its ctor registers
+        // the ring with the crash handler).
+        auto sink =
+            spdlog::sink_ptr(&helix::CrashErrorLogSink::instance(), [](spdlog::sinks::sink*) {});
+        auto logger = std::make_shared<spdlog::logger>("crashtest", sink);
+        logger->set_level(spdlog::level::info);
+        spdlog::set_default_logger(logger);
+
+        spdlog::error("disk on fire 17");
+        spdlog::warn("ignored warning"); // below ERROR — must NOT be captured
+        spdlog::error("kaboom 42");
+        raise(SIGABRT);
+        _exit(99); // unreachable
+    }
+    REQUIRE(pid > 0);
+
+    int status = 0;
+    REQUIRE(waitpid(pid, &status, 0) == pid);
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 128 + SIGABRT);
+
+    auto result = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(result.is_null());
+    REQUIRE(result.contains("recent_errors"));
+    auto& errs = result["recent_errors"];
+    REQUIRE(errs.size() == 2);
+    REQUIRE(errs[0] == "kaboom 42"); // newest first
+    REQUIRE(errs[1] == "disk on fire 17");
+    for (const auto& e : errs) {
+        REQUIRE(e.get<std::string>().find("ignored warning") == std::string::npos);
+    }
+}
+#endif // __linux__
+
+// ============================================================================
+// Install / Uninstall (no real signals) [telemetry][crash]
+// ============================================================================
+
+namespace {
+
+/// The SIGSEGV disposition currently installed, as one comparable pointer.
+void* current_segv_handler() {
+    struct sigaction sa {};
+    sigaction(SIGSEGV, nullptr, &sa);
+    return (sa.sa_flags & SA_SIGINFO) != 0 ? reinterpret_cast<void*>(sa.sa_sigaction)
+                                           : reinterpret_cast<void*>(sa.sa_handler);
+}
+
+} // namespace
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: install and uninstall swap the SIGSEGV handler",
+                 "[telemetry][crash]") {
+    void* const before = current_segv_handler();
+
+    SECTION("one install, then uninstall restores the original, twice over") {
+        crash_handler::install(crash_path());
+        REQUIRE(current_segv_handler() != before);
+        crash_handler::uninstall();
+        REQUIRE(current_segv_handler() == before);
+        crash_handler::uninstall();
+        REQUIRE(current_segv_handler() == before);
+    }
+    SECTION("a second install does not save the crash handler as the one to restore") {
+        crash_handler::install(crash_path());
+        crash_handler::install(crash_path());
+        crash_handler::uninstall();
+        REQUIRE(current_segv_handler() == before);
+    }
+    SECTION("a path longer than MAX_PATH_LEN (512) is truncated and the handlers still go in") {
+        crash_handler::install("/" + std::string(600, 'x') + "/crash.txt");
+        REQUIRE(current_segv_handler() != before);
+        crash_handler::uninstall();
+        REQUIRE(current_segv_handler() == before);
+    }
+    SECTION("a long path within the buffer still receives the record") {
+        const auto dir = temp_dir() / std::string(200, 'a');
+        std::filesystem::create_directories(dir);
+        const std::string long_path = (dir / "crash.txt").string();
+        crash_handler::install(long_path);
+        crash_handler::write_exception_record("long path");
+        crash_handler::uninstall();
+        REQUIRE(crash_handler::has_crash_file(long_path));
+    }
+}
+
+// ============================================================================
+// write_exception_record [telemetry][crash]
+// ============================================================================
+//
+// The exception path writes with async-signal-safe primitives behind a
+// re-entrance guard, so it cannot re-crash under memory pressure.
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: write_exception_record writes parseable record",
+                 "[telemetry][crash]") {
+    crash_handler::install(crash_path());
+    crash_handler::write_exception_record("std::runtime_error: test");
+    crash_handler::uninstall();
+
+    REQUIRE(crash_handler::has_crash_file(crash_path()));
+    json parsed = crash_handler::read_crash_file(crash_path());
+    REQUIRE(parsed != nullptr);
+    REQUIRE(parsed["signal"] == 0);
+    REQUIRE(parsed["signal_name"] == "EXCEPTION");
+    REQUIRE(parsed.contains("app_version"));
+    REQUIRE(parsed.contains("timestamp"));
+    REQUIRE(parsed.contains("uptime_sec"));
+    REQUIRE(parsed["exception"] == "std::runtime_error: test");
+}
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: write_exception_record handles null what",
+                 "[telemetry][crash]") {
+    crash_handler::install(crash_path());
+    crash_handler::write_exception_record(nullptr);
+    crash_handler::uninstall();
+
+    REQUIRE(crash_handler::has_crash_file(crash_path()));
+    json parsed = crash_handler::read_crash_file(crash_path());
+    REQUIRE(parsed != nullptr);
+    REQUIRE(parsed["signal"] == 0);
+    REQUIRE(parsed["signal_name"] == "EXCEPTION");
+    // exception: key should be absent since what was nullptr
+    REQUIRE_FALSE(parsed.contains("exception"));
+}
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: an empty exception message reads back as present",
+                 "[telemetry][crash]") {
+    // An exception whose what() is "" still says the crash came from an
+    // exception, so the key must survive with an empty value.
+    write_crash_file("signal:0\n"
+                     "name:EXCEPTION\n"
+                     "version:0.13.3\n"
+                     "timestamp:1707350400\n"
+                     "uptime:0\n"
+                     "exception:\n");
+
+    json parsed = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(parsed.is_null());
+    REQUIRE(parsed["signal_name"] == "EXCEPTION");
+    REQUIRE(parsed.contains("exception"));
+    CHECK(parsed["exception"] == "");
+}
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: write_exception_record is no-op without install",
+                 "[telemetry][crash]") {
+    // Ensure we start in uninstalled state — prior tests may have left state;
+    // uninstall is idempotent.
+    crash_handler::uninstall();
+
+    // No install() — s_crash_path is empty, so this must do nothing
+    // (it absolutely must not segfault or open("") ).
+    crash_handler::write_exception_record("should not write anywhere");
+
+    REQUIRE_FALSE(crash_handler::has_crash_file(crash_path()));
+}
+
+namespace {
+
+/// Boots TelemetryManager on @p dir with the opt-in set, which runs
+/// check_previous_crash(), and returns the crash event it queued, or null.
+json boot_telemetry_and_find_crash(const fs::path& dir, bool enabled) {
+    helix::Config::get_instance()->set<bool>("/telemetry_enabled", enabled);
+    auto& tm = TelemetryManager::instance();
+    tm.shutdown();
+    tm.init(dir.string());
+    json crash;
+    for (const auto& event : tm.get_queue_snapshot()) {
+        if (event.value("event", "") == "crash") {
+            crash = event;
+        }
+    }
+    tm.shutdown();
+    return crash;
+}
+
+} // namespace
+
+// TelemetryManager reports the previous run's crash file at init when opted in.
+// It never deletes the file: CrashReporter owns its lifecycle.
+TEST_CASE_METHOD(CrashTestFixture, "Crash: TelemetryManager reports the crash file at init",
+                 "[telemetry][crash]") {
+    const fs::path file = temp_dir() / "crash.txt";
+
+    SECTION("opted in: the record becomes a crash event") {
+        std::ofstream(file) << "signal:11\nname:SIGSEGV\nversion:0.9.6\ntimestamp:1707350400\n"
+                               "uptime:3600\nrecorded_by:watchdog\n"
+                               "fault_addr:0x00000000\nfault_code:1\nfault_code_name:SEGV_MAPERR\n"
+                               "bt:0x0040abcd\nbt:0x0040ef01\n";
+        const json event = boot_telemetry_and_find_crash(temp_dir(), true);
+        REQUIRE_FALSE(event.is_null());
+        CHECK(event["schema_version"] == TelemetryManager::kSchemaVersion);
+        CHECK(event.contains("timestamp"));
+        CHECK(event["signal"] == 11);
+        CHECK(event["signal_name"] == "SIGSEGV");
+        CHECK(event["app_version"] == "0.9.6");
+        CHECK(event["uptime_sec"] == 3600);
+        CHECK(event["backtrace"].size() == 2);
+        CHECK(event.value("recorded_by", "") == "watchdog");
+        CHECK(event["fault_addr"] == "0x00000000");
+        CHECK(event["fault_code"] == 1);
+        CHECK(event["fault_code_name"] == "SEGV_MAPERR");
+        // The device id is the 64-hex SHA-256 hash
+        const std::string device_id = event["device_id"];
+        CHECK(device_id.size() == 64);
+        CHECK(std::all_of(device_id.begin(), device_id.end(),
+                          [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }));
+        CHECK(crash_handler::has_crash_file(file.string()));
+    }
+    SECTION("opted out: no event, file kept") {
+        std::ofstream(file) << "signal:11\nname:SIGSEGV\nversion:0.9.6\ntimestamp:1707350400\n"
+                               "uptime:3600\n";
+        CHECK(boot_telemetry_and_find_crash(temp_dir(), false).is_null());
+        CHECK(crash_handler::has_crash_file(file.string()));
+    }
+    SECTION("no crash file: no event") {
+        CHECK(boot_telemetry_and_find_crash(temp_dir(), true).is_null());
+    }
+}
+
+// ============================================================================
+// Fault info in the mock record and the telemetry event [telemetry][crash]
+// ============================================================================
+
+TEST_CASE_METHOD(CrashTestFixture,
+                 "Crash: write_mock_crash_file includes fault and register fields",
+                 "[telemetry][crash]") {
+    crash_handler::write_mock_crash_file(crash_path());
+    auto result = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(result.is_null());
+    // Mock file should include fault info
+    REQUIRE(result.contains("fault_addr"));
+    REQUIRE(result.contains("fault_code"));
+    REQUIRE(result.contains("fault_code_name"));
+    // Mock file should include at least PC and SP registers
+    REQUIRE(result.contains("reg_pc"));
+    REQUIRE(result.contains("reg_sp"));
+}
+
+// ============================================================================
+// Breadcrumb ring + extended parser coverage [telemetry][crash]
+// ============================================================================
+//
+// Protects the signal-handler-adjacent code paths that a future refactor
+// could silently break: ring wraparound math, string truncation in
+// copy_truncated, and parser coverage for the post-v0.99.31 fields
+// (breadcrumbs, event_target / event_original_target / event_code, and the
+// heap_* / lv_heap_* snapshot fields).
+
+TEST_CASE("Crash: breadcrumb ring keeps the newest 256 entries on wraparound",
+          "[telemetry][crash]") {
+    // Drain the ring first — static state leaks across test cases. Writing
+    // ring-size drain entries pushes any residual application breadcrumbs out.
+    // Ring size: src/system/crash_handler.cpp kBreadcrumbRingSize = 256.
+    for (int i = 0; i < 256; ++i) {
+        crash_handler::breadcrumb::note("drain", "drain");
+    }
+
+    // Write 262 distinguishable entries; the ring holds 256, so entries 0..5
+    // should be overwritten. Encode the index as the detail suffix so we
+    // can extract it from the dumped subject string.
+    for (int i = 0; i < 262; ++i) {
+        crash_handler::breadcrumb::note("t", "entry", i);
+    }
+
+    auto lines = helix::capture_breadcrumb_lines();
+    REQUIRE(lines.size() == 256);
+
+    auto extract_index = [](const std::string& line) -> int {
+        auto pos = line.rfind(' ');
+        if (pos == std::string::npos)
+            return -1;
+        return std::stoi(line.substr(pos + 1));
+    };
+
+    REQUIRE(extract_index(lines.front()) == 6);
+    REQUIRE(extract_index(lines.back()) == 261);
+
+    // Indices must be strictly monotonic — order preservation matters for
+    // correlating with the crash location further down the log.
+    for (size_t i = 1; i < lines.size(); ++i) {
+        REQUIRE(extract_index(lines[i]) == extract_index(lines[i - 1]) + 1);
+    }
+}
+
+TEST_CASE("Crash: breadcrumb category/subject are truncated with null terminator",
+          "[telemetry][crash]") {
+    // Ring size: src/system/crash_handler.cpp kBreadcrumbRingSize = 256.
+    for (int i = 0; i < 256; ++i) {
+        crash_handler::breadcrumb::note("drain", "drain");
+    }
+
+    // category longer than 7 chars, subject longer than 59 chars. If
+    // copy_truncated failed to null-terminate, the dump would walk into
+    // neighboring slot bytes and produce visible garbage.
+    const std::string long_category(32, 'C');
+    const std::string long_subject(200, 'S');
+    crash_handler::breadcrumb::note(long_category.c_str(), long_subject.c_str());
+
+    auto lines = helix::capture_breadcrumb_lines();
+    REQUIRE_FALSE(lines.empty());
+    const std::string& last = lines.back();
+
+    // Format: "crumb:<ms> <cat> <subj>"
+    auto subj_start = last.rfind(' ');
+    REQUIRE(subj_start != std::string::npos);
+    auto cat_start = last.rfind(' ', subj_start - 1);
+    REQUIRE(cat_start != std::string::npos);
+
+    std::string category = last.substr(cat_start + 1, subj_start - cat_start - 1);
+    std::string subject = last.substr(subj_start + 1);
+
+    REQUIRE(category.size() <= 7);
+    REQUIRE(category == std::string(category.size(), 'C'));
+    REQUIRE(subject.size() <= 59);
+    REQUIRE(subject == std::string(subject.size(), 'S'));
+}
+
+TEST_CASE_METHOD(CrashTestFixture,
+                 "Crash: parser surfaces breadcrumbs, event target, and heap snapshot",
+                 "[telemetry][crash]") {
+    // Synthesize a crash file exercising every post-v0.99.31 field. This is
+    // the contract that telemetry ingestion, crash_reporter rendering, and
+    // offline analysis all depend on — a silent parser regression shows up
+    // as missing fields on the dashboard, not a build break.
+    write_crash_file("signal:11\n"
+                     "name:SIGSEGV\n"
+                     "version:0.99.99\n"
+                     "timestamp:1707350400\n"
+                     "uptime:42\n"
+                     "bt:0x400abc\n"
+                     "event_target:0x7fc0d2a8\n"
+                     "event_original_target:0x7fc0d300\n"
+                     "event_code:29\n"
+                     "lvgl_version:9.6\n"
+                     "heap_snapshot_age_ms:8217\n"
+                     "heap_rss_kb:38400\n"
+                     "heap_vsz_kb:102400\n"
+                     "heap_arena_kb:40960\n"
+                     "heap_used_kb:38912\n"
+                     "heap_free_kb:2048\n"
+                     "heap_mmap_kb:512\n"
+                     "lv_heap_total_kb:512\n"
+                     "lv_heap_used_pct:88\n"
+                     "lv_heap_frag_pct:31\n"
+                     "lv_heap_free_biggest_kb:14\n"
+                     "crumb:1000 boot v0.99.99\n"
+                     "crumb:5200 nav home\n"
+                     "crumb:5210 xml home_card\n");
+
+    auto result = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(result.is_null());
+
+    REQUIRE(result["event_target"] == "0x7fc0d2a8");
+    REQUIRE(result["event_original_target"] == "0x7fc0d300");
+    REQUIRE(result["event_code"] == 29);
+    REQUIRE(result["lvgl_version"] == "9.6");
+
+    REQUIRE(result["heap_snapshot_age_ms"] == 8217);
+    REQUIRE(result["heap_rss_kb"] == 38400);
+    REQUIRE(result["heap_arena_kb"] == 40960);
+    REQUIRE(result["heap_used_kb"] == 38912);
+    REQUIRE(result["lv_heap_used_pct"] == 88);
+    REQUIRE(result["lv_heap_frag_pct"] == 31);
+    REQUIRE(result["lv_heap_free_biggest_kb"] == 14);
+
+    REQUIRE(result.contains("breadcrumbs"));
+    REQUIRE(result["breadcrumbs"].is_array());
+    REQUIRE(result["breadcrumbs"].size() == 3);
+    REQUIRE(result["breadcrumbs"][0] == "1000 boot v0.99.99");
+    REQUIRE(result["breadcrumbs"][1] == "5200 nav home");
+    REQUIRE(result["breadcrumbs"][2] == "5210 xml home_card");
+}
+
+namespace {
+// Each frame keeps a live buffer the compiler cannot elide, so the recursion
+// runs off the end of the stack instead of being folded into a loop.
+[[gnu::noinline]] int overflow_stack(int depth) {
+    volatile char frame[1024];
+    frame[0] = static_cast<char>(depth);
+    return overflow_stack(depth + 1) + frame[0];
+}
+
+#if defined(__APPLE__)
+// macOS does not carry the parent's signal stack into a fork()ed child, while
+// helix::install_thread_altstack() returns early on the record the parent left
+// in its thread-local. Without a stack of its own the child's SIGSEGV cannot
+// be delivered and the process dies before the handler writes anything.
+void give_forked_child_signal_stack() {
+    void* mem = mmap(nullptr, helix::kAltStackSize, PROT_READ | PROT_WRITE,
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (mem == MAP_FAILED) {
+        _exit(96);
+    }
+    stack_t ss{};
+    ss.ss_sp = mem;
+    ss.ss_size = helix::kAltStackSize;
+    if (sigaltstack(&ss, nullptr) != 0) {
+        _exit(95);
+    }
+}
+#endif
+} // namespace
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: a stack overflow still writes the crash file",
+                 "[telemetry][crash][subprocess]") {
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        // A small stack makes the overflow quick and deterministic.
+        struct rlimit rl {};
+        rl.rlim_cur = 256 * 1024;
+        rl.rlim_max = RLIM_INFINITY;
+        setrlimit(RLIMIT_STACK, &rl);
+#if defined(__APPLE__)
+        give_forked_child_signal_stack();
+#endif
+        crash_handler::install(crash_path());
+        _exit(overflow_stack(0) == 0 ? 97 : 99);
+    }
+    REQUIRE(pid > 0);
+
+    int status = 0;
+    REQUIRE(waitpid(pid, &status, 0) == pid);
+    INFO("WIFEXITED=" << WIFEXITED(status) << " WEXITSTATUS=" << WEXITSTATUS(status)
+                      << " WIFSIGNALED=" << WIFSIGNALED(status)
+                      << " WTERMSIG=" << WTERMSIG(status));
+    REQUIRE(crash_handler::has_crash_file(crash_path()));
+    auto result = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(result.is_null());
+    REQUIRE(result["signal"] == SIGSEGV);
+#if defined(__APPLE__)
+    // The stack dump and the memory map are written only by the Linux handler
+    // (ucontext stack reads through process_vm_readv, /proc/self/maps).
+    SKIP("stack_dump and memory_map are Linux-only; the macOS record ends at the signal");
+#endif
+    // SP sits in the guard region below the stack. The stack dump starts
+    // there, so a handler that reads it unchecked faults again and the record
+    // stops before the dump and the memory map that follow it.
+    REQUIRE(result.contains("stack_dump"));
+    REQUIRE(result.contains("memory_map"));
+}
+
+// TSan refuses to start a thread in a child forked from a multi-threaded
+// process, so under it the worker never runs. Both spellings of the guard are
+// required: GCC defines __SANITIZE_THREAD__, clang answers only __has_feature.
+#if !defined(__SANITIZE_THREAD__) && !(defined(__has_feature) && __has_feature(thread_sanitizer))
+TEST_CASE_METHOD(CrashTestFixture,
+                 "Crash: a stack overflow on a make_thread worker still writes the crash file",
+                 "[telemetry][crash][subprocess]") {
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        crash_handler::install(crash_path());
+        auto worker = helix::make_thread([] { overflow_stack(0); });
+        worker.join();
+        _exit(99);
+    }
+    REQUIRE(pid > 0);
+
+    int status = 0;
+    REQUIRE(waitpid(pid, &status, 0) == pid);
+    INFO("WIFEXITED=" << WIFEXITED(status) << " WEXITSTATUS=" << WEXITSTATUS(status)
+                      << " WIFSIGNALED=" << WIFSIGNALED(status)
+                      << " WTERMSIG=" << WTERMSIG(status));
+    // The main thread's signal stack does not serve a worker: without its own,
+    // the kernel cannot deliver SIGSEGV on the overflowed stack and the process
+    // dies before the handler writes anything.
+    REQUIRE(crash_handler::has_crash_file(crash_path()));
+    auto result = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(result.is_null());
+    // macOS delivers a guard-page hit on a secondary thread's stack as SIGBUS.
+#if defined(__APPLE__)
+    REQUIRE(result["signal"] == SIGBUS);
+    SKIP("stack_dump and memory_map are Linux-only; the macOS record ends at the signal");
+#else
+    REQUIRE(result["signal"] == SIGSEGV);
+#endif
+    REQUIRE(result.contains("stack_dump"));
+    REQUIRE(result.contains("memory_map"));
+}
+#endif
+
+#if defined(__linux__)
+#include <cstddef>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
+#include <sys/prctl.h>
+#include <sys/syscall.h>
+
+namespace {
+// Makes process_vm_readv() fail with EPERM in this process, as Docker's default
+// seccomp profile does, so the handler has to fall back to its pipe probe.
+bool deny_process_vm_readv() {
+    struct sock_filter filter[] = {
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_process_vm_readv, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+    };
+    struct sock_fprog prog = {static_cast<unsigned short>(sizeof(filter) / sizeof(filter[0])),
+                              filter};
+    return prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0 &&
+           prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog) == 0;
+}
+
+bool has_nonzero_stack_word(const json& result) {
+    if (!result.contains("stack_dump")) {
+        return false;
+    }
+    for (const auto& word : result["stack_dump"]) {
+        if (std::stoull(word.get<std::string>(), nullptr, 16) != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+} // namespace
+
+TEST_CASE_METHOD(CrashTestFixture, "Crash: the stack dump holds the real stack words",
+                 "[telemetry][crash][subprocess]") {
+    const bool deny = GENERATE(false, true);
+    CAPTURE(deny);
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        if (deny && !deny_process_vm_readv()) {
+            _exit(98);
+        }
+        crash_handler::install(crash_path());
+        raise(SIGABRT);
+        _exit(99);
+    }
+    REQUIRE(pid > 0);
+
+    int status = 0;
+    REQUIRE(waitpid(pid, &status, 0) == pid);
+    REQUIRE(WIFEXITED(status));
+    REQUIRE(WEXITSTATUS(status) == 128 + SIGABRT);
+    auto result = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(result.is_null());
+    // The live stack under the handler is mapped, so a dump of all zeros means
+    // the reads were refused rather than performed.
+    REQUIRE(has_nonzero_stack_word(result));
+}
+
+TEST_CASE_METHOD(CrashTestFixture,
+                 "Crash: a stack overflow completes the record when process_vm_readv is refused",
+                 "[telemetry][crash][subprocess]") {
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        if (!deny_process_vm_readv()) {
+            _exit(98);
+        }
+        struct rlimit rl {};
+        rl.rlim_cur = 256 * 1024;
+        rl.rlim_max = RLIM_INFINITY;
+        setrlimit(RLIMIT_STACK, &rl);
+        crash_handler::install(crash_path());
+        _exit(overflow_stack(0) == 0 ? 97 : 99);
+    }
+    REQUIRE(pid > 0);
+
+    int status = 0;
+    REQUIRE(waitpid(pid, &status, 0) == pid);
+    REQUIRE_FALSE((WIFEXITED(status) && WEXITSTATUS(status) == 98));
+    auto result = crash_handler::read_crash_file(crash_path());
+    REQUIRE_FALSE(result.is_null());
+    REQUIRE(result["signal"] == SIGSEGV);
+    REQUIRE(result.contains("memory_map"));
+}
+#endif // __linux__

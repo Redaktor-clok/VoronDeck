@@ -1,0 +1,259 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file test_print_status_preparing_identity.cpp
+ * @brief PrintStatusPanel tracks WHICH print it is showing (#1339).
+ *
+ * Two independent holes, both in the panel's own copy of the print identity:
+ *
+ * 1. adac6f7eb gave ActivePrintMediaManager a preparing-epoch observer and gave
+ *    the panel none, so between commit and confirmation the panel's `desired`
+ *    still named the PREVIOUS print. ensure_preview_current() therefore compared
+ *    the viewer against a print that had already finished, found no mismatch,
+ *    and the clear_gcode that 921200ab1 added never fired in the window it was
+ *    written for.
+ *
+ * 2. Nothing retired thumbnail_source_filename_ when a print ended. A print
+ *    started outside the app opens no preparing epoch, so the panel resolved it
+ *    through the previous print's name indefinitely.
+ */
+
+#include "ui_filename_utils.h"
+#include "ui_panel_print_status.h"
+#include "ui_update_queue.h"
+
+#include "../lvgl_test_fixture.h"
+#include "../test_helpers/print_status_panel_test_access.h"
+#include "../test_helpers/update_queue_test_access.h"
+#include "printer_state.h"
+
+#include <memory>
+
+#include "../catch_amalgamated.hpp"
+
+using namespace helix;
+using Access = PrintStatusPanelTestAccess;
+
+namespace {
+
+struct PreparingIdentityFixture : public LVGLTestFixture {
+    PreparingIdentityFixture() {
+        // Own the PrinterState: the panel's observers bind to whatever reference
+        // they are handed, and the epoch subject is what these cases drive.
+        state_.init_subjects(false);
+        panel_ = std::make_unique<PrintStatusPanel>(state_, nullptr);
+        // The panel's OWN subjects too. begin_preparing() churns the print
+        // state, so the queued on_print_state_changed() apply lands on the
+        // first drain() and writes print_controls_enabled_subject_ and
+        // gcode_viewer_mode_subject_ — both brought up only here. Skipped,
+        // those lv_subject_t members hold construction garbage, and
+        // lv_subject_set_int() reads `type` from it: usually a dropped write
+        // and a warning, but when the garbage reads as LV_SUBJECT_INT it walks
+        // the garbage `subs` list and SIGSEGVs. That is the isolated-run crash
+        // behind the 08-31/09-01 nightly order-dependence findings on this
+        // file — invisible in the suite, where earlier tests leave different
+        // bytes in the recycled allocation, and caught by valgrind as
+        // uninitialised reads at ui_panel_print_status.cpp:3367 and :1469.
+        panel_->init_subjects();
+        Access::set_thumbnail_widget(*panel_, lv_image_create(test_screen()));
+    }
+
+    ~PreparingIdentityFixture() override {
+        panel_.reset();
+        state_.deinit_subjects();
+    }
+
+    PrintStatusPanel& panel() {
+        return *panel_;
+    }
+    PrinterState& state() {
+        return state_;
+    }
+
+    void drain() {
+        helix::ui::UpdateQueueTestAccess::drain_all(helix::ui::UpdateQueue::instance());
+    }
+
+    /// Drive the filename through update_from_status(), where the identity is
+    /// decided. Access::set_filename() reaches past that and would leave the
+    /// panel reconciling against an identity nothing ever set.
+    void report_filename(const std::string& filename) {
+        nlohmann::json status = {{"print_stats", {{"filename", filename}}}};
+        state_.update_from_status(status);
+        drain();
+    }
+
+    PrinterState state_;
+    std::unique_ptr<PrintStatusPanel> panel_;
+};
+
+} // namespace
+
+TEST_CASE_METHOD(PreparingIdentityFixture,
+                 "Panel adopts the preparing job's identity at commit, not at confirmation",
+                 "[print_status][preparing_identity][1339]") {
+    // Print A is running and on screen.
+    report_filename("printA.gcode");
+    drain();
+    REQUIRE(Access::identity_override(panel()).empty());
+
+    // Print B is committed. Moonraker still reports print A - that lag is the
+    // whole reason the identity is recorded at commit.
+    state().print_state().begin_preparing(PrintJobRef{"printB.gcode", "", ""});
+    drain();
+
+    REQUIRE(Access::identity_override(panel()) == "printB.gcode");
+}
+
+TEST_CASE_METHOD(PreparingIdentityFixture,
+                 "An abandoned preparing job releases the panel's identity",
+                 "[print_status][preparing_identity][1339]") {
+    state().print_state().begin_preparing(PrintJobRef{"never_ran.gcode", "", ""});
+    drain();
+    REQUIRE(Access::identity_override(panel()) == "never_ran.gcode");
+
+    // Superseded, not Confirmed: the printer did not take this job. Leaving the
+    // source set would resolve the NEXT print through a job that never ran.
+    state().print_state().retire_preparing(PreparingExit::Superseded);
+    drain();
+
+    REQUIRE(Access::identity_override(panel()).empty());
+}
+
+TEST_CASE_METHOD(PreparingIdentityFixture, "A confirmed preparing job keeps the panel's identity",
+                 "[print_status][preparing_identity][1339]") {
+    // Confirmed means the printer took OUR job, so the source still describes
+    // what is printing - print_stats may report a rewritten temp name for it.
+    state().print_state().begin_preparing(PrintJobRef{"mine.gcode", "", ""});
+    state().print_state().retire_preparing(PreparingExit::Confirmed);
+    drain();
+
+    REQUIRE(Access::identity_override(panel()) == "mine.gcode");
+
+    report_filename(".helix_temp/modified_1748_mine.gcode");
+    drain();
+
+    REQUIRE(Access::identity_override(panel()) == "mine.gcode");
+}
+
+TEST_CASE_METHOD(PreparingIdentityFixture,
+                 "A print started outside the app retires the panel's stale identity",
+                 "[print_status][preparing_identity][1339]") {
+    // Print A started FROM the app records the identity and keeps it (Confirmed).
+    state().print_state().begin_preparing(PrintJobRef{"printA.gcode", "", ""});
+    state().print_state().retire_preparing(PreparingExit::Confirmed);
+    drain();
+    report_filename("printA.gcode");
+    drain();
+    REQUIRE(Access::identity_override(panel()) == "printA.gcode");
+
+    // Print B started from Mainsail: no preparing epoch, nothing re-points the
+    // identity. Before the fix the panel resolved B through printA for the
+    // whole job and never reloaded a thing.
+    report_filename("printB.gcode");
+    drain();
+
+    REQUIRE(Access::identity_override(panel()).empty());
+    REQUIRE(Access::current_print_filename(panel()) == "printB.gcode");
+}
+
+TEST_CASE_METHOD(PreparingIdentityFixture, "Reprinting the same file keeps the panel's identity",
+                 "[print_status][preparing_identity][1339]") {
+    // Retirement must not fire on a reprint, where the identity still describes
+    // exactly what is printing.
+    state().print_state().begin_preparing(PrintJobRef{"repeat.gcode", "", ""});
+    state().print_state().retire_preparing(PreparingExit::Confirmed);
+    drain();
+    report_filename("repeat.gcode");
+    drain();
+
+    report_filename("repeat.gcode");
+    drain();
+
+    REQUIRE(Access::identity_override(panel()) == "repeat.gcode");
+}
+
+TEST_CASE_METHOD(PreparingIdentityFixture,
+                 "Reprint starts the original, not the rewritten temp copy",
+                 "[print_status][preparing_identity][reprint]") {
+    // print_stats names the rewrite, which is deleted when the print ends.
+    const std::string temp = helix::gcode::make_rewritten_gcode_path("parts/benchy.gcode");
+
+    SECTION("a print this session prepared") {
+        state().print_state().begin_preparing(PrintJobRef{"parts/benchy.gcode", "", ""});
+        state().print_state().retire_preparing(PreparingExit::Confirmed);
+        drain();
+        report_filename(temp);
+
+        REQUIRE(Access::current_print_filename(panel()) == temp);
+        REQUIRE(Access::reprint_filename(panel()) == "parts/benchy.gcode");
+    }
+
+    SECTION("after a restart, with only the printer's report to go on") {
+        report_filename(temp);
+
+        REQUIRE(Access::reprint_filename(panel()) == "parts/benchy.gcode");
+    }
+
+    SECTION("after a restart, printed through the HelixPrint plugin") {
+        report_filename(".helix_print/full/parts/benchy.gcode");
+
+        REQUIRE(Access::reprint_filename(panel()) == "parts/benchy.gcode");
+    }
+
+    // Names that carry only the bare filename: a same-named root file may
+    // exist, and reprinting it would print the wrong part.
+    SECTION("after a restart, an older staged name refuses rather than guesses") {
+        report_filename(".helix_temp/modified_1766807545_benchy.gcode");
+
+        REQUIRE(Access::reprint_filename(panel()).empty());
+    }
+    SECTION("after a restart, an older plugin's link refuses rather than guesses") {
+        report_filename(".helix_print/benchy.gcode");
+
+        REQUIRE(Access::reprint_filename(panel()).empty());
+    }
+    SECTION("a print another client started since is the one reprinted") {
+        state().print_state().begin_preparing(PrintJobRef{"parts/benchy.gcode", "", ""});
+        state().print_state().retire_preparing(PreparingExit::Confirmed);
+        drain();
+        report_filename(helix::gcode::make_rewritten_gcode_path("other/benchy.gcode"));
+
+        REQUIRE(Access::reprint_filename(panel()) == "other/benchy.gcode");
+    }
+    SECTION("a print this session prepared still knows its original") {
+        state().print_state().begin_preparing(PrintJobRef{"parts/benchy.gcode", "", ""});
+        state().print_state().retire_preparing(PreparingExit::Confirmed);
+        drain();
+        report_filename(".helix_temp/modified_1766807545_benchy.gcode");
+
+        REQUIRE(Access::reprint_filename(panel()) == "parts/benchy.gcode");
+    }
+}
+
+TEST_CASE("reprint_target extracts a staged archive plate again, and starts a conversion as is",
+          "[print_status][reprint][three_mf]") {
+    using helix::gcode::reprint_target;
+    const std::string staged = helix::gcode::make_extracted_plate_path("parts/Door.gcode.3mf", 5);
+
+    auto t = reprint_target("parts/Door.gcode.3mf", staged);
+    CHECK(t.file == "parts/Door.gcode.3mf");
+    CHECK(t.archive_plate == 5);
+    // After a restart, the report alone still places archive and plate.
+    t = reprint_target("", staged);
+    CHECK(t.file == "parts/Door.gcode.3mf");
+    CHECK(t.archive_plate == 5);
+    // The printer's own conversion printed: that G-code starts as it is.
+    t = reprint_target("parts/Door.gcode.3mf", "parts/Door_plate5.gcode");
+    CHECK(t.file == "parts/Door_plate5.gcode");
+    CHECK(t.archive_plate == 0);
+    // A printer that runs the .3mf itself reprints the .3mf.
+    t = reprint_target("parts/Door.gcode.3mf", "parts/Door.gcode.3mf");
+    CHECK(t.file == "parts/Door.gcode.3mf");
+    CHECK(t.archive_plate == 0);
+    // Plain G-code is unaffected.
+    t = reprint_target("", helix::gcode::make_rewritten_gcode_path("parts/benchy.gcode"));
+    CHECK(t.file == "parts/benchy.gcode");
+    CHECK(t.archive_plate == 0);
+}

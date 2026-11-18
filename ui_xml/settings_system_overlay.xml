@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- System Settings Overlay -->
+<!-- Security, performance, storage, log level, restart, factory reset -->
+<component>
+  <view name="settings_system_overlay" extends="overlay_panel" title="System" bg_color="#screen_bg">
+    <!-- Content Area - no padding, rows handle their own -->
+    <lv_obj name="overlay_content"
+            width="100%" flex_grow="1" style_pad_top="0" style_pad_left="0" style_pad_right="0"
+            style_pad_bottom="#space_lg" scrollable="true" flex_flow="column">
+      <!-- All system settings live in a single grouped-list card (no section
+           headers in this overlay); the card owns the horizontal inset. -->
+      <setting_group name="group_system">
+        <!-- ================================================================== -->
+        <!-- SECURITY -->
+        <!-- ================================================================== -->
+        <setting_action_row name="row_security"
+                            label="Security" icon="lock" description="Screen lock and PIN settings"
+                            callback="on_security_clicked"/>
+        <!-- ================================================================== -->
+        <!-- PERFORMANCE (live host CPU/memory + per-MCU load) -->
+        <!-- ================================================================== -->
+        <lv_obj name="container_performance" width="100%" style_pad_all="0" scrollable="false">
+          <bind_flag_if_eq subject="perf_available" flag="hidden" ref_value="0"/>
+          <setting_action_row name="row_performance"
+                              label="Performance" icon="speed" bind_description="perf_about_summary"
+                              callback="on_system_performance_clicked"/>
+        </lv_obj>
+        <!-- ================================================================== -->
+        <!-- STORAGE -->
+        <!-- ================================================================== -->
+        <setting_action_row name="row_storage"
+                            label="Storage" icon="sd" description="What fills the printer's disk, and cleanup"
+                            callback="on_storage_clicked"/>
+        <!-- ================================================================== -->
+        <!-- LOG LEVEL -->
+        <!-- ================================================================== -->
+        <setting_dropdown_row name="row_log_level"
+                              label="Log Level" icon="console" description="Set logging verbosity for troubleshooting"
+                              options="Warn&#10;Info&#10;Debug&#10;Trace"
+                              options_tag="Warn&#10;Info&#10;Debug&#10;Trace" bind_selected="settings_log_level"
+                              callback="on_log_level_changed"/>
+        <!-- ================================================================== -->
+        <!-- RESTART -->
+        <!-- ================================================================== -->
+        <setting_action_row name="row_restart_helix"
+                            label="Restart VoronDeck" icon="restart" description="Restart the display application"
+                            callback="on_restart_helix_settings_clicked"/>
+        <!-- ================================================================== -->
+        <!-- FACTORY RESET -->
+        <!-- ================================================================== -->
+        <setting_action_row name="row_factory_reset"
+                            label="Factory Reset" icon="refresh" description="Reset all settings and restart wizard"
+                            callback="on_factory_reset_clicked"/>
+      </setting_group>
+    </lv_obj>
+  </view>
+</component>

@@ -1,0 +1,60 @@
+diff --git a/src/core/lv_obj_pos.c b/src/core/lv_obj_pos.c
+index 7d0fcb235..fde2a6227 100644
+--- a/src/core/lv_obj_pos.c
++++ b/src/core/lv_obj_pos.c
+@@ -20,6 +20,10 @@
+ #include "lv_obj_style_internal.h"
+ #include "../misc/lv_style_private.h"
+ 
++/* Telemetry hook provided by helix_lvgl_anomaly.cpp — reports LVGL anomalies
++ * with backtrace + device context for remote crash diagnostics. */
++extern void helix_lvgl_anomaly(const char * code, const char * context);
++
+ /*********************
+  *      DEFINES
+  *********************/
+@@ -1557,10 +1561,18 @@ static int32_t calc_content_height(lv_obj_t * obj)
+ 
+ static void layout_update_core(lv_obj_t * obj)
+ {
++    if(obj == NULL) {
++        helix_lvgl_anomaly("obj_pos_null_style", "layout_update_core: obj is NULL");
++        return;
++    }
+     uint32_t i;
+     uint32_t child_cnt = lv_obj_get_child_count(obj);
+     for(i = 0; i < child_cnt; i++) {
+         lv_obj_t * child = obj->spec_attr->children[i];
++        if(child == NULL) {
++            helix_lvgl_anomaly("obj_pos_null_style", "layout_update_core: child is NULL");
++            continue;
++        }
+         layout_update_core(child);
+     }
+ 
+diff --git a/src/core/lv_obj_style.c b/src/core/lv_obj_style.c
+index e7c3ae7c7..de5a0a6d8 100644
+--- a/src/core/lv_obj_style.c
++++ b/src/core/lv_obj_style.c
+@@ -18,6 +18,10 @@
+ #include "lv_observer_private.h"
+ #include "lv_obj_style_internal.h"
+ 
++/* Telemetry hook provided by helix_lvgl_anomaly.cpp — reports LVGL anomalies
++ * with backtrace + device context for remote crash diagnostics. */
++extern void helix_lvgl_anomaly(const char * code, const char * context);
++
+ /*********************
+  *      DEFINES
+  *********************/
+@@ -1438,6 +1442,10 @@ static bool calculate_has_blur(lv_obj_t * obj)
+     for(i = 0; i < obj->style_cnt; i++) {
+         lv_obj_style_t * obj_style = &obj->styles[i];
+         if(obj_style->is_disabled) continue;
++        if(obj_style->style == NULL) {
++            helix_lvgl_anomaly("obj_pos_null_style", "calculate_has_blur: obj_style->style is NULL");
++            continue;
++        }
+ 
+         lv_state_t state_style = lv_obj_style_get_selector_state(obj->styles[i].selector);
+         if((state_style & state_inv)) continue;

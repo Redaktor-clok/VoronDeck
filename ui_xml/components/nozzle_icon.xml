@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <api>
+    <!-- Per-instance rung subject from the owning tile. Empty by default, so
+         a call site that does not size itself installs no binding and keeps
+         whatever `size` selects. -->
+    <prop name="rung_subject" type="string" default=""/>
+    <prop name="size" type="string" default="#icon_size"/>
+    <prop name="badge_subject" type="string" default="show_tool_badge"/>
+    <!-- Subject carrying the number the digit shows. The default is
+         ToolState's active-tool number; the temp overlay overrides it with its
+         own picked-tool subject so the digit names what the card displays. -->
+    <prop name="badge_text_subject" type="string" default="tool_badge_text"/>
+    <prop name="badge_font" type="string" default="#font_body_bold"/>
+  </api>
+  <!--
+    Nozzle Icon with Tool Subscript
+
+    Shows a heater icon. On a multi-tool printer (badge subject 1) the tool's
+    display number sits beside the glyph as a bold subscript digit, bottom
+    aligned with the glyph like the 1 in T1 — no border, background or other
+    chrome, so the pair reads as one "tool token" without covering the nozzle
+    outline.
+
+    The digit is the number ALONE. Display contexts never spell "T<n>":
+    the T prefix is the 0-based G-code spelling and reads as off-by-one next
+    to this 1-based digit. tool_badge_text already carries the 1-based
+    number via lane_number_text() (include/display_numbering.h) — do not
+    format a number anywhere else.
+
+    Binds to ToolState subjects by default:
+    - show_tool_badge: 1 = show digit, 0/empty = bare icon (single-tool)
+    - tool_badge_text: the tool's 1-based display number (e.g., "1" for tool
+      index 0), not the full name
+
+    badge_font defaults to #font_body_bold: a breakpoint-scaled bold face, and
+    the smallest one at that — noto_sans_bold ships nothing below 14px, so at
+    micro/tiny/small every icon's digit is the 14px floor. That floor is the
+    legibility clamp: rather than shrink the digit toward half the glyph with
+    a face that does not exist, the digit stays at the smallest bold text
+    size the app uses at that breakpoint.
+
+    The inner glyph is always named "nozzle_icon_glyph" (not the $size wrapper's
+    own name) for C++ lookup — HeaterIconBinder::default_icon_name(Nozzle)
+    searches for that name specifically, same as the bed/chamber heater_icon
+    glyphs. It keeps its HeaterIconBinder heat tint beside the digit.
+  -->
+  <view name="nozzle_icon"
+        width="content" height="content" flex_flow="row" style_flex_cross_place="end" style_pad_all="0"
+        style_pad_column="#space_xxs" scrollable="false" clickable="false" event_bubble="true">
+    <icon name="nozzle_icon_glyph" src="heater" size="$size" variant="secondary" clickable="false" event_bubble="true">
+      <!-- The heating pulse animates this glyph, so it never takes the scaled path -->
+      <bind_tile_rung ladder="icon" subject="$rung_subject" animated="true"/>
+    </icon>
+    <!-- The digit carries hidden="true" as the static default the
+         empty-subject contract requires: a call site passing badge_subject=""
+         installs no binding at all, so the flag state the markup declares is
+         the one that sticks. When the subject does resolve, the binding both
+         adds and removes the flag, so the default is overridden either way.
+         flex cross place "end" bottom-aligns the digit with the glyph; a
+         hidden child does not participate in the flex layout, so a
+         single-tool icon renders exactly bare. -->
+    <text_tiny name="tool_badge"
+               bind_text="$badge_text_subject" style_text_font="$badge_font" style_text_color="#secondary" hidden="true"
+               clickable="false" event_bubble="true">
+      <bind_flag_if_eq subject="$badge_subject" flag="hidden" ref_value="0"/>
+    </text_tiny>
+  </view>
+</component>

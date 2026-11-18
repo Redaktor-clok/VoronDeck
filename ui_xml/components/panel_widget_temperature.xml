@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <api>
+    <!-- Per-instance subject names, supplied by the widget at creation. They
+         must exist before this component is parsed: a binding whose subject is
+         missing at parse time is dropped permanently and silently. -->
+    <prop name="tile_icon_subject" type="string" default=""/>
+    <prop name="tile_label_subject" type="string" default=""/>
+    <prop name="tile_dir_subject" type="string" default=""/>
+    <prop name="tile_target_subject" type="string" default=""/>
+    <prop name="home_name_subject" type="string" default=""/>
+    <prop name="home_visible_subject" type="string" default=""/>
+  </api>
+  <view name="panel_widget_temperature"
+        extends="lv_obj" height="100%" flex_grow="1" style_pad_all="0" style_pad_left="#space_xxs"
+        style_pad_right="#space_xxs" scrollable="false">
+    <bind_flag_if_eq subject="$home_visible_subject" flag="hidden" ref_value="0"/>
+    <ui_button name="temp_btn"
+               width="100%" height="100%" style_pad_ver="0" variant="ghost" style_border_width="0" focusable="false">
+      <style name="styles.tile_column"/>
+      <bind_style_if_eq name="styles.tile_row" subject="$tile_dir_subject" ref_value="1"/>
+      <bind_style_if_eq name="styles.home_heater_row" subject="ui_is_portrait" ref_value="1"/>
+      <bind_state_if_not_eq subject="printer_connection_state" state="disabled" ref_value="2"/>
+      <event_cb trigger="clicked" callback="temp_clicked_cb"/>
+      <home_nozzle_icon name="temp_icon_container" size="#icon_size" rung_subject="$tile_icon_subject"/>
+      <lv_obj height="content" flex_flow="column" style_pad_all="0" style_pad_gap="#space_xxs" scrollable="false" event_bubble="true">
+      <style name="styles.home_heater_values_column"/>
+      <bind_style_if_eq name="styles.home_heater_values" subject="ui_is_portrait" ref_value="1"/>
+      <temp_display name="temp_text_label"
+                    size_target_subject="$tile_target_subject" rung_subject="$tile_icon_subject" size="sm"
+                    show_target="true" hide_target_when_off="true" hide_target_below_bp="small"
+                    bind_current="extruder_temp" bind_target="extruder_target" align="center"/>
+      <text_tiny width="100%" bind_text="$home_name_subject" long_mode="dots" event_bubble="true"/>
+      </lv_obj>
+    </ui_button>
+    <!-- Klipper duty cycle, not progress towards the requested temperature.
+         Keep the reading absent until the printer actually reports power. -->
+    <text_tiny name="heater_power" bind_text="extruder_power" bind_text-fmt="%d%%"
+               floating="true" align="bottom_right" style_text_color="#primary"
+               clickable="false">
+      <bind_flag_if cond="extruder_power lt 0 or extruder_target le 0" flag="hidden"/>
+    </text_tiny>
+    <lv_obj name="home_cooldown" width="#button_height_sm" height="#button_height_sm"
+            align="top_right" floating="true" style_pad_all="0" scrollable="false" clickable="true">
+      <bind_flag_if_eq subject="ui_is_portrait" flag="hidden" ref_value="0"/>
+      <bind_state_if_not_eq subject="printer_connection_state" state="disabled" ref_value="2"/>
+      <event_cb trigger="clicked" callback="home_cooldown_clicked"/>
+      <icon src="cooldown" size="sm" variant="info" align="center" clickable="false" event_bubble="true"/>
+    </lv_obj>
+  </view>
+</component>

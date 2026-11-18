@@ -1,0 +1,60 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <view name="settings_printer_maintenance_overlay" extends="lv_obj" width="100%" height="100%" align="right_mid"
+        flex_flow="column" style_pad_all="0" style_pad_gap="0" style_border_width="0"
+        style_bg_color="#screen_bg" style_bg_opa="255" scrollable="false">
+    <lv_obj name="maintenance_identity" width="100%" height="#space_2xl" style_pad_ver="0"
+            style_pad_hor="#space_md" style_bg_color="#screen_bg" style_border_width="0"
+            scrollable="false" flex_flow="row" style_flex_cross_place="center">
+      <text_small name="maintenance_printer" width="35%" bind_text="active_printer_name" long_mode="dots"/>
+      <lv_obj name="maintenance_network" width="0" flex_grow="1" height="100%" style_pad_all="0"
+              clickable="true" scrollable="false">
+        <event_cb trigger="clicked" callback="on_shared_network_clicked"/>
+        <text_small width="100%" align="center" bind_text="home_network_summary" style_text_align="center"
+                    long_mode="dots" clickable="false" event_bubble="true">
+          <bind_flag_if_eq subject="home_network_known" flag="hidden" ref_value="0"/>
+        </text_small>
+      </lv_obj>
+    </lv_obj>
+    <header_bar name="overlay_header" title="Printer" title_subject="maintenance_title"
+                title_transform="none"/>
+    <lv_obj name="overlay_content" width="100%" flex_grow="1" flex_flow="column"
+            style_pad_all="#space_md" style_pad_gap="#space_md" scrollable="true">
+      <text_body name="maintenance_status" width="100%" bind_text="maintenance_status" long_mode="wrap"/>
+      <lv_obj name="maintenance_reset_actions" width="100%" height="content" flex_flow="column"
+              style_pad_all="0" style_pad_gap="#space_md" scrollable="false">
+        <bind_flag_if_not_eq subject="maintenance_section" flag="hidden" ref_value="0"/>
+        <ui_button name="maintenance_clear_history" width="100%" text="Clear print history" icon="clock" variant="secondary" moves_machine="true">
+          <bind_state_if cond="maintenance_busy eq 1 or printer_connection_state ne 2" state="disabled"/>
+          <event_cb trigger="clicked" callback="on_printer_history_reset"/>
+        </ui_button>
+        <text_small width="100%" text="Remove job records only. G-code files and printer configuration are kept." long_mode="wrap"/>
+        <ui_button name="maintenance_reset_totals" width="100%" text="Reset print statistics" icon="refresh" variant="secondary" moves_machine="true">
+          <bind_state_if cond="maintenance_busy eq 1 or printer_connection_state ne 2" state="disabled"/>
+          <event_cb trigger="clicked" callback="on_printer_totals_reset"/>
+        </ui_button>
+        <text_small width="100%" text="Reset accumulated time, job and filament totals. History entries and printer configuration are kept." long_mode="wrap"/>
+      </lv_obj>
+      <lv_obj name="maintenance_updates" width="100%" height="content" flex_flow="column"
+              style_pad_all="0" style_pad_gap="#space_md" scrollable="false">
+        <bind_flag_if_not_eq subject="maintenance_section" flag="hidden" ref_value="1"/>
+        <ui_button name="maintenance_check_updates" width="100%" text="Check for updates" icon="refresh" variant="secondary" moves_machine="true">
+          <bind_state_if cond="maintenance_busy eq 1 or printer_connection_state ne 2" state="disabled"/>
+          <event_cb trigger="clicked" callback="on_printer_updates_refresh"/>
+        </ui_button>
+        <repeat count="maintenance_count">
+          <ui_card name="maintenance_component_${i}" width="100%" height="content" flex_flow="column"
+                   style_pad_all="#space_md" style_pad_gap="#space_sm" scrollable="false">
+            <text_body width="100%" bind_text="maintenance_component_${i}_name" long_mode="wrap"/>
+            <text_small width="100%" bind_text="maintenance_component_${i}_description" long_mode="wrap"/>
+            <ui_button name="maintenance_update_${i}" width="100%" text="Update" variant="secondary" moves_machine="true">
+              <bind_state_if cond="maintenance_component_${i}_enabled eq 0 or maintenance_busy eq 1 or printer_connection_state ne 2" state="disabled"/>
+              <event_cb trigger="clicked" callback="on_printer_component_update" user_data="${i}"/>
+            </ui_button>
+          </ui_card>
+        </repeat>
+      </lv_obj>
+    </lv_obj>
+  </view>
+</component>

@@ -1,0 +1,407 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "ui_context_menu.h"
+
+#include "ams_types.h"
+#include "display_numbering.h"
+#include "i_moonraker_api.h"
+
+#include <functional>
+#include <lvgl.h>
+#include <optional>
+#include <string>
+
+// Forward declaration
+namespace helix {
+class AmsBackend;
+} // namespace helix
+class AmsContextMenuTestAccess;
+
+namespace helix::ui {
+
+/**
+ * @file ui_ams_context_menu.h
+ * @brief Context menu for AMS slot operations
+ *
+ * Displays a popup menu near a slot with options to load, unload,
+ * edit, or assign a Spoolman spool. Automatically positions itself
+ * relative to the target slot widget.
+ *
+ * Extends the generic ContextMenu with AMS-specific features: slot
+ * loaded/can-load subjects for button states. The menu is actions only; a
+ * lane's Assigned Tool and Endless Spool backup are edited in the spool editor
+ * (AmsEditOverlay, through helix::ui::lane_settings).
+ *
+ * ## Usage:
+ * @code
+ * helix::ui::AmsContextMenu menu;
+ * menu.set_action_callback([](MenuAction action, int slot_index) {
+ *     switch (action) {
+ *         case MenuAction::LOAD: // load filament...
+ *         case MenuAction::UNLOAD: // unload filament...
+ *         case MenuAction::EDIT: // show edit modal...
+ *         case MenuAction::SPOOLMAN: // show spoolman picker...
+ *     }
+ * });
+ * menu.show_near_widget(parent, slot_index, slot_widget);
+ * @endcode
+ */
+class AmsContextMenu : public ContextMenu {
+    HELIX_CONTEXT_MENU_KIND(AmsContextMenu)
+
+  public:
+    /// Init and publish the two XML subjects this menu's layout binds. Idempotent,
+    /// and called from the constructor, so production never needs it. Public for
+    /// tests that build ams_context_menu.xml without a menu instance: the names
+    /// must resolve before lv_xml_create(), or the state bindings are silently
+    /// dropped.
+    static void init_subjects();
+
+    friend class ::AmsContextMenuTestAccess;
+
+  public:
+    enum class MenuAction {
+        CANCELLED,        ///< User dismissed menu without action
+        LOAD,             ///< Load filament from this slot
+        UNLOAD,           ///< Unload filament from toolhead
+        EJECT,            ///< Eject filament from lane (release spool)
+        RECOVER_POSITION, ///< Retract filament stranded past the hub back into the lane
+        CHECK_GATE,       ///< Check filament state of this gate (Happy Hare)
+        PRELOAD,          ///< Park this lane's filament ready for a later load
+        EDIT,             ///< Edit slot properties
+        CLEAR_SPOOL,      ///< Clear assigned spool from empty slot
+        SPOOLMAN,         ///< Assign Spoolman spool
+        PURGE,            ///< Purge the current filament through the nozzle
+        TOGGLE_BYPASS,    ///< Engage or disengage bypass (external spool only)
+        MOUNT,            ///< Mount the tool this slot feeds
+        PARK              ///< Put the mounted tool back in its dock
+    };
+
+    using ActionCallback = std::function<void(MenuAction action, int slot_index)>;
+
+    AmsContextMenu();
+    ~AmsContextMenu() override;
+
+    // Non-copyable
+    AmsContextMenu(const AmsContextMenu&) = delete;
+    AmsContextMenu& operator=(const AmsContextMenu&) = delete;
+
+    // Movable
+    AmsContextMenu(AmsContextMenu&& other) noexcept;
+    AmsContextMenu& operator=(AmsContextMenu&& other) noexcept;
+
+    /**
+     * @brief Show context menu near a slot widget
+     * @param parent Parent screen for the menu
+     * @param slot_index Slot this menu is for (0-based)
+     * @param near_widget Widget to position menu near (typically slot widget)
+     * @param is_loaded True if the slot is loaded/active (enables Unload, suppresses Load)
+     * @param backend Optional backend the actions are gated on
+     * @return true if menu was shown successfully
+     */
+    bool show_near_widget(lv_obj_t* parent, int slot_index, lv_obj_t* near_widget,
+                          bool is_loaded = false, AmsBackend* backend = nullptr);
+
+    /**
+     * @brief Show context menu for external spool (bypass/direct feed)
+     *
+     * Shows the bypass spool's own actions: the bypass toggle, Load, Unload and
+     * Purge against kExternalSpoolSlot, plus the spool bookkeeping. The cold
+     * lane ops do not apply and stay hidden.
+     *
+     * @param parent Parent screen for the menu
+     * @param anchor_widget Widget to position menu near (for click point)
+     * @param offer_toggle Whether this surface can drive bypass. False hides the
+     *        Enable/Disable Bypass entry — a visible entry the surface cannot
+     *        act on would be a button that silently does nothing.
+     * @return true if menu was shown successfully
+     */
+    bool show_for_external_spool(lv_obj_t* parent, lv_obj_t* anchor_widget,
+                                 bool offer_toggle = true);
+
+    /**
+     * @brief Get slot index the menu is currently shown for
+     */
+    [[nodiscard]] int get_slot_index() const {
+        return get_item_index();
+    }
+
+    /**
+     * @brief Set callback for menu actions
+     */
+    void set_action_callback(ActionCallback callback);
+
+    // Pure: whether "Clear Spool" is offered for this slot, by the lane menus and
+    // by the slot editor.
+    //
+    // Deliberately independent of whether filament is physically present: a
+    // loaded spool's stale assignment is the one that does damage, since its
+    // metadata is printed with and an edit aims a Spoolman write at the previous
+    // spool. An empty lane's stale metadata is cosmetic.
+    static bool should_show_clear_spool(const SlotInfo& slot);
+
+  protected:
+    const char* xml_component_name() const override {
+        return "ams_context_menu";
+    }
+    void on_created(lv_obj_t* menu_obj) override;
+    /// A tap outside a single-select action menu chooses nothing, so it reports
+    /// CANCELLED through this menu's own callback rather than the base's.
+    void on_backdrop_clicked() override;
+
+  private:
+    // === AMS-specific state ===
+    ActionCallback action_callback_;
+
+    /**
+     * @brief Common pattern: hide, then invoke the callback with the slot index
+     */
+    void dispatch_ams_action(MenuAction action);
+
+    // === Subjects for button enable/disable states ===
+    //
+    // Static, like BufferStatusModal's, and for the same two reasons. The XML
+    // registry is keyed by name for the whole process, so per-instance storage
+    // cannot work here: three owners construct an AmsContextMenu (AmsPanel,
+    // AmsOverviewPanel, ExternalSpoolMenu) and all three publish the same two
+    // names, so the last registration wins and the first owner to be destroyed
+    // withdraws — or worse, silently outlives — a name the others still serve.
+    // Before this was static, a destroyed menu left "ams_slot_can_load" pointing
+    // into freed storage, and the next lv_xml_create() binding it wrote an
+    // observer through a reused allocation (nightly ASan, 2026-08-16).
+    //
+    // Sharing the values across the three owners is correct rather than merely
+    // tolerable: only one context menu is on screen at a time, and both values
+    // are set in on_created() immediately before the menu is shown.
+    static lv_subject_t slot_is_loaded_subject_; ///< 1 = loaded (Unload enabled), 0 = not loaded
+    static lv_subject_t slot_can_load_subject_;  ///< 1 = has filament (Load enabled), 0 = empty
+    /// 1 = Purge enabled. External-spool menu only; the lane menu has no Purge
+    /// entry, so nothing binds this there.
+    static lv_subject_t slot_can_purge_subject_;
+    /// One-line reason the unload is unavailable, and whether to show it.
+    /// Text and visibility are separate because bind_flag needs an int.
+    static lv_subject_t slot_unload_hint_subject_;
+    static lv_subject_t slot_unload_hint_visible_subject_;
+    static char slot_unload_hint_buf_[128];
+    /// One-line reason Eject is unavailable (AmsBackend::eject_unavailable_reason), and
+    /// whether to show it.
+    static lv_subject_t slot_eject_hint_subject_;
+    static lv_subject_t slot_eject_hint_visible_subject_;
+    static char slot_eject_hint_buf_[128];
+    /// 1 = Clear Spool enabled, 0 = the lane feeds the active print, so the
+    /// clear must wait (clear_spool_blocked_by_print()). The reason rides the
+    /// hint pair below, same shape as the unload hint.
+    static lv_subject_t slot_can_clear_subject_;
+    static lv_subject_t slot_clear_hint_subject_;
+    static lv_subject_t slot_clear_hint_visible_subject_;
+    static char slot_clear_hint_buf_[192];
+    /// Preload row: 0 = hidden (backend has no lane preload), 1 = shown but
+    /// disabled (busy, filament loaded, or a print blocks filament ops),
+    /// 2 = enabled.
+    static lv_subject_t slot_preload_subject_;
+    // Why this head's Load is unavailable, from decide_slot_actions().
+    static lv_subject_t slot_load_hint_subject_;
+    static lv_subject_t slot_load_hint_visible_subject_;
+    static char slot_load_hint_buf_[192];
+    // Mount and Park for a head whose filament is all by hand: 0 hidden,
+    // 1 disabled, 2 enabled.
+    static lv_subject_t slot_mount_subject_;
+    static lv_subject_t slot_park_subject_;
+    static bool subjects_initialized_;
+
+    // === Backend the menu's actions are gated on ===
+    AmsBackend* backend_ = nullptr;
+
+    // === Pending state for on_created ===
+    // True when the slot is loaded/active per backend->can_unload_from_toolhead().
+    // Gates BOTH the Unload action (enabled) and the Load action (suppressed) —
+    // a slot the firmware considers seated should not offer Load.
+    bool pending_is_loaded_ = false;
+
+    /// Which operation the Unload button performs for the open slot. Selected in
+    /// on_created() from live backend state; drives both label and dispatch.
+    enum class UnloadMode {
+        Unload,          ///< Heated unload from the toolhead
+        RecoverPosition, ///< Retract filament stranded past the hub (AFC)
+        Eject,           ///< Cold retract of lane filament to the spool
+        ForceEject,      ///< Presence-ignoring retract of an empty lane (AD5X)
+        Unavailable,     ///< Nothing to do for this slot
+    };
+    UnloadMode unload_mode_ = UnloadMode::Unavailable;
+
+    bool external_spool_mode_ = false;  ///< True when showing menu for external spool (bypass)
+    bool external_offer_toggle_ = true; ///< show_for_external_spool()'s offer_toggle
+
+    // === Event Handlers ===
+    void handle_load();
+    void handle_unload();
+    void handle_gate_check();
+    void handle_preload();
+    void handle_mount();
+    void handle_park();
+    void handle_edit();
+    void handle_clear_spool();
+    void handle_purge();
+    void handle_bypass_toggle();
+    void handle_spoolman();
+
+    /// The word this menu spells a position with. The backend the menu was
+    /// shown for owns the answer; with none, the active printer's does.
+    LaneNoun menu_lane_noun() const;
+    /// Plugin items for the slot, in their own column beside Filament and Spool. A
+    /// lane menu only: the external spool takes no plugin items.
+    void append_slot_plugin_rows(lv_obj_t* menu_obj, int slot_index);
+
+    // === Static Callback Registration ===
+    static void register_callbacks();
+
+    /// One slot's Load/Unload decision, in the terms the menu renders from.
+    struct SlotOpDecision {
+        bool is_loaded = false;          ///< the open-time snapshot OR the live accessors
+        bool live_loaded = false;        ///< the live half alone, for the diagnostic log
+        bool toolhead_unload = false;    ///< the narrowed loaded signal; the Load gate
+        bool parked_in_toolhead = false; ///< slot_filament_parked_in_toolhead(); Unload only
+        std::optional<bool> presence;    ///< slot_presence(), tri-state
+        UnloadMode unload_mode = UnloadMode::Unavailable;
+        bool unload_enabled = false;
+        bool can_load = false;
+    };
+
+    // Pure: the whole per-slot Load/Unload decision, from the backend's accessors.
+    //
+    // The single spelling of the composition: which accessors combine, in what
+    // order, and which of the two loaded signals each gate is allowed to see.
+    // on_created() renders from the result and the tests assert on it, so a case
+    // cannot pass against a chain the menu does not actually perform.
+    //
+    // `backend` may be null (the external-spool menu has none); every term then
+    // falls back to the same answer the menu gives with no backend attached.
+    //
+    // `pending_is_loaded` is the caller's open-time snapshot, which both AMS
+    // panels take from AmsBackend::can_unload_from_toolhead(). It is OR'd with
+    // the live accessors so Unload survives a runout clearing the head sensor
+    // (#995).
+    //
+    // `print_blocks_op` is helix::ui::print_blocks_filament_op() - see
+    // decide_can_load() for why the raw print_active subject is the wrong input.
+    //
+    // `toolhead_unaccounted` is backend->toolhead_filament_unaccounted()
+    // flattened with value_or(false), read by the caller. Filament at the
+    // toolhead that no lane claims: the lane this menu names may not be the
+    // seated one, so its Unload is a guess and a cold Eject of the lane that IS
+    // seated grinds un-cut filament. Every lane's Unload/Eject withdraws (mode
+    // untouched, never relabelled to Eject); the sidebar's active-head Unload
+    // covers the state by letting the firmware resolve the channel.
+    static SlotOpDecision decide_slot_ops(const AmsBackend* backend, int slot_index,
+                                          bool pending_is_loaded, bool system_busy,
+                                          bool print_blocks_op, bool toolhead_unaccounted);
+
+    // Pure: selects the Unload button's operation for the open slot.
+    //
+    // Order encodes a deliberate priority ruling (see call site in on_created()):
+    // a confidently-attributed stranded lane outranks Eject, but an unattributed
+    // one (some backends share one physical sensor across every lane on a unit,
+    // so "can recover" can be true for every lane at once with no way to say
+    // whose filament tripped it) defers to Eject so a seated lane keeps its
+    // Eject button — the unattributed Recover only catches lanes with nothing
+    // left to eject.
+    //
+    // @param toolhead_unload      Slot unloads via the heated toolhead path
+    // @param can_recover          backend_->can_recover_lane_position(slot_index)
+    // @param recovery_attributed  backend_->lane_recovery_is_attributed()
+    // @param supports_eject       backend_->supports_lane_eject()
+    // @param slot_has_filament    SlotInfo::is_present() for this slot
+    // @param supports_force_eject backend_->supports_force_eject()
+    // @param slot_empty           !slot_has_filament
+    static UnloadMode decide_unload_mode(bool toolhead_unload, bool can_recover,
+                                         bool recovery_attributed, bool supports_eject,
+                                         bool slot_has_filament, bool supports_force_eject,
+                                         bool slot_empty);
+
+    // Pure: whether the Load button is offered for the open slot.
+    //
+    // A thin adapter over helix::ui::compute_op_button_gating() — the one rule
+    // the filament panel and the AMS sidebar answer from too. Kept as a named
+    // predicate because the menu's inputs need translating: `toolhead_unload` is
+    // the narrowed loaded signal (not the broadened recovery one), and presence
+    // arrives as a tri-state so an UNKNOWN lane is not read as empty.
+    //
+    // `print_blocks_op` is helix::ui::print_blocks_filament_op(), the mirror of
+    // AmsSubscriptionBackend::refuse_if_printing(). Do NOT pass the raw
+    // print_active subject: PRINTING always refuses, but a PAUSED print now
+    // ALLOWS the op on every backend whose filament macro does not home itself
+    // (only AD5X IFS does). Greying the paused case is the bug in both
+    // directions — offering what will be refused strands a runout-paused user
+    // (bundle JX2FVRB9), and refusing what the backend accepts hides the
+    // pause-then-swap recovery Klipper just told them to perform.
+    static bool decide_can_load(bool system_busy, bool toolhead_unload,
+                                std::optional<bool> slot_has_filament, bool print_blocks_op,
+                                bool load_feeds_filament = false);
+
+    // Pure: whether the Unload button is offered for the open slot.
+    //
+    // Only the heated toolhead unload is subject to the print gate; the cold lane
+    // ops (Eject / RecoverPosition / ForceEject) do not move the toolhead and the
+    // backend permits them via check_preconditions(false), which never consults
+    // print state at all. Blocking the whole button would over-refuse and strand
+    // filament the user could have ejected. That asymmetry is expressed to the
+    // shared rule as OpButtonState::unload_is_cold_lane_op.
+    //
+    // `print_blocks_op`: see decide_can_load above — the computed predicate, not
+    // the raw print_active subject.
+    //
+    // `cold_ops_print_gated` is AmsBackend::cold_lane_ops_refused_during_print():
+    // true on a backend whose firmware refuses the cold ops mid-print too (AFC's
+    // cmd_LANE_UNLOAD has its own is_printing() guard), which withdraws the
+    // exemption above rather than offering a button into a certain refusal.
+    // Required, not defaulted — a silently omitted `false` re-offers exactly the
+    // dead-end button this parameter exists to remove.
+    static bool decide_unload_enabled(bool system_busy, UnloadMode mode, bool print_blocks_op,
+                                      bool cold_ops_print_gated);
+
+    static bool callbacks_registered_;
+
+    // === Static Callbacks ===
+    /// The menu on screen as an AmsContextMenu, or nullptr. Thin wrapper over
+    /// ContextMenu::active_as() that also logs the unexpected empty case.
+    static AmsContextMenu* get_active_instance();
+    static void on_load_cb(lv_event_t* e);
+    static void on_unload_cb(lv_event_t* e);
+    static void on_gate_check_cb(lv_event_t* e);
+    static void on_preload_cb(lv_event_t* e);
+    static void on_mount_cb(lv_event_t* e);
+    static void on_park_cb(lv_event_t* e);
+    static void on_edit_cb(lv_event_t* e);
+    static void on_clear_spool_cb(lv_event_t* e);
+    static void on_purge_cb(lv_event_t* e);
+    static void on_bypass_toggle_cb(lv_event_t* e);
+    static void on_spoolman_cb(lv_event_t* e);
+};
+
+class AmsOperationSidebar;
+
+/// What a panel that hosts slot context menus supplies. The getters are read when
+/// a menu action fires, not when the menu opens, because the panel can drop its
+/// sidebar or path canvas while a menu is still on screen.
+struct SlotMenuHost {
+    lv_obj_t* parent_screen = nullptr;
+    IMoonrakerAPI* api = nullptr;
+    const char* log_tag = "[AMS]";
+    std::function<lv_obj_t*()> path_canvas;
+    std::function<AmsOperationSidebar*()> sidebar;
+};
+
+/// Wire @p menu's action callback to the shared slot actions (LOAD, UNLOAD, EDIT,
+/// SPOOLMAN plus the backend-only ones) and show it at @p near_widget.
+/// AmsPanel and AmsOverviewPanel both open slot menus through this.
+void open_slot_context_menu(AmsContextMenu& menu, const SlotMenuHost& host, int slot_index,
+                            lv_obj_t* near_widget, lv_point_t click_pt);
+
+/// Open the slot editor for @p slot_index and commit what the user saves.
+void open_slot_editor(lv_obj_t* parent_screen, IMoonrakerAPI* api, int slot_index,
+                      bool open_on_picker = false);
+
+} // namespace helix::ui

@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <consts>
+    <px name="home_canvas_min_height_micro" value="576"/>
+    <px name="home_canvas_min_height_tiny" value="672"/>
+    <px name="home_canvas_min_height_small" value="672"/>
+    <px name="home_canvas_min_height_medium" value="992"/>
+    <px name="home_canvas_min_height_large" value="992"/>
+    <px name="home_canvas_min_height_xlarge" value="1184"/>
+    <px name="home_canvas_min_height_xxlarge" value="1184"/>
+  </consts>
+  <styles>
+    <style name="home_canvas_landscape" height="100%" flex_grow="1"/>
+    <style name="home_canvas_portrait" height="140%" min_height="#home_canvas_min_height" flex_grow="0"/>
+  </styles>
+  <view extends="lv_obj"
+        width="100%" height="100%" style_pad_all="0" style_pad_gap="0" style_border_width="0"
+        style_bg_color="#screen_bg" flex_flow="column" scrollable="false">
+    <!-- Carousel host: contains carousel pages + arrow overlays, created in C++ -->
+    <lv_obj name="home_scroll_view" width="100%" height="0" flex_grow="1" flex_flow="column"
+            style_pad_all="0" style_pad_gap="0" style_bg_opa="0" scrollable="false">
+      <bind_flag_if_eq subject="ui_is_portrait" flag="scrollable" ref_value="1"/>
+    <lv_obj name="carousel_host" width="100%" style_bg_opa="0" style_border_width="0" style_pad_all="0">
+      <bind_style_if_eq name="home_canvas_landscape" subject="ui_is_portrait" ref_value="0"/>
+      <bind_style_if_eq name="home_canvas_portrait" subject="ui_is_portrait" ref_value="1"/>
+      <event_cb trigger="pressed" callback="on_home_grid_pressed"/>
+      <event_cb trigger="long_pressed" callback="on_home_grid_long_press"/>
+      <event_cb trigger="clicked" callback="on_home_grid_clicked"/>
+      <event_cb trigger="pressing" callback="on_home_grid_pressing"/>
+      <event_cb trigger="released" callback="on_home_grid_released"/>
+      <event_cb trigger="press_lost" callback="on_home_grid_press_cancelled"/>
+      <event_cb trigger="indev_reset" callback="on_home_grid_press_cancelled"/>
+    </lv_obj>
+    </lv_obj>
+    <!-- Ghost page counter: edit mode only, more than one populated page -->
+    <text_small name="page_badge"
+                bind_text="home_page_badge" text="" floating="true" align="top_mid" style_translate_y="#space_xs"
+                style_text_color="#secondary" style_text_opa="112" clickable="false">
+      <bind_flag_if cond="home_edit_mode eq 1 and home_populated_pages gt 1" flag="hidden" invert="true"/>
+    </text_small>
+  </view>
+</component>

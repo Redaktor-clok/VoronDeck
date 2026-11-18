@@ -1,0 +1,165 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <api>
+    <prop name="spool_view" type="string" default="side"/>
+    <prop name="observe_fill" type="string" default="true"/>
+    <prop name="climate_font" type="string" default="#font_small"/>
+    <prop name="climate_icon" type="string" default="sm"/>
+  </api>
+  <!--
+    AMS Slot View - Declarative structure for a single AMS filament slot
+
+    This component defines the STATIC STRUCTURE of an AMS slot visualization.
+    Dynamic elements (spool canvas, observers, color updates) are created in C++.
+
+    Named children accessible via lv_obj_find_by_name():
+    - name_label: text_small showing the spool name (Bone White) above the material
+    - material_label: text_small showing material type (PLA, PETG, etc.), or the name
+      alone when the lane has no material
+    - lane_humidity: per-lane climate under a per-lane lid: thermometer +
+      lane_temp_text when the lane reports a temperature, lane_humidity_icon (a
+      humidity_drop the C++ fills to the reading) + lane_humidity_text
+    - lane_remaining: measured remaining length, under the spool
+    - spool_container: holds the lane spool widget and the badges
+    - lane_spool: ams_lane_spool widget (spool graphic, empty placeholder,
+      error dot; renders itself from AmsState's per-slot subjects - C++ only
+      points it at a slot index)
+    - status_badge: circular badge at bottom-right for slot number + status color
+    - slot_badge_label: text_small inside status_badge showing slot number
+    - tool_badge: rounded rect at top-left showing tool assignment (T0, T1)
+    - tool_badge_label: text_small inside tool_badge
+
+    Requires C++ backing (ui_ams_slot.cpp) to handle:
+    - Pointing lane_spool at the slot index (index arrives after view creation)
+    - Observers for status badge color, material label, current_slot highlight
+    - Dynamic styling based on slot state (highlight, opacity, staggering)
+  -->
+  <view name="ams_slot_view"
+        extends="lv_obj" width="content" height="content" flex_flow="column" style_flex_main_place="start"
+        style_flex_cross_place="center" style_flex_track_place="center" style_pad_row="#space_xs" style_pad_all="2"
+        style_bg_opa="0" style_bg_color="#text" style_border_width="0" clickable="true" scrollable="false" overflow_visible="true"
+        style_radius="#border_radius">
+    <style name="styles.press_wash" selector="pressed"/>
+
+    <!-- Per-lane climate under a per-lane lid: the droplet says it is humidity, not
+         filament remaining. Temperature stacks above it, since side by side the pair
+         is wider than a lane. Shown and moved with the material label by the AMS detail view. -->
+    <lv_obj name="lane_humidity"
+            width="content" height="content" flex_flow="column" style_flex_cross_place="center" style_pad_all="0"
+            style_pad_gap="0" style_bg_opa="0" style_border_width="0" scrollable="false" clickable="false"
+            event_bubble="true" hidden="true">
+      <lv_obj name="lane_temp_row"
+              width="content" height="content" flex_flow="row" style_flex_cross_place="center" style_pad_all="0"
+              style_pad_gap="#space_xxs" style_bg_opa="0" style_border_width="0" scrollable="false" clickable="false"
+              event_bubble="true" hidden="true">
+        <icon name="lane_temp_icon"
+              src="thermometer" size="$climate_icon" variant="secondary" clickable="false" event_bubble="true"/>
+        <text_small name="lane_temp_text" text="" translation_tag="" style_text_font="$climate_font"
+                    clickable="false" event_bubble="true"/>
+      </lv_obj>
+      <lv_obj name="lane_humidity_row"
+              width="content" height="content" flex_flow="row" style_flex_cross_place="center" style_pad_all="0"
+              style_pad_gap="#space_xxs" style_bg_opa="0" style_border_width="0" scrollable="false" clickable="false"
+              event_bubble="true">
+        <humidity_drop name="lane_humidity_icon" size="$climate_icon" clickable="false" event_bubble="true"/>
+        <text_small name="lane_humidity_text" text="" style_text_font="$climate_font"
+                    clickable="false" event_bubble="true"/>
+      </lv_obj>
+    </lv_obj>
+
+    <!-- Spool name over material. Both span the slot and hold one line (ams_slot pins the
+         height to the font's line), so a long name ellipsizes instead of wrapping into the
+         spool. The name line hides when there is no name, the lane is Empty, or 5+ slots
+         share the row; the material line then reads as it does alone. -->
+    <text_small name="name_label"
+                width="100%" text="" translation_tag="" style_text_color="#text" style_text_align="center"
+                long_mode="dots" hidden="true" scrollable="false" clickable="true" event_bubble="true"/>
+    <text_small name="material_label"
+                width="100%" text="--" style_text_color="#text" style_text_letter_space="1" style_text_align="center"
+                long_mode="dots" scrollable="false" clickable="true" event_bubble="true"/>
+    <!-- Simple detail moves the material into this row. The percentage keeps
+         its natural width; a long material may ellipsize without hiding it. -->
+    <lv_obj name="simple_material_row" width="100%" height="content" flex_flow="row"
+            style_pad_all="0" style_pad_gap="#space_xxs" style_flex_cross_place="center"
+            scrollable="false" clickable="false" event_bubble="true" hidden="true">
+      <text_small name="slot_percent_label" text="" translation_tag="" width="content"
+                  clickable="false" event_bubble="true"/>
+    </lv_obj>
+
+    <!-- Spool container - holds the lane spool widget and the badges -->
+    <!-- Size is set dynamically in C++ based on space_lg token -->
+    <lv_obj name="spool_container"
+            width="72" height="72" style_bg_opa="0" style_border_width="0" style_pad_all="0" scrollable="false"
+            overflow_visible="true" event_bubble="true">
+
+      <!-- Lane spool graphic: sizes itself from the ams_slot_spool_size token;
+           slot_index is assigned by ui_ams_slot.cpp once parsed. Created first
+           so the badges below render on top of it. -->
+      <ams_lane_spool name="lane_spool" spool_view="$spool_view" observe_fill="$observe_fill"
+                      align="center" clickable="false" event_bubble="true"/>
+
+      <!-- Status badge (bottom-right) - shows slot number with status color.
+           clickable="false" so taps on the badge bubble up to the slot click
+           handler (context menu) instead of being absorbed. -->
+      <!-- Min 20px circle for single digits, auto-widens for 2+ digits -->
+      <lv_obj name="status_badge"
+              width="content" height="#ams_slot_status_badge_size" style_min_width="#ams_slot_status_badge_size"
+              align="bottom_right" style_translate_x="-2" style_translate_y="-2" style_radius="10"
+              style_bg_color="#ams_badge_bg" style_bg_opa="255" style_border_width="#ams_slot_badge_border_w"
+              style_border_color="#card_bg" style_pad_left="#ams_slot_badge_pad_h"
+              style_pad_right="#ams_slot_badge_pad_h" style_pad_top="0" style_pad_bottom="0" scrollable="false"
+              clickable="false" event_bubble="true">
+        <!-- Slot number label (1, 2, 3, etc.) — text set in C++, no translation -->
+        <text_small name="slot_badge_label"
+                    text="?" align="center" style_text_color="#text" clickable="false" event_bubble="true"/>
+      </lv_obj>
+
+      <!-- Tool badge (top-left) - shows tool assignment (T0, T1), hidden by default.
+           clickable="false" so taps bubble to the slot's click handler. -->
+      <!-- Min 22px for single-digit tools, auto-widens for T10+ -->
+      <lv_obj name="tool_badge"
+              width="content" height="#ams_slot_tool_badge_h" style_min_width="#ams_slot_tool_badge_min_w"
+              align="top_left" style_translate_x="#ams_slot_tool_badge_inset"
+              style_translate_y="#ams_slot_tool_badge_inset" style_radius="#ams_slot_tool_badge_radius"
+              style_bg_opa="#ams_slot_tool_badge_opa" style_border_width="0" style_pad_left="#ams_slot_badge_pad_h"
+              style_pad_right="#ams_slot_badge_pad_h" style_pad_top="0" style_pad_bottom="0" scrollable="false"
+              clickable="false" event_bubble="true" hidden="true">
+        <!-- Tool number label (T0, T1, etc.) -->
+        <text_small name="tool_badge_label"
+                    text="" align="center" style_text_color="#text" clickable="false" event_bubble="true"/>
+      </lv_obj>
+
+      <!-- Drying badge, on the spool face right of its hub, where the dry-box view's
+           neighbouring spools cannot cover it: this lane's part in a drying cycle, on a dryer that
+           heats lanes one by one. Same icons as the environment overlay's zone tabs:
+           clock queued, heat waves drying, check done, cross cancelled. C++ shows the
+           badge and the one icon for the state; idle shows nothing. -->
+      <lv_obj name="drying_badge"
+              width="#ams_slot_status_badge_size" height="#ams_slot_status_badge_size" align="center"
+              style_translate_x="#ams_slot_status_badge_size" style_radius="10" style_bg_color="#ams_badge_bg"
+              style_bg_opa="255" style_border_width="#ams_slot_badge_border_w" style_border_color="#card_bg"
+              style_pad_all="0" scrollable="false" clickable="false" event_bubble="true" hidden="true">
+        <icon name="drying_badge_queued"
+              src="progress_clock" size="xs" variant="secondary" align="center" clickable="false" event_bubble="true"
+              hidden="true"/>
+        <icon name="drying_badge_active"
+              src="heat_wave" size="xs" variant="warning" align="center" clickable="false" event_bubble="true"
+              hidden="true"/>
+        <icon name="drying_badge_complete"
+              src="check_circle" size="xs" variant="success" align="center" clickable="false" event_bubble="true"
+              hidden="true"/>
+        <icon name="drying_badge_cancelled"
+              src="close_circle" size="xs" variant="danger" align="center" clickable="false" event_bubble="true"
+              hidden="true"/>
+      </lv_obj>
+
+    </lv_obj>
+    <!-- Measured remaining length (CFS measuring wheel), on the tray front under its
+         spool; hidden while the lane has none -->
+    <text_small name="lane_remaining"
+                text="" translation_tag="" style_text_color="#text_muted" hidden="true" clickable="false"
+                event_bubble="true"/>
+  </view>
+</component>

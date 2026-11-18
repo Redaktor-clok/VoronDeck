@@ -1,0 +1,89 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Devices Settings Overlay -->
+<!-- Hardware issues, camera, fans, sensors, LEDs, power devices, spoolman -->
+<component>
+  <view name="settings_hardware_overlay" extends="overlay_panel" title="Devices" bg_color="#screen_bg">
+    <!-- Content Area - no padding, rows handle their own -->
+    <lv_obj name="overlay_content"
+            width="100%" flex_grow="1" style_pad_top="0" style_pad_left="0" style_pad_right="0"
+            style_pad_bottom="#space_lg" scrollable="true" flex_flow="column">
+      <!-- All hardware settings live in a single grouped-list card (no section
+           headers in this overlay); the card owns the horizontal inset. -->
+      <setting_group name="group_hardware">
+        <!-- ================================================================== -->
+        <!-- HARDWARE HEALTH (always visible — forensic surface for the user) -->
+        <!-- ================================================================== -->
+        <lv_obj name="container_hardware_health" width="100%" style_pad_all="0" scrollable="false">
+          <setting_action_row name="row_hardware_health"
+                              label="Hardware Health" icon="alert"
+                              description="Review detected hardware validation issues"
+                              callback="on_hardware_health_clicked"/>
+        </lv_obj>
+        <!-- ================================================================== -->
+        <!-- CAMERA (hidden without an enabled webcam in Moonraker or camera support in the build) -->
+        <!-- ================================================================== -->
+        <lv_obj name="container_camera" width="100%" style_pad_all="0" scrollable="false">
+          <bind_flag_if_eq subject="printer_has_webcam" flag="hidden" ref_value="0"/>
+          <!-- Builds without camera support (HELIX_HAS_CAMERA=0) have no view to open -->
+          <bind_flag_if_eq subject="platform_camera_supported" flag="hidden" ref_value="0"/>
+          <setting_action_row name="row_camera"
+                              label="Camera" icon="webcam" description="View live camera feed"
+                              callback="on_camera_view_clicked"/>
+        </lv_obj>
+        <!-- PRINT PHOTOS: the plugin's photos feature, or this screen's own (hidden without a webcam) -->
+        <lv_obj name="container_print_photos" width="100%" height="content" style_pad_all="0" scrollable="false">
+          <bind_flag_if_eq subject="printer_has_webcam" flag="hidden" ref_value="0"/>
+          <plugin_feature_toggle_row name="row_print_photos"
+                                     feature="photos" label="Print photos" icon="image_area"
+                                     description="Saves a camera photo after layer 2 and when each print ends, shown in print history."
+                                     subject="plugin_feature_on_photos" callback="on_plugin_feature_switch_changed"/>
+        </lv_obj>
+        <!-- ================================================================== -->
+        <!-- FANS (hidden until fans are discovered) -->
+        <!-- ================================================================== -->
+        <lv_obj name="container_fan_settings" width="100%" style_pad_all="0" scrollable="false">
+          <bind_flag_if_eq subject="fans_version" flag="hidden" ref_value="0"/>
+          <setting_action_row name="row_fan_settings"
+                              label="Fans" icon="fan" description="View and rename fans"
+                              callback="on_fans_settings_clicked"/>
+        </lv_obj>
+        <!-- ================================================================== -->
+        <!-- SENSORS (hidden if no sensors detected) -->
+        <!-- ================================================================== -->
+        <lv_obj name="container_filament_sensors" width="100%" style_pad_all="0" scrollable="false">
+          <bind_flag_if_eq subject="filament_sensor_count" flag="hidden" ref_value="0"/>
+          <setting_action_row name="row_filament_sensors"
+                              label="Sensors" icon="sensor" description="Configure printer sensors"
+                              callback="on_filament_sensors_clicked"/>
+        </lv_obj>
+        <!-- ================================================================== -->
+        <!-- LED SETTINGS (hidden if no LED capability) -->
+        <!-- ================================================================== -->
+        <lv_obj name="container_led_light"
+                width="100%" style_pad_all="0" style_layout="flex" style_flex_flow="column" scrollable="false">
+          <bind_flag_if_eq subject="printer_has_led" flag="hidden" ref_value="0"/>
+          <setting_action_row name="row_led_settings"
+                              label="LED Settings" icon="led_strip"
+                              description="Startup, auto-control, and macro devices" callback="on_led_settings_clicked"/>
+        </lv_obj>
+        <!-- ================================================================== -->
+        <!-- POWER DEVICES (hidden when no power devices discovered) -->
+        <!-- ================================================================== -->
+        <lv_obj name="container_power_devices" width="100%" style_pad_all="0" scrollable="false">
+          <bind_flag_if_eq subject="power_device_count" flag="hidden" ref_value="0"/>
+          <setting_action_row name="row_power_devices"
+                              label="Power Devices" icon="power_plug"
+                              description="Control power relays and smart outlets" callback="on_power_devices_clicked"/>
+        </lv_obj>
+        <!-- ================================================================== -->
+        <!-- SPOOLMAN -->
+        <!-- ================================================================== -->
+        <setting_action_row name="row_spoolman_settings"
+                            label="Spoolman" icon="spoolman" description="Filament tracking &amp; label printing"
+                            callback="on_spoolman_settings_clicked"/>
+      </setting_group>
+    </lv_obj>
+  </view>
+</component>

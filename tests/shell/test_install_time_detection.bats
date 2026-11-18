@@ -1,0 +1,236 @@
+#!/usr/bin/env bats
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Install-time printer detection: Tier-1 unchanged; Tier-2 B/C/no-op.
+
+WORKTREE_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+
+setup() {
+    load helpers
+    export INSTALL_DIR="$BATS_TEST_TMPDIR/opt/helixscreen"
+    mkdir -p "$INSTALL_DIR/config"
+    export SETTINGS_FILE="$INSTALL_DIR/config/settings.json"
+    export HELIX_PRESET_DIR="$WORKTREE_ROOT/assets/config/presets"
+    unset _HELIX_PRINTER_SEED_SOURCED
+    . "$WORKTREE_ROOT/scripts/lib/installer/common.sh" 2>/dev/null || true
+    . "$WORKTREE_ROOT/scripts/lib/installer/host_profile.sh" 2>/dev/null || true
+    . "$WORKTREE_ROOT/scripts/lib/installer/printer_seed.sh"
+    # Stub binary: echoes $FAKE_VERDICT, or exits non-zero if FAKE_UNREACHABLE=1.
+    export FAKEBIN="$BATS_TEST_TMPDIR/helix-screen"
+    cat > "$FAKEBIN" <<'SH'
+#!/bin/sh
+[ "${FAKE_UNREACHABLE:-0}" = "1" ] && exit 1
+printf '%s\n' "$FAKE_VERDICT"
+SH
+    chmod +x "$FAKEBIN"
+    export HELIX_SCREEN_BIN="$FAKEBIN"
+}
+
+@test "tier2 B: confident unambiguous verdict seeds full preset + marker" {
+    rm -f "$SETTINGS_FILE"
+    export FAKE_VERDICT='{"model":"Qidi Q2","preset":"qidi_q2","confidence":92,"runner_up_preset":"qidi_q1_pro","runner_up_confidence":70}'
+    run seed_from_moonraker_detection
+    [ "$status" -eq 0 ]
+    python3 -c "import json;d=json.load(open('$SETTINGS_FILE'));assert d.get('preset')=='qidi_q2',d;p=d['printers']['default'];assert p['fans']['part']=='fan_generic cooling_fan',p;assert p['wizard_completed'] is False"
+}
+
+@test "tier2 B: Max 4 verdict seeds Max 4 preset" {
+    rm -f "$SETTINGS_FILE"
+    export FAKE_VERDICT='{"model":"Qidi Max 4","preset":"qidi_max4","confidence":96,"runner_up_preset":"qidi_q2","runner_up_confidence":78}'
+    run seed_from_moonraker_detection
+    [ "$status" -eq 0 ]
+    python3 -c "import json;d=json.load(open('$SETTINGS_FILE'));assert d.get('preset')=='qidi_max4',d;p=d['printers']['default'];assert p['fans']['exhaust']=='fan_generic chamber_circulation_fan',p;assert p['heaters']['chamber']=='heater_generic chamber',p"
+}
+
+@test "tier2 C: ambiguous near-tie pre-fills host only, no preset marker" {
+    rm -f "$SETTINGS_FILE"
+    export FAKE_VERDICT='{"model":"Qidi Q2","preset":"qidi_q2","confidence":86,"runner_up_preset":"qidi_q1_pro","runner_up_confidence":84}'
+    run seed_from_moonraker_detection
+    [ "$status" -eq 0 ]
+    python3 -c "import json;d=json.load(open('$SETTINGS_FILE'));assert 'preset' not in d,d;assert d['printers']['default']['moonraker_host']=='127.0.0.1'"
+}
+
+@test "tier2 no-op: Moonraker unreachable leaves settings absent" {
+    rm -f "$SETTINGS_FILE"
+    export FAKE_UNREACHABLE=1
+    run seed_from_moonraker_detection
+    [ "$status" -eq 0 ]
+    [ ! -f "$SETTINGS_FILE" ]
+}
+
+@test "tier2 no-op: detected model with no preset does nothing" {
+    rm -f "$SETTINGS_FILE"
+    export FAKE_VERDICT='{"model":"Some Printer","preset":null,"confidence":95,"runner_up_preset":null,"runner_up_confidence":0}'
+    run seed_from_moonraker_detection
+    [ "$status" -eq 0 ]
+    [ ! -f "$SETTINGS_FILE" ]
+}
+
+# --- Re-run safety -----------------------------------------------------------
+# Seeding also runs on `install.sh --update`, after the user's settings.json has
+# been restored. Clearing wizard_completed there sends a configured user back
+# through first-boot setup; on a multi-printer config the app's stale-entry
+# recovery then archives the active printer out of the list entirely.
+
+# Write a settings.json that looks like a user who finished the wizard.
+_seed_configured_settings() {
+    cat > "$SETTINGS_FILE" <<'JSON'
+{
+  "active_printer_id": "default",
+  "preset": "voron_v24",
+  "printers": {
+    "default": {
+      "wizard_completed": true,
+      "moonraker_host": "192.168.1.50",
+      "heaters": {"bed": "heater_bed", "hotend": "extruder"}
+    }
+  }
+}
+JSON
+}
+
+@test "tier2 B re-run: preserves wizard_completed on an already-configured install" {
+    _seed_configured_settings
+    export FAKE_VERDICT='{"model":"Qidi Q2","preset":"qidi_q2","confidence":92,"runner_up_preset":"qidi_q1_pro","runner_up_confidence":70}'
+    run seed_from_moonraker_detection
+    [ "$status" -eq 0 ]
+    python3 -c "
+import json
+d = json.load(open('$SETTINGS_FILE'))
+p = d['printers']['default']
+assert p['wizard_completed'] is True, 'wizard_completed was clobbered: %r' % p.get('wizard_completed')
+assert d['preset'] == 'voron_v24', 'preset was clobbered: %r' % d.get('preset')
+assert p['moonraker_host'] == '192.168.1.50', p
+assert p['heaters']['bed'] == 'heater_bed', p
+"
+}
+
+@test "tier2 B fresh: still marks a brand-new install as needing the wizard" {
+    rm -f "$SETTINGS_FILE"
+    export FAKE_VERDICT='{"model":"Qidi Q2","preset":"qidi_q2","confidence":92,"runner_up_preset":"qidi_q1_pro","runner_up_confidence":70}'
+    run seed_from_moonraker_detection
+    [ "$status" -eq 0 ]
+    python3 -c "
+import json
+d = json.load(open('$SETTINGS_FILE'))
+assert d['printers']['default']['wizard_completed'] is False, d
+assert d['preset'] == 'qidi_q2', d
+"
+}
+
+@test "tier2 B re-run: an existing incomplete wizard stays incomplete" {
+    cat > "$SETTINGS_FILE" <<'JSON'
+{"active_printer_id": "default", "printers": {"default": {"wizard_completed": false}}}
+JSON
+    export FAKE_VERDICT='{"model":"Qidi Q2","preset":"qidi_q2","confidence":92,"runner_up_preset":"qidi_q1_pro","runner_up_confidence":70}'
+    run seed_from_moonraker_detection
+    [ "$status" -eq 0 ]
+    python3 -c "
+import json
+d = json.load(open('$SETTINGS_FILE'))
+assert d['printers']['default']['wizard_completed'] is False, d
+assert d['preset'] == 'qidi_q2', d
+"
+}
+
+
+# --- Every settings.json writer: symlink, corruption ------------------------
+# These writers run after setup_config_symlink, so settings.json can be a link
+# into printer_data, and an unparseable file is Config::init's to recover.
+
+_link_settings_into_printer_data() {
+    PD="$BATS_TEST_TMPDIR/printer_data/config/helixscreen"
+    mkdir -p "$PD"
+    printf '{"config_version": 9, "active_printer_id": "default", "printers": {"default": {}}}\n' \
+        > "$PD/settings.json"
+    rm -f "$SETTINGS_FILE"
+    ln -s "$PD/settings.json" "$SETTINGS_FILE"
+}
+
+@test "full preset seed writes through the printer_data symlink" {
+    _link_settings_into_printer_data
+    seed_full_preset_for_printer qidi_q2
+    [ -L "$SETTINGS_FILE" ] || fail "symlink replaced"
+    python3 -c "import json;d=json.load(open('$PD/settings.json'));assert d.get('preset')=='qidi_q2',d"
+}
+
+@test "full preset seed leaves an unparseable settings.json alone" {
+    printf '{"config_version": 9,\n' > "$SETTINGS_FILE"
+    cp "$SETTINGS_FILE" "$BATS_TEST_TMPDIR/before"
+    seed_full_preset_for_printer qidi_q2
+    cmp -s "$SETTINGS_FILE" "$BATS_TEST_TMPDIR/before" || fail "rewritten: $(cat "$SETTINGS_FILE")"
+}
+
+@test "moonraker host pre-fill writes through the printer_data symlink" {
+    _link_settings_into_printer_data
+    _seed_moonraker_host_localhost
+    [ -L "$SETTINGS_FILE" ] || fail "symlink replaced"
+    python3 -c "import json;d=json.load(open('$PD/settings.json'));assert d['printers']['default']['moonraker_host']=='127.0.0.1',d"
+}
+
+@test "moonraker host pre-fill leaves an unparseable settings.json alone" {
+    printf '{"config_version": 9,\n' > "$SETTINGS_FILE"
+    cp "$SETTINGS_FILE" "$BATS_TEST_TMPDIR/before"
+    _seed_moonraker_host_localhost
+    cmp -s "$SETTINGS_FILE" "$BATS_TEST_TMPDIR/before" || fail "rewritten: $(cat "$SETTINGS_FILE")"
+}
+
+@test "full preset seed keeps the preset's display block" {
+    # creator5 ships display.rotate=90: the first boot frame depends on it.
+    rm -f "$SETTINGS_FILE"
+    seed_full_preset_for_printer creator5
+    python3 -c "import json;d=json.load(open('$SETTINGS_FILE'));assert isinstance(d.get('display'),dict),d;assert d['display']['rotate']==90,d"
+}
+
+@test "full preset seed fills the display block without overriding the user's keys" {
+    printf '{"config_version": 9, "display": {"rotate": 180, "sleep_sec": 60}}\n' > "$SETTINGS_FILE"
+    seed_full_preset_for_printer creator5
+    python3 -c "import json;d=json.load(open('$SETTINGS_FILE'))['display'];assert d['rotate']==180 and d['sleep_sec']==60 and d['rotation_probed'] is True,d"
+}
+
+@test "full preset seed writes the preset's touch calibration" {
+    # The display backend loads /input/calibration before Moonraker connects,
+    # so the runtime preset apply comes too late for the first boot.
+    rm -f "$SETTINGS_FILE"
+    seed_full_preset_for_printer sovol_sv06_ace
+    python3 -c "import json;c=json.load(open('$SETTINGS_FILE'))['input']['calibration'];assert c['valid'] is True and c['a']==1.66 and c['e']==1.76,c;assert '_comment' not in c,c"
+}
+
+@test "full preset seed keeps the user's touch calibration" {
+    printf '{"config_version": 9, "input": {"calibration": {"valid": true, "a": 1.1, "b": 0.0, "c": 3.0, "d": 0.0, "e": 1.2, "f": 4.0}}}\n' > "$SETTINGS_FILE"
+    seed_full_preset_for_printer sovol_sv06_ace
+    python3 -c "import json;c=json.load(open('$SETTINGS_FILE'))['input']['calibration'];assert (c['a'],c['c'],c['e'],c['f'])==(1.1,3.0,1.2,4.0),c"
+}
+
+@test "tier2 C: a low-confidence verdict seeds no display or input block" {
+    rm -f "$SETTINGS_FILE"
+    export FAKE_VERDICT='{"model":"Creality K1C","preset":"k1c","confidence":60,"runner_up_preset":"k1","runner_up_confidence":55}'
+    run seed_from_moonraker_detection
+    [ "$status" -eq 0 ]
+    python3 -c "import json;d=json.load(open('$SETTINGS_FILE'));assert 'display' not in d,d;assert 'input' not in d,d;assert 'preset' not in d,d"
+}
+
+@test "existing install, no --update: install-time settings seeding writes nothing" {
+    printf '{"printers":{"default":{"wizard_completed":true}}}\n' > "$SETTINGS_FILE"
+    cp "$SETTINGS_FILE" "$BATS_TEST_TMPDIR/before.json"
+    export FAKE_VERDICT='{"model":"Creality K1C","preset":"k1c","confidence":100,"runner_up_preset":"k1","runner_up_confidence":81}'
+    run seed_install_time_settings false ""
+    [ "$status" -eq 0 ]
+    cmp "$SETTINGS_FILE" "$BATS_TEST_TMPDIR/before.json"
+}
+
+@test "main.sh: install-time seeding is gated on no install existing before the run" {
+    # The fresh-install verdict is taken before anything is written, from the
+    # same test that decides an update; settings.json after restore cannot tell.
+    local main="$WORKTREE_ROOT/scripts/lib/installer/main.sh"
+    grep -q 'seed_install_time_settings "\$fresh_install"' "$main"
+    awk '/fresh_install=true/{t=NR} /\[ -d "\$INSTALL_DIR" \]/{d=NR} /fresh_install=false/{f=NR} END{exit !(t && d && f && t<d && d<f)}' "$main"
+}
+
+@test "fresh install: install-time settings seeding applies a confident verdict" {
+    rm -f "$SETTINGS_FILE"
+    export FAKE_VERDICT='{"model":"Creality K1C","preset":"k1c","confidence":100,"runner_up_preset":"k1","runner_up_confidence":81}'
+    run seed_install_time_settings true ""
+    [ "$status" -eq 0 ]
+    python3 -c "import json;d=json.load(open('$SETTINGS_FILE'));assert d['preset']=='k1c',d;assert d['display']['animations_enabled'] is False,d"
+}

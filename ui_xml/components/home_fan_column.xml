@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <api>
+    <prop name="role" type="string"/>
+    <prop name="letter" type="string"/>
+    <prop name="visible_subject" type="string"/>
+  </api>
+  <view name="fan_stack_${role}_row" width="0" flex_grow="1" height="content"
+        flex_flow="column" style_pad_all="0" style_pad_gap="#space_xxs"
+        style_flex_cross_place="center" scrollable="false" event_bubble="true">
+    <bind_flag_if_eq subject="$visible_subject" flag="hidden" ref_value="0"/>
+    <lv_obj width="content" height="content" flex_flow="row" style_pad_all="0"
+            style_pad_gap="#space_xxs" style_flex_cross_place="center" scrollable="false" event_bubble="true">
+      <icon name="fan_stack_${role}_icon" src="fan" size="md" variant="primary" event_bubble="true"/>
+      <lv_label name="fan_stack_${role}_name" text="$letter" style_text_font="#font_small" style_text_color="#text" event_bubble="true"/>
+    </lv_obj>
+    <text_small name="fan_stack_${role}_speed" text="--" event_bubble="true"/>
+  </view>
+</component>

@@ -1,0 +1,551 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "ui_filename_utils.h"
+
+#include "helix_plugin_features.h"
+#include "json_fwd.h"
+#include "text_io.h"
+
+#include <algorithm>
+#include <cctype>
+#include <map>
+#include <string>
+#include <vector>
+
+/**
+ * @file moonraker_types.h
+ * @brief Data structures for Moonraker API operations
+ *
+ * Contains all request/response types used by the Moonraker API layer,
+ * separated from the API class for cleaner dependencies. Code that only
+ * needs to work with these types (e.g., ACE backend) can include just
+ * this header without pulling in the full API interface.
+ */
+
+// ============================================================================
+// Safety Configuration
+// ============================================================================
+
+/**
+ * @brief Safety limits for G-code generation and validation
+ *
+ * These limits protect against dangerous operations:
+ * - Temperature limits prevent heater damage or fire hazards
+ * - Position/distance limits prevent mechanical collisions
+ * - Feedrate limits prevent motor stalling or mechanical stress
+ *
+ * Priority order:
+ * 1. Explicitly configured values (via set_safety_limits())
+ * 2. Auto-detected from printer.cfg (via update_safety_limits_from_printer())
+ * 3. Conservative fallback defaults
+ */
+struct SafetyLimits {
+    double max_temperature_celsius = 400.0;
+    double min_temperature_celsius = 0.0;
+
+    /// Per-heater ceilings read from the printer's own config, keyed by the
+    /// lower-cased `configfile.settings` section header. Empty until
+    /// update_safety_limits_from_printer() has run. Read through max_temp_for()
+    /// and written through set_max_temp_for(), never directly - those two share
+    /// normalize_heater_key(), and a raw insert is how the key casing drifts
+    /// apart from the lookup.
+    std::map<std::string, double> heater_max_temp_celsius;
+    /// Per-extruder extrusion minimums, keyed like heater_max_temp_celsius. Read
+    /// through min_extrude_temp_for() and written through set_min_extrude_temp_for().
+    std::map<std::string, double> heater_min_extrude_temp_celsius;
+    /// The primary extruder's extrusion minimum (Klipper default 170), for callers
+    /// that have no extruder name to hand.
+    double min_extrude_temp_celsius = 170.0;
+    double max_fan_speed_percent = 100.0;
+    double min_fan_speed_percent = 0.0;
+    double max_feedrate_mm_min = 50000.0;
+    double min_feedrate_mm_min = 0.0;
+    double max_relative_distance_mm = 1000.0;
+    double min_relative_distance_mm = -1000.0;
+    double max_absolute_position_mm = 1000.0;
+    double min_absolute_position_mm = 0.0;
+
+    /**
+     * @brief Ceiling for one heater, by Klipper object name.
+     *
+     * `max_temperature_celsius` is a single global bound, and a single bound
+     * cannot be right for a 290°C nozzle and a 120°C bed at once. Heaters whose
+     * config section was seen carry their own ceiling here; anything else falls
+     * back to the global sanity net rather than to another heater's number.
+     *
+     * That fallback direction is the point. Adopting the highest observed
+     * max_temp as one global bound - the obvious narrow fix - would let a
+     * `configfile.settings` response that exposes `heater_bed` but not
+     * `extruder` seed a 120°C ceiling and then reject every nozzle target
+     * (prestonbrown/helixscreen#1355).
+     *
+     * Keys are `configfile.settings` section headers, which is what a send
+     * carries: TemperatureController::resolved_name() yields "extruder",
+     * "heater_bed", or the whole "heater_generic chamber_heater".
+     *
+     * @param heater Heater name as passed to set_temperature().
+     */
+    double max_temp_for(const std::string& heater) const {
+        const auto it = heater_max_temp_celsius.find(normalize_heater_key(heater));
+        return it != heater_max_temp_celsius.end() ? it->second : max_temperature_celsius;
+    }
+
+    /// Whether the printer's configfile gave this heater its own max_temp.
+    bool has_max_temp_for(const std::string& heater) const {
+        return heater_max_temp_celsius.count(normalize_heater_key(heater)) > 0;
+    }
+
+    /// Record one heater's ceiling, normalizing the key the same way
+    /// max_temp_for() normalizes its lookup.
+    void set_max_temp_for(const std::string& heater, double max_temp) {
+        heater_max_temp_celsius[normalize_heater_key(heater)] = max_temp;
+    }
+
+    /// Extrusion minimum for one extruder, by Klipper object name. An extruder
+    /// whose section was not read takes min_extrude_temp_celsius, the primary
+    /// extruder's, since Klipper's own default is the same for every extruder.
+    double min_extrude_temp_for(const std::string& extruder) const {
+        const auto it = heater_min_extrude_temp_celsius.find(normalize_heater_key(extruder));
+        return it != heater_min_extrude_temp_celsius.end() ? it->second : min_extrude_temp_celsius;
+    }
+
+    /// Record one extruder's extrusion minimum, keyed the way min_extrude_temp_for() looks it up.
+    void set_min_extrude_temp_for(const std::string& extruder, double min_extrude_temp) {
+        heater_min_extrude_temp_celsius[normalize_heater_key(extruder)] = min_extrude_temp;
+    }
+
+    /// Fold a heater name to its map key.
+    ///
+    /// Klipper keeps whatever case the user wrote a section header in, and the
+    /// discovery name carries it through untouched - `heater_generic CHAMBER`
+    /// is a real shape, pinned by tests/unit/test_chamber_temperature.cpp. So
+    /// the two sides of the map cannot be allowed to disagree about casing:
+    /// lower-casing only the lookup made a ceiling stored under an upper-cased
+    /// header unreachable, and an unreachable ceiling falls back to the global
+    /// sanity net - which is #1355 again, on the one heater (a chamber) most
+    /// likely to sit far below it.
+    static std::string normalize_heater_key(std::string heater) {
+        heater = helix::text_io::to_lower(heater);
+        return heater;
+    }
+
+    /**
+     * @brief Clamp the temperature FLOORS at 0°C.
+     *
+     * Klipper's `min_temp` is a sensor sanity floor, not a target floor. A
+     * printer with an unmounted or open thermistor - a toolchanger with no
+     * tools fitted, say - is legitimately configured `min_temp: -100` so
+     * Klipper tolerates the open reads, and Klipper is perfectly happy with
+     * that. Nothing downstream of SafetyLimits carries that meaning:
+     * min_temperature_celsius is the lower bound on a *sendable target*
+     * (is_safe_temperature) and min_extrude_temp_celsius is rendered straight
+     * into "Heat to at least %d°C for filament operations". Below zero both
+     * are nonsense - a negative target is unreachable and the instruction
+     * cannot be followed.
+     *
+     * So the adopted value is clamped here, at the type, rather than at each
+     * of the several readers. Idempotent, so it is safe to call on every
+     * refresh. Only the floors move: the ceiling is a deliberately permissive
+     * sanity net (400°C) that widens to whatever the config asks for.
+     */
+    void clamp_temperature_floors() {
+        if (min_temperature_celsius < 0.0) {
+            min_temperature_celsius = 0.0;
+        }
+        if (min_extrude_temp_celsius < 0.0) {
+            min_extrude_temp_celsius = 0.0;
+        }
+        for (auto& [extruder, min_extrude] : heater_min_extrude_temp_celsius) {
+            if (min_extrude < 0.0) {
+                min_extrude = 0.0;
+            }
+        }
+    }
+};
+
+// ============================================================================
+// File Management Types
+// ============================================================================
+
+/**
+ * @brief File information structure
+ */
+struct FileInfo {
+    std::string filename;
+    std::string path; // Relative to root
+    uint64_t size = 0;
+    double modified = 0.0;
+    std::string permissions;
+    bool is_dir = false;
+};
+
+/**
+ * @brief One entry of the file manager's root list (server.files.roots)
+ *
+ * The only place on the HTTP API that names a writable directory in absolute
+ * terms. Everything else Moonraker reports about its config is relative to a
+ * root we are trying to locate in the first place, which is why the roots are
+ * needed to decide whether an absolute `[include /some/where.conf]` is a path
+ * HelixScreen can reach through the file API.
+ */
+struct FileRoot {
+    std::string name;        ///< "config", "gcodes", "logs", ...
+    std::string path;        ///< absolute path on the printer
+    std::string permissions; ///< "rw" or "r"
+
+    /// True only when Moonraker explicitly said the root is writable. A root
+    /// with no permissions field is never assumed writable.
+    [[nodiscard]] bool writable() const {
+        return permissions.find('w') != std::string::npos;
+    }
+
+    /// True when Moonraker said the root can be read. Same conservative rule as
+    /// writable(): an absent permissions field claims nothing, so a fork that
+    /// omits it keeps callers on the HTTP path rather than reading a guess.
+    [[nodiscard]] bool readable() const {
+        return permissions.find('r') != std::string::npos;
+    }
+};
+
+namespace helix {
+
+/**
+ * @brief Absolute path of the named root, but only when it is writable
+ *
+ * Returns "" for a read-only root and for a name that is not in the list, so a
+ * caller that treats "" as "no root" cannot accidentally write into a root
+ * Moonraker marked "r".
+ */
+inline std::string writable_root_path(const std::vector<FileRoot>& roots, const std::string& name) {
+    if (name.empty())
+        return "";
+    for (const auto& r : roots) {
+        if (r.name == name)
+            return r.writable() ? r.path : std::string();
+    }
+    return "";
+}
+
+/**
+ * @brief Absolute path of the named root when it can be READ
+ *
+ * The writable_root_path() sibling above gates on "w" because its callers write
+ * into the root. Reading a file Moonraker already serves needs no such gate: a
+ * root marked read-only is still readable, and refusing it would send the caller
+ * back to an HTTP round-trip for a file sitting on the same disk.
+ *
+ * Returns "" for a name that is not in the list, or one Moonraker reports with
+ * no permissions at all.
+ */
+inline std::string readable_root_path(const std::vector<FileRoot>& roots, const std::string& name) {
+    if (name.empty())
+        return "";
+    for (const auto& r : roots) {
+        if (r.name == name)
+            return r.readable() ? r.path : std::string();
+    }
+    return "";
+}
+
+} // namespace helix
+
+/**
+ * @brief Thumbnail info with dimensions
+ */
+struct ThumbnailInfo {
+    std::string relative_path;
+    int width = 0;
+    int height = 0;
+
+    /// Calculate pixel count for comparison (int64 to avoid overflow on large images)
+    [[nodiscard]] int64_t pixel_count() const {
+        return static_cast<int64_t>(width) * height;
+    }
+};
+
+/**
+ * @brief The thumbnail to fetch for a box of @p target_w x @p target_h
+ *
+ * The smallest entry that covers the box (least to download and scale), else
+ * the largest. A box with no size (either side <= 0) is one nobody has measured
+ * yet, so it takes the largest rather than letting every entry "cover" it and
+ * picking the smallest icon. Ties keep the entry listed first.
+ *
+ * @return nullptr only when @p thumbnails is empty
+ */
+[[nodiscard]] inline const ThumbnailInfo*
+select_thumbnail(const std::vector<ThumbnailInfo>& thumbnails, int target_w, int target_h) {
+    if (thumbnails.empty()) {
+        return nullptr;
+    }
+    const bool sized = target_w > 0 && target_h > 0;
+    const ThumbnailInfo* smallest_cover = nullptr;
+    const ThumbnailInfo* largest = &thumbnails[0];
+    for (const auto& t : thumbnails) {
+        if (t.pixel_count() > largest->pixel_count()) {
+            largest = &t;
+        }
+        if (sized && t.width >= target_w && t.height >= target_h &&
+            (!smallest_cover || t.pixel_count() < smallest_cover->pixel_count())) {
+            smallest_cover = &t;
+        }
+    }
+    return smallest_cover ? smallest_cover : largest;
+}
+
+/**
+ * @brief Resolve a Moonraker thumbnail relative_path to be relative to the gcodes root.
+ *
+ * Moonraker's metadata returns thumbnail relative_path values that are relative to the
+ * gcode file's PARENT directory, not the gcodes root. For files at root this is the same
+ * thing, but for files in subdirectories the gcode_dir must be prepended.
+ *
+ * @param thumb_relative_path  The thumbnail's relative_path from Moonraker metadata
+ * @param gcode_dir            The directory containing the gcode file (empty for root)
+ * @return Path relative to gcodes root, suitable for download URL construction
+ *
+ * Examples:
+ *   resolve_thumbnail_path(".thumbs/file-300x300.png", "")       -> ".thumbs/file-300x300.png"
+ *   resolve_thumbnail_path(".thumbs/file-300x300.png", "prints") ->
+ * "prints/.thumbs/file-300x300.png"
+ */
+[[nodiscard]] inline std::string resolve_thumbnail_path(const std::string& thumb_relative_path,
+                                                        const std::string& gcode_dir) {
+    if (thumb_relative_path.empty() || gcode_dir.empty()) {
+        return thumb_relative_path;
+    }
+    return gcode_dir + "/" + thumb_relative_path;
+}
+
+namespace helix {
+
+/**
+ * @brief Which of a file's thumbnails to fetch for a box, as a path from the gcodes root
+ *
+ * The one size and subfolder rule every consumer uses: select_thumbnail()'s
+ * choice for @p target_w x @p target_h (an unmeasured box takes the largest),
+ * resolved against @p gcode_dir, the directory of the gcode file the
+ * thumbnails came from.
+ *
+ * @return Empty when there are no thumbnails
+ */
+[[nodiscard]] inline std::string
+select_and_resolve_thumbnail(const std::vector<ThumbnailInfo>& thumbnails,
+                             const std::string& gcode_dir, int target_w, int target_h) {
+    const ThumbnailInfo* best = select_thumbnail(thumbnails, target_w, target_h);
+    return best ? resolve_thumbnail_path(best->relative_path, gcode_dir) : std::string();
+}
+
+} // namespace helix
+
+/**
+ * @brief File metadata structure (detailed file info)
+ */
+struct FileMetadata {
+    std::string filename;
+    uint64_t size = 0;
+    double modified = 0.0;
+    std::string slicer;
+    std::string slicer_version;
+    double print_start_time = 0.0;
+    std::string job_id; // Moonraker returns hex string like "00000D"
+    uint32_t layer_count = 0;
+    double object_height = 0.0;               // mm
+    double estimated_time = 0.0;              // seconds
+    double filament_total = 0.0;              // mm
+    double filament_weight_total = 0.0;       // grams
+    std::string filament_type;                // e.g., "PLA", "PETG", "ABS", "TPU", "ASA"
+    std::string filament_name;                // Full filament name (e.g., "PolyMaker PolyLite ABS")
+    double layer_height = 0.0;                // mm (per-layer height)
+    double first_layer_height = 0.0;          // mm (first layer height, may differ)
+    std::vector<std::string> filament_colors; // Hex colors per tool (e.g., ["#ED1C24", "#00C1AE"])
+    std::vector<double>
+        filament_weights; // Per-tool filament weight in grams (e.g., [0.0, 0.0, 0.0, 12.5]).
+                          // Empty when slicer omits per-tool breakdown — callers must treat
+                          // empty as "unknown" (do NOT assume all-zero).
+    double first_layer_bed_temp = 0.0;
+    double first_layer_extr_temp = 0.0;
+    double nozzle_diameter = 0.0; ///< mm, the slicer's; 0 when the file states none
+    /// mm by extruder (`nozzle_diameter_list`, which some Moonraker forks add); empty when absent.
+    std::vector<double> nozzle_diameter_list;
+    /// Each filament's nozzle flow type as the file writes it (`filament_volume_type`, which
+    /// some Moonraker forks add); empty when absent.
+    std::vector<std::string> filament_volume_types;
+    uint64_t gcode_start_byte = 0;
+    uint64_t gcode_end_byte = 0;
+    std::string uuid;                      // Slicer-generated UUID (for history matching)
+    std::vector<ThumbnailInfo> thumbnails; // Thumbnails with dimensions
+};
+
+// ============================================================================
+// Webcam Types
+// ============================================================================
+
+/// Webcam information from Moonraker
+struct WebcamInfo {
+    std::string name;             ///< Webcam name/identifier
+    std::string service;          ///< Service type (e.g., "mjpegstreamer")
+    std::string snapshot_url;     ///< URL for snapshot image
+    std::string stream_url;       ///< URL for MJPEG stream
+    std::string uid;              ///< Unique identifier
+    bool enabled = true;          ///< Whether the webcam is enabled
+    bool flip_horizontal = false; ///< Moonraker's own flip, applied before any user transform
+    bool flip_vertical = false;
+    int target_fps = 15; ///< Configured frame rate (Moonraker default 15)
+    /// Registered by a built-in screen server (its extra_data carries the marker), so
+    /// it stays recognizable whatever the user renames it to.
+    bool screen_server = false;
+    /// Empty when the camera can be shown. Otherwise why discovery ruled it
+    /// out — its serving process is not running, or its absolute snapshot URL
+    /// did not answer — so the auto-pick skips it and a picker can say so.
+    std::string unavailable_reason;
+};
+
+// ============================================================================
+// Timelapse Types
+// ============================================================================
+
+/**
+ * @brief Moonraker-Timelapse plugin settings
+ *
+ * Represents the configurable options for the Moonraker-Timelapse plugin.
+ * Used by get_timelapse_settings() and set_timelapse_settings().
+ */
+struct TimelapseSettings {
+    bool enabled = false;             ///< Whether timelapse recording is enabled
+    std::string mode = "layermacro";  ///< "layermacro" (per-layer) or "hyperlapse" (time-based)
+    int output_framerate = 30;        ///< Output video framerate (15/24/30/60)
+    bool autorender = true;           ///< Auto-render video when print completes
+    int park_retract_distance = 1;    ///< Retract distance before parking (mm)
+    double park_extrude_speed = 15.0; ///< Extrude speed after unpark (mm/s)
+
+    // Hyperlapse-specific
+    int hyperlapse_cycle = 30; ///< Seconds between frames in hyperlapse mode
+};
+
+/**
+ * @brief Information about the last captured timelapse frame
+ */
+struct LastFrameInfo {
+    int frame_count = 0;         ///< Total frames captured
+    std::string last_frame_file; ///< Filename of the last captured frame
+};
+
+// ============================================================================
+// Power Device Types
+// ============================================================================
+
+/**
+ * @brief Power device information
+ */
+struct PowerDevice {
+    std::string device;                 ///< Device name (e.g., "printer", "led_strip")
+    std::string type;                   ///< Device type (e.g., "gpio", "klipper_device")
+    std::string status;                 ///< Current status ("on", "off", "error")
+    bool locked_while_printing = false; ///< Cannot be toggled during prints
+};
+
+// ============================================================================
+// Print Control Types
+// ============================================================================
+
+/**
+ * @brief Result from start_modified_print() API call
+ */
+namespace helix {
+/// What the HelixPrint plugin's status says about itself (server.helix.status).
+struct HelixPluginInfo {
+    bool present = false;      ///< the component answered, enabled or not
+    bool available = false;    ///< installed and enabled
+    std::string symlink_dir;   ///< where it links a modified print; empty when not reported
+    std::string version;       ///< the plugin's PLUGIN_VERSION; empty when it did not answer
+    PluginFeatureMap features; ///< its `features` map; empty for a plugin that predates it
+};
+} // namespace helix
+
+struct ModifiedPrintResult {
+    std::string original_filename; ///< Original file path
+    std::string print_filename;    ///< Symlink path used for printing
+    std::string temp_filename;     ///< Temp file with modifications
+    std::string status;            ///< "printing" on success
+};
+
+// ============================================================================
+// REST API Types (for Moonraker extensions like ACE backend)
+// ============================================================================
+
+/**
+ * @brief Response from a generic REST API call
+ *
+ * Used for communicating with Moonraker extension plugins that expose
+ * REST endpoints (e.g., ACE backend via ValgACE's Moonraker bridge at /server/ace/). Encapsulates
+ * both success and error cases in a single structure.
+ */
+struct RestResponse {
+    bool success = false; ///< true if HTTP 2xx response
+    int status_code = 0;  ///< HTTP status code
+    json data; ///< Parsed JSON response. If response isn't JSON, contains {"_raw_body": "..."}
+    std::string error; ///< Error message (empty on success)
+};
+
+// ============================================================================
+// G-code Store Types
+// ============================================================================
+
+/**
+ * @brief Entry from Moonraker's gcode_store endpoint
+ *
+ * Represents a single G-code command or response from the
+ * server.gcode_store history buffer.
+ */
+struct GcodeStoreEntry {
+    std::string message; ///< G-code command or response text
+    double time = 0.0;   ///< Unix timestamp
+    std::string type;    ///< "command" or "response"
+};
+
+/**
+ * @brief One sensor's history from Moonraker's server.temperature_store endpoint
+ *
+ * Moonraker keeps ~20 minutes of 1 Hz history per temperature sensor. Each
+ * array is parallel (same length) when present, but any field may be absent
+ * for a given sensor (e.g. a temperature_sensor has no targets/powers).
+ */
+struct TemperatureStoreSeries {
+    std::vector<float> temperatures; ///< Measured temperature (°C) samples, oldest first
+    std::vector<float> targets;      ///< Target temperature (°C) samples, oldest first
+    std::vector<float> powers;       ///< Heater power (0-1) samples, oldest first
+};
+
+/**
+ * @brief Full response from server.temperature_store, keyed by sensor name
+ *
+ * Keys are Klipper object names, e.g. "extruder", "heater_bed",
+ * "temperature_sensor chamber".
+ */
+using TemperatureStore = std::map<std::string, TemperatureStoreSeries>;
+
+// ============================================================================
+// Bed Mesh Types
+// ============================================================================
+
+/**
+ * @brief Bed mesh profile data from Klipper
+ *
+ * Contains the probed Z-height matrix and associated metadata for bed mesh
+ * visualization and compensation.
+ */
+struct BedMeshProfile {
+    std::string name;                              ///< Profile name (e.g., "default", "adaptive")
+    std::vector<std::vector<float>> probed_matrix; ///< Z height grid (row-major order)
+    float mesh_min[2];                             ///< Min X,Y coordinates
+    float mesh_max[2];                             ///< Max X,Y coordinates
+    int x_count;                                   ///< Probes per row
+    int y_count;                                   ///< Number of rows
+    std::string algo;                              ///< Interpolation algorithm
+
+    BedMeshProfile() : mesh_min{0, 0}, mesh_max{0, 0}, x_count(0), y_count(0) {}
+};

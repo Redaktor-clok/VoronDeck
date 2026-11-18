@@ -1,0 +1,278 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Sensors Settings Overlay -->
+<!-- Configure sensor roles and enable/disable individual sensors for all sensor types -->
+<!-- Every section lists its manager's sensors through sensor_row; C++ fills the row subjects -->
+<component>
+  <styles>
+    <style name="assignment_inline" layout="flex" flex_flow="row"/>
+    <style name="assignment_stacked" layout="flex" flex_flow="column"/>
+    <style name="assignment_label_inline" width="0" flex_grow="1"/>
+    <style name="assignment_full" width="100%" flex_grow="0"/>
+    <style name="assignment_dropdown_inline" width="55%"/>
+  </styles>
+  <view name="sensors_overlay" extends="overlay_panel" title="Sensors" bg_color="#screen_bg">
+    <!-- Content Area -->
+    <lv_obj name="overlay_content"
+            width="100%" flex_grow="1" style_pad_top="0" style_pad_left="0" style_pad_right="0"
+            style_pad_bottom="#space_md" scrollable="true" scroll_elastic="false" flex_flow="column"
+            style_pad_gap="#space_sm">
+
+      <!-- ================================================================== -->
+      <!-- SWITCH SENSORS SECTION (filament runout/motion sensors) -->
+      <!-- ================================================================== -->
+      <setting_group name="switch_sensors_section">
+        <bind_flag_if_eq subject="filament_sensor_count" flag="hidden" ref_value="0"/>
+        <setting_group_header title="SWITCH SENSORS"
+                              icon="electric_switch" badge_subject="sensor_filament_row_count" hide_badge="false"/>
+        <!-- Section content with inner padding -->
+        <lv_obj width="100%"
+                height="content" style_pad_left="#space_lg" style_pad_right="#space_lg" style_pad_top="#space_sm"
+                style_pad_bottom="#space_md" scrollable="false" flex_flow="column" style_pad_gap="#space_sm">
+          <!-- Master Enable Toggle -->
+          <lv_obj width="100%"
+                  height="content" style_pad_all="0" scrollable="false" flex_flow="row"
+                  style_flex_main_place="space_between" style_flex_cross_place="center">
+            <text_small text="Enable Monitoring"/>
+            <ui_switch name="switch_master_toggle" size="small">
+              <bind_state_if_eq subject="filament_master_enabled" state="checked" ref_value="1"/>
+              <event_cb trigger="value_changed" callback="on_switch_master_toggle_changed"/>
+            </ui_switch>
+          </lv_obj>
+          <!-- Description -->
+          <text_small width="100%" text="Filament runout and motion detection sensors" style_text_align="left"/>
+          <!-- Sensor List Container -->
+          <lv_obj name="switch_sensors_list"
+                  width="100%" height="content" style_pad_all="0" scrollable="false" flex_flow="column"
+                  style_pad_gap="#space_xs">
+            <repeat count="sensor_filament_row_count">
+              <sensor_row section="filament"
+                          index="${i}" icon="filament_sensor" role_options="None&#10;Runout&#10;Toolhead&#10;Entry"/>
+            </repeat>
+          </lv_obj>
+        </lv_obj>
+      </setting_group>
+
+      <!-- ================================================================== -->
+      <!-- INPUTS SECTION (doors, buttons, dock sensors) -->
+      <!-- ================================================================== -->
+      <setting_group name="input_sensors_section">
+        <bind_flag_if_eq subject="input_sensor_total" flag="hidden" ref_value="0"/>
+        <setting_group_header title="INPUTS"
+                              icon="electric_switch" badge_subject="sensor_input_row_count" hide_badge="false"/>
+        <lv_obj width="100%"
+                height="content" style_pad_left="#space_lg" style_pad_right="#space_lg" style_pad_top="#space_sm"
+                style_pad_bottom="#space_md" scrollable="false" flex_flow="column" style_pad_gap="#space_sm">
+          <!-- Door check toggle -->
+          <lv_obj width="100%"
+                  height="content" style_pad_all="0" scrollable="false" flex_flow="row"
+                  style_flex_main_place="space_between" style_flex_cross_place="center">
+            <text_small text="Warn if a door is open"/>
+            <ui_switch name="door_check_toggle" size="small">
+              <bind_state_if_eq subject="input_door_check" state="checked" ref_value="1"/>
+              <event_cb trigger="value_changed" callback="on_input_door_check_changed"/>
+            </ui_switch>
+          </lv_obj>
+          <text_tiny width="100%"
+                     text="For materials that need a warm enclosure, like ABS or ASA" style_text_color="#text_muted"
+                     style_text_align="left"/>
+          <text_small width="100%" text="Door switches, buttons, and other on/off inputs" style_text_align="left"/>
+          <lv_obj name="input_sensors_list"
+                  width="100%" height="content" style_pad_all="0" scrollable="false" flex_flow="column"
+                  style_pad_gap="#space_xs">
+            <repeat count="sensor_input_row_count">
+              <sensor_row section="input" index="${i}" icon="electric_switch" role_options="Other&#10;Door"/>
+            </repeat>
+          </lv_obj>
+        </lv_obj>
+      </setting_group>
+
+      <!-- ================================================================== -->
+      <!-- PROBE SENSORS SECTION -->
+      <!-- ================================================================== -->
+      <setting_group name="probe_sensors_section">
+        <bind_flag_if_eq subject="probe_count" flag="hidden" ref_value="0"/>
+        <setting_group_header title="PROBE SENSORS"
+                              icon="arrow_down_bold" badge_subject="sensor_probe_row_count" hide_badge="false"/>
+        <lv_obj width="100%"
+                height="content" style_pad_left="#space_lg" style_pad_right="#space_lg" style_pad_top="#space_sm"
+                style_pad_bottom="#space_md" scrollable="false" flex_flow="column" style_pad_gap="#space_sm">
+          <text_small width="100%" text="Z probes for bed leveling and mesh generation" style_text_align="left"/>
+          <lv_obj name="probe_sensors_list"
+                  width="100%" height="content" style_pad_all="0" scrollable="false" flex_flow="column"
+                  style_pad_gap="#space_xs">
+            <repeat count="sensor_probe_row_count">
+              <sensor_row section="probe" index="${i}" icon="target"/>
+            </repeat>
+          </lv_obj>
+        </lv_obj>
+      </setting_group>
+
+      <!-- ================================================================== -->
+      <!-- WIDTH SENSORS SECTION -->
+      <!-- ================================================================== -->
+      <setting_group name="width_sensors_section">
+        <bind_flag_if_eq subject="width_sensor_count" flag="hidden" ref_value="0"/>
+        <setting_group_header title="WIDTH SENSORS"
+                              icon="ruler" badge_subject="sensor_width_row_count" hide_badge="false"/>
+        <lv_obj width="100%"
+                height="content" style_pad_left="#space_lg" style_pad_right="#space_lg" style_pad_top="#space_sm"
+                style_pad_bottom="#space_md" scrollable="false" flex_flow="column" style_pad_gap="#space_sm">
+          <text_small width="100%" text="Filament diameter sensors for flow compensation" style_text_align="left"/>
+          <lv_obj name="width_sensors_list"
+                  width="100%" height="content" style_pad_all="0" scrollable="false" flex_flow="column"
+                  style_pad_gap="#space_xs">
+            <repeat count="sensor_width_row_count">
+              <sensor_row section="width" index="${i}" icon="ruler" role_options="None&#10;Flow Compensation"/>
+            </repeat>
+          </lv_obj>
+        </lv_obj>
+      </setting_group>
+
+      <!-- ================================================================== -->
+      <!-- HUMIDITY SENSORS SECTION -->
+      <!-- ================================================================== -->
+      <setting_group name="humidity_sensors_section">
+        <bind_flag_if_eq subject="humidity_sensor_count" flag="hidden" ref_value="0"/>
+        <setting_group_header title="HUMIDITY SENSORS"
+                              icon="water" badge_subject="sensor_humidity_row_count" hide_badge="false"/>
+        <lv_obj width="100%"
+                height="content" style_pad_left="#space_lg" style_pad_right="#space_lg" style_pad_top="#space_sm"
+                style_pad_bottom="#space_md" scrollable="false" flex_flow="column" style_pad_gap="#space_sm">
+          <text_small width="100%" text="Chamber and dryer humidity monitoring" style_text_align="left"/>
+          <lv_obj name="humidity_sensors_list"
+                  width="100%" height="content" style_pad_all="0" scrollable="false" flex_flow="column"
+                  style_pad_gap="#space_xs">
+            <repeat count="sensor_humidity_row_count">
+              <sensor_row section="humidity" index="${i}" icon="water"/>
+            </repeat>
+          </lv_obj>
+        </lv_obj>
+      </setting_group>
+
+      <!-- ================================================================== -->
+      <!-- ACCELEROMETER SENSORS SECTION -->
+      <!-- ================================================================== -->
+      <setting_group name="accel_sensors_section">
+        <bind_flag_if_eq subject="accel_count" flag="hidden" ref_value="0"/>
+        <setting_group_header title="ACCELEROMETERS"
+                              icon="waveform" badge_subject="sensor_accel_row_count" hide_badge="false"/>
+        <lv_obj width="100%"
+                height="content" style_pad_left="#space_lg" style_pad_right="#space_lg" style_pad_top="#space_sm"
+                style_pad_bottom="#space_md" scrollable="false" flex_flow="column" style_pad_gap="#space_sm">
+          <text_small width="100%" text="Input shaper calibration sensors" style_text_align="left"/>
+          <lv_obj name="accel_sensors_list"
+                  width="100%" height="content" style_pad_all="0" scrollable="false" flex_flow="column"
+                  style_pad_gap="#space_xs">
+            <repeat count="sensor_accel_row_count">
+              <sensor_row section="accel" index="${i}" icon="vibrate"/>
+            </repeat>
+          </lv_obj>
+        </lv_obj>
+      </setting_group>
+
+      <!-- ================================================================== -->
+      <!-- LOAD CELLS SECTION -->
+      <!-- ================================================================== -->
+      <setting_group name="load_cells_section">
+        <bind_flag_if_eq subject="load_cell_count" flag="hidden" ref_value="0"/>
+        <setting_group_header title="LOAD CELLS"
+                              icon="weight" badge_subject="sensor_load_cell_row_count" hide_badge="false"/>
+        <lv_obj width="100%"
+                height="content" style_pad_left="#space_lg" style_pad_right="#space_lg" style_pad_top="#space_sm"
+                style_pad_bottom="#space_md" scrollable="false" flex_flow="column" style_pad_gap="#space_sm">
+          <text_small width="100%" text="Force/weight sensors" style_text_align="left"/>
+
+          <lv_obj name="load_cell_list"
+                  width="100%" height="content" style_pad_all="0" scrollable="false" flex_flow="column"
+                  style_pad_gap="#space_xs">
+            <repeat count="sensor_load_cell_row_count">
+              <sensor_row section="load_cell" index="${i}" icon="weight"/>
+            </repeat>
+          </lv_obj>
+        </lv_obj>
+      </setting_group>
+
+      <!-- ================================================================== -->
+      <!-- TEMPERATURE SENSORS SECTION -->
+      <!-- ================================================================== -->
+      <setting_group name="temp_sensors_section">
+        <bind_flag_if_eq subject="temp_sensor_count" flag="hidden" ref_value="0"/>
+        <setting_group_header title="TEMPERATURE SENSORS"
+                              icon="thermometer" badge_subject="sensor_temp_row_count" hide_badge="false"/>
+        <lv_obj width="100%"
+                height="content" style_pad_left="#space_lg" style_pad_right="#space_lg" style_pad_top="#space_sm"
+                style_pad_bottom="#space_md" scrollable="false" flex_flow="column" style_pad_gap="#space_sm">
+          <text_small width="100%" text="MCU, host, and auxiliary temperature monitoring" style_text_align="left"/>
+
+          <!-- Chamber Assignment (inside temp sensors section) -->
+          <text_tiny width="100%" long_mode="wrap" text="Override auto-detection if your chamber sensor or heater isn't named 'chamber'."
+                     style_text_color="#text_muted"/>
+
+          <!-- Chamber Heater Row -->
+          <lv_obj width="100%"
+                  height="content" style_pad_all="#space_sm" style_bg_opa="0" style_border_width="0"
+                  style_flex_cross_place="center" style_pad_gap="#space_sm" scrollable="false">
+            <bind_style_if_eq name="assignment_inline" subject="ui_is_portrait" ref_value="0"/>
+            <bind_style_if_eq name="assignment_stacked" subject="ui_is_portrait" ref_value="1"/>
+            <text_body text="Chamber Heater" style_text_color="#text" long_mode="wrap">
+              <bind_style_if_eq name="assignment_label_inline" subject="ui_is_portrait" ref_value="0"/>
+              <bind_style_if_eq name="assignment_full" subject="ui_is_portrait" ref_value="1"/>
+            </text_body>
+            <lv_dropdown name="chamber_heater_dropdown" height="content" options="Auto">
+              <bind_style_if_eq name="assignment_dropdown_inline" subject="ui_is_portrait" ref_value="0"/>
+              <bind_style_if_eq name="assignment_full" subject="ui_is_portrait" ref_value="1"/>
+              <event_cb trigger="value_changed" callback="on_chamber_heater_changed"/>
+            </lv_dropdown>
+          </lv_obj>
+
+          <!-- Chamber Sensor Row -->
+          <lv_obj width="100%"
+                  height="content" style_pad_all="#space_sm" style_bg_opa="0" style_border_width="0"
+                  style_flex_cross_place="center" style_pad_gap="#space_sm" scrollable="false">
+            <bind_style_if_eq name="assignment_inline" subject="ui_is_portrait" ref_value="0"/>
+            <bind_style_if_eq name="assignment_stacked" subject="ui_is_portrait" ref_value="1"/>
+            <text_body text="Chamber Sensor" style_text_color="#text" long_mode="wrap">
+              <bind_style_if_eq name="assignment_label_inline" subject="ui_is_portrait" ref_value="0"/>
+              <bind_style_if_eq name="assignment_full" subject="ui_is_portrait" ref_value="1"/>
+            </text_body>
+            <lv_dropdown name="chamber_sensor_dropdown" height="content" options="Auto">
+              <bind_style_if_eq name="assignment_dropdown_inline" subject="ui_is_portrait" ref_value="0"/>
+              <bind_style_if_eq name="assignment_full" subject="ui_is_portrait" ref_value="1"/>
+              <event_cb trigger="value_changed" callback="on_chamber_sensor_changed"/>
+            </lv_dropdown>
+          </lv_obj>
+
+          <!-- Divider between chamber assignment and sensor list -->
+          <divider_horizontal/>
+
+          <lv_obj name="temp_sensors_list"
+                  width="100%" height="content" style_pad_all="0" scrollable="false" flex_flow="column"
+                  style_pad_gap="#space_xs">
+            <repeat count="sensor_temp_row_count">
+              <sensor_row section="temp" index="${i}" icon="thermometer"/>
+            </repeat>
+          </lv_obj>
+        </lv_obj>
+      </setting_group>
+
+      <!-- ================================================================== -->
+      <!-- NO SENSORS PLACEHOLDER -->
+      <!-- ================================================================== -->
+      <!-- Shown only when every section's sensor count is zero -->
+      <centered_column name="no_sensors_placeholder" flex_grow="1" style_pad_all="#space_lg">
+        <bind_flag_if_not_eq subject="sensor_total_count" flag="hidden" ref_value="0"/>
+        <icon src="sensor" size="md" variant="secondary"/>
+        <text_small text="No sensors detected" style_margin_top="#space_sm"/>
+      </centered_column>
+
+      <!-- ================================================================== -->
+      <!-- INFO NOTE -->
+      <!-- ================================================================== -->
+      <info_note icon="info"
+                 text="Assign a role to enable sensor monitoring" style_pad_left="#space_sm"
+                 style_pad_bottom="#space_md"/>
+    </lv_obj>
+  </view>
+</component>

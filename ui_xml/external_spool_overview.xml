@@ -1,0 +1,105 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <consts>
+    <px name="external_control_height" value="48"/>
+  </consts>
+  <styles>
+    <style name="external_overview_row" layout="flex" flex_flow="row"/>
+    <style name="external_overview_column" layout="flex" flex_flow="column"/>
+    <style name="external_spool_card_wide" width="48%" height="100%" flex_grow="0"/>
+    <style name="external_spool_card_tall" width="100%" height="240" flex_grow="0"/>
+    <style name="external_spool_controls_wide" width="0" height="100%" flex_grow="1"/>
+    <style name="external_spool_controls_tall" width="100%" height="content" flex_grow="0"/>
+  </styles>
+  <view name="external_spool_overview" extends="lv_obj" width="100%" height="100%" align="right_mid"
+        flex_flow="column" style_pad_all="0" style_pad_gap="0" style_border_width="0"
+        style_bg_color="#screen_bg" style_bg_opa="255" scrollable="false">
+    <lv_obj name="external_overview_identity" width="100%" height="#space_2xl" style_pad_ver="0"
+            style_pad_hor="#space_md" style_bg_color="#screen_bg" style_border_width="0"
+            scrollable="false" flex_flow="row" style_flex_cross_place="center">
+      <text_small width="35%" bind_text="active_printer_name" long_mode="dots"/>
+      <lv_obj width="0" flex_grow="1" height="100%" style_pad_all="0" clickable="true" scrollable="false">
+        <event_cb trigger="clicked" callback="on_shared_network_clicked"/>
+        <text_small width="100%" align="center" bind_text="home_network_summary" style_text_align="center"
+                    long_mode="dots" clickable="false" event_bubble="true">
+          <bind_flag_if_eq subject="home_network_known" flag="hidden" ref_value="0"/>
+        </text_small>
+      </lv_obj>
+    </lv_obj>
+    <header_bar name="overlay_header" title="External Spool" title_transform="none"
+                back_button_callback="on_external_overview_back"/>
+    <lv_obj name="overlay_content" width="100%" height="0" flex_grow="1"
+            style_pad_all="#space_md" style_pad_gap="#space_md" scrollable="true">
+      <bind_style_if name="external_overview_row" cond="ui_is_portrait" invert="true"/>
+      <bind_style_if name="external_overview_column" cond="ui_is_portrait"/>
+      <lv_obj name="external_overview_spool_card" flex_flow="column" style_pad_all="#space_md"
+              style_pad_gap="#space_sm" style_flex_main_place="space_evenly" style_flex_cross_place="center"
+              style_bg_color="#card_bg" style_bg_opa="255" style_border_width="1" style_border_color="#border"
+              style_radius="#border_radius" scrollable="false" clickable="true">
+        <bind_style_if name="external_spool_card_wide" cond="ui_is_portrait" invert="true"/>
+        <bind_style_if name="external_spool_card_tall" cond="ui_is_portrait"/>
+        <event_cb trigger="clicked" callback="on_external_overview_edit"/>
+        <spool_canvas name="external_overview_ring" size="128" view="ring" fill_level="0"
+                      clickable="false" event_bubble="true"/>
+        <text_body name="external_overview_spool_name" width="100%" bind_text="external_overview_name"
+                   long_mode="dots" style_text_align="center" clickable="false" event_bubble="true"/>
+        <text_body name="external_overview_remaining" width="100%" bind_text="external_overview_amount"
+                   long_mode="wrap" style_text_align="center" clickable="false" event_bubble="true"/>
+        <text_small text="Direct feed · no AMS" width="100%" long_mode="wrap" style_text_align="center"
+                    style_text_color="#text_muted" clickable="false" event_bubble="true"/>
+      </lv_obj>
+      <lv_obj name="external_overview_controls" flex_flow="column" style_pad_all="0"
+              style_pad_gap="#space_sm" style_flex_main_place="space_between" scrollable="false">
+        <bind_style_if name="external_spool_controls_wide" cond="ui_is_portrait" invert="true"/>
+        <bind_style_if name="external_spool_controls_tall" cond="ui_is_portrait"/>
+        <lv_obj width="100%" height="content" flex_flow="column" style_pad_all="0"
+                style_pad_gap="#space_xxs" scrollable="false">
+          <text_small text="Material"/>
+          <lv_button name="external_overview_material_select" width="100%" height="#external_control_height"
+                     flex_flow="row" style_flex_cross_place="center" style_pad_hor="#space_md"
+                     style_bg_color="#card_bg" style_bg_opa="255" style_border_width="1"
+                     style_border_color="#border" style_radius="#border_radius" style_shadow_width="0">
+            <text_body name="external_overview_material_selected" width="0" flex_grow="1"
+                       bind_text="external_overview_material" long_mode="dots"
+                       clickable="false" event_bubble="true"/>
+            <icon src="chevron_down" size="xs" variant="secondary" clickable="false" event_bubble="true"/>
+            <event_cb trigger="clicked" callback="on_external_overview_edit"/>
+          </lv_button>
+        </lv_obj>
+        <lv_obj name="external_overview_material_card" width="100%" height="content" flex_flow="column"
+                style_pad_all="#space_md" style_pad_gap="#space_sm" style_bg_color="#card_bg"
+                style_bg_opa="255" style_border_width="1" style_border_color="#border"
+                style_radius="#border_radius" scrollable="false">
+          <text_body width="100%" bind_text="external_overview_material" long_mode="dots"/>
+          <text_small width="100%" bind_text="external_overview_accounting" long_mode="wrap" style_text_color="#text_muted"/>
+        </lv_obj>
+        <ui_button name="external_overview_edit" width="100%" height="#external_control_height" variant="secondary"
+                   text="Material, color and weight" long_mode="wrap">
+          <event_cb trigger="clicked" callback="on_external_overview_edit"/>
+        </ui_button>
+        <ui_button name="external_overview_profiles" width="100%" height="#external_control_height" variant="secondary"
+                   text="Preheat profiles" long_mode="wrap">
+          <event_cb trigger="clicked" callback="on_external_overview_profiles"/>
+        </ui_button>
+        <lv_obj name="external_overview_actions" width="100%" height="#external_control_height" flex_flow="row"
+                style_pad_all="0" style_pad_gap="#space_sm" scrollable="false">
+          <ui_button name="external_overview_load" width="0" height="100%" flex_grow="1" text="Load"
+                     variant="primary" bind_op_state="filament_op_load_state">
+            <bind_state_if_eq subject="filament_safety_warning_visible" state="disabled" ref_value="1"/>
+            <bind_state_if_eq subject="filament_operation_in_progress" state="disabled" ref_value="1"/>
+            <bind_state_if_eq subject="filament_load_disabled" state="disabled" ref_value="1"/>
+            <event_cb trigger="clicked" callback="on_filament_load"/>
+          </ui_button>
+          <ui_button name="external_overview_unload" width="0" height="100%" flex_grow="1" text="Unload"
+                     variant="secondary" bind_op_state="filament_op_unload_state">
+            <bind_state_if_eq subject="filament_safety_warning_visible" state="disabled" ref_value="1"/>
+            <bind_state_if_eq subject="filament_operation_in_progress" state="disabled" ref_value="1"/>
+            <bind_state_if_eq subject="filament_unload_disabled" state="disabled" ref_value="1"/>
+            <event_cb trigger="clicked" callback="on_filament_unload"/>
+          </ui_button>
+        </lv_obj>
+      </lv_obj>
+    </lv_obj>
+  </view>
+</component>

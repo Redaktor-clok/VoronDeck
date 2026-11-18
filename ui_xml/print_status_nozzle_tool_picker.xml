@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <view name="print_status_nozzle_tool_picker" extends="context_menu_backdrop">
+    <context_menu_card title="Show temp for">
+      <lv_obj name="option_list"
+              width="100%" height="content" flex_flow="column" style_pad_all="#space_xs" style_pad_gap="0"
+              scrollable="false"/>
+    </context_menu_card>
+  </view>
+</component>

@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <view name="context_backdrop" extends="context_menu_backdrop">
+    <context_menu_card title="Spool Display">
+      <ui_button name="spool_display_full" width="100%" text="Full" variant="ghost">
+        <event_cb trigger="clicked" callback="on_spool_display_selected" user_data="0"/>
+      </ui_button>
+      <ui_button name="spool_display_simple" width="100%" text="Simplified" variant="ghost">
+        <event_cb trigger="clicked" callback="on_spool_display_selected" user_data="1"/>
+      </ui_button>
+    </context_menu_card>
+  </view>
+</component>

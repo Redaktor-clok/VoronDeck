@@ -1,0 +1,95 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <api>
+    <!-- Per-instance subject names, supplied by the widget at creation. They
+         must exist before this component is parsed: a binding whose subject is
+         missing at parse time is dropped permanently and silently. -->
+    <prop name="tile_icon_subject" type="string" default=""/>
+    <prop name="tile_label_subject" type="string" default=""/>
+    <prop name="tile_dir_subject" type="string" default=""/>
+    <prop name="tile_target_subject" type="string" default=""/>
+  </api>
+  <view name="panel_widget_active_spool"
+        extends="lv_obj" height="100%" flex_grow="1" style_pad_all="0" scrollable="false">
+    <ui_button name="spoolman_btn"
+               width="100%" height="100%" variant="ghost" style_pad_ver="0" style_pad_gap="#space_xxs"
+               style_border_width="0" focusable="false">
+      <bind_state_if_not_eq subject="printer_connection_state" state="disabled" ref_value="2"/>
+      <!-- Compact: the spool over its caption, or beside it when the box is
+           too short to stack, sized by TileSizing like any other tile. -->
+      <style name="styles.tile_column"/>
+      <bind_style_if_eq name="styles.tile_row" subject="$tile_dir_subject" ref_value="1"/>
+
+      <!-- Wide layout: row with spool + text, while the box has room for it -->
+      <lv_obj name="spoolman_wide_layout"
+              width="100%" height="100%" flex_flow="row" style_flex_main_place="center" style_flex_cross_place="center"
+              style_flex_track_place="center" style_pad_column="#space_md" style_pad_left="#space_md"
+              style_pad_right="#space_md" style_pad_top="0" style_pad_bottom="0" style_bg_opa="0" scrollable="false"
+              clickable="false" event_bubble="true" hidden="true">
+        <bind_flag_if_eq subject="active_spool_wide" flag="hidden" ref_value="0"/>
+        <spool_canvas name="spool_wide" size="64" view="ring" clickable="false" event_bubble="true"/>
+        <lv_obj name="spoolman_text_stack"
+                width="0" height="content" flex_flow="column" flex_grow="1" style_pad_all="0" style_pad_row="0"
+                style_border_width="0" style_bg_opa="0"
+                scrollable="false" clickable="false" event_bubble="true">
+          <!-- scroll_circular, like ams_loaded_card's material line: the composed
+               vendor+filament label (Spoolman identity, #1264) can exceed the
+               text column on small tiers. One line per label also keeps the
+               three-row stack's height deterministic, which is what fits the
+               single-row card at Micro (#1286).
+
+               pad_row is 0, not #space_xxs, because deterministic is not the
+               same as exact. The grid derives a row from a float track edge, so
+               a single-row card at Micro measures 64px or 65px depending on
+               which row it lands on, and the wide layout inside it 48 or 49.
+               At 17+15+15 the three lines are 47 either way; the 2px the gap
+               token adds made the stack exactly 49, which fits the taller card
+               and clips the weight row mid-glyph in the shorter one. The font
+               leading already separates the lines, which is why the sibling
+               widget stacks (panel_widget_nozzle_temps, nozzle_temp_row) carry
+               no row gap either. -->
+          <text_body name="spoolman_material"
+                     width="100%" text="" style_text_align="left" long_mode="dots" max_lines="1" clickable="false"
+                     event_bubble="true"/>
+          <text_small name="spoolman_brand_color"
+                      width="100%" text="" style_text_color="#text_muted" style_text_align="left"
+                      long_mode="dots" max_lines="1" clickable="false" event_bubble="true"/>
+          <text_small name="spool_simple_percent" width="100%" bind_text="active_spool_percent"
+                      style_text_color="#text_muted" clickable="false" event_bubble="true">
+            <bind_flag_if_eq subject="active_spool_has_percent" flag="hidden" ref_value="0"/>
+          </text_small>
+          <text_tiny name="spoolman_weight"
+                     width="100%" bind_text="active_spool_summary" style_text_color="#text_muted" style_text_align="left"
+                     long_mode="wrap" clickable="false" event_bubble="true">
+            <bind_flag_if_eq subject="active_spool_has_summary" flag="hidden" ref_value="0"/>
+          </text_tiny>
+        </lv_obj>
+      </lv_obj>
+
+      <!-- Compact layout: the spool, its edge set from the tile's rung -->
+      <spool_canvas name="spool_compact" size="64" view="ring" clickable="false" event_bubble="true">
+        <bind_flag_if_eq subject="active_spool_wide" flag="hidden" ref_value="1"/>
+      </spool_canvas>
+
+      <!-- One caption line: what is loaded is named by the spool's color, so
+           the caption says only whether anything is. -->
+      <text_tiny name="spoolman_no_spool_label"
+                 text="No Spool" style_text_color="#text_muted" style_text_align="center" clickable="false"
+                 event_bubble="true" hidden="true">
+        <bind_tile_rung ladder="label" subject="$tile_icon_subject"/>
+        <bind_flag_if_eq subject="active_spool_loaded" flag="hidden" ref_value="1"/>
+        <bind_flag_if_eq subject="active_spool_wide" flag="hidden" ref_value="1"/>
+        <bind_flag_if_eq subject="$tile_label_subject" flag="hidden" ref_value="0"/>
+      </text_tiny>
+      <text_tiny name="spoolman_label"
+                 width="100%" bind_text="active_spool_summary" long_mode="scroll_circular"
+                 style_text_color="#text_muted" style_text_align="center" clickable="false" event_bubble="true">
+        <bind_tile_rung ladder="label" subject="$tile_icon_subject"/>
+        <bind_flag_if cond="active_spool_loaded eq 0 or active_spool_wide eq 1 or active_spool_has_summary eq 0"
+                      flag="hidden"/>
+      </text_tiny>
+    </ui_button>
+  </view>
+</component>

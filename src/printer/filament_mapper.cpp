@@ -1,0 +1,686 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "filament_mapper.h"
+
+#include "display_numbering.h"
+#include "filament_database.h"
+#include "filament_variants.h"
+#include "lvgl.h"
+
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+
+namespace helix {
+
+std::string FilamentMapper::format_slot_label(const AvailableSlot& slot) {
+    std::string label =
+        helix::ui::lane_label(slot.noun, slot.unit_display_name, slot.local_slot_index);
+
+    const char* material_str = nullptr;
+    if (slot.is_empty) {
+        material_str = lv_tr("Empty");
+    } else if (!slot.material.empty()) {
+        material_str = slot.material.c_str();
+    }
+    if (material_str)
+        label += std::string(": ") + material_str;
+
+    return label;
+}
+
+const AvailableSlot* FilamentMapper::resolve_mapped_slot(const ToolMapping& mapping,
+                                                         const std::vector<AvailableSlot>& slots) {
+    // "Auto" is a deliberate absence of a mapping - the firmware picks at print
+    // time - so there is no lane to name yet.
+    if (mapping.is_auto || mapping.mapped_slot < 0) {
+        return nullptr;
+    }
+
+    for (const auto& s : slots) {
+        if (s.slot_index == mapping.mapped_slot && s.backend_index == mapping.mapped_backend) {
+            return &s;
+        }
+    }
+
+    // A mapping that outlived its lane (unit unplugged between the mapping and
+    // the render). Better to show nothing than a stale lane.
+    return nullptr;
+}
+
+const AvailableSlot* FilamentMapper::resolve_printing_slot(const ToolMapping& mapping,
+                                                           const std::vector<AvailableSlot>& slots,
+                                                           const FirmwareRouting& routing) {
+    if (!mapping.is_auto) {
+        return resolve_mapped_slot(mapping, slots);
+    }
+    const int head = routing.head(mapping.tool_index);
+    if (head < 0) {
+        return nullptr;
+    }
+    for (const auto& s : slots) {
+        if (s.backend_index == 0 && s.slot_index == head) {
+            return &s;
+        }
+    }
+    return nullptr;
+}
+
+int FilamentMapper::mapped_lane_display_number(const ToolMapping& mapping,
+                                               const std::vector<AvailableSlot>& slots) {
+    const AvailableSlot* const s = resolve_mapped_slot(mapping, slots);
+    return s ? helix::ui::lane_number(s->local_slot_index) : -1;
+}
+
+int FilamentMapper::color_distance(uint32_t a, uint32_t b) {
+    int r1 = (a >> 16) & 0xFF;
+    int g1 = (a >> 8) & 0xFF;
+    int b1 = a & 0xFF;
+
+    int r2 = (b >> 16) & 0xFF;
+    int g2 = (b >> 8) & 0xFF;
+    int b2 = b & 0xFF;
+
+    // Weighted RGB distance using standard luminance coefficients.
+    // Weights: R=0.30, G=0.59, B=0.11 (standard luminance)
+    int dr = r1 - r2;
+    int dg = g1 - g2;
+    int db = b1 - b2;
+
+    int dist_sq = (dr * dr * 30 + dg * dg * 59 + db * db * 11) / 100;
+    return static_cast<int>(std::sqrt(static_cast<double>(dist_sq)));
+}
+
+bool FilamentMapper::colors_match(uint32_t color_a, uint32_t color_b) {
+    return color_distance(color_a, color_b) <= kColorMatchTolerance;
+}
+
+bool FilamentMapper::materials_match(const std::string& a, const std::string& b) {
+    // One implementation of "same polymer?", shared with endless-spool backup
+    // eligibility. It lives in filament_variants beside the family reduction it
+    // depends on rather than here, so a backend can ask the question without
+    // depending on the mapper.
+    return filament::materials_compatible(a, b);
+}
+
+MismatchFlags FilamentMapper::classify_mismatches(const GcodeToolInfo& tool,
+                                                  const AvailableSlot& slot) {
+    MismatchFlags flags;
+
+    // Either side silent means nothing can be proven incompatible: plenty of
+    // backends never publish a material, and plenty of files never state one.
+    flags.material_mismatch = !tool.material.empty() && !slot.material.empty() &&
+                              !materials_match(tool.material, slot.material);
+
+    // Colour has to earn each claim, because the chip shows a surround for it
+    // and a surround on most prints is a surround nobody reads:
+    //   - color_known false: nothing has yet said what this tool prints in, so
+    //     there is no claim to contradict. The chip's top band draws no fill
+    //     there either.
+    //   - an empty lane has no colour at all. What it reports is left over from
+    //     the last spool, and the lane's own empty marker already states the
+    //     real problem; warning twice for one cause reads as two faults.
+    // colors_match() is the predicate auto-matching uses, so a lane the matcher
+    // would have chosen never draws a warning.
+    flags.color_mismatch =
+        tool.color_known && !slot.is_empty && !colors_match(tool.color_rgb, slot.color_rgb);
+
+    return flags;
+}
+
+std::map<int, int> FilamentMapper::identity_filtered_remap(const std::vector<ToolMapping>& mappings,
+                                                           const FirmwareRouting& routing) {
+    std::map<int, int> remap;
+    for (const auto& m : mappings) {
+        // The routing and the slot numbers sent are the primary backend's; a slot
+        // on another backend shares only its number with a lane there.
+        if (m.mapped_backend > 0) {
+            continue;
+        }
+        if (m.mapped_slot >= 0 && m.mapped_slot != routing.head(m.tool_index)) {
+            remap[m.tool_index] = m.mapped_slot;
+        }
+    }
+    return remap;
+}
+
+SlotKey FilamentMapper::find_closest_color_slot(uint32_t target_color,
+                                                const std::string& target_material,
+                                                const std::vector<AvailableSlot>& slots) {
+    SlotKey best_key{-1, -1};
+    int best_distance = kColorMatchTolerance + 1; // Must be within tolerance
+
+    for (const auto& slot : slots) {
+        // Empty slots have no filament — their reported color is stale (left over
+        // from the last spool), so they must never attract a color match. Matching
+        // a tool to an empty lane paints the render in a color that can't print and
+        // routes the print to a lane the firmware will reject (the v0.91 "wrong
+        // filament" report: a white tool matched the empty white lane instead of
+        // being substituted to a loaded lane).
+        if (slot.is_empty) {
+            continue;
+        }
+        // Skip slots with incompatible materials (unless either side has no info)
+        if (!target_material.empty() && !slot.material.empty() &&
+            !materials_match(target_material, slot.material)) {
+            continue;
+        }
+
+        int dist = color_distance(target_color, slot.color_rgb);
+        if (dist < best_distance) {
+            best_distance = dist;
+            best_key = slot.key();
+        }
+    }
+
+    return best_key;
+}
+
+std::vector<ToolMapping> FilamentMapper::compute_defaults(const std::vector<GcodeToolInfo>& tools,
+                                                          const std::vector<AvailableSlot>& slots,
+                                                          const FirmwareRouting& routing,
+                                                          FreeLaneGuess guess) {
+    std::vector<ToolMapping> mappings;
+    mappings.reserve(tools.size());
+
+    // Track which slots have been claimed by the routed and free-lane fallbacks.
+    // Color matching allows slot re-use, but those fallbacks avoid it.
+    std::vector<SlotKey> used_slots;
+
+    for (const auto& tool : tools) {
+        ToolMapping mapping;
+        mapping.tool_index = tool.tool_index;
+
+        // Priority 1: Check firmware mapping (slot already assigned to this tool)
+        bool firmware_matched = false;
+        for (const auto& slot : slots) {
+            if (slot.is_empty) {
+                continue;
+            }
+            if (slot.current_tool_mapping == tool.tool_index) {
+                mapping.mapped_slot = slot.slot_index;
+                mapping.mapped_backend = slot.backend_index;
+                mapping.reason = ToolMapping::MatchReason::FIRMWARE_MAPPING;
+                mapping.set_mismatches(classify_mismatches(tool, slot));
+
+                used_slots.push_back(slot.key());
+                firmware_matched = true;
+                break;
+            }
+        }
+
+        if (firmware_matched) {
+            mappings.push_back(mapping);
+            continue;
+        }
+
+        // Priority 2: Color match — only when the file actually stated a color.
+        // color_known is false when nothing has yet said what this tool prints
+        // in (Moonraker omitted filament_colors and no footer read or viewer
+        // parse has backfilled it), leaving color_rgb a neutral stand-in.
+        // Searching for the nearest lane to a stand-in picks one on the strength
+        // of a value the file never expressed, and the material gate is no
+        // protection: with four ASA lanes loaded it just picks whichever ASA
+        // happens to sit closest to grey. The routed-lane fallback below is the
+        // honest answer, and it is already what runs when nothing lands within
+        // kColorMatchTolerance. Firmware mappings (Priority 1, above) are
+        // unaffected — those are the printer's own statement, not a guess.
+        SlotKey color_key{-1, -1};
+        if (tool.color_known) {
+            color_key = find_closest_color_slot(tool.color_rgb, tool.material, slots);
+        }
+        const int slot_idx = color_key.first;
+        const int backend_idx = color_key.second;
+        if (slot_idx >= 0) {
+            mapping.mapped_slot = slot_idx;
+            mapping.mapped_backend = backend_idx;
+            mapping.reason = ToolMapping::MatchReason::COLOR_MATCH;
+
+            // Find the lane the match landed on and classify the pairing. The
+            // colour half can only come back clear here - this lane is within
+            // kColorMatchTolerance by construction - which is the point: a lane
+            // the matcher chose never draws a warning.
+            for (const auto& slot : slots) {
+                if (slot.slot_index == slot_idx && slot.backend_index == backend_idx) {
+                    mapping.set_mismatches(classify_mismatches(tool, slot));
+                    break;
+                }
+            }
+
+            used_slots.push_back({slot_idx, backend_idx});
+            mappings.push_back(mapping);
+            continue;
+        }
+
+        // Priority 3: the lane the firmware routes this tool to. Any other lane
+        // goes out at print start as a remap over the printer's own table.
+        {
+            const int head = routing.head(tool.tool_index);
+            for (const auto& slot : slots) {
+                if (head < 0 || slot.slot_index != head || slot.backend_index != 0) {
+                    continue;
+                }
+                // With guessing refused the tool prints from this lane whatever
+                // it holds, so the seed says so and preflight judges it.
+                if (guess == FreeLaneGuess::Refused) {
+                    mapping.mapped_slot = slot.slot_index;
+                    mapping.mapped_backend = slot.backend_index;
+                    mapping.reason = ToolMapping::MatchReason::FIRMWARE_MAPPING;
+                    mapping.set_mismatches(classify_mismatches(tool, slot));
+                    used_slots.push_back(slot.key());
+                    break;
+                }
+                // Only a LOADED lane can serve as a substitute — an empty lane has
+                // no filament to route the tool to.
+                if (!slot.is_empty) {
+                    auto key = slot.key();
+                    if (std::find(used_slots.begin(), used_slots.end(), key) == used_slots.end()) {
+                        mapping.mapped_slot = slot.slot_index;
+                        mapping.mapped_backend = slot.backend_index;
+                        // The printer's own routing, not a match: print start
+                        // leaves it to the printer and sends nothing for it.
+                        mapping.reason = ToolMapping::MatchReason::FIRMWARE_MAPPING;
+                        // A deliberate default: assign it but flag what is wrong
+                        // with it so PrintStartController can warn. (Only the
+                        // fallback below refuses incompatible lanes outright.)
+                        mapping.set_mismatches(classify_mismatches(tool, slot));
+                        used_slots.push_back(key);
+                    }
+                    break;
+                }
+            }
+            // No routed lane: rather than grab an arbitrary unclaimed lane (the
+            // old material-blind behavior that misrouted prints — a PLA tool into a
+            // PETG/TPU lane), take the first unclaimed lane that is not known to be
+            // incompatible. Unknown/empty materials can't be proven incompatible, so
+            // they stay eligible (backends that don't publish material keep this
+            // fallback). If none qualifies the tool stays unmatched for preflight.
+            if (mapping.mapped_slot < 0 && guess == FreeLaneGuess::Allowed) {
+                for (const auto& slot : slots) {
+                    auto key = slot.key();
+                    if (slot.is_empty ||
+                        std::find(used_slots.begin(), used_slots.end(), key) != used_slots.end()) {
+                        continue;
+                    }
+                    // One classification answers both questions: a lane whose
+                    // material is KNOWN incompatible is refused outright, and the
+                    // lane we do settle for still carries what is wrong with it.
+                    // Explicit firmware mappings (Priority 1) are honored with a
+                    // warning instead; only the guesses here are gated.
+                    const MismatchFlags flags = classify_mismatches(tool, slot);
+                    if (flags.material_mismatch) {
+                        continue;
+                    }
+                    mapping.mapped_slot = slot.slot_index;
+                    mapping.mapped_backend = slot.backend_index;
+                    mapping.reason = ToolMapping::MatchReason::FREE_LANE_FALLBACK;
+                    mapping.set_mismatches(flags);
+                    used_slots.push_back(key);
+                    break;
+                }
+            }
+        }
+
+        // If no priority matched, mark as AUTO (let firmware decide)
+        if (mapping.mapped_slot < 0) {
+            mapping.is_auto = true;
+            mapping.reason = ToolMapping::MatchReason::AUTO;
+        }
+
+        mappings.push_back(mapping);
+    }
+
+    return mappings;
+}
+
+std::vector<uint32_t>
+FilamentMapper::resolve_display_colors(const std::vector<GcodeToolInfo>& tools,
+                                       const std::vector<ToolMapping>& mappings,
+                                       const std::vector<AvailableSlot>& slots) {
+    std::vector<uint32_t> colors;
+    colors.reserve(mappings.size());
+
+    for (size_t i = 0; i < mappings.size(); ++i) {
+        const auto& mapping = mappings[i];
+        uint32_t color = (i < tools.size()) ? tools[i].color_rgb : 0x808080;
+
+        if (!mapping.is_auto && mapping.mapped_slot >= 0) {
+            for (const auto& s : slots) {
+                if (s.slot_index == mapping.mapped_slot &&
+                    s.backend_index == mapping.mapped_backend) {
+                    color = s.color_rgb;
+                    break;
+                }
+            }
+        }
+        colors.push_back(color);
+    }
+    return colors;
+}
+
+std::vector<ToolMapping> FilamentMapper::effective_mappings(const std::vector<GcodeToolInfo>& tools,
+                                                            const std::vector<AvailableSlot>& slots,
+                                                            bool auto_color_map,
+                                                            const FirmwareRouting& routing,
+                                                            FreeLaneGuess guess) {
+    if (auto_color_map) {
+        // Color/type matching: clear firmware mappings so they don't pre-empt
+        // color matches (mirrors FilamentMappingCard's auto-match seeding).
+        auto slots_for_matching = slots;
+        for (auto& s : slots_for_matching) {
+            s.current_tool_mapping = -1;
+        }
+        return compute_defaults(tools, slots_for_matching, routing, guess);
+    }
+    return use_current_assignments(tools, slots, routing);
+}
+
+void FilamentMapper::apply_picks(std::vector<ToolMapping>& current,
+                                 const std::vector<ToolMapping>& picks) {
+    for (const auto& pick : picks) {
+        if (!pick.user_picked) {
+            continue;
+        }
+        const auto target =
+            std::find_if(current.begin(), current.end(),
+                         [&pick](const ToolMapping& m) { return m.tool_index == pick.tool_index; });
+        if (target != current.end()) {
+            *target = pick;
+        }
+    }
+}
+
+void FilamentMapper::pick_slot(ToolMapping& mapping, const GcodeToolInfo& tool,
+                               const std::vector<AvailableSlot>& slots, int slot_index,
+                               int backend_index, bool is_auto) {
+    mapping.mapped_slot = slot_index;
+    mapping.mapped_backend = backend_index;
+    mapping.is_auto = is_auto;
+    mapping.user_picked = true;
+
+    // A hand-picked lane is a new pairing, so earlier warnings do not apply to it.
+    mapping.set_mismatches({});
+    if (is_auto) {
+        mapping.reason = ToolMapping::MatchReason::AUTO;
+    } else if (const auto* slot = resolve_mapped_slot(mapping, slots)) {
+        mapping.set_mismatches(classify_mismatches(tool, *slot));
+    }
+}
+
+bool FilamentMapper::follow_seed(std::vector<ToolMapping>& current,
+                                 const std::vector<ToolMapping>& seed) {
+    bool changed = false;
+    for (auto& m : current) {
+        if (m.user_picked) {
+            continue;
+        }
+        const auto fresh = std::find_if(seed.begin(), seed.end(), [&m](const ToolMapping& s) {
+            return s.tool_index == m.tool_index;
+        });
+        if (fresh == seed.end()) {
+            continue;
+        }
+        changed = changed || fresh->mapped_slot != m.mapped_slot ||
+                  fresh->mapped_backend != m.mapped_backend || fresh->is_auto != m.is_auto ||
+                  fresh->reason != m.reason;
+        m = *fresh;
+    }
+    return changed;
+}
+
+std::vector<uint32_t> FilamentMapper::effective_tool_colors(const std::vector<GcodeToolInfo>& tools,
+                                                            const std::vector<AvailableSlot>& slots,
+                                                            bool auto_color_map) {
+    if (tools.empty()) {
+        return {};
+    }
+    return effective_tool_colors(tools, effective_mappings(tools, slots, auto_color_map), slots);
+}
+
+std::vector<uint32_t>
+FilamentMapper::effective_tool_colors(const std::vector<GcodeToolInfo>& tools,
+                                      const std::vector<ToolMapping>& mappings,
+                                      const std::vector<AvailableSlot>& slots) {
+    if (tools.empty()) {
+        return {};
+    }
+
+    // Align @p mappings to @p tools by tool_index — the card's mappings are not
+    // guaranteed parallel to the used-tool list, and resolve_display_colors pairs
+    // by position. A tool with no matching mapping stays default (unmapped) so it
+    // resolves to its own slicer color.
+    std::vector<ToolMapping> aligned;
+    aligned.reserve(tools.size());
+    for (const auto& t : tools) {
+        ToolMapping picked;
+        for (const auto& m : mappings) {
+            if (m.tool_index == t.tool_index) {
+                picked = m;
+                break;
+            }
+        }
+        aligned.push_back(picked);
+    }
+    auto per_tool = resolve_display_colors(tools, aligned, slots); // in `tools` order
+
+    // Scatter the tools-ordered colors into a dense vector indexed by logical
+    // tool number, so a print that uses e.g. only T0 and T2 lands T2's color at
+    // index 2 (the gcode viewer's tool_colors_ is tool-number-indexed). Tool
+    // numbers no used tool covers stay the neutral default.
+    int max_tool = -1;
+    for (const auto& t : tools) {
+        max_tool = std::max(max_tool, t.tool_index);
+    }
+    if (max_tool < 0) {
+        return {};
+    }
+
+    std::vector<uint32_t> out(static_cast<size_t>(max_tool) + 1, 0x808080);
+    for (size_t i = 0; i < tools.size() && i < per_tool.size(); ++i) {
+        int idx = tools[i].tool_index;
+        if (idx >= 0 && idx <= max_tool) {
+            out[static_cast<size_t>(idx)] = per_tool[i];
+        }
+    }
+    return out;
+}
+
+std::vector<int> FilamentMapper::effective_routing(const std::vector<int>& published,
+                                                   const std::vector<int>& attachment_map,
+                                                   bool attachment_is_routing) {
+    if (!published.empty()) {
+        return published;
+    }
+    // Empty published routing means the backend has NO OPINION — not "assume
+    // identity". Only a backend whose physical map is genuinely the print
+    // routing may answer from attachment; on a tool changer that map is which
+    // slot each head owns, so using it here would resolve every logical tool to
+    // its own index and invert any file whose tools do not line up with the
+    // lanes. Staying empty leaves the slicer's own colours in place.
+    if (attachment_is_routing) {
+        return attachment_map;
+    }
+    return {};
+}
+
+std::optional<std::map<int, int>>
+FilamentMapper::reprint_remap(const std::vector<int>& last_routing,
+                              const std::set<int>& tools_used) {
+    if (last_routing.empty()) {
+        // The backend never saw a configured task, so we do not know how this
+        // job was routed. Returning an empty map instead would read one layer up
+        // as "this print needs no remap" and write an identity table over
+        // whatever crossover it actually used — the same empty-means-two-things
+        // trap effective_routing() exists to close.
+        return std::nullopt;
+    }
+
+    std::map<int, int> remap;
+    for (int tool : tools_used) {
+        if (tool < 0 || static_cast<size_t>(tool) >= last_routing.size()) {
+            return std::nullopt;
+        }
+        const int head = last_routing[static_cast<size_t>(tool)];
+        if (head < 0) {
+            // The status parser records an unreadable or out-of-range head as -1
+            // rather than clamping it to 0. One unroutable used tool makes the
+            // whole map a guess, and the map is written to the firmware in full.
+            return std::nullopt;
+        }
+        remap[tool] = head;
+    }
+    return remap;
+}
+
+std::vector<uint32_t> FilamentMapper::routed_tool_colors(const std::vector<int>& tool_to_head,
+                                                         const std::vector<AvailableSlot>& slots,
+                                                         helix::printer::ToolMappingOrigin origin) {
+    if (tool_to_head.empty()) {
+        return {};
+    }
+
+    // Feed the shared color engine one explicit (non-auto) mapping per tool.
+    // resolve_display_colors only substitutes a lane's color for a non-auto
+    // mapping, so every color that comes back is a LANE's — never a slicer
+    // stand-in mistaken for one. Tools the routing has no answer for stay
+    // unmapped and fall through to the neutral default.
+    std::vector<GcodeToolInfo> tools;
+    std::vector<ToolMapping> mappings;
+    tools.reserve(tool_to_head.size());
+    mappings.reserve(tool_to_head.size());
+    for (size_t tool = 0; tool < tool_to_head.size(); ++tool) {
+        GcodeToolInfo info;
+        info.tool_index = static_cast<int>(tool);
+        info.color_rgb = 0x808080;
+        info.color_known = false;
+        tools.push_back(std::move(info));
+
+        // An EMPTY lane keeps reporting the color of whatever used to be in it
+        // (a U1 with nothing in head 1 still says 0xE2DEDB), so a tool routed
+        // there must resolve to "unknown", not to a filament that is not loaded.
+        // The pre-print matcher already refuses to match empty lanes; this is the
+        // same rule on the read side.
+        const int head = tool_to_head[tool];
+        const bool head_loaded =
+            head >= 0 && std::any_of(slots.begin(), slots.end(), [head](const AvailableSlot& s) {
+                return s.slot_index == head && s.backend_index == 0 && !s.is_empty;
+            });
+
+        ToolMapping m;
+        m.tool_index = static_cast<int>(tool);
+        m.mapped_slot = head_loaded ? head : -1;
+        m.mapped_backend = 0;
+        m.is_auto = !head_loaded;
+        m.reason = ToolMapping::MatchReason::FIRMWARE_MAPPING;
+        mappings.push_back(std::move(m));
+    }
+
+    auto colors = effective_tool_colors(tools, mappings, slots);
+
+    // Every tool resolved to the neutral default means no lane told us anything.
+    // Pushing that would replace the renderer's slicer palette with flat grey,
+    // which is strictly worse than leaving it alone.
+    const bool nothing_known =
+        std::all_of(colors.begin(), colors.end(), [](uint32_t c) { return c == 0x808080; });
+
+    // A routing that sends every ROUTED tool to ONE head is read two ways, and
+    // the numbers cannot separate them: a table published only in part degrades
+    // to it, and a user pointing several tools at one spool builds it on
+    // purpose. @p origin is the whole difference - a deliberate share prints one
+    // solid color, and the uniform lane color is the only honest preview of it.
+    // The degenerate signal is the ROUTING collapsing, not the colors agreeing:
+    // distinct heads that happen to hold same-color spools (a runout backup
+    // pair) are a true uniform answer and must still be published, and a single
+    // routed tool legitimately goes wherever it goes. Unrouted tools (-1) count
+    // toward neither side.
+    int first_routed_head = -2;
+    int routed_count = 0;
+    bool heads_distinct = false;
+    for (const int head : tool_to_head) {
+        if (head < 0) {
+            continue;
+        }
+        ++routed_count;
+        if (first_routed_head == -2) {
+            first_routed_head = head;
+        } else if (head != first_routed_head) {
+            heads_distinct = true;
+            break;
+        }
+    }
+    const bool one_head_for_every_tool = routed_count > 1 && !heads_distinct;
+    const bool unexplained_collapse =
+        one_head_for_every_tool && origin == helix::printer::ToolMappingOrigin::Unvouched;
+
+    // nothing_known stays unconditional: provenance says who chose the routing,
+    // never what the lanes hold. An all-neutral answer is still nothing worth
+    // pushing at the renderer, whoever authored it.
+    if (nothing_known || unexplained_collapse) {
+        return {};
+    }
+    return colors;
+}
+
+std::vector<ToolMapping>
+FilamentMapper::use_current_assignments(const std::vector<GcodeToolInfo>& tools,
+                                        const std::vector<AvailableSlot>& slots,
+                                        const FirmwareRouting& routing) {
+    std::vector<ToolMapping> mappings;
+    mappings.reserve(tools.size());
+
+    // Positional assignment: every tool keeps the head the firmware would route
+    // it to on its own. No color matching, no rearranging.
+    //
+    // Pair on the tool's default head, NOT its position in the used-tool list.
+    // The two agree only for a dense tool set; a file using a sparse one (T0 and
+    // T2, no T1) walks the slot list densely under index pairing and lands T2 on
+    // lane 1. That is a remap the user never asked for, and since it is not the
+    // firmware identity, identity_filtered_remap() emits it and sends the print
+    // to a lane holding the wrong filament.
+    auto find_slot = [&slots](int index) -> const AvailableSlot* {
+        for (const auto& candidate : slots) {
+            if (candidate.slot_index == index) {
+                return &candidate;
+            }
+        }
+        return nullptr;
+    };
+
+    for (const auto& tool : tools) {
+        ToolMapping mapping;
+        mapping.tool_index = tool.tool_index;
+
+        // Ask the backend's own routing which head this tool runs from. That is
+        // the whole rule: a lane-per-tool AMS answers identity, a four-head U1
+        // answers [0,1,2,3,0,0,...], an AD5X answers its published 16-entry
+        // table. A tool the routing gives no head (-1) is left unresolved.
+        const int head = routing.head(tool.tool_index);
+        const AvailableSlot* slot = (head >= 0) ? find_slot(head) : nullptr;
+
+        if (slot) {
+            mapping.mapped_slot = slot->slot_index;
+            mapping.mapped_backend = slot->backend_index;
+            mapping.reason = ToolMapping::MatchReason::FIRMWARE_MAPPING;
+            mapping.set_mismatches(classify_mismatches(tool, *slot));
+        } else {
+            mapping.is_auto = true;
+            mapping.reason = ToolMapping::MatchReason::AUTO;
+        }
+
+        mappings.push_back(mapping);
+    }
+
+    return mappings;
+}
+
+std::vector<int> FilamentMapper::find_unresolved_tools(const std::vector<ToolMapping>& mappings) {
+    std::vector<int> unresolved;
+    for (const auto& m : mappings) {
+        if (m.is_auto && m.reason == ToolMapping::MatchReason::AUTO) {
+            unresolved.push_back(m.tool_index);
+        }
+    }
+    return unresolved;
+}
+
+} // namespace helix

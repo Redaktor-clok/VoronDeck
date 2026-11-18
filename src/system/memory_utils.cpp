@@ -1,0 +1,357 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "memory_utils.h"
+
+#include "app_globals.h"
+#include "env_knobs.h"
+#include "gcode_layer_cache.h"
+#include "gcode_layer_index.h"
+#include "platform_capabilities.h"
+#include "system/helix_paths.h"
+#include "text_io.h"
+
+#include <lvgl/lvgl.h>
+#include <spdlog/spdlog.h>
+
+#include <cerrno>
+#include <cstdlib>
+#include <string>
+
+#if defined(HELIX_PLATFORM_ESP32)
+#include <esp_heap_caps.h>
+#endif
+
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <mach/mach_host.h>
+#include <mach/task_info.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#endif
+
+namespace tio = helix::text_io;
+
+namespace helix {
+
+#ifdef __APPLE__
+// Track peak memory on macOS (mach doesn't provide HWM)
+static int64_t g_macos_peak_rss_kb = 0;
+#endif
+
+bool read_memory_stats(int64_t& rss_kb, int64_t& hwm_kb) {
+    rss_kb = 0;
+    hwm_kb = 0;
+
+#ifdef __linux__
+    tio::LineReader status("/proc/self/status");
+    if (!status)
+        return false;
+
+    std::string line;
+    while (status.next(line)) {
+        if (line.compare(0, 6, "VmRSS:") == 0) {
+            rss_kb = tio::parse_leading<long long>(line.substr(6)).value_or(0);
+        } else if (line.compare(0, 6, "VmHWM:") == 0) {
+            hwm_kb = tio::parse_leading<long long>(line.substr(6)).value_or(0);
+        }
+    }
+    return rss_kb > 0;
+
+#elif defined(__APPLE__)
+    mach_task_basic_info_data_t info;
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &count) ==
+        KERN_SUCCESS) {
+        rss_kb = static_cast<int64_t>(info.resident_size / 1024);
+        // Track peak ourselves since macOS doesn't provide HWM
+        if (rss_kb > g_macos_peak_rss_kb) {
+            g_macos_peak_rss_kb = rss_kb;
+        }
+        hwm_kb = g_macos_peak_rss_kb;
+        return true;
+    }
+    return false;
+
+#else
+    return false;
+#endif
+}
+
+bool read_private_dirty(int64_t& private_dirty_kb) {
+    private_dirty_kb = 0;
+
+#ifdef __linux__
+    tio::LineReader smaps("/proc/self/smaps_rollup");
+    if (!smaps)
+        return false;
+
+    std::string line;
+    while (smaps.next(line)) {
+        if (line.compare(0, 14, "Private_Dirty:") == 0) {
+            private_dirty_kb = tio::parse_leading<long long>(line.substr(14)).value_or(0);
+            return true;
+        }
+    }
+#endif
+    // macOS: private dirty not easily available
+    return false;
+}
+
+bool read_smaps_rollup(SmapsRollup& rollup) {
+    rollup = {};
+
+#ifdef __linux__
+    tio::LineReader smaps("/proc/self/smaps_rollup");
+    if (!smaps)
+        return false;
+
+    int fields_found = 0;
+    std::string line;
+    while (smaps.next(line)) {
+        // Fields in smaps_rollup: "FieldName:     1234 kB"
+        if (line.compare(0, 4, "Rss:") == 0) {
+            rollup.rss_kb = tio::parse_leading<long long>(line.substr(4)).value_or(0);
+            ++fields_found;
+        } else if (line.compare(0, 4, "Pss:") == 0) {
+            rollup.pss_kb = tio::parse_leading<long long>(line.substr(4)).value_or(0);
+            ++fields_found;
+        } else if (line.compare(0, 14, "Private_Dirty:") == 0) {
+            rollup.private_dirty_kb = tio::parse_leading<long long>(line.substr(14)).value_or(0);
+            ++fields_found;
+        } else if (line.compare(0, 14, "Private_Clean:") == 0) {
+            rollup.private_clean_kb = tio::parse_leading<long long>(line.substr(14)).value_or(0);
+            ++fields_found;
+        } else if (line.compare(0, 13, "Shared_Clean:") == 0) {
+            rollup.shared_clean_kb = tio::parse_leading<long long>(line.substr(13)).value_or(0);
+            ++fields_found;
+        } else if (line.compare(0, 13, "Shared_Dirty:") == 0) {
+            rollup.shared_dirty_kb = tio::parse_leading<long long>(line.substr(13)).value_or(0);
+            ++fields_found;
+        } else if (line.compare(0, 8, "SwapPss:") == 0) {
+            rollup.swap_pss_kb = tio::parse_leading<long long>(line.substr(8)).value_or(0);
+            ++fields_found;
+        } else if (line.compare(0, 5, "Swap:") == 0) {
+            rollup.swap_kb = tio::parse_leading<long long>(line.substr(5)).value_or(0);
+            ++fields_found;
+        }
+    }
+    return fields_found > 0;
+
+#else
+    return false;
+#endif
+}
+
+MemoryInfo get_system_memory_info() {
+    MemoryInfo info;
+
+#ifdef __linux__
+    const std::string meminfo = tio::read_file("/proc/meminfo").value_or("");
+    info.total_kb = static_cast<size_t>(parse_meminfo_kb(meminfo, "MemTotal"));
+    info.available_kb = static_cast<size_t>(parse_meminfo_kb(meminfo, "MemAvailable"));
+    info.free_kb = static_cast<size_t>(parse_meminfo_kb(meminfo, "MemFree"));
+    info.swap_free_kb = static_cast<size_t>(parse_meminfo_kb(meminfo, "SwapFree"));
+
+    // Fallback: if MemAvailable not present (older kernels), estimate from free + buffers/cache
+    if (info.available_kb == 0 && info.free_kb > 0) {
+        info.available_kb = info.free_kb; // Conservative estimate
+    }
+
+#elif defined(HELIX_PLATFORM_ESP32)
+    // General allocations (LVGL draw buffers and image decodes included) come
+    // from PSRAM, so PSRAM is the memory "available" heuristics are about.
+    // Only O(1) counters: the largest free block is not reported, because
+    // finding it walks every PSRAM block with interrupts masked for 20-30ms,
+    // and the RGB panel's bounce-buffer refill misses for the whole walk.
+    info.total_kb = heap_caps_get_total_size(MALLOC_CAP_SPIRAM) / 1024;
+    info.free_kb = heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024;
+    info.available_kb = info.free_kb;
+
+#elif defined(__APPLE__)
+    // macOS: Get total physical memory via sysctl-style approach
+    // For available, we use a rough heuristic based on VM stats
+    mach_port_t host = mach_host_self();
+    vm_size_t page_size;
+    host_page_size(host, &page_size);
+
+    vm_statistics64_data_t vm_stats;
+    mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+    if (host_statistics64(host, HOST_VM_INFO64, (host_info64_t)&vm_stats, &count) == KERN_SUCCESS) {
+        // Free + inactive pages are roughly "available"
+        size_t free_pages = vm_stats.free_count + vm_stats.inactive_count;
+        info.free_kb = (vm_stats.free_count * page_size) / 1024;
+        info.available_kb = (free_pages * page_size) / 1024;
+    }
+
+    // Get total memory
+    int mib[2] = {CTL_HW, HW_MEMSIZE};
+    int64_t memsize = 0;
+    size_t len = sizeof(memsize);
+    if (sysctl(mib, 2, &memsize, &len, nullptr, 0) == 0) {
+        info.total_kb = static_cast<size_t>(memsize / 1024);
+    }
+#endif
+
+    return info;
+}
+
+bool is_gcode_3d_render_safe(size_t file_size_bytes) {
+    // Environment variable to force memory failure for testing
+    // Usage: HELIX_FORCE_GCODE_MEMORY_FAIL=1 ./helix-screen --test
+    if (helix::env_flag("HELIX_FORCE_GCODE_MEMORY_FAIL")) {
+        spdlog::debug(
+            "[memory_utils] HELIX_FORCE_GCODE_MEMORY_FAIL=1 - forcing memory check failure");
+        return false;
+    }
+
+    MemoryInfo mem = get_system_memory_info();
+
+    // If we can't read memory info, be conservative - allow only small files
+    if (mem.available_kb == 0) {
+        return file_size_bytes < GCodeMemoryLimits::kMaxFileSizeConstrained;
+    }
+
+    // Check minimum available RAM
+    if (mem.available_kb < GCodeMemoryLimits::kMinAvailableKb) {
+        return false;
+    }
+
+    // Determine max file size based on whether available memory is low
+    size_t max_file_size = mem.is_low_memory() ? GCodeMemoryLimits::kMaxFileSizeConstrained
+                                               : GCodeMemoryLimits::kMaxFileSizeNormal;
+
+    if (file_size_bytes > max_file_size) {
+        return false;
+    }
+
+    // Estimate memory needed: file size * expansion factor
+    size_t estimated_memory_kb = (file_size_bytes * GCodeMemoryLimits::kExpansionFactor) / 1024;
+
+    // Check if we have enough headroom (need at least 2x the estimated memory as buffer)
+    return mem.available_kb > (estimated_memory_kb * 2);
+}
+
+bool is_gcode_2d_streaming_safe_impl(size_t file_size_bytes, size_t available_kb, size_t total_kb,
+                                     int display_width, int display_height,
+                                     bool cache_dir_is_ram_backed) {
+    // 2D streaming mode memory requirements:
+    // 1. Layer index: one StreamingLayerEntry per layer, estimating 1 layer per
+    //    500 bytes of G-code. Priced from the struct itself, so the gate cannot
+    //    reserve less per layer than GCodeLayerIndex allocates.
+    // 2. LRU layer cache: the budget GCodeStreamingController hands this RAM
+    //    tier. Adaptive mode may shrink it under pressure, never raise it, so
+    //    the tier budget is the ceiling to reserve.
+    // 3. Ghost buffer: display_width * display_height * 4 bytes (ARGB8888)
+    // 4. Safety margin: 3MB for other allocations
+    // 5. Spill: the downloaded file itself when the cache directory is
+    //    RAM-backed. tmpfs/ramfs bytes ARE memory and, on a device without
+    //    swap, nothing can reclaim them while the file stays cached; on real
+    //    storage the download costs no RAM at all.
+
+    const size_t estimated_layers = file_size_bytes / 500;
+    const size_t layer_index_kb = (estimated_layers * sizeof(gcode::StreamingLayerEntry)) / 1024;
+    const size_t lru_cache_kb =
+        gcode::GCodeLayerCache::budget_tier_for_total_ram_kb(total_kb).budget_bytes / 1024;
+    const size_t ghost_buffer_kb =
+        (static_cast<size_t>(display_width) * static_cast<size_t>(display_height) * 4) / 1024;
+    constexpr size_t safety_margin_kb = 3 * 1024; // 3MB
+    const size_t spill_kb = cache_dir_is_ram_backed ? file_size_bytes / 1024 : 0;
+
+    const size_t total_needed_kb =
+        layer_index_kb + lru_cache_kb + ghost_buffer_kb + safety_margin_kb + spill_kb;
+
+    spdlog::trace("[memory_utils] 2D streaming: need {}KB (index={}KB, cache={}KB, "
+                  "ghost={}KB@{}x{}, margin={}KB, spill={}KB), available={}KB",
+                  total_needed_kb, layer_index_kb, lru_cache_kb, ghost_buffer_kb, display_width,
+                  display_height, safety_margin_kb, spill_kb, available_kb);
+
+    return available_kb > total_needed_kb;
+}
+
+bool is_gcode_2d_streaming_safe(size_t file_size_bytes) {
+    // Environment variable to force memory failure for testing
+    if (helix::env_flag("HELIX_FORCE_GCODE_MEMORY_FAIL")) {
+        spdlog::debug(
+            "[memory_utils] HELIX_FORCE_GCODE_MEMORY_FAIL=1 - forcing memory check failure");
+        return false;
+    }
+
+    MemoryInfo mem = get_system_memory_info();
+
+    if (mem.available_kb == 0) {
+        // Can't read memory - allow files up to 50MB (conservative for streaming)
+        return file_size_bytes < 50 * 1024 * 1024;
+    }
+
+    // Get display dimensions from LVGL at runtime
+    int display_width = 800;  // fallback
+    int display_height = 480; // fallback
+    lv_display_t* disp = lv_display_get_default();
+    if (disp) {
+        display_width = lv_display_get_horizontal_resolution(disp);
+        display_height = lv_display_get_vertical_resolution(disp);
+    }
+
+    // Resolved with the creating call, not peek_helix_cache_dir(): a directory
+    // that does not exist yet cannot be stat'd, and an unclassifiable path
+    // reads as storage — which is exactly the under-count this term exists to
+    // prevent. Same subdir the G-code preview downloads into.
+    const bool cache_dir_is_ram_backed = paths::is_ram_backed(get_helix_cache_dir("gcode_temp"));
+
+    return is_gcode_2d_streaming_safe_impl(file_size_bytes, mem.available_kb, mem.total_kb,
+                                           display_width, display_height, cache_dir_is_ram_backed);
+}
+
+// ============================================================================
+// OOM priority
+// ============================================================================
+
+bool parse_oom_score_adj(const char* value, int& out) {
+    if (value == nullptr || *value == '\0')
+        return false;
+
+    errno = 0;
+    char* end = nullptr;
+    long parsed = std::strtol(value, &end, 10);
+
+    // Reject trailing garbage ("300x") and overflow outright rather than
+    // silently applying a half-understood number to the OOM killer.
+    if (errno != 0 || end == value || *end != '\0')
+        return false;
+
+    if (parsed == 0)
+        return false; // documented "leave this process alone"
+
+    if (parsed > 1000)
+        parsed = 1000;
+    if (parsed < -1000)
+        parsed = -1000;
+
+    out = static_cast<int>(parsed);
+    return true;
+}
+
+bool write_oom_score_adj(int adj, const char* path) {
+    return tio::write_file(path, fmt::format("{}", adj));
+}
+
+bool apply_oom_score_adj_from_env() {
+    int adj = 0;
+    if (!parse_oom_score_adj(std::getenv("HELIX_OOM_SCORE_ADJ"), adj))
+        return false;
+
+    if (!write_oom_score_adj(adj, "/proc/self/oom_score_adj")) {
+        // Never fatal. A kiosk on a non-Linux host has no /proc, and lowering
+        // the value without CAP_SYS_RESOURCE is refused.
+        spdlog::debug("[Memory] Could not set oom_score_adj to {}", adj);
+        return false;
+    }
+
+    spdlog::info("[Memory] oom_score_adj set to {} — helix-screen volunteers as "
+                 "the first OOM victim so Klipper survives",
+                 adj);
+    return true;
+}
+
+} // namespace helix

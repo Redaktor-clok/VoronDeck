@@ -1,0 +1,91 @@
+diff --git a/include/lvgl/drivers/display/lv_linux_drm.h b/include/lvgl/drivers/display/lv_linux_drm.h
+index a7e40d0b6..cbd44337f 100644
+--- a/include/lvgl/drivers/display/lv_linux_drm.h
++++ b/include/lvgl/drivers/display/lv_linux_drm.h
+@@ -102,6 +102,22 @@ void lv_linux_drm_set_preferred_mode(lv_display_t * disp, uint32_t hdisplay, uin
+  */
+ char * lv_linux_drm_find_device_path(void);
+ 
++#if LV_LINUX_DRM_USE_EGL
++/**
++ * @brief Make an EGL DRM display wait for each page flip before queueing the next frame
++ *
++ * Off (the default), a frame finished while the previous flip is still in flight waits
++ * as pending, and a newer frame replaces it before it is ever shown. On, the flush
++ * callback blocks until the in-flight flip completes, so every rendered frame reaches
++ * the screen, at the cost of holding the LVGL thread for up to one refresh interval.
++ * Flips are latched to vblank either way.
++ *
++ * @param disp   display created with lv_linux_drm_create() and set up by lv_linux_drm_set_file()
++ * @param vsync  true to wait for each flip
++ */
++void lv_linux_drm_egl_set_vsync(lv_display_t * disp, bool vsync);
++#endif
++
+ /**
+  * Set a callback function for custom DRM mode selection to override the default mode selection behavior
+  *
+diff --git a/src/drivers/display/drm/lv_linux_drm_egl.c b/src/drivers/display/drm/lv_linux_drm_egl.c
+index 4855b5b4f..fd274a8d7 100644
+--- a/src/drivers/display/drm/lv_linux_drm_egl.c
++++ b/src/drivers/display/drm/lv_linux_drm_egl.c
+@@ -147,6 +147,20 @@ void lv_linux_drm_set_mode_cb(lv_display_t * disp, lv_linux_drm_select_mode_cb_t
+     ctx->mode_select_cb = callback;
+ }
+ 
++void lv_linux_drm_egl_set_vsync(lv_display_t * disp, bool vsync)
++{
++    if(!disp) {
++        LV_LOG_ERROR("Cannot set vsync on a NULL display");
++        return;
++    }
++    lv_drm_ctx_t * ctx = lv_display_get_driver_data(disp);
++    if(!ctx || !ctx->egl_ctx) {
++        LV_LOG_WARN("Display has no EGL context, vsync left unchanged");
++        return;
++    }
++    lv_opengles_egl_set_vsync(ctx->egl_ctx, vsync);
++}
++
+ /**********************
+  *   STATIC FUNCTIONS
+  **********************/
+diff --git a/src/drivers/opengles/lv_opengles_egl.c b/src/drivers/opengles/lv_opengles_egl.c
+index 03af3b675..e6caf44b5 100644
+--- a/src/drivers/opengles/lv_opengles_egl.c
++++ b/src/drivers/opengles/lv_opengles_egl.c
+@@ -143,6 +143,14 @@ void lv_opengles_egl_update(lv_opengles_egl_t * ctx)
+     ctx->interface.flip_cb(ctx->interface.driver_data, ctx->vsync);
+ }
+ 
++void lv_opengles_egl_set_vsync(lv_opengles_egl_t * ctx, bool vsync)
++{
++    if(!ctx) {
++        return;
++    }
++    ctx->vsync = vsync;
++}
++
+ size_t lv_opengles_egl_display_select_config(lv_display_t * display, const lv_egl_config_t * configs,
+                                              size_t config_count)
+ {
+diff --git a/src/drivers/opengles/lv_opengles_egl.h b/src/drivers/opengles/lv_opengles_egl.h
+index 061e78365..98d0efe03 100644
+--- a/src/drivers/opengles/lv_opengles_egl.h
++++ b/src/drivers/opengles/lv_opengles_egl.h
+@@ -54,6 +54,15 @@ uint8_t lv_opengles_egl_get_gles_version(lv_opengles_egl_t * ctx);
+ lv_color_format_t lv_opengles_egl_set_display_color_format(lv_display_t * display);
+ 
+ void lv_opengles_egl_update(lv_opengles_egl_t * ctx);
++
++/**
++ * Choose whether presenting a frame waits for the previous one to reach the screen.
++ * The value is handed to the native flip callback on every lv_opengles_egl_update().
++ * @param ctx    the EGL context
++ * @param vsync  true: the flip callback waits for the pending flip; false: it does not wait
++ */
++void lv_opengles_egl_set_vsync(lv_opengles_egl_t * ctx, bool vsync);
++
+ void lv_opengles_egl_clear(lv_opengles_egl_t * ctx);
+ void lv_opengles_egl_context_destroy(lv_opengles_egl_t * ctx);
+ 

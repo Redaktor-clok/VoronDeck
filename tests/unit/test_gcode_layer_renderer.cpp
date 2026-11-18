@@ -1,0 +1,1724 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "../lvgl_test_fixture.h"
+#include "../test_helpers/breadcrumb_capture.h"
+#include "../ui_test_utils.h"
+#include "gcode_layer_renderer.h"
+#include "gcode_parser.h"
+#include "gcode_projection.h"
+#include "gcode_selection_style.h"
+#include "gcode_streaming_controller.h"
+#include "system/crash_handler.h"
+#include "test_helpers/gcode_layer_renderer_test_access.h"
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <fstream>
+#include <glm/glm.hpp>
+#include <limits>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <unistd.h>
+#include <unordered_set>
+#include <vector>
+
+#include "../catch_amalgamated.hpp"
+
+using namespace helix::gcode;
+
+namespace {
+
+// Helper to build a ParsedGCodeFile with named objects and an unnamed segment.
+//
+// Layout (TOP_DOWN, world coords):
+//   "cube1" : segment from (10,20) to (50,20)   -- y=20
+//   "cube2" : segment from (10,80) to (50,80)   -- y=80
+//   unnamed : segment from (10,50) to (50,50)   -- y=50
+//
+// All at z=0.2, single layer.
+ParsedGCodeFile make_test_gcode() {
+    ParsedGCodeFile gcode;
+    Layer layer;
+    layer.z_height = 0.2f;
+
+    // Expand bounding box to cover all segments
+    layer.bounding_box.expand(glm::vec3(10.0f, 20.0f, 0.2f));
+    layer.bounding_box.expand(glm::vec3(50.0f, 80.0f, 0.2f));
+
+    // Object "cube1" - segments at x=[10,50], y=20
+    ToolpathSegment seg1;
+    seg1.start = glm::vec3(10.0f, 20.0f, 0.2f);
+    seg1.end = glm::vec3(50.0f, 20.0f, 0.2f);
+    seg1.is_extrusion = true;
+    seg1.object_name_index = gcode.intern_object_name("cube1");
+    layer.segments.push_back(seg1);
+
+    // Object "cube2" - segments at x=[10,50], y=80
+    ToolpathSegment seg2;
+    seg2.start = glm::vec3(10.0f, 80.0f, 0.2f);
+    seg2.end = glm::vec3(50.0f, 80.0f, 0.2f);
+    seg2.is_extrusion = true;
+    seg2.object_name_index = gcode.intern_object_name("cube2");
+    layer.segments.push_back(seg2);
+
+    // Unnamed segment at y=50
+    ToolpathSegment seg3;
+    seg3.start = glm::vec3(10.0f, 50.0f, 0.2f);
+    seg3.end = glm::vec3(50.0f, 50.0f, 0.2f);
+    seg3.is_extrusion = true;
+    // object_name_index left as -1 (default)
+    layer.segments.push_back(seg3);
+
+    layer.segment_count_extrusion = 3;
+    layer.segment_count_travel = 0;
+
+    gcode.layers.push_back(std::move(layer));
+    gcode.total_segments = 3;
+
+    // Set global bounding box
+    gcode.global_bounding_box.expand(glm::vec3(10.0f, 20.0f, 0.2f));
+    gcode.global_bounding_box.expand(glm::vec3(50.0f, 80.0f, 0.2f));
+
+    return gcode;
+}
+
+// Helper to build a ParsedGCodeFile with a single named object for simple tests.
+ParsedGCodeFile make_single_object_gcode(const std::string& name, float y) {
+    ParsedGCodeFile gcode;
+    Layer layer;
+    layer.z_height = 0.2f;
+
+    ToolpathSegment seg;
+    seg.start = glm::vec3(10.0f, y, 0.2f);
+    seg.end = glm::vec3(90.0f, y, 0.2f);
+    seg.is_extrusion = true;
+    seg.object_name_index = gcode.intern_object_name(name);
+    layer.segments.push_back(seg);
+
+    layer.bounding_box.expand(seg.start);
+    layer.bounding_box.expand(seg.end);
+    layer.segment_count_extrusion = 1;
+
+    gcode.layers.push_back(std::move(layer));
+    gcode.total_segments = 1;
+    gcode.global_bounding_box.expand(glm::vec3(10.0f, y, 0.2f));
+    gcode.global_bounding_box.expand(glm::vec3(90.0f, y, 0.2f));
+
+    return gcode;
+}
+
+} // namespace
+
+// =============================================================================
+// Exclude Object Support
+// =============================================================================
+
+TEST_CASE("auxiliary geometry never renders", "[layer_renderer][render_gate]") {
+    // Purge/tower segments are already outside the fit bounds; the draw gate
+    // must agree, or the tower keeps burning draw time at the frame edge.
+    GCodeLayerRenderer renderer;
+    renderer.set_show_extrusions(true);
+
+    ToolpathSegment tower;
+    tower.is_extrusion = true;
+    tower.feature_type = FeatureType::WipeTower;
+    CHECK_FALSE(GCodeLayerRendererTestAccess::renders_segment(renderer, tower));
+
+    ToolpathSegment purge;
+    purge.is_extrusion = true;
+    purge.feature_type = FeatureType::Custom;
+    CHECK_FALSE(GCodeLayerRendererTestAccess::renders_segment(renderer, purge));
+
+    // Real part geometry is untouched by the auxiliary filter.
+    ToolpathSegment wall;
+    wall.is_extrusion = true;
+    wall.feature_type = FeatureType::OuterWall;
+    CHECK(GCodeLayerRendererTestAccess::renders_segment(renderer, wall));
+
+    ToolpathSegment untyped;
+    untyped.is_extrusion = true;
+    untyped.feature_type = FeatureType::Unknown;
+    CHECK(GCodeLayerRendererTestAccess::renders_segment(renderer, untyped));
+}
+
+TEST_CASE("the ghost silhouette skips auxiliary geometry too", "[layer_renderer][render_gate]") {
+    // The ghost worker is a second consumer of the draw rule, and the one
+    // that cost a real regression: the foreground gate was filtered while
+    // the worker's own copy of the rule was not, so the prime tower stayed
+    // on screen. This drives the REAL background pass and counts lit pixels.
+    auto make_gcode = [](bool with_tower) {
+        ParsedGCodeFile gcode;
+        Layer layer;
+        layer.z_height = 0.2f;
+
+        // The part is a long diagonal that alone defines the fit bounds. The
+        // tower sits INSIDE those bounds but off the diagonal, so if the gate
+        // ever stops filtering, its square lights up hundreds of pixels the
+        // part never touches - placing it outside the fit instead would clip
+        // it out of the buffer and the test could not fail.
+        ToolpathSegment part;
+        part.start = glm::vec3(10, 10, 0.2f);
+        part.end = glm::vec3(500, 500, 0.2f);
+        part.is_extrusion = true;
+        part.extrusion_amount = 1.0f;
+        part.width = 0.4f;
+        part.feature_type = FeatureType::OuterWall;
+        layer.segments.push_back(part);
+
+        if (with_tower) {
+            ToolpathSegment tower;
+            tower.start = glm::vec3(100, 300, 0.2f);
+            tower.end = glm::vec3(200, 400, 0.2f);
+            tower.is_extrusion = true;
+            tower.extrusion_amount = 1.0f;
+            tower.width = 0.4f;
+            tower.feature_type = FeatureType::WipeTower;
+            layer.segments.push_back(tower);
+        }
+
+        gcode.layers.push_back(layer);
+        gcode.total_segments = layer.segments.size();
+        return gcode;
+    };
+
+    auto lit_pixel_count = [&make_gcode](bool with_tower) {
+        GCodeLayerRenderer renderer;
+        auto gcode = make_gcode(with_tower);
+        renderer.set_gcode(&gcode);
+        renderer.set_canvas_size(200, 200);
+        GCodeLayerRendererTestAccess::set_view_mode(renderer,
+                                                    GCodeLayerRenderer::ViewMode::TOP_DOWN);
+        renderer.auto_fit();
+        renderer.set_current_layer(0);
+
+        GCodeLayerRendererTestAccess::run_ghost_pass(renderer);
+        const uint8_t* px = GCodeLayerRendererTestAccess::ghost_pixels(renderer);
+        REQUIRE(px != nullptr);
+        const size_t stride = GCodeLayerRendererTestAccess::ghost_stride(renderer);
+        size_t lit = 0;
+        for (int y = 0; y < GCodeLayerRendererTestAccess::ghost_height(renderer); ++y) {
+            const uint8_t* row = px + y * stride;
+            for (int x = 0; x < GCodeLayerRendererTestAccess::ghost_width(renderer); ++x) {
+                if (row[x * 4 + 3] != 0) { // ARGB8888 alpha byte
+                    ++lit;
+                }
+            }
+        }
+        return lit;
+    };
+
+    const size_t part_only = lit_pixel_count(false);
+    const size_t with_tower = lit_pixel_count(true);
+    REQUIRE(part_only > 0); // the setup actually painted something
+    // Same fit (the tower is outside every bound), so the same part pixels -
+    // a tower leaking into the ghost would add hundreds of lit pixels.
+    CHECK(with_tower == part_only);
+}
+
+TEST_CASE("the exclude and highlight setters take any name set, with or without a file",
+          "[layer_renderer][exclude][highlight]") {
+    // What the sets do to the drawing is pinned by the colour cases below.
+    const std::unordered_set<std::string> sets[] = {
+        {"cube1"}, {"cube1", "cube2"}, {}, {"nonexistent_object"}};
+    SECTION("no file") {
+        GCodeLayerRenderer renderer;
+        REQUIRE_NOTHROW(renderer.set_excluded_objects({"cube1"}));
+        REQUIRE_NOTHROW(renderer.set_highlighted_objects({"cube1"}));
+    }
+    SECTION("a fitted file") {
+        GCodeLayerRenderer renderer;
+        auto gcode = make_test_gcode();
+        renderer.set_gcode(&gcode);
+        renderer.set_canvas_size(200, 200);
+        GCodeLayerRendererTestAccess::set_view_mode(renderer,
+                                                    GCodeLayerRenderer::ViewMode::TOP_DOWN);
+        renderer.auto_fit();
+        renderer.set_current_layer(0);
+        for (const auto& set : sets) {
+            REQUIRE_NOTHROW(renderer.set_excluded_objects(set));
+            REQUIRE_NOTHROW(renderer.set_highlighted_objects(set));
+        }
+    }
+}
+
+// =============================================================================
+// Pick Object At - the top-down fixture
+// =============================================================================
+
+TEST_CASE("pick_object_at returns the named object under the tap, and nothing elsewhere",
+          "[layer_renderer][pick][exclude]") {
+    // In TOP_DOWN with auto_fit on (10,20)-(50,80) in a 200x200 canvas the
+    // scale is ~3.03 about (30, 50): cube1's midpoint lands at (100, ~191),
+    // cube2's at (100, ~9), and the unnamed segment's at the centre.
+    struct Row {
+        const char* what;
+        int x, y;
+        std::optional<std::string> name;
+        bool may_miss = false; // nearer one object, but maybe past the pick reach
+        std::unordered_set<std::string> excluded = {};
+    };
+    const Row rows[] = {
+        {"cube1's midpoint", 100, 191, "cube1"},
+        {"cube2's midpoint", 100, 9, "cube2"},
+        {"a far corner", 0, 0, std::nullopt},
+        {"the other corner", 199, 199, std::nullopt},
+        {"an unnamed segment is not an object", 100, 100, std::nullopt},
+        {"nearer cube1", 100, 180, "cube1", true},
+        {"nearer cube2", 100, 20, "cube2", true},
+        // An excluded object stays pickable, so a tap can un-exclude it.
+        {"an excluded cube1", 100, 191, "cube1", false, {"cube1"}},
+    };
+    for (const auto& row : rows) {
+        CAPTURE(row.what);
+        GCodeLayerRenderer renderer;
+        auto gcode = make_test_gcode();
+        renderer.set_gcode(&gcode);
+        renderer.set_canvas_size(200, 200);
+        GCodeLayerRendererTestAccess::set_view_mode(renderer,
+                                                    GCodeLayerRenderer::ViewMode::TOP_DOWN);
+        renderer.auto_fit();
+        renderer.set_current_layer(0);
+        renderer.set_excluded_objects(row.excluded);
+        const auto picked = renderer.pick_object_at(row.x, row.y);
+        if (!row.name) {
+            CHECK_FALSE(picked.has_value());
+        } else if (picked || !row.may_miss) {
+            REQUIRE(picked.has_value());
+            CHECK(*picked == *row.name);
+        }
+    }
+
+    SECTION("no file") {
+        GCodeLayerRenderer renderer;
+        renderer.set_canvas_size(200, 200);
+        GCodeLayerRendererTestAccess::set_view_mode(renderer,
+                                                    GCodeLayerRenderer::ViewMode::TOP_DOWN);
+        CHECK_FALSE(renderer.pick_object_at(100, 100).has_value());
+    }
+    SECTION("an empty layer") {
+        ParsedGCodeFile gcode;
+        Layer empty_layer;
+        empty_layer.z_height = 0.2f;
+        gcode.layers.push_back(empty_layer);
+        GCodeLayerRenderer renderer;
+        renderer.set_gcode(&gcode);
+        renderer.set_canvas_size(200, 200);
+        GCodeLayerRendererTestAccess::set_view_mode(renderer,
+                                                    GCodeLayerRenderer::ViewMode::TOP_DOWN);
+        renderer.set_current_layer(0);
+        CHECK_FALSE(renderer.pick_object_at(100, 100).has_value());
+    }
+}
+
+// =============================================================================
+// Crash-diagnostics breadcrumb
+// =============================================================================
+
+// Verifies the breadcrumb added to GCodeLayerRenderer::render_layers_to_cache
+// actually fires on the real render path. A SIGBUS was seen inside that path on
+// AD5X (bundle YZQ47HQ6); the crumb gives the crash handler the gcode subsystem
+// + target layer even when the stack is too corrupt to scan. render() reaches
+// render_layers_to_cache only in FRONT view after warmup, so we drive several
+// frames against an offscreen canvas layer with ghost mode off (deterministic,
+// no background thread).
+TEST_CASE_METHOD(LVGLTestFixture, "render_layers_to_cache emits gcode breadcrumb",
+                 "[layer_renderer][crash][breadcrumb]") {
+    auto gcode = make_test_gcode();
+
+    GCodeLayerRenderer renderer;
+    renderer.set_gcode(&gcode);
+    renderer.set_ghost_mode(false); // deterministic: no background ghost thread
+    renderer.set_canvas_size(200, 200);
+    renderer.set_current_layer(0);
+
+    // Offscreen canvas provides a real lv_layer_t for render() to blit into.
+    lv_obj_t* canvas = lv_canvas_create(test_screen());
+    REQUIRE(canvas != nullptr);
+    static uint8_t canvas_buf[200 * 200 * 4];
+    lv_canvas_set_buffer(canvas, canvas_buf, 200, 200, LV_COLOR_FORMAT_ARGB8888);
+    lv_area_t clip = {0, 0, 199, 199};
+
+    // The first kWarmupFrames (2) render() calls skip heavy caching; loop past
+    // them so the solid-cache path (render_layers_to_cache) runs at least once.
+    for (int i = 0; i < 5; ++i) {
+        lv_layer_t layer;
+        lv_canvas_init_layer(canvas, &layer);
+        renderer.render(&layer, &clip);
+        lv_canvas_finish_layer(canvas, &layer);
+    }
+
+    auto crumbs = helix::capture_breadcrumb_lines();
+    bool found = false;
+    for (const auto& line : crumbs) {
+        if (line.find("gcode render_cache") != std::string::npos) {
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        INFO("breadcrumb ring contents:");
+        for (const auto& line : crumbs) {
+            INFO(line);
+        }
+    }
+    REQUIRE(found);
+}
+
+// =============================================================================
+// Pick Object At - whole-stack hit testing
+//
+// The view draws every layer up to current_layer_, so picking has to match. A
+// full preview parks current_layer_ on the TOP layer, whose segments are often
+// a sliver in one corner, which used to make tap-to-select and
+// long-press-to-exclude dead in the 2D view. The fixtures below populate
+// ParsedGCodeFile::objects with real 3D bounding boxes (make_test_gcode() above
+// deliberately does not), which is what the parser produces and what the
+// projected-AABB stage of the picker consumes.
+// =============================================================================
+
+namespace {
+
+constexpr int kPickCanvas = 200;
+
+// Mirror of the renderer's own projection so these tests can name a click point
+// in world millimetres instead of hard-coded pixels. auto_fit() feeds
+// compute_auto_fit() the global bounding box with the default 5% padding, and
+// content_offset_y_percent_ defaults to 0. The view mode is a parameter because
+// TOP_DOWN and ISOMETRIC discard Z entirely - only FRONT maps Z to a screen
+// coordinate, so only FRONT can show the drawn-Z clamp moving a footprint.
+glm::ivec2 project_expected(const AABB& fit_box, float x, float y, float z = 0.0f,
+                            ViewMode view = ViewMode::TOP_DOWN) {
+    auto fit = compute_auto_fit(fit_box, view, kPickCanvas, kPickCanvas);
+    ProjectionParams params;
+    params.view_mode = view;
+    params.scale = fit.scale;
+    params.offset_x = fit.offset_x;
+    params.offset_y = fit.offset_y;
+    params.offset_z = fit.offset_z;
+    params.canvas_width = kPickCanvas;
+    params.canvas_height = kPickCanvas;
+    return project(params, x, y, z);
+}
+
+bool xy_inside(const AABB& box, float x, float y) {
+    return x >= box.min.x && x <= box.max.x && y >= box.min.y && y <= box.max.y;
+}
+
+// Topmost (smallest) screen y over a box's 8 projected corners - the same
+// reduction the picker's stage 1 does. Derived rather than hand-picked because
+// which corner wins is not obvious: FRONT's kSinH is sin(-45°), so the vertical
+// term peaks at MAX x and MAX y, and guessing min y silently produces a point
+// that is still inside the box.
+int projected_top_y(const AABB& fit_box, const AABB& box, ViewMode view) {
+    int top = std::numeric_limits<int>::max();
+    for (const glm::vec3& corner : box.corners()) {
+        top = std::min(top, project_expected(fit_box, corner.x, corner.y, corner.z, view).y);
+    }
+    return top;
+}
+
+// Grow `layer` and `gcode` by one extrusion segment attributed to `object`,
+// mirroring GCodeParser: the object's bounding_box is expanded over that
+// object's own extrusion endpoints, so it spans the object's full Z range
+// rather than a single layer.
+void add_object_segment(ParsedGCodeFile& gcode, Layer& layer, const std::string& object,
+                        const glm::vec3& start, const glm::vec3& end) {
+    ToolpathSegment seg;
+    seg.start = start;
+    seg.end = end;
+    seg.is_extrusion = true;
+    seg.object_name_index = gcode.intern_object_name(object);
+    layer.segments.push_back(seg);
+    layer.segment_count_extrusion++;
+    layer.bounding_box.expand(start);
+    layer.bounding_box.expand(end);
+
+    gcode.global_bounding_box.expand(start);
+    gcode.global_bounding_box.expand(end);
+    gcode.total_segments++;
+
+    GCodeObject& obj = gcode.objects[object];
+    obj.name = object;
+    obj.bounding_box.expand(start);
+    obj.bounding_box.expand(end);
+}
+
+// Object "body" spans layers 0..3 as two rails across XY [10,50]x[10,50]. The
+// TOP layer (4) holds only a short patch parked at y=90, far from the body.
+// That is the shipped-bug shape: the picker saw layer 4 only.
+ParsedGCodeFile make_tall_object_gcode() {
+    ParsedGCodeFile gcode;
+    for (int i = 0; i < 4; ++i) {
+        Layer layer;
+        layer.z_height = 0.2f * static_cast<float>(i);
+        const float z = layer.z_height;
+        add_object_segment(gcode, layer, "body", {10.0f, 10.0f, z}, {50.0f, 10.0f, z});
+        add_object_segment(gcode, layer, "body", {10.0f, 50.0f, z}, {50.0f, 50.0f, z});
+        gcode.layers.push_back(std::move(layer));
+    }
+    Layer top;
+    top.z_height = 0.8f;
+    add_object_segment(gcode, top, "body", {10.0f, 90.0f, 0.8f}, {14.0f, 90.0f, 0.8f});
+    gcode.layers.push_back(std::move(top));
+    return gcode;
+}
+
+// Two L-shaped objects on one layer whose projected boxes overlap in
+// XY [40,60]x[40,60], so a click there is a candidate for both:
+//   "alpha": rail x=10 (y 10..60) + rail y=50 (x 10..60)  -> box [10,60]x[10,60]
+//   "beta" : rail x=90 (y 40..90) + rail y=90 (x 40..90)
+//            + rail x=55 (y 40..90)                       -> box [40,90]x[40,90]
+// "alpha" sorts first in the std::map, so a picker that just returned the first
+// containing box would always answer "alpha".
+ParsedGCodeFile make_overlapping_boxes_gcode() {
+    ParsedGCodeFile gcode;
+    Layer layer;
+    layer.z_height = 0.2f;
+    const float z = 0.2f;
+    add_object_segment(gcode, layer, "alpha", {10.0f, 10.0f, z}, {10.0f, 60.0f, z});
+    add_object_segment(gcode, layer, "alpha", {10.0f, 50.0f, z}, {60.0f, 50.0f, z});
+    add_object_segment(gcode, layer, "beta", {90.0f, 40.0f, z}, {90.0f, 90.0f, z});
+    add_object_segment(gcode, layer, "beta", {40.0f, 90.0f, z}, {90.0f, 90.0f, z});
+    add_object_segment(gcode, layer, "beta", {55.0f, 40.0f, z}, {55.0f, 90.0f, z});
+    gcode.layers.push_back(std::move(layer));
+    return gcode;
+}
+
+// 12 z-steps. The bottom layer is object "base" in the low XY corner; every
+// layer above is object "tower" in the high corner. Each layer wraps its own
+// EXCLUDE_OBJECT_START/END so a layer chunk parsed in isolation (streaming)
+// still carries object attribution.
+std::string make_streaming_pick_gcode() {
+    std::ostringstream out;
+    out << "; streaming pick fixture\nG28\nG90\nM82\n";
+    int e = 1;
+    for (int i = 0; i < 12; ++i) {
+        const char* name = (i == 0) ? "base" : "tower";
+        const int x0 = (i == 0) ? 10 : 70;
+        const int y0 = (i == 0) ? 10 : 70;
+        out << "G1 Z" << (0.2f * static_cast<float>(i + 1)) << " F1000\n";
+        out << "G1 X" << x0 << " Y" << y0 << " F3000\n";
+        out << "EXCLUDE_OBJECT_START NAME=" << name << "\n";
+        out << "G1 X" << (x0 + 20) << " Y" << y0 << " E" << e++ << "\n";
+        out << "G1 X" << (x0 + 20) << " Y" << (y0 + 20) << " E" << e++ << "\n";
+        out << "EXCLUDE_OBJECT_END NAME=" << name << "\n";
+    }
+    return out.str();
+}
+
+class TempPickGCodeFile {
+  public:
+    explicit TempPickGCodeFile(const std::string& content) {
+        char temp_path[] = "/tmp/gcode_pick_test_XXXXXX";
+        int fd = ::mkstemp(temp_path);
+        REQUIRE(fd != -1);
+        ::close(fd);
+        path_ = temp_path;
+        std::ofstream file(path_);
+        file << content;
+    }
+    ~TempPickGCodeFile() {
+        ::remove(path_.c_str());
+    }
+    const std::string& path() const {
+        return path_;
+    }
+
+  private:
+    std::string path_;
+};
+
+// Full-file renderer wired the way the preview panel wires it.
+void configure(GCodeLayerRenderer& renderer, const ParsedGCodeFile& gcode, int layer,
+               GCodeLayerRenderer::ViewMode view = GCodeLayerRenderer::ViewMode::TOP_DOWN) {
+    renderer.set_gcode(&gcode);
+    renderer.set_canvas_size(kPickCanvas, kPickCanvas);
+    GCodeLayerRendererTestAccess::set_view_mode(renderer, view);
+    renderer.auto_fit();
+    renderer.set_current_layer(layer);
+}
+
+// Two objects stacked in Z but disjoint in XY, so a TOP_DOWN click over one is
+// never a candidate for the other:
+//   "base"  : layers 0..1 (z 0.0, 0.2), rails in XY [10,50]x[10,50]
+//   "riser" : layers 2..4 (z 0.4..0.8), rails in XY [10,50]x[70,110]
+// With current_layer_ below 2, "riser" has not started printing: render() draws
+// nothing of it, so nothing about it may be pickable.
+ParsedGCodeFile make_stacked_in_z_gcode() {
+    ParsedGCodeFile gcode;
+    for (int i = 0; i < 5; ++i) {
+        Layer layer;
+        layer.z_height = 0.2f * static_cast<float>(i);
+        const float z = layer.z_height;
+        if (i < 2) {
+            add_object_segment(gcode, layer, "base", {10.0f, 10.0f, z}, {50.0f, 10.0f, z});
+            add_object_segment(gcode, layer, "base", {10.0f, 50.0f, z}, {50.0f, 50.0f, z});
+        } else {
+            add_object_segment(gcode, layer, "riser", {10.0f, 70.0f, z}, {50.0f, 70.0f, z});
+            add_object_segment(gcode, layer, "riser", {10.0f, 110.0f, z}, {50.0f, 110.0f, z});
+        }
+        gcode.layers.push_back(std::move(layer));
+    }
+    return gcode;
+}
+
+// One tall, narrow object: rails around XY [10,20]x[10,20] repeated over ten
+// layers 5mm apart, so the box is z [0,45] on a 10mm footprint. The exaggerated
+// aspect ratio is deliberate - in FRONT view a 1mm Z error is only ~4px at this
+// scale, so a short object could not separate the clamped top from the
+// unclamped one by more than the picker's own 15px slop.
+ParsedGCodeFile make_tall_column_gcode() {
+    ParsedGCodeFile gcode;
+    for (int i = 0; i < 10; ++i) {
+        Layer layer;
+        layer.z_height = 5.0f * static_cast<float>(i);
+        const float z = layer.z_height;
+        add_object_segment(gcode, layer, "column", {10.0f, 10.0f, z}, {20.0f, 10.0f, z});
+        add_object_segment(gcode, layer, "column", {10.0f, 20.0f, z}, {20.0f, 20.0f, z});
+        gcode.layers.push_back(std::move(layer));
+    }
+    return gcode;
+}
+
+// A part and a separate exclude-object whose name trips
+// name_looks_like_support(), on one layer, disjoint in XY.
+ParsedGCodeFile make_support_object_gcode() {
+    ParsedGCodeFile gcode;
+    Layer layer;
+    layer.z_height = 0.2f;
+    const float z = 0.2f;
+    add_object_segment(gcode, layer, "widget", {10.0f, 10.0f, z}, {50.0f, 10.0f, z});
+    add_object_segment(gcode, layer, "widget", {10.0f, 50.0f, z}, {50.0f, 50.0f, z});
+    add_object_segment(gcode, layer, "widget_Support", {70.0f, 10.0f, z}, {110.0f, 10.0f, z});
+    add_object_segment(gcode, layer, "widget_Support", {70.0f, 50.0f, z}, {110.0f, 50.0f, z});
+    gcode.layers.push_back(std::move(layer));
+    return gcode;
+}
+
+} // namespace
+
+// current_layer_ is the top layer, whose only segments sit at y=90; the click is
+// in the middle of the object's body, 20mm clear of every rail on every layer,
+// so only the projected-box stage can find it.
+TEST_CASE("pick_object_at picks an object whose body is below the current layer",
+          "[layer_renderer][pick]") {
+    GCodeLayerRenderer renderer;
+    auto gcode = make_tall_object_gcode();
+    configure(renderer, gcode, 4);
+
+    const AABB& fit_box = gcode.global_bounding_box;
+    const glm::ivec2 body = project_expected(fit_box, 30.0f, 30.0f);
+    const glm::ivec2 top_patch = project_expected(fit_box, 12.0f, 90.0f);
+    const glm::ivec2 lower_rail = project_expected(fit_box, 30.0f, 10.0f);
+
+    // Fixture guards: the click must be far from the top layer's segments AND
+    // from the body's own rails, so a pass cannot come from segment proximity.
+    REQUIRE(glm::distance(glm::vec2(body), glm::vec2(top_patch)) > 15.0f);
+    REQUIRE(glm::distance(glm::vec2(body), glm::vec2(lower_rail)) > 15.0f);
+
+    auto result = renderer.pick_object_at(body.x, body.y);
+    REQUIRE(result.has_value());
+    CHECK(result.value() == "body");
+}
+
+TEST_CASE("pick_object_at returns nullopt outside every object's projected box",
+          "[layer_renderer][pick]") {
+    GCodeLayerRenderer renderer;
+    auto gcode = make_tall_object_gcode();
+    configure(renderer, gcode, 4);
+
+    const AABB& fit_box = gcode.global_bounding_box;
+    const glm::ivec2 left_edge = project_expected(fit_box, 10.0f, 30.0f);
+
+    // 40px left of the box's left edge - clear of the PICK_THRESHOLD_PX inflation.
+    auto left_miss = renderer.pick_object_at(left_edge.x - 40, left_edge.y);
+    CHECK_FALSE(left_miss.has_value());
+
+    const glm::ivec2 right_edge = project_expected(fit_box, 50.0f, 30.0f);
+    auto right_miss = renderer.pick_object_at(right_edge.x + 40, right_edge.y);
+    CHECK_FALSE(right_miss.has_value());
+}
+
+TEST_CASE("pick_object_at disambiguates overlapping projected boxes by segment distance",
+          "[layer_renderer][pick]") {
+    GCodeLayerRenderer renderer;
+    auto gcode = make_overlapping_boxes_gcode();
+    configure(renderer, gcode, 0);
+
+    const AABB& fit_box = gcode.global_bounding_box;
+    const AABB& alpha_box = gcode.objects.at("alpha").bounding_box;
+    const AABB& beta_box = gcode.objects.at("beta").bounding_box;
+
+    // Fixture guard: this click is inside BOTH boxes, so the tie has to be
+    // broken by geometry. It sits on beta's x=55 rail and 9mm (~20px) from
+    // alpha's nearest rail.
+    REQUIRE(xy_inside(alpha_box, 55.0f, 41.0f));
+    REQUIRE(xy_inside(beta_box, 55.0f, 41.0f));
+
+    const glm::ivec2 on_beta = project_expected(fit_box, 55.0f, 41.0f);
+    auto beta_hit = renderer.pick_object_at(on_beta.x, on_beta.y);
+    REQUIRE(beta_hit.has_value());
+    CHECK(beta_hit.value() == "beta");
+
+    // And a click only alpha's box contains still resolves to alpha.
+    REQUIRE_FALSE(xy_inside(beta_box, 10.0f, 20.0f));
+    const glm::ivec2 on_alpha = project_expected(fit_box, 10.0f, 20.0f);
+    auto alpha_hit = renderer.pick_object_at(on_alpha.x, on_alpha.y);
+    REQUIRE(alpha_hit.has_value());
+    CHECK(alpha_hit.value() == "alpha");
+}
+
+TEST_CASE("pick_object_at skips objects with an empty bounding box", "[layer_renderer][pick]") {
+    GCodeLayerRenderer renderer;
+    auto gcode = make_tall_object_gcode();
+
+    // EXCLUDE_OBJECT_DEFINE ran but no extrusion followed, so bounding_box is
+    // still the +/-inf default. Projecting those corners must not be attempted.
+    GCodeObject& ghost = gcode.objects["ghost"];
+    ghost.name = "ghost";
+    REQUIRE(ghost.bounding_box.is_empty());
+
+    configure(renderer, gcode, 4);
+
+    const AABB& fit_box = gcode.global_bounding_box;
+    const glm::ivec2 body = project_expected(fit_box, 30.0f, 30.0f);
+    const glm::ivec2 left_edge = project_expected(fit_box, 10.0f, 30.0f);
+
+    std::optional<std::string> body_hit;
+    REQUIRE_NOTHROW(body_hit = renderer.pick_object_at(body.x, body.y));
+    REQUIRE(body_hit.has_value());
+    CHECK(body_hit.value() == "body");
+
+    // Empty space must not resolve to the never-extruded object.
+    std::optional<std::string> miss;
+    REQUIRE_NOTHROW(miss = renderer.pick_object_at(left_edge.x - 40, left_edge.y));
+    CHECK_FALSE(miss.has_value());
+}
+
+TEST_CASE("pick_object_at in streaming mode walks past uncached layers",
+          "[layer_renderer][pick][streaming]") {
+    TempPickGCodeFile file(make_streaming_pick_gcode());
+    GCodeStreamingController controller;
+    REQUIRE(controller.open_file(file.path()));
+
+    const int layer_count = static_cast<int>(controller.get_layer_count());
+    REQUIRE(layer_count >= 12);
+
+    GCodeLayerRenderer renderer;
+    renderer.set_streaming_controller(&controller);
+    renderer.set_canvas_size(kPickCanvas, kPickCanvas);
+    GCodeLayerRendererTestAccess::set_view_mode(renderer, GCodeLayerRenderer::ViewMode::TOP_DOWN);
+    renderer.auto_fit();
+
+    // Cache only the bottom of the file. kDefaultPrefetchRadius is 3, so
+    // everything above layer 3 stays uncached and try_get_layer_segments()
+    // returns null there - the downward walk has to skip it, never seek.
+    (void)controller.get_layer_segments(0);
+    controller.wait_for_prefetch_idle();
+    REQUIRE_FALSE(controller.is_layer_cached(static_cast<size_t>(layer_count - 1)));
+
+    renderer.set_current_layer(layer_count - 1);
+
+    const auto& stats = controller.get_index_stats();
+    REQUIRE(stats.has_xy_bounds());
+    AABB fit_box;
+    fit_box.min = {stats.min_x, stats.min_y, stats.min_z};
+    fit_box.max = {stats.max_x, stats.max_y, stats.max_z};
+
+    // On "base"'s rail, which lives only on the bottom (cached) layer.
+    const glm::ivec2 on_base = project_expected(fit_box, 20.0f, 10.0f);
+    std::optional<std::string> result;
+    REQUIRE_NOTHROW(result = renderer.pick_object_at(on_base.x, on_base.y));
+    REQUIRE(result.has_value());
+    CHECK(result.value() == "base");
+}
+
+// =============================================================================
+// Pick Object At - an invisible object must not be pickable
+//
+// Stage 1 projects each object's whole 3D bounding box, but render() only draws
+// layers 0..current_layer_. Without clamping the box to the drawn Z range, an
+// object that has not started printing is fully pickable while completely
+// invisible, and a partly-printed one claims screen area above its drawn top.
+// You cannot exclude what you cannot see, so both are UX failures.
+// =============================================================================
+
+TEST_CASE("pick_object_at ignores an object that has not started printing",
+          "[layer_renderer][pick]") {
+    GCodeLayerRenderer renderer;
+    auto gcode = make_stacked_in_z_gcode();
+
+    const AABB& riser_box = gcode.objects.at("riser").bounding_box;
+    const AABB& fit_box = gcode.global_bounding_box;
+
+    // Fixture guard: "riser" starts at z=0.4, above the z=0.2 top of layer 1.
+    REQUIRE(riser_box.min.z > gcode.layers.at(1).z_height);
+
+    // Layer 1 is the top drawn layer, so nothing of "riser" is on screen.
+    configure(renderer, gcode, 1);
+
+    const glm::ivec2 on_riser = project_expected(fit_box, 30.0f, 90.0f);
+
+    // Fixture guard: the click IS inside riser's unclamped projected box, which
+    // is what made it pickable, and is nowhere near any drawn segment.
+    REQUIRE(xy_inside(riser_box, 30.0f, 90.0f));
+    const glm::ivec2 nearest_drawn = project_expected(fit_box, 30.0f, 50.0f);
+    REQUIRE(glm::distance(glm::vec2(on_riser), glm::vec2(nearest_drawn)) > 15.0f);
+
+    auto miss = renderer.pick_object_at(on_riser.x, on_riser.y);
+    CHECK_FALSE(miss.has_value());
+
+    // The object that IS drawn is unaffected.
+    const glm::ivec2 on_base = project_expected(fit_box, 30.0f, 30.0f);
+    auto base_hit = renderer.pick_object_at(on_base.x, on_base.y);
+    REQUIRE(base_hit.has_value());
+    CHECK(base_hit.value() == "base");
+}
+
+TEST_CASE("pick_object_at clamps a partly-drawn object to its drawn top",
+          "[layer_renderer][pick]") {
+    GCodeLayerRenderer renderer;
+    auto gcode = make_tall_column_gcode();
+
+    // FRONT is the only view mode whose projection consumes Z, so it is the
+    // only one where an overstated Z range overstates the screen footprint.
+    configure(renderer, gcode, 2, GCodeLayerRenderer::ViewMode::FRONT);
+
+    const AABB& fit_box = gcode.global_bounding_box;
+    const AABB& box = gcode.objects.at("column").bounding_box;
+    const float visible_top_z = gcode.layers.at(2).z_height;
+
+    // Fixture guard: layer 2 draws only a fifth of the column's height.
+    REQUIRE(visible_top_z < box.max.z);
+
+    // Screen top of the full box versus the box clamped to the drawn Z. The
+    // clamp is the only difference, and in FRONT a higher Z is higher on screen,
+    // so the clamped top sits lower (larger y).
+    const AABB drawn_box{box.min, glm::vec3(box.max.x, box.max.y, visible_top_z)};
+    const int top_unclamped = projected_top_y(fit_box, box, ViewMode::FRONT);
+    const int top_drawn = projected_top_y(fit_box, drawn_box, ViewMode::FRONT);
+
+    // Fixture guard: the undrawn Z is worth far more than the picker's 15px
+    // slop, so the two tops cannot be confused.
+    REQUIRE(top_drawn - top_unclamped > 60);
+
+    // Horizontally centred, so the click is inside both boxes' x extent - Z
+    // does not enter sx, so the two share it exactly.
+    const int click_x =
+        project_expected(fit_box, box.center().x, box.center().y, visible_top_z, ViewMode::FRONT).x;
+
+    // 30px above the drawn top: outside the clamped box even after inflation,
+    // but comfortably inside the unclamped one.
+    const int click_y = top_drawn - 30;
+    REQUIRE(click_y > top_unclamped);
+    auto above_drawn = renderer.pick_object_at(click_x, click_y);
+    CHECK_FALSE(above_drawn.has_value());
+
+    // The drawn body itself still picks. Mid-footprint, halfway up the drawn
+    // height - unambiguously inside the clamped box.
+    const glm::ivec2 on_drawn =
+        project_expected(fit_box, 15.0f, 15.0f, visible_top_z * 0.5f, ViewMode::FRONT);
+    auto drawn_hit = renderer.pick_object_at(on_drawn.x, on_drawn.y);
+    REQUIRE(drawn_hit.has_value());
+    CHECK(drawn_hit.value() == "column");
+}
+
+TEST_CASE("pick_object_at still picks the layer currently being drawn", "[layer_renderer][pick]") {
+    GCodeLayerRenderer renderer;
+    auto gcode = make_stacked_in_z_gcode();
+    const AABB& fit_box = gcode.global_bounding_box;
+    const AABB& riser_box = gcode.objects.at("riser").bounding_box;
+    const glm::ivec2 on_riser = project_expected(fit_box, 30.0f, 90.0f);
+
+    SECTION("box.min.z exactly equals the drawn top - the object's first layer") {
+        configure(renderer, gcode, 2);
+        REQUIRE(riser_box.min.z == gcode.layers.at(2).z_height);
+        auto hit = renderer.pick_object_at(on_riser.x, on_riser.y);
+        REQUIRE(hit.has_value());
+        CHECK(hit.value() == "riser");
+    }
+
+    SECTION("box.max.z exactly equals the drawn top - the object's last layer") {
+        configure(renderer, gcode, 4);
+        REQUIRE(riser_box.max.z == gcode.layers.at(4).z_height);
+        auto hit = renderer.pick_object_at(on_riser.x, on_riser.y);
+        REQUIRE(hit.has_value());
+        CHECK(hit.value() == "riser");
+    }
+}
+
+TEST_CASE("pick_object_at honors the support visibility toggle",
+          "[layer_renderer][pick][support]") {
+    GCodeLayerRenderer renderer;
+    auto gcode = make_support_object_gcode();
+    configure(renderer, gcode, 0);
+
+    const AABB& fit_box = gcode.global_bounding_box;
+    const glm::ivec2 on_support = project_expected(fit_box, 90.0f, 30.0f);
+    const glm::ivec2 on_widget = project_expected(fit_box, 30.0f, 30.0f);
+
+    // Fixture guard: the click is inside the support object's box only.
+    REQUIRE(xy_inside(gcode.objects.at("widget_Support").bounding_box, 90.0f, 30.0f));
+    REQUIRE_FALSE(xy_inside(gcode.objects.at("widget").bounding_box, 90.0f, 30.0f));
+
+    SECTION("supports shown - the support object is pickable") {
+        renderer.set_show_supports(true);
+        auto hit = renderer.pick_object_at(on_support.x, on_support.y);
+        REQUIRE(hit.has_value());
+        CHECK(hit.value() == "widget_Support");
+    }
+
+    SECTION("supports hidden - the support object is not pickable") {
+        renderer.set_show_supports(false);
+        auto miss = renderer.pick_object_at(on_support.x, on_support.y);
+        CHECK_FALSE(miss.has_value());
+
+        // Hiding supports must not make the part unpickable.
+        auto widget_hit = renderer.pick_object_at(on_widget.x, on_widget.y);
+        REQUIRE(widget_hit.has_value());
+        CHECK(widget_hit.value() == "widget");
+    }
+}
+
+// ===========================================================================
+// Picking under FRONT, the projection the preview ships with. FRONT rotates XY
+// by 45 degrees and folds Z into screen y, so a footprint and a segment
+// distance there differ from TOP_DOWN's; these cases name every click in world
+// millimetres and derive the pixels through the same projection.
+// ===========================================================================
+
+namespace {
+
+constexpr ViewMode kFront = ViewMode::FRONT;
+
+struct ScreenRect {
+    int min_x = std::numeric_limits<int>::max();
+    int min_y = std::numeric_limits<int>::max();
+    int max_x = std::numeric_limits<int>::lowest();
+    int max_y = std::numeric_limits<int>::lowest();
+
+    bool contains(glm::ivec2 p) const {
+        return p.x >= min_x && p.x <= max_x && p.y >= min_y && p.y <= max_y;
+    }
+};
+
+ScreenRect front_rect(const AABB& fit_box, const AABB& box) {
+    ScreenRect r;
+    for (const glm::vec3& c : box.corners()) {
+        const glm::ivec2 p = project_expected(fit_box, c.x, c.y, c.z, kFront);
+        r.min_x = std::min(r.min_x, p.x);
+        r.min_y = std::min(r.min_y, p.y);
+        r.max_x = std::max(r.max_x, p.x);
+        r.max_y = std::max(r.max_y, p.y);
+    }
+    return r;
+}
+
+// Screen distance from a click to a world segment, projected under FRONT. FRONT
+// is not a similarity transform, so the nearest point in world space is not
+// the nearest on screen; this measures on screen, as the picker does.
+float front_distance(const AABB& fit_box, glm::ivec2 click, const glm::vec3& a,
+                     const glm::vec3& b) {
+    const glm::vec2 p(click);
+    const glm::vec2 s(project_expected(fit_box, a.x, a.y, a.z, kFront));
+    const glm::vec2 e(project_expected(fit_box, b.x, b.y, b.z, kFront));
+    const glm::vec2 d = e - s;
+    const float len2 = glm::dot(d, d);
+    const float t = len2 > 0.0f ? std::clamp(glm::dot(p - s, d) / len2, 0.0f, 1.0f) : 0.0f;
+    return glm::distance(p, s + t * d);
+}
+
+// Two parallel rails 4mm apart on one layer, in separate objects whose XY boxes
+// are disjoint but whose FRONT footprints overlap. "beta" sorts after "alpha"
+// in the object map yet its segment comes first in the layer, so neither map
+// order nor segment order can stand in for the distance comparison.
+ParsedGCodeFile make_parallel_rails_gcode() {
+    ParsedGCodeFile gcode;
+    Layer layer;
+    layer.z_height = 0.2f;
+    const float z = 0.2f;
+    add_object_segment(gcode, layer, "beta", {10.0f, 44.0f, z}, {60.0f, 44.0f, z});
+    add_object_segment(gcode, layer, "beta", {60.0f, 44.0f, z}, {60.0f, 80.0f, z});
+    add_object_segment(gcode, layer, "alpha", {10.0f, 10.0f, z}, {10.0f, 40.0f, z});
+    add_object_segment(gcode, layer, "alpha", {10.0f, 40.0f, z}, {60.0f, 40.0f, z});
+    gcode.layers.push_back(std::move(layer));
+    return gcode;
+}
+
+} // namespace
+
+TEST_CASE("FRONT: pick_object_at picks the object under the tap", "[layer_renderer][pick][front]") {
+    GCodeLayerRenderer renderer;
+    auto gcode = make_tall_object_gcode();
+    configure(renderer, gcode, 4, kFront);
+
+    const AABB& fit_box = gcode.global_bounding_box;
+    const glm::ivec2 on_rail = project_expected(fit_box, 30.0f, 10.0f, 0.4f, kFront);
+
+    // Fixture guard: the tap lands inside the body's FRONT footprint.
+    REQUIRE(front_rect(fit_box, gcode.objects.at("body").bounding_box).contains(on_rail));
+
+    auto hit = renderer.pick_object_at(on_rail.x, on_rail.y);
+    REQUIRE(hit.has_value());
+    CHECK(hit.value() == "body");
+}
+
+TEST_CASE("FRONT: pick_object_at misses outside the projected footprint",
+          "[layer_renderer][pick][front]") {
+    GCodeLayerRenderer renderer;
+    auto gcode = make_tall_object_gcode();
+    configure(renderer, gcode, 4, kFront);
+
+    const AABB& fit_box = gcode.global_bounding_box;
+    const ScreenRect r = front_rect(fit_box, gcode.objects.at("body").bounding_box);
+    const int mid_y = (r.min_y + r.max_y) / 2;
+    const int mid_x = (r.min_x + r.max_x) / 2;
+
+    // Past the footprint by more than the picker's inflation on each side.
+    const int clear = static_cast<int>(selection::kPickThresholdPx) + 10;
+    CHECK_FALSE(renderer.pick_object_at(r.min_x - clear, mid_y).has_value());
+    CHECK_FALSE(renderer.pick_object_at(r.max_x + clear, mid_y).has_value());
+    CHECK_FALSE(renderer.pick_object_at(mid_x, r.min_y - clear).has_value());
+    CHECK_FALSE(renderer.pick_object_at(mid_x, r.max_y + clear).has_value());
+}
+
+TEST_CASE("FRONT: overlapping footprints resolve to the object whose segment is under the tap",
+          "[layer_renderer][pick][front]") {
+    GCodeLayerRenderer renderer;
+    auto gcode = make_overlapping_boxes_gcode();
+    configure(renderer, gcode, 0, kFront);
+
+    const AABB& fit_box = gcode.global_bounding_box;
+    const ScreenRect alpha = front_rect(fit_box, gcode.objects.at("alpha").bounding_box);
+    const ScreenRect beta = front_rect(fit_box, gcode.objects.at("beta").bounding_box);
+
+    // On beta's x=55 rail, inside the band where the two footprints overlap.
+    const glm::ivec2 on_beta = project_expected(fit_box, 55.0f, 63.0f, 0.2f, kFront);
+
+    // Fixture guards: both footprints contain the tap, so stage 1 cannot decide,
+    // and alpha's nearest rail is beyond the picker's reach.
+    REQUIRE(alpha.contains(on_beta));
+    REQUIRE(beta.contains(on_beta));
+    REQUIRE(front_distance(fit_box, on_beta, {10.0f, 50.0f, 0.2f}, {60.0f, 50.0f, 0.2f}) >
+            selection::kPickThresholdPx);
+    REQUIRE(front_distance(fit_box, on_beta, {10.0f, 10.0f, 0.2f}, {10.0f, 60.0f, 0.2f}) >
+            selection::kPickThresholdPx);
+
+    auto hit = renderer.pick_object_at(on_beta.x, on_beta.y);
+    REQUIRE(hit.has_value());
+    CHECK(hit.value() == "beta");
+}
+
+TEST_CASE("FRONT: a tap within reach of two objects picks the nearer segment",
+          "[layer_renderer][pick][front]") {
+    GCodeLayerRenderer renderer;
+    auto gcode = make_parallel_rails_gcode();
+    configure(renderer, gcode, 0, kFront);
+
+    const AABB& fit_box = gcode.global_bounding_box;
+    const ScreenRect alpha = front_rect(fit_box, gcode.objects.at("alpha").bounding_box);
+    const ScreenRect beta = front_rect(fit_box, gcode.objects.at("beta").bounding_box);
+
+    const glm::vec3 alpha_a{10.0f, 40.0f, 0.2f}, alpha_b{60.0f, 40.0f, 0.2f};
+    const glm::vec3 beta_a{10.0f, 44.0f, 0.2f}, beta_b{60.0f, 44.0f, 0.2f};
+
+    // Between the rails, 1mm off beta's and 3mm off alpha's.
+    const glm::ivec2 tap = project_expected(fit_box, 35.0f, 43.0f, 0.2f, kFront);
+    const float to_alpha = front_distance(fit_box, tap, alpha_a, alpha_b);
+    const float to_beta = front_distance(fit_box, tap, beta_a, beta_b);
+
+    // Fixture guards: stage 1 passes both objects, and both rails are in reach,
+    // so only the distance comparison in stage 2 can decide.
+    REQUIRE(alpha.contains(tap));
+    REQUIRE(beta.contains(tap));
+    REQUIRE(to_alpha < selection::kPickThresholdPx);
+    REQUIRE(to_beta < to_alpha);
+
+    auto hit = renderer.pick_object_at(tap.x, tap.y);
+    REQUIRE(hit.has_value());
+    CHECK(hit.value() == "beta");
+
+    // Mirrored: 1mm off alpha's rail, alpha wins.
+    const glm::ivec2 tap_alpha = project_expected(fit_box, 35.0f, 41.0f, 0.2f, kFront);
+    REQUIRE(front_distance(fit_box, tap_alpha, alpha_a, alpha_b) <
+            front_distance(fit_box, tap_alpha, beta_a, beta_b));
+    auto hit_alpha = renderer.pick_object_at(tap_alpha.x, tap_alpha.y);
+    REQUIRE(hit_alpha.has_value());
+    CHECK(hit_alpha.value() == "alpha");
+}
+
+// ===========================================================================
+// Selection index-map wiring.
+//
+// Selection is classified by interned object index through SelectionState, which
+// only answers correctly once rebuild_index_map() has been fed the object-name
+// table. Miss a wiring site and selection silently stops working while the
+// setter cases above, which only check that the setters accept a set, stay green.
+//
+// These assert the rendered colour, which is the end of the chain.
+// ===========================================================================
+
+namespace {
+
+/// True when `seg` draws as the grey of what it would draw as un-excluded.
+bool is_excluded_colour(const GCodeLayerRenderer& renderer, const ParsedGCodeFile& gcode,
+                        const ToolpathSegment& seg) {
+    GCodeLayerRenderer plain;
+    plain.set_gcode(&gcode);
+    const lv_color_t base = plain.get_segment_color(seg);
+    const lv_color_t want =
+        lv_color_hex(helix::gcode::selection::excluded_grey(lv_color_to_u32(base) & 0xFFFFFF));
+    const lv_color_t c = renderer.get_segment_color(seg);
+    return c.red == want.red && c.green == want.green && c.blue == want.blue;
+}
+
+} // namespace
+
+TEST_CASE("an excluded object renders greyed out", "[layer_renderer][exclude]") {
+    ParsedGCodeFile gcode = make_test_gcode();
+    GCodeLayerRenderer renderer;
+    renderer.set_gcode(&gcode);
+    renderer.set_excluded_objects({"cube1"});
+
+    const auto& segs = gcode.layers[0].segments;
+    REQUIRE(is_excluded_colour(renderer, gcode, segs[0]));       // cube1
+    REQUIRE_FALSE(is_excluded_colour(renderer, gcode, segs[1])); // cube2
+    REQUIRE_FALSE(is_excluded_colour(renderer, gcode, segs[2])); // unnamed
+}
+
+TEST_CASE("an exclusion set before the gcode source still classifies",
+          "[layer_renderer][exclude]") {
+    // Ordering matters in practice: PrinterState can deliver excluded_objects from
+    // a Moonraker status update before the viewer has finished parsing the file.
+    ParsedGCodeFile gcode = make_test_gcode();
+    GCodeLayerRenderer renderer;
+    renderer.set_excluded_objects({"cube1"});
+    renderer.set_gcode(&gcode);
+
+    REQUIRE(is_excluded_colour(renderer, gcode, gcode.layers[0].segments[0]));
+}
+
+TEST_CASE("swapping to a different file with the same object count re-maps",
+          "[layer_renderer][exclude]") {
+    // The index map is refreshed on a size heuristic plus a force flag at source
+    // swap. Without the force, two files with equal object counts would keep the
+    // first file's name-to-index mapping, and index 0 would still read as
+    // excluded even though this file has no object by that name.
+    ParsedGCodeFile first = make_test_gcode();
+    GCodeLayerRenderer renderer;
+    renderer.set_gcode(&first);
+    renderer.set_excluded_objects({"cube1"});
+    REQUIRE(is_excluded_colour(renderer, first, first.layers[0].segments[0]));
+
+    ParsedGCodeFile second;
+    {
+        Layer layer;
+        layer.z_height = 0.2f;
+        layer.bounding_box.expand(glm::vec3(10.0f, 20.0f, 0.2f));
+        layer.bounding_box.expand(glm::vec3(50.0f, 80.0f, 0.2f));
+        ToolpathSegment a;
+        a.start = glm::vec3(10.0f, 20.0f, 0.2f);
+        a.end = glm::vec3(50.0f, 20.0f, 0.2f);
+        a.is_extrusion = true;
+        a.object_name_index = second.intern_object_name("cubeA");
+        layer.segments.push_back(a);
+        ToolpathSegment b;
+        b.start = glm::vec3(10.0f, 80.0f, 0.2f);
+        b.end = glm::vec3(50.0f, 80.0f, 0.2f);
+        b.is_extrusion = true;
+        b.object_name_index = second.intern_object_name("cubeB");
+        layer.segments.push_back(b);
+        second.layers.push_back(layer);
+    }
+
+    renderer.set_gcode(&second);
+    // "cube1" is not in this file at all, so nothing here is excluded.
+    REQUIRE_FALSE(is_excluded_colour(renderer, second, second.layers[0].segments[0]));
+    REQUIRE_FALSE(is_excluded_colour(renderer, second, second.layers[0].segments[1]));
+}
+
+// ===========================================================================
+// Selection halo (the white silhouette outline).
+//
+// A selected object keeps its filament colour and is marked by a white halo
+// drawn beneath its strokes: the halo pass runs first at a wider width, then the
+// normal pass paints over it, so only the object's outer boundary stays white.
+// That is what traces the real toolpath contour rather than the convex hull the
+// slicer's EXCLUDE_OBJECT_DEFINE POLYGON gives us.
+//
+// Asserted by counting white pixels rather than probing coordinates: FRONT view
+// is isometric, so where a segment lands is a projection detail, but "white
+// appears only when something is selected" is the actual contract.
+// ===========================================================================
+
+namespace {
+
+// Drive enough frames to get past kWarmupFrames and run the solid cache path,
+// then report how many canvas pixels are near-white and how many are painted.
+// Drive frames until the progressive solid cache reports it is complete.
+//
+// A fixed frame count is NOT deterministic here: layers_per_frame_ is adaptive
+// when config_layers_per_frame_ is 0, so under machine load a frame can advance
+// the cache by zero layers and a "render 6 frames" harness silently measures a
+// half-built cache. That produced painted=0 for one render and painted=141 for
+// an identical one. needs_more_frames() is the renderer's own completion signal.
+void drive_until_cached(GCodeLayerRenderer& renderer, lv_obj_t* canvas) {
+    // The canvas must have a resolved size/position before init_layer, or the
+    // first layer of a test gets an unusable clip area and the blit lands
+    // nowhere -- which showed up as the FIRST drive in each test case painting
+    // zero pixels while later ones in the same case worked.
+    lv_obj_update_layout(canvas);
+
+    auto frame = [&]() {
+        lv_layer_t layer;
+        lv_area_t clip = {0, 0, 199, 199};
+        lv_canvas_init_layer(canvas, &layer);
+        renderer.render(&layer, &clip);
+        lv_canvas_finish_layer(canvas, &layer);
+        lv_timer_handler_safe();
+    };
+    // kWarmupFrames deliberately skips heavy caching; get past it first.
+    for (int i = 0; i < 3; ++i) {
+        frame();
+    }
+    int guard = 0;
+    while (renderer.needs_more_frames() && guard++ < 500) {
+        frame();
+    }
+    REQUIRE(guard < 500); // cache never completed: harness bug, not a halo bug
+    frame();              // final frame blits the completed cache to the canvas
+}
+
+struct RenderCounts {
+    int white = 0;
+    int painted = 0;
+};
+
+RenderCounts render_and_count(const std::unordered_set<std::string>& highlighted,
+                              ParsedGCodeFile& gcode, uint8_t* buf, lv_obj_t* canvas) {
+    GCodeLayerRenderer renderer;
+    renderer.set_gcode(&gcode);
+    renderer.set_ghost_mode(false);   // no background thread: deterministic
+    renderer.set_ssao_enabled(false); // the outline pass would add white of its own
+    // Antialiasing is a separate flag now, and it has to be pinned too. A tagged
+    // (selected) stroke is always drawn aliased so the alpha tag survives, so
+    // leaving AA on here would give the unselected render an AA fringe the
+    // selected one does not have, and the footprint comparison below would be
+    // measuring that rather than the rim.
+    renderer.set_antialias_enabled(false);
+    renderer.set_canvas_size(200, 200);
+    renderer.set_current_layer(0);
+    if (!highlighted.empty()) {
+        renderer.set_highlighted_objects(highlighted);
+    }
+
+    std::fill(buf, buf + 200 * 200 * 4, uint8_t{0});
+    drive_until_cached(renderer, canvas);
+
+    RenderCounts c;
+    for (int i = 0; i < 200 * 200; ++i) {
+        const uint8_t b = buf[i * 4 + 0];
+        const uint8_t g = buf[i * 4 + 1];
+        const uint8_t r = buf[i * 4 + 2];
+        const uint8_t a = buf[i * 4 + 3];
+        if (a == 0) {
+            continue;
+        }
+        // Alpha, not colour: the fixture sets no filament colour, so ordinary
+        // segments draw black and an r|g|b test would score them as unpainted.
+        ++c.painted;
+        if (r >= 240 && g >= 240 && b >= 240) {
+            ++c.white;
+        }
+    }
+    return c;
+}
+
+} // namespace
+
+TEST_CASE_METHOD(LVGLTestFixture,
+                 "a selection draws a white rim inside each selected object and nowhere else",
+                 "[layer_renderer][halo]") {
+    auto gcode = make_test_gcode();
+    lv_obj_t* canvas = lv_canvas_create(test_screen());
+    REQUIRE(canvas != nullptr);
+    static uint8_t buf[200 * 200 * 4];
+    lv_canvas_set_buffer(canvas, buf, 200, 200, LV_COLOR_FORMAT_ARGB8888);
+
+    const auto plain = render_and_count({}, gcode, buf, canvas);
+    const auto one = render_and_count({"cube1"}, gcode, buf, canvas);
+    const auto both = render_and_count({"cube1", "cube2"}, gcode, buf, canvas);
+    INFO("plain: painted=" << plain.painted << " white=" << plain.white);
+    INFO("one: painted=" << one.painted << " white=" << one.white);
+    INFO("both: white=" << both.white);
+
+    // The default teal only darkens with depth, so nothing is white unselected;
+    // if this fails the white threshold is wrong, not the halo.
+    REQUIRE(plain.painted > 0);
+    REQUIRE(plain.white == 0);
+    // The rim is the only source of white.
+    REQUIRE(one.white > 0);
+    // The object covers the same pixels selected: a rim painted wider than the
+    // object grows the footprint and floods sloped walls with white nothing covers.
+    REQUIRE(one.painted == plain.painted);
+    // A rim is a boundary, so a minority of the object's pixels; a flood would
+    // still satisfy "white > 0".
+    REQUIRE(one.white * 2 < one.painted);
+    // A halo keyed on anything but the selected objects would not grow with them.
+    REQUIRE(both.white > one.white);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "clearing the selection removes the halo",
+                 "[layer_renderer][halo]") {
+    auto gcode = make_test_gcode();
+    lv_obj_t* canvas = lv_canvas_create(test_screen());
+    REQUIRE(canvas != nullptr);
+    static uint8_t buf[200 * 200 * 4];
+    lv_canvas_set_buffer(canvas, buf, 200, 200, LV_COLOR_FORMAT_ARGB8888);
+
+    GCodeLayerRenderer renderer;
+    renderer.set_gcode(&gcode);
+    renderer.set_ghost_mode(false);
+    renderer.set_ssao_enabled(false);
+    renderer.set_canvas_size(200, 200);
+    renderer.set_current_layer(0);
+    renderer.set_highlighted_objects({"cube1"});
+
+    auto draw = [&]() {
+        std::fill(buf, buf + 200 * 200 * 4, uint8_t{0});
+        drive_until_cached(renderer, canvas);
+        int white = 0;
+        for (int i = 0; i < 200 * 200; ++i) {
+            if (buf[i * 4 + 3] && buf[i * 4 + 0] >= 240 && buf[i * 4 + 1] >= 240 &&
+                buf[i * 4 + 2] >= 240) {
+                ++white;
+            }
+        }
+        return white;
+    };
+
+    REQUIRE(draw() > 0);
+    // Deselecting must invalidate the solid cache, or the rim would persist as
+    // stale cached pixels.
+    renderer.set_highlighted_objects({});
+    REQUIRE(draw() == 0);
+}
+
+// ===========================================================================
+// Recoloring a built preview.
+//
+// Both caches hold pixels, so a color change that does not drop them leaves the
+// old color on screen until something unrelated invalidates.
+// ===========================================================================
+
+TEST_CASE_METHOD(LVGLTestFixture, "a new extrusion color repaints a completed solid cache",
+                 "[layer_renderer][color]") {
+    auto gcode = make_test_gcode();
+    lv_obj_t* canvas = lv_canvas_create(test_screen());
+    REQUIRE(canvas != nullptr);
+    static uint8_t buf[200 * 200 * 4];
+    lv_canvas_set_buffer(canvas, buf, 200, 200, LV_COLOR_FORMAT_ARGB8888);
+
+    GCodeLayerRenderer renderer;
+    renderer.set_gcode(&gcode);
+    renderer.set_ghost_mode(false);
+    renderer.set_ssao_enabled(false);
+    renderer.set_antialias_enabled(false);
+    renderer.set_canvas_size(200, 200);
+    renderer.set_current_layer(0);
+
+    // Painted pixels whose dominant channel is red vs blue (ARGB8888 is BGRA).
+    auto count = [&]() {
+        std::fill(buf, buf + 200 * 200 * 4, uint8_t{0});
+        drive_until_cached(renderer, canvas);
+        std::pair<int, int> red_blue{0, 0};
+        for (int i = 0; i < 200 * 200; ++i) {
+            const uint8_t b = buf[i * 4 + 0];
+            const uint8_t r = buf[i * 4 + 2];
+            if (buf[i * 4 + 3] == 0) {
+                continue;
+            }
+            if (r > b) {
+                ++red_blue.first;
+            } else if (b > r) {
+                ++red_blue.second;
+            }
+        }
+        return red_blue;
+    };
+
+    renderer.set_extrusion_color(lv_color_hex(0xFF0000));
+    const auto first = count();
+    REQUIRE(first.first > 0);
+    REQUIRE(first.second == 0);
+
+    renderer.set_extrusion_color(lv_color_hex(0x0000FF));
+    const auto second = count();
+    INFO("red=" << second.first << " blue=" << second.second);
+    CHECK(second.first == 0);
+    CHECK(second.second > 0);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "a new extrusion colour or a tool palette drops the built ghost",
+                 "[layer_renderer][color][ghost]") {
+    auto gcode = make_test_gcode();
+    GCodeLayerRenderer renderer;
+    renderer.set_gcode(&gcode);
+    renderer.set_extrusion_color(lv_color_hex(0xFF0000));
+
+    renderer.pump_offscreen_build(200, 200);
+    GCodeLayerRendererTestAccess::join_ghost_build(renderer);
+    renderer.pump_offscreen_build(200, 200);
+    REQUIRE(renderer.has_ghost_output());
+
+    SECTION("extrusion colour") {
+        // The same color is not a change, so a healthy ghost survives it.
+        renderer.set_extrusion_color(lv_color_hex(0xFF0000));
+        CHECK(renderer.has_ghost_output());
+        renderer.set_extrusion_color(lv_color_hex(0x0000FF));
+        CHECK_FALSE(renderer.has_ghost_output());
+    }
+    SECTION("tool palette") {
+        renderer.set_tool_color_palette({"#112233", "#445566"});
+        CHECK_FALSE(renderer.has_ghost_output());
+    }
+}
+
+// ===========================================================================
+// Scrubbing the layer slider backwards.
+//
+// The rim is not re-derived per frame: it is stamped into the solid cache as
+// pixels, and selection_rim_stamped_ says it is already there. Every path that
+// throws those pixels away therefore has to drop the flag with them, which is
+// what makes the cache reset one shared operation rather than a rule each branch
+// spells out for itself.
+// ===========================================================================
+
+namespace {
+
+/// A stack of identical layers, each carrying both named objects, so a scrub in
+/// either direction always has the selected object on screen. make_test_gcode()
+/// is one layer, which cannot go backwards at all.
+ParsedGCodeFile make_stacked_gcode(int layer_count) {
+    ParsedGCodeFile gcode;
+    const auto cube1 = gcode.intern_object_name("cube1");
+    const auto cube2 = gcode.intern_object_name("cube2");
+
+    for (int i = 0; i < layer_count; ++i) {
+        Layer layer;
+        const float z = 0.2f * static_cast<float>(i + 1);
+        layer.z_height = z;
+
+        auto add = [&](float y, auto name_index) {
+            ToolpathSegment seg;
+            seg.start = glm::vec3(10.0f, y, z);
+            seg.end = glm::vec3(50.0f, y, z);
+            seg.is_extrusion = true;
+            seg.object_name_index = name_index;
+            layer.bounding_box.expand(seg.start);
+            layer.bounding_box.expand(seg.end);
+            gcode.global_bounding_box.expand(seg.start);
+            gcode.global_bounding_box.expand(seg.end);
+            layer.segments.push_back(seg);
+        };
+        add(20.0f, cube1);
+        add(80.0f, cube2);
+
+        layer.segment_count_extrusion = 2;
+        layer.segment_count_travel = 0;
+        gcode.layers.push_back(std::move(layer));
+    }
+
+    gcode.total_segments = static_cast<size_t>(layer_count) * 2;
+    return gcode;
+}
+
+} // namespace
+
+TEST_CASE_METHOD(LVGLTestFixture, "scrubbing back down the stack keeps the selection rim",
+                 "[layer_renderer][halo]") {
+    // Layer 0 is the destination that makes the loss permanent rather than
+    // self-healing. The rebuild finishes inside a single frame there, so no later
+    // frame takes the forward-growth branch — which has its own copy of the reset
+    // and would clear a stale flag on the way past. Scrubbed to the middle of the
+    // stack, the rim comes back a frame or two later on its own.
+    auto gcode = make_stacked_gcode(8);
+    lv_obj_t* canvas = lv_canvas_create(test_screen());
+    REQUIRE(canvas != nullptr);
+    static uint8_t buf[200 * 200 * 4];
+    lv_canvas_set_buffer(canvas, buf, 200, 200, LV_COLOR_FORMAT_ARGB8888);
+
+    GCodeLayerRenderer renderer;
+    renderer.set_gcode(&gcode);
+    renderer.set_ghost_mode(false);   // no background thread: deterministic
+    renderer.set_ssao_enabled(false); // the shading pass would add white of its own
+    renderer.set_antialias_enabled(false);
+    renderer.set_canvas_size(200, 200);
+    renderer.set_highlighted_objects({"cube1"});
+
+    auto render_at = [&](int layer) {
+        renderer.set_current_layer(layer);
+        std::fill(buf, buf + 200 * 200 * 4, uint8_t{0});
+        drive_until_cached(renderer, canvas);
+        RenderCounts c;
+        for (int i = 0; i < 200 * 200; ++i) {
+            if (buf[i * 4 + 3] == 0) {
+                continue;
+            }
+            ++c.painted;
+            if (buf[i * 4 + 0] >= 240 && buf[i * 4 + 1] >= 240 && buf[i * 4 + 2] >= 240) {
+                ++c.white;
+            }
+        }
+        return c;
+    };
+
+    const auto top = render_at(7);
+    INFO("top: painted=" << top.painted << " white=" << top.white);
+    REQUIRE(top.painted > 0);
+    REQUIRE(top.white > 0);
+
+    const auto bottom = render_at(0);
+    INFO("bottom: painted=" << bottom.painted << " white=" << bottom.white);
+    // The plate still drew, so a white count of 0 below means the rim is missing
+    // rather than the whole render having gone away.
+    REQUIRE(bottom.painted > 0);
+    REQUIRE(bottom.white > 0);
+}
+
+// =============================================================================
+// First-output reveal gate
+//
+// The viewer fires its one-shot first-frame callback (which hides the slicer
+// thumbnail) once the 2D canvas holds real content. The ghost copy is that
+// moment: the ghost buffer blit is the first frame with anything on it, and
+// the solid cache keeps building visibly on top of it afterwards. Waiting for
+// the full build instead left the render drawing behind a mostly-transparent
+// OrcaSlicer thumbnail for the whole build window.
+// =============================================================================
+
+TEST_CASE("reveal_ready_2d: the ghost copy alone is enough, a pending build alone is not",
+          "[layer_renderer][reveal]") {
+    // Ghost copied while the solid build still has frames to go: ready.
+    REQUIRE(reveal_ready_2d(true, true, false));
+    REQUIRE(reveal_ready_2d(true, false, false));
+    // Completed build with no ghost involved (non-FRONT views, ghost mode
+    // off): ready, same as before parity.
+    REQUIRE(reveal_ready_2d(false, false, false));
+    // Nothing on the canvas yet — still building, or the ghost thread has not
+    // finished: wait.
+    REQUIRE_FALSE(reveal_ready_2d(false, true, false));
+    REQUIRE_FALSE(reveal_ready_2d(false, true, true));
+    REQUIRE_FALSE(reveal_ready_2d(false, false, true));
+}
+
+TEST_CASE_METHOD(LVGLTestFixture,
+                 "2D reveal fires once the ghost is on the canvas while the solid build "
+                 "still needs frames",
+                 "[layer_renderer][reveal]") {
+    auto gcode = make_stacked_gcode(120);
+
+    GCodeLayerRenderer renderer;
+    renderer.set_gcode(&gcode);
+    // Ghost mode left ON (the default): the ghost build is the first real
+    // content, so the reveal gate has to key off it.
+    renderer.set_canvas_size(200, 200);
+    renderer.set_current_layer(119);
+
+    lv_obj_t* canvas = lv_canvas_create(test_screen());
+    REQUIRE(canvas != nullptr);
+    static uint8_t canvas_buf[200 * 200 * 4];
+    lv_canvas_set_buffer(canvas, canvas_buf, 200, 200, LV_COLOR_FORMAT_ARGB8888);
+    lv_obj_update_layout(canvas);
+
+    auto frame = [&]() {
+        lv_layer_t layer;
+        lv_area_t clip = {0, 0, 199, 199};
+        lv_canvas_init_layer(canvas, &layer);
+        renderer.render(&layer, &clip);
+        lv_canvas_finish_layer(canvas, &layer);
+        lv_timer_handler_safe();
+    };
+
+    // Drive until the ghost has been copied in AND the solid cache has caught
+    // up to the top layer. needs_more_frames() covers both, so this loop is
+    // the deterministic completion signal.
+    int guard = 0;
+    while ((renderer.needs_more_frames() || renderer.is_ghost_build_running()) && guard++ < 500) {
+        frame();
+    }
+    REQUIRE(guard < 500); // harness bug, not a reveal bug
+    REQUIRE(renderer.has_ghost_output());
+    REQUIRE_FALSE(renderer.needs_more_frames());
+
+    // Scrub back down the stack: the solid cache is discarded and rebuilds
+    // progressively (layers_per_frame_ never exceeds 100, so layer 100 of 120
+    // stays mid-build after one frame), while the ghost stays on the canvas.
+    renderer.set_current_layer(100);
+    frame();
+
+    // The setup reached the branch this test exists for: real content already
+    // copied, progressive build still incomplete. The old rule (wait for
+    // needs_more_frames() to clear) reported "no first frame" here.
+    REQUIRE(renderer.has_ghost_output());
+    REQUIRE(renderer.needs_more_frames());
+    REQUIRE_FALSE(renderer.is_ghost_build_running());
+
+    REQUIRE(renderer.has_first_output());
+}
+
+TEST_CASE_METHOD(LVGLTestFixture,
+                 "invalidation discards a built-but-uncopied ghost instead of copying it stale",
+                 "[layer_renderer][reveal]") {
+    // The ghost worker can finish between draws. If invalidation (a palette
+    // change, an occluder move) leaves that finished build pending, the next
+    // render's ready-check copies it straight into the cleared buffer and
+    // marks the pre-invalidate pixels valid - a cache that is never rebuilt.
+    // With the early reveal keying off ghost output, the thumbnail would hide
+    // onto that stale frame.
+    auto gcode = make_stacked_gcode(120);
+
+    GCodeLayerRenderer renderer;
+    renderer.set_gcode(&gcode);
+    renderer.set_canvas_size(200, 200);
+    renderer.set_current_layer(119);
+
+    lv_obj_t* canvas = lv_canvas_create(test_screen());
+    REQUIRE(canvas != nullptr);
+    static uint8_t canvas_buf[200 * 200 * 4];
+    lv_canvas_set_buffer(canvas, canvas_buf, 200, 200, LV_COLOR_FORMAT_ARGB8888);
+    lv_obj_update_layout(canvas);
+
+    auto frame = [&]() {
+        lv_layer_t layer;
+        lv_area_t clip = {0, 0, 199, 199};
+        lv_canvas_init_layer(canvas, &layer);
+        renderer.render(&layer, &clip);
+        lv_canvas_finish_layer(canvas, &layer);
+        lv_timer_handler_safe();
+    };
+
+    // One render starts the background build. Then wait for the worker to
+    // finish WITHOUT rendering again, so the raw buffer sits built-but-uncopied
+    // (ghost_thread_ready_ true, ghost_cache_valid_ false).
+    frame();
+    GCodeLayerRendererTestAccess::join_ghost_build(renderer);
+    REQUIRE_FALSE(renderer.is_ghost_build_running());
+    REQUIRE(renderer.is_ghost_build_complete());
+    REQUIRE_FALSE(renderer.has_ghost_output()); // built, not yet copied
+
+    // The production trigger from the bug: the palette settles after the load
+    // and the detail view pushes tool colors mid-preview. Any non-empty set
+    // invalidates the caches unconditionally.
+    renderer.set_tool_color_overrides({0xFF0000u});
+
+    frame();
+
+    // The pending pre-invalidate build must be gone: one frame after
+    // invalidation there is no ghost output. (Before the fix, this frame
+    // copied the stale buffer and reported output.) Whether the replacement
+    // build is still running at this instant is timing - a 120-layer ghost
+    // finishes in well under a frame - so the invariant is "no stale output",
+    // not "mid-build".
+    REQUIRE_FALSE(renderer.has_ghost_output());
+
+    // And the rebuild completes normally, leaving real output. Joining the
+    // replacement build first leaves only the frame-driven copy and cache work,
+    // which finishes in a fixed number of frames whatever the machine's load.
+    GCodeLayerRendererTestAccess::join_ghost_build(renderer);
+    int guard = 0;
+    while ((renderer.is_ghost_build_running() || renderer.needs_more_frames()) && guard++ < 500) {
+        frame();
+        GCodeLayerRendererTestAccess::join_ghost_build(renderer);
+    }
+    REQUIRE(guard < 500);
+    REQUIRE(renderer.has_ghost_output());
+}
+
+// =============================================================================
+// Solid-cache batch budget
+//
+// render_layers_to_cache() draws a layers_per_frame_ batch on the CALLING
+// (UI) thread. The layer count is sized for cheap full-file lookups, but in
+// streaming mode a miss parses the layer right there, so on a slow board a
+// full batch can cost hundreds of milliseconds per frame (#1706). The batch
+// has to be bounded by wall clock, not layer count.
+// =============================================================================
+
+namespace {
+
+/// File source whose range reads cost a fixed wall-clock slice. The batch
+/// budget has to hold whatever a layer load costs, and real parse time varies
+/// too much between machines to assert against.
+/// Simulated time a SlowReadSource has spent reading; the batch box reads it.
+std::atomic<int64_t> g_read_clock_ms{0};
+
+std::chrono::steady_clock::time_point read_clock() {
+    return std::chrono::steady_clock::time_point{} +
+           std::chrono::milliseconds(g_read_clock_ms.load());
+}
+
+/// A file source whose every read costs @p per_read of simulated time, on
+/// the clock the batch box is given instead of the host's.
+class SlowReadSource : public FileDataSource {
+  public:
+    SlowReadSource(const std::string& path, std::chrono::milliseconds per_read)
+        : FileDataSource(path), per_read_(per_read) {}
+
+    std::vector<char> read_range(uint64_t offset, uint32_t length) override {
+        reads_.fetch_add(1);
+        g_read_clock_ms.fetch_add(per_read_.count());
+        return FileDataSource::read_range(offset, length);
+    }
+
+    int reads() const {
+        return reads_.load();
+    }
+
+  private:
+    std::chrono::milliseconds per_read_;
+    std::atomic<int> reads_{0};
+};
+
+std::string make_many_layer_gcode(int layers) {
+    std::string out = "; budget fixture\nG28\n";
+    for (int layer = 0; layer < layers; ++layer) {
+        out += "G1 Z" + std::to_string(0.2 + 0.2 * layer) + " F1000\n";
+        out += "G1 X10 Y10 E1\nG1 X20 Y20 E2\n";
+    }
+    return out;
+}
+
+} // namespace
+
+TEST_CASE_METHOD(LVGLTestFixture, "solid-cache batches are time-boxed against slow layer loads",
+                 "[layer_renderer][streaming][budget]") {
+    // 60 layers at 5 ms per read against the 8 ms box: an unboxed batch pinned
+    // at 60 layers reads all 60; a time-boxed one stops once a load has spent
+    // the budget.
+    TempPickGCodeFile file(make_many_layer_gcode(60));
+
+    GCodeStreamingController controller;
+    auto source = std::make_unique<SlowReadSource>(file.path(), std::chrono::milliseconds(5));
+    SlowReadSource* reads = source.get();
+    REQUIRE(controller.open_source(std::move(source)));
+
+    GCodeLayerRenderer renderer;
+    renderer.set_streaming_controller(&controller);
+    renderer.set_ghost_mode(false);
+    renderer.set_canvas_size(200, 200);
+
+    GCodeLayerRendererTestAccess::pin_layers_per_frame(renderer, 100);
+    GCodeLayerRendererTestAccess::set_batch_clock(renderer, &read_clock);
+
+    const int before = reads->reads();
+    const int last = GCodeLayerRendererTestAccess::render_solid_batch(renderer, 0, 59, 200, 200);
+    INFO("reads during the batch: " << reads->reads() - before);
+
+    CHECK(last == 1);
+}

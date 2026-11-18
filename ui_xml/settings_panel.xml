@@ -1,0 +1,79 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Settings Panel - Category Navigation -->
+<!-- Three groups (Screen, Printer, HelixScreen) of rows that open sub-panel overlays -->
+<!-- for grouped settings -->
+<!-- All styling controlled via XML - C++ only handles callbacks -->
+<component>
+  <styles>
+    <style name="spacer_standard" height="#space_lg"/>
+    <style name="spacer_micro" height="#space_md"/>
+  </styles>
+  <view name="settings_panel"
+        extends="lv_obj" width="100%" height="100%" style_bg_opa="0" style_border_width="0" style_pad_all="0"
+        style_pad_gap="0" flex_flow="column" scrollable="true" style_bg_color="#screen_bg">
+    <!-- Panel Title (plain heading, not carded — this is the top-level menu) -->
+    <setting_section_header title="SETTINGS" icon="settings"/>
+    <setting_group name="group_screen">
+      <setting_group_header title="SCREEN"/>
+      <setting_action_row name="row_display"
+                          label="Display" icon="light" callback="on_display_clicked"
+                          bind_description="settings_status_display" description_min_bp="0"/>
+      <setting_action_row name="row_home_screen"
+                          label="Home screen" icon="home" callback="on_home_screen_clicked"
+                          description="Temperatures, fans and filament remaining" description_min_bp="0"/>
+      <setting_action_row name="row_appearance"
+                          label="Appearance" icon="palette" callback="on_appearance_clicked"
+                          bind_description="settings_status_appearance" description_min_bp="0"/>
+      <setting_action_row name="row_touch_input"
+                          label="Touch &amp; Input" icon="cursor_move" callback="on_touch_input_clicked"/>
+      <setting_action_row name="row_sound"
+                          label="Print completion sound" icon="volume_high" callback="on_sound_clicked"
+                          bind_description="settings_status_sound" description_min_bp="0">
+        <bind_flag_if_eq subject="printer_has_speaker" flag="hidden" ref_value="0"/>
+      </setting_action_row>
+    </setting_group>
+    <setting_group name="group_printer">
+      <setting_group_header title="PRINTER"/>
+      <setting_action_row name="row_printer"
+                          label="Printer" icon="printer" callback="on_printer_clicked"
+                          description="Name and image" description_min_bp="0"/>
+      <setting_action_row name="row_printing" label="Printing" icon="printer_3d" callback="on_printing_clicked"/>
+      <setting_toggle_row name="row_preparation_time" label="Include measured preparation time" icon="clock_outline"
+                          subject="settings_measured_preparation" callback="on_measured_preparation_changed"
+                          description="Learns from completed preparation. Cold and warm starts are kept separately. No estimate until a matching measurement exists."/>
+      <setting_action_row name="row_devices"
+                          label="Devices" icon="sysinfo" callback="on_devices_clicked"
+                          bind_description="settings_status_devices" description_min_bp="0"/>
+      <setting_action_row name="row_safety"
+                          label="Safety &amp; Alerts" icon="alert_octagon" callback="on_safety_clicked"/>
+      <setting_action_row name="row_connection"
+                          label="Connection" icon="lan" callback="on_connection_clicked"
+                          bind_description="settings_status_connection" description_min_bp="0"/>
+      <setting_action_row name="row_printer_reset" label="Printer reset" icon="refresh"
+                          callback="on_printer_reset_clicked" description="Print history and accumulated statistics" description_min_bp="0"/>
+      <setting_action_row name="row_printer_component_updates" label="Component updates" icon="download"
+                          callback="on_printer_component_updates_clicked" description="Klipper, Moonraker and configured components" description_min_bp="0"/>
+    </setting_group>
+    <setting_group name="group_helixscreen">
+      <setting_group_header title="VoronDeck"/>
+      <setting_action_row name="row_language_time"
+                          label="Language &amp; Time" icon="translate" callback="on_language_time_clicked"
+                          bind_description="settings_status_language_time" description_min_bp="0"/>
+      <setting_action_row name="row_system" label="System" icon="settings" callback="on_system_clicked"/>
+      <setting_action_row name="row_updates"
+                          label="Updates" icon="download" callback="on_updates_clicked"
+                          description="VoronDeck and printer components" description_min_bp="0"/>
+      <setting_action_row name="row_plugins" label="Plugins" icon="puzzle_outline" callback="on_plugins_clicked">
+        <bind_flag_if_eq subject="settings_plugins_available" flag="hidden" ref_value="0"/>
+      </setting_action_row>
+      <setting_action_row name="row_help" label="Help &amp; About" icon="help" callback="on_help_clicked"/>
+    </setting_group>
+    <!-- Bottom padding for scroll -->
+    <lv_obj width="100%" scrollable="false">
+      <bind_style_if_eq name="spacer_micro" subject="ui_breakpoint" ref_value="0"/>
+      <bind_style_if_ge name="spacer_standard" subject="ui_breakpoint" ref_value="1"/>
+    </lv_obj>
+  </view>
+</component>

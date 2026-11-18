@@ -1,0 +1,83 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include "axis.h"
+#include "helix_shared_callback.h"
+
+#include <functional>
+
+namespace helix {
+class IMoonrakerAPI;
+}
+struct MoonrakerError;
+
+namespace helix {
+
+class PrinterState;
+class AsyncLifetimeGuard;
+
+/**
+ * @brief Whether the toolhead reports all three axes homed.
+ *
+ * Reads the live `homed_axes` subject, which is fed off `objects.subscribe` /
+ * `notify_status_update` (src/printer/printer_motion_state.cpp:126) and seeded
+ * from the subscribe response (src/api/moonraker_discovery_sequence.cpp:1487).
+ * No RPC is issued.
+ *
+ * @warning Main thread only. This reads an LVGL subject.
+ */
+[[nodiscard]] bool toolhead_is_homed(const PrinterState& ps);
+
+/**
+ * @brief Whether one axis reports homed.
+ *
+ * Reads the same live `homed_axes` subject as toolhead_is_homed(). Use this
+ * rather than ControlsPanel's x_homed/y_homed/z_homed subjects — those are owned
+ * by that panel's SubjectManager, and MotionPanel already had to make prefixed
+ * copies to avoid colliding with them.
+ *
+ * @warning Main thread only. This reads an LVGL subject.
+ */
+[[nodiscard]] bool axis_is_homed(const PrinterState& ps, Axis axis);
+
+/**
+ * @brief Home the toolhead if needed, then run a continuation.
+ *
+ * The synchronous "if not homed, send G28, then continue" idiom used to
+ * exist as four near-identical bodies: private methods literally named
+ * `ensure_homed_then` on both `BeltTensionCalibrator` and
+ * `InputShaperCalibrator`, plus open-coded copies in `BedMeshPanel` (using
+ * `lifetime_.bg_cb(...)`) and `ScrewsTiltPanel` (using
+ * `token.expired()` + `token.defer(...)`). This is the one function that
+ * replaces all four; callers supply their own `AsyncLifetimeGuard` and keep
+ * any caller-specific behaviour (state resets, UI text, re-entry guards,
+ * friendly-message extraction) in the `then` / `on_error` lambdas they pass
+ * in.
+ *
+ * If `toolhead_is_homed()` is already true, `then()` runs synchronously,
+ * on the caller's thread, before this function returns. Otherwise a `G28`
+ * is sent at `IMoonrakerAPI::kHomingTimeoutMs`; `then()` on success or
+ * `on_error()` on failure is marshalled onto the main thread through
+ * `guard` (via `AsyncLifetimeGuard::bg_cb()`), so both fire safely even if
+ * the owning object has since been destroyed.
+ *
+ * If `api` is null and homing is required, neither callback runs
+ * synchronously — there is nothing to send G28 with, so `on_error()` (if
+ * provided) is invoked synchronously with a `CONNECTION_LOST` error instead
+ * of crashing on a null dereference.
+ *
+ * `HomingPolicy::Always` sends the G28 even when the toolhead reports homed,
+ * for work whose result depends on Z still matching the bed: turning a bed
+ * screw moves the bed under a homed Z without clearing `homed_axes`.
+ *
+ * @warning Call from the main thread only — checks `toolhead_is_homed()`,
+ * which reads an LVGL subject.
+ */
+enum class HomingPolicy { IfNeeded, Always };
+
+void ensure_homed_then(IMoonrakerAPI* api, AsyncLifetimeGuard& guard,
+                       helix::SharedCallback<void()> then,
+                       helix::SharedCallback<void(const MoonrakerError&)> on_error,
+                       HomingPolicy policy = HomingPolicy::IfNeeded);
+
+} // namespace helix

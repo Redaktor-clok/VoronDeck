@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <api>
+    <prop name="rung_subject" type="string" default=""/>
+    <prop name="size" type="string" default="#icon_size"/>
+    <prop name="target_subject" type="string" default="bed_target"/>
+  </api>
+  <view name="home_bed_icon" width="content" height="content" style_pad_all="0"
+        scrollable="false" clickable="false" event_bubble="true">
+    <!-- The same radiator silhouette remains visible in all three heat states.
+         HeaterIconBinder owns its idle tint, heating pulse and reached tint. -->
+    <icon name="bed_icon_glyph" src="radiator" size="$size" variant="muted"
+          clickable="false" event_bubble="true">
+      <bind_tile_rung ladder="icon" subject="$rung_subject" animated="true"/>
+    </icon>
+  </view>
+</component>

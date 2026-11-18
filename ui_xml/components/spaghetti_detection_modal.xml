@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Spaghetti / print-issue detection response modal. -->
+<!-- NOTE: Backdrop is created programmatically by the Modal class in C++. -->
+<!-- Buttons are wired programmatically in SpaghettiDetectionModal::on_show() -->
+<!-- via wire_ok_button / wire_cancel_button / wire_tertiary_button. -->
+<component>
+  <view name="spaghetti_detection_modal"
+        extends="ui_dialog" width="70%" height="content" style_max_height="90%" align="center" flex_flow="column"
+        style_flex_main_place="start" style_pad_gap="0">
+    <!-- Header row with warning icon + title -->
+    <modal_header icon_src="alert" icon_variant="warning" title="Print issue detected"/>
+
+    <!-- Content area: optional camera frame preview + message -->
+    <lv_obj width="100%"
+            height="content" style_pad_left="#space_lg" style_pad_right="#space_lg" style_pad_top="#space_sm"
+            style_pad_bottom="#space_lg" flex_flow="column" style_flex_cross_place="center" style_pad_gap="#space_md">
+      <!-- Camera frame preview. Image source is fed from C++ on_show() when a
+           frame is available; otherwise it stays empty. -->
+      <lv_image name="detection_preview" align="center" inner_align="contain" style_max_width="100%"/>
+      <!-- Detection message text, published on spaghetti_message by on_show(). -->
+      <text_body name="detection_text"
+                 width="100%" long_mode="wrap" style_text_align="center" bind_text="spaghetti_message"/>
+    </lv_obj>
+
+    <!-- Button row, left to right: Abort (btn_secondary, danger), Reduce Sensitivity
+         (btn_tertiary, hidden via spaghetti_tune_available when the source cannot tune),
+         Turn off detection (btn_quaternary), Resume (btn_primary). The names follow the
+         Modal wire_*_button() roles, not the row's slots.
+         Wired programmatically; no XML callbacks to avoid double-wiring. -->
+    <modal_button_row hide_quaternary="false"
+                      quaternary_name="btn_secondary" quaternary_variant="danger" quaternary_text="Abort"
+                      hide_tertiary="false" tertiary_name="btn_tertiary" tertiary_variant="primary"
+                      tertiary_text="Reduce Sensitivity" tertiary_show_subject="spaghetti_tune_available"
+                      secondary_name="btn_quaternary" secondary_variant="primary" secondary_text="Turn off detection"
+                      primary_text="Resume"/>
+  </view>
+</component>

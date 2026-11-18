@@ -1,0 +1,355 @@
+# Copyright (c) 2025 Preston Brown <pbrown@brown-house.net>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# HelixScreen UI Prototype - Tools Module
+# Standalone diagnostic and utility programs
+
+# ==============================================================================
+# Moonraker Inspector Tool
+# ==============================================================================
+# Standalone diagnostic tool for querying Moonraker printer metadata
+# Usage: moonraker-inspector <ip_address> [port]
+
+# Tool sources
+TOOLS_DIR := tools
+INSPECTOR_SRC := $(TOOLS_DIR)/moonraker_inspector.cpp
+INSPECTOR_INTERACTIVE_SRC := $(TOOLS_DIR)/moonraker_inspector_interactive.cpp
+INSPECTOR_OBJ := $(OBJ_DIR)/tools/moonraker_inspector.o
+INSPECTOR_INTERACTIVE_OBJ := $(OBJ_DIR)/tools/moonraker_inspector_interactive.o
+CPP_TERMINAL_VERSION_STUB_OBJ := $(OBJ_DIR)/tools/cpp_terminal_version_stub.o
+
+# Inspector needs JSON-RPC request tracking (no LVGL, no UI, no SDL2)
+# The tracker + format_utils have zero app dependencies after refactoring
+INSPECTOR_DEPS := \
+	$(OBJ_DIR)/api/moonraker_request_tracker.o \
+	$(OBJ_DIR)/format_utils.o \
+	$(INSPECTOR_INTERACTIVE_OBJ) \
+	$(CPP_TERMINAL_VERSION_STUB_OBJ) \
+	$(CPP_TERMINAL_OBJS) \
+	$(SPDLOG_OBJS)
+
+# Simplified linker flags (no SDL2, no UI frameworks)
+INSPECTOR_LDFLAGS := $(LIBHV_LIBS) -lm -lpthread
+
+ifeq ($(UNAME_S),Darwin)
+	INSPECTOR_LDFLAGS += -framework Foundation -framework CoreFoundation -framework Security
+else
+	INSPECTOR_LDFLAGS += -lssl -lcrypto -ldl
+endif
+
+# Build rule for inspector
+$(MOONRAKER_INSPECTOR): $(LIBHV_LIB) $(INSPECTOR_OBJ) $(INSPECTOR_DEPS)
+	$(Q)mkdir -p $(BIN_DIR)
+	$(ECHO) "$(MAGENTA)$(BOLD)[LD]$(RESET) $@"
+	$(Q)$(CXX) $(CXXFLAGS) $(INSPECTOR_OBJ) $(INSPECTOR_DEPS) -o $@ $(INSPECTOR_LDFLAGS) || { \
+		echo "$(RED)$(BOLD)✗ Linking failed!$(RESET)"; \
+		exit 1; \
+	}
+	$(ECHO) "$(GREEN)✓ Moonraker Inspector built: $@$(RESET)"
+
+# Compile inspector source
+$(INSPECTOR_OBJ): $(INSPECTOR_SRC) $(HEADERS) $(LIBHV_LIB) $(ABI_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(BLUE)[CXX]$(RESET) $<"
+ifeq ($(V),1)
+	$(Q)echo "$(YELLOW)Command:$(RESET) $(CXX) $(CXXFLAGS) $(INCLUDES) $(CPP_TERMINAL_INC) -I$(TOOLS_DIR) -c $< -o $@"
+endif
+	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) $(CPP_TERMINAL_INC) -I$(TOOLS_DIR) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+
+# Compile interactive module
+$(INSPECTOR_INTERACTIVE_OBJ): $(INSPECTOR_INTERACTIVE_SRC) $(HEADERS) $(LIBHV_LIB) $(ABI_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(BLUE)[CXX]$(RESET) $<"
+ifeq ($(V),1)
+	$(Q)echo "$(YELLOW)Command:$(RESET) $(CXX) $(CXXFLAGS) $(INCLUDES) $(CPP_TERMINAL_INC) -I$(TOOLS_DIR) -c $< -o $@"
+endif
+	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) $(CPP_TERMINAL_INC) -I$(TOOLS_DIR) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+
+# Compile cpp-terminal version stub (cmake normally generates version.cpp)
+$(CPP_TERMINAL_VERSION_STUB_OBJ): $(TOOLS_DIR)/cpp_terminal_version_stub.cpp $(ABI_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(BLUE)[CXX]$(RESET) $<"
+	$(Q)$(CXX) $(CXXFLAGS) $(CPP_TERMINAL_INC) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+
+# Compile cpp-terminal library (use SUBMODULE_CXXFLAGS to suppress third-party warnings)
+$(OBJ_DIR)/cpp-terminal/%.o: $(CPP_TERMINAL_DIR)/%.cpp $(ABI_STAMP) $(FLAGS_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(BLUE)[CXX]$(RESET) $<"
+ifeq ($(V),1)
+	$(Q)echo "$(YELLOW)Command:$(RESET) $(CXX) $(SUBMODULE_CXXFLAGS) $(CPP_TERMINAL_INC) -c $< -o $@"
+endif
+	$(Q)$(CXX) $(SUBMODULE_CXXFLAGS) $(CPP_TERMINAL_INC) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+
+# ==============================================================================
+# XML Constants Validator Tool
+# ==============================================================================
+# Pre-commit validation tool for checking responsive px and theme color pairs
+# Usage: validate-xml-constants (run from repo root)
+#
+# This tool reuses the main application's object files, so it's built after
+# the main app build. This avoids duplicating LVGL and other large dependencies.
+
+VALIDATE_XML_SRC := $(TOOLS_DIR)/validate_xml_constants.cpp
+VALIDATE_XML_BIN := $(BIN_DIR)/validate-xml-constants
+VALIDATE_XML_OBJ := $(OBJ_DIR)/tools/validate_xml_constants.o
+
+# Validator reuses main app objects - filter out main.o to avoid duplicate main
+# symbol. remote_client.o goes too: its only caller is main.o, and it is the
+# one object that needs linenoise — the validator has no REPL and would
+# otherwise have to link linenoise solely to satisfy an object nothing reaches.
+# The rest of src/remote/ stays: Application::shutdown() calls the control
+# server, so those objects are live here.
+VALIDATE_XML_APP_OBJS := $(filter-out $(OBJ_DIR)/main.o $(OBJ_DIR)/remote/remote_client.o,$(APP_OBJS) $(APP_C_OBJS) $(OBJCPP_OBJS))
+
+# Full dependencies (app objects + LVGL + fonts + lv_markdown + quirc + lua)
+# Note: lv_markdown, quirc and lua are needed because app objects may reference them
+VALIDATE_XML_DEPS := \
+	$(VALIDATE_XML_APP_OBJS) \
+	$(LVGL_OBJS) \
+	$(HELIX_XML_OBJS) \
+	$(THORVG_OBJS) \
+	$(SPDLOG_OBJS) \
+	$(LV_MARKDOWN_OBJS) \
+	$(QUIRC_OBJS) \
+	$(LUA_OBJS) \
+	$(FONT_OBJS)
+
+# Linker flags (same as main app for full compatibility)
+VALIDATE_XML_LDFLAGS := $(LDFLAGS)
+
+# Build rule for validator - depends on TARGET being built first for objects
+$(VALIDATE_XML_BIN): $(TARGET) $(VALIDATE_XML_OBJ)
+	$(Q)mkdir -p $(BIN_DIR)
+	$(ECHO) "$(MAGENTA)$(BOLD)[LD]$(RESET) $@"
+	$(Q)$(CXX) $(CXXFLAGS) $(VALIDATE_XML_OBJ) $(VALIDATE_XML_DEPS) -o $@ $(VALIDATE_XML_LDFLAGS) || { \
+		echo "$(RED)$(BOLD)✗ Linking failed!$(RESET)"; \
+		exit 1; \
+	}
+	$(ECHO) "$(GREEN)✓ XML Constants Validator built: $@$(RESET)"
+
+# Compile validator source
+$(VALIDATE_XML_OBJ): $(VALIDATE_XML_SRC) $(ABI_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(BLUE)[CXX]$(RESET) $<"
+ifeq ($(V),1)
+	$(Q)echo "$(YELLOW)Command:$(RESET) $(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@"
+endif
+	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+
+# Phony targets
+.PHONY: tools moonraker-inspector validate-xml-constants validate-xml-attrs
+
+# Build all tools
+# Note: the former standalone `helixctl` tool is folded into helix-screen — build
+# the app and use `helix-screen ctl <cmd>` / `helix-screen repl` instead.
+tools: moonraker-inspector validate-xml-constants validate-xml-attrs
+
+# Individual tool targets
+moonraker-inspector: $(MOONRAKER_INSPECTOR)
+	$(ECHO) "$(CYAN)Usage: $(YELLOW)./$(MOONRAKER_INSPECTOR) <ip_address> [port] [options]$(RESET)"
+	$(ECHO) "$(CYAN)Example: $(YELLOW)./$(MOONRAKER_INSPECTOR) 192.168.1.100 7125 -i$(RESET)"
+	$(ECHO) "$(CYAN)Options: $(YELLOW)-i/--interactive$(RESET) for TUI mode with collapsible sections"
+
+validate-xml-constants: $(VALIDATE_XML_BIN)
+	$(ECHO) "$(CYAN)Usage: $(YELLOW)./$(VALIDATE_XML_BIN)$(RESET)"
+	$(ECHO) "$(CYAN)Run from repo root to validate ui_xml/ constant sets$(RESET)"
+
+# ==============================================================================
+# XML Attribute Validator Tool
+# ==============================================================================
+# Pre-commit validation tool for catching unknown attributes in XML files
+# Usage: validate-xml-attributes [options] [files...]
+#
+# This is a standalone tool that only needs expat for XML parsing.
+
+VALIDATE_ATTRS_SRC := $(TOOLS_DIR)/validate_xml_attributes.cpp
+VALIDATE_ATTRS_LIB_SRC := src/tools/xml_attribute_validator.cpp
+VALIDATE_ATTRS_BIN := $(BIN_DIR)/validate-xml-attributes
+VALIDATE_ATTRS_OBJ := $(OBJ_DIR)/tools/validate_xml_attributes.o
+VALIDATE_ATTRS_LIB_OBJ := $(OBJ_DIR)/tools/xml_attribute_validator.o
+
+# Standalone linker flags - just needs expat
+VALIDATE_ATTRS_LDFLAGS := -lexpat
+
+# Build rule for attribute validator
+$(VALIDATE_ATTRS_BIN): $(VALIDATE_ATTRS_OBJ) $(VALIDATE_ATTRS_LIB_OBJ) $(SPDLOG_OBJS)
+	$(Q)mkdir -p $(BIN_DIR)
+	$(ECHO) "$(MAGENTA)$(BOLD)[LD]$(RESET) $@"
+	$(Q)$(CXX) $(CXXFLAGS) $^ -o $@ $(VALIDATE_ATTRS_LDFLAGS) || { \
+		echo "$(RED)$(BOLD)✗ Linking failed!$(RESET)"; \
+		exit 1; \
+	}
+	$(ECHO) "$(GREEN)✓ XML Attribute Validator built: $@$(RESET)"
+
+# Compile validator main source
+$(VALIDATE_ATTRS_OBJ): $(VALIDATE_ATTRS_SRC) $(ABI_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(BLUE)[CXX]$(RESET) $<"
+	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+
+# Compile validator library source
+$(VALIDATE_ATTRS_LIB_OBJ): $(VALIDATE_ATTRS_LIB_SRC) $(ABI_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(BLUE)[CXX]$(RESET) $<"
+	$(Q)$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+
+# Phony target
+.PHONY: validate-xml-attrs
+
+validate-xml-attrs: $(VALIDATE_ATTRS_BIN)
+	$(ECHO) "$(CYAN)Usage: $(YELLOW)./$(VALIDATE_ATTRS_BIN) [--warn-only] [--verbose] [files...]$(RESET)"
+	$(ECHO) "$(CYAN)Run from repo root to validate XML attributes$(RESET)"
+
+# ==============================================================================
+# helix-xml-linter (Python)
+# ==============================================================================
+# Schema-driven Python linter for ui_xml/. Catches unknown attributes, invalid
+# enum values, bad style props, undefined cross-refs. Pure stdlib — no install.
+#
+# Targets:
+#   make lint-xml            — run linter against ui_xml/, errors-only (CI gate)
+#   make lint-xml-all        — run linter, include warnings (local dev)
+#   make regen-xml-schema    — regenerate tools/xml-linter/schema/schema.json
+#                              from lib/helix-xml/src/xml/ + src/ui/ + ui_xml/
+
+XML_LINTER_DIR   := $(TOOLS_DIR)/xml-linter
+XML_LINTER_PY    := PYTHONPATH=$(XML_LINTER_DIR)/src python3 -m helix_xml_linter.cli
+XML_LINTER_EXTRACT := PYTHONPATH=$(XML_LINTER_DIR)/src python3 $(XML_LINTER_DIR)/schema/extract_schema.py
+XML_LINTER_SCHEMA := $(XML_LINTER_DIR)/schema/schema.json
+
+.PHONY: lint-xml lint-xml-all regen-xml-schema check-xml-schema
+
+# The extractor's inputs, shared by regen-xml-schema and check-xml-schema so the
+# check regenerates exactly what a regen would write.
+XML_LINTER_EXTRACT_ARGS := lib/helix-xml/src/xml \
+		--cpp-src src/ui \
+		--cpp-const-dirs src \
+		--xml-roots ui_xml \
+		--theme-dirs assets/config/themes/defaults
+
+lint-xml:
+	$(ECHO) "$(BLUE)[LINT]$(RESET) helix-xml-linter (errors only) on ui_xml/"
+	$(Q)$(XML_LINTER_PY) --schema $(XML_LINTER_SCHEMA) --severity error ui_xml/
+
+lint-xml-all:
+	$(ECHO) "$(BLUE)[LINT]$(RESET) helix-xml-linter (errors + warnings) on ui_xml/"
+	$(Q)$(XML_LINTER_PY) --schema $(XML_LINTER_SCHEMA) --severity info ui_xml/
+
+regen-xml-schema:
+	$(ECHO) "$(BLUE)[GEN]$(RESET) regenerating $(XML_LINTER_SCHEMA)"
+	$(Q)$(XML_LINTER_EXTRACT) $(XML_LINTER_EXTRACT_ARGS) -o $(XML_LINTER_SCHEMA)
+	$(ECHO) "$(GREEN)✓ schema regenerated — commit $(XML_LINTER_SCHEMA) if it changed$(RESET)"
+
+# Report-only: regenerate into a temp file and fail if the committed snapshot
+# differs. The pre-commit hook regenerates only on a failing lint, so a snapshot
+# can drift without any lint noticing; this is the check that does.
+check-xml-schema:
+	$(Q)tmp=$$(mktemp); \
+	$(XML_LINTER_EXTRACT) $(XML_LINTER_EXTRACT_ARGS) -o "$$tmp" >/dev/null || { rm -f "$$tmp"; exit 1; }; \
+	if cmp -s "$$tmp" $(XML_LINTER_SCHEMA); then \
+		rm -f "$$tmp"; echo "$(GREEN)✓ $(XML_LINTER_SCHEMA) is up to date$(RESET)"; \
+	else \
+		diff -u $(XML_LINTER_SCHEMA) "$$tmp" | head -n 40; rm -f "$$tmp"; \
+		echo "$(RED)✗ $(XML_LINTER_SCHEMA) is stale: run make regen-xml-schema and commit it$(RESET)"; exit 1; \
+	fi
+
+# ==============================================================================
+# Theme token table (Python)
+# ==============================================================================
+# Build-time snapshot of every <color>/<px>/<string> design token in ui_xml/,
+# mirroring theme_token_scan.cpp's runtime scan (top-level files, sorted,
+# last-wins). Committed artifact consumed by src/generated/theme_token_table.cpp
+# callers; staleness is caught by the Task 4 parity test, not this target.
+#
+# Targets:
+#   make regen-tokens        — regenerate src/generated/theme_token_table.cpp
+#                              from ui_xml/*.xml
+
+.PHONY: regen-tokens check-theme-tokens
+
+regen-tokens:
+	$(ECHO) "$(BLUE)[GEN]$(RESET) regenerating src/generated/theme_token_table.cpp"
+	$(Q)python3 scripts/gen_theme_tokens.py
+	$(ECHO) "$(GREEN)✓ token table regenerated — commit src/generated/theme_token_table.cpp if it changed$(RESET)"
+
+# Report-only: exit 1 when the committed table differs from a regeneration.
+check-theme-tokens:
+	$(Q)python3 scripts/gen_theme_tokens.py --check
+
+# ==============================================================================
+# Doc citations: named anchors, line numbers rendered on demand
+# ==============================================================================
+# A committed citation names a place, never a line:
+#
+#   `src/printer/printer_state.cpp#update_from_status`
+#
+# Code that moves changes nothing. Code that is RENAMED breaks the anchor, and
+# that is the one case where the sentence around the citation needs re-reading,
+# so it is the one case that gets reported.
+#
+# Targets:
+#   make docs-pinned       — render docs with real line numbers into build/
+#   make check-doc-anchors — advisory report, run by hand; no hook runs it
+
+.PHONY: docs-pinned check-doc-anchors
+
+docs-pinned:
+	$(ECHO) "$(BLUE)[GEN]$(RESET) rendering pinned docs into build/docs-pinned"
+	$(Q)python3 scripts/doc_anchors.py --render build/docs-pinned
+	$(ECHO) "$(GREEN)✓ build/docs-pinned - generated, never committed$(RESET)"
+
+check-doc-anchors:
+	$(Q)python3 scripts/doc_anchors.py --check
+
+# ==============================================================================
+# LVGL event-code table for the crash worker (Python)
+# ==============================================================================
+# The worker renders "code=42 (DELETE)" on every auto-filed crash issue, and that
+# label is frequently the whole diagnosis. Its table used to be typed by hand and
+# drifted when LVGL 9.5 inserted four codes mid-enum, so a DELETE crash was filed
+# as SCREEN_UNLOAD_START. lv_event_code_t is now the source of truth and the
+# committed table is derived from it.
+#
+# Targets:
+#   make regen-lvgl-event-codes  — rewrite the table in
+#                                  server/crash-worker/src/index.ts
+#   make check-lvgl-event-codes  — report-only; what quality-checks.sh runs
+
+.PHONY: regen-lvgl-event-codes check-lvgl-event-codes
+
+regen-lvgl-event-codes:
+	$(ECHO) "$(BLUE)[GEN]$(RESET) mirroring lv_event_code_t into the crash worker"
+	$(Q)python3 scripts/gen_lvgl_event_codes.py
+	$(ECHO) "$(GREEN)✓ event-code table regenerated — commit server/crash-worker/src/index.ts if it changed$(RESET)"
+
+check-lvgl-event-codes:
+	$(Q)python3 scripts/gen_lvgl_event_codes.py --check
+
+# What a tag push builds and per-push CI does not, run before tagging: version and
+# changelog sanity, the installer bundles, then packaged docker cross builds of
+# RELEASE_GATE_TARGETS (default mips). TIERS=fast skips the cross builds. It lives
+# here because in mk/cross.mk a release-<name> target means a packaged platform.
+.PHONY: release-gate
+release-gate:
+	@RELEASE_GATE_TARGETS="$(RELEASE_GATE_TARGETS)" scripts/release-gate.sh $(TIERS)

@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <view name="printer_image_overlay" extends="overlay_panel" title="Printer Image" bg_color="#screen_bg">
+    <lv_obj name="overlay_content" width="100%" height="0" flex_grow="1" flex_flow="column" style_pad_all="#space_sm" style_pad_gap="#space_sm" scrollable="true">
+      <text_heading name="printer_image_current_name" width="100%" bind_text="printer_image_current_printer" long_mode="dots" style_text_align="center"/>
+      <setting_action_row name="row_auto_detect" label="Auto-Detect" icon="sync" description="Use printer type to select image" callback="on_printer_image_auto_detect"/>
+      <text_small bind_text="printer_image_preview_name" width="100%" long_mode="dots" style_text_align="center"/>
+        <lv_obj name="tag_buttons"
+                width="100%" height="content" flex_flow="row" style_pad_all="0" style_pad_top="#space_xs"
+                style_pad_gap="#space_xs" scrollable="false" style_bg_opa="0" style_border_width="0" hidden="true">
+          <bind_flag_if_eq subject="printer_image_tag_state" flag="hidden" ref_value="0"/>
+          <ui_button name="btn_tag_parts"
+                     height="#button_height_sm" flex_grow="1" variant="secondary" icon="target" text="Tag Parts">
+            <event_cb trigger="clicked" callback="on_printer_image_tag_parts"/>
+          </ui_button>
+          <ui_button name="btn_reset_tags"
+                     height="#button_height_sm" flex_grow="1" variant="secondary" text="Reset Tags" hidden="true">
+            <bind_flag_if cond="printer_image_tag_state ne 2" flag="hidden"/>
+            <event_cb trigger="clicked" callback="on_printer_image_reset_tags"/>
+          </ui_button>
+        </lv_obj>
+      <setting_group_header title="SHIPPED IMAGES"/>
+      <lv_obj name="shipped_images_list" width="100%" height="content" flex_flow="row_wrap" style_pad_all="0" style_pad_gap="#space_sm" scrollable="false">
+<repeat count="printer_image_shipped_count"><printer_image_card group="shipped" index="${i}"/></repeat>
+      </lv_obj>
+      <setting_group_header title="CUSTOM IMAGES"/>
+      <lv_obj name="custom_images_list" width="100%" height="content" flex_flow="row_wrap" style_pad_all="0" style_pad_gap="#space_sm" scrollable="false">
+<repeat count="printer_image_custom_count"><printer_image_card group="custom" index="${i}"/></repeat>
+      </lv_obj>
+        <lv_obj name="usb_import_section"
+                width="100%" height="content" scrollable="false" flex_flow="column" style_pad_all="0" style_bg_opa="0"
+                style_border_width="0" hidden="true">
+          <bind_flag_if_eq subject="printer_image_usb_visible" flag="hidden" ref_value="0"/>
+          <setting_group name="group_usb_images">
+            <setting_group_header title="IMPORT FROM USB"/>
+            <lv_obj name="usb_images_list"
+                    width="100%" height="content" scrollable="false" flex_flow="column" style_pad_all="0"
+                    style_bg_opa="0" style_border_width="0"/>
+            <text_muted name="usb_status_label"
+                        width="100%" bind_text="printer_image_usb_status" style_text_align="center"
+                        style_pad_top="#space_sm"/>
+          </setting_group>
+        </lv_obj>
+
+
+      <info_note icon="info" text="Place image files (PNG, JPEG, BMP, GIF) in config/custom_images/. Max size: 2048×2048 pixels."/>
+    </lv_obj>
+  </view>
+</component>

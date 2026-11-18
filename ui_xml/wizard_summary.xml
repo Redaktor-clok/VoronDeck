@@ -1,0 +1,129 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <styles>
+    <style name="summary_portrait" layout="flex" flex_flow="column"/>
+    <style name="summary_landscape" layout="flex" flex_flow="row"/>
+    <style name="summary_column_portrait" width="100%"/>
+    <style name="summary_column_landscape" width="48%"/>
+  </styles>
+  <!-- First-Run Wizard: Summary Screen -->
+  <!-- Shows all selections before saving configuration -->
+  <consts>
+    <!-- Step metadata (read by wizard orchestrator) -->
+    <str name="step_title" value="Review and Finish" value_tag="Review and Finish"/>
+    <str name="step_subtitle"
+         value="Review the selected settings. Calibration can be completed later."
+         value_tag="Review the selected settings. Calibration can be completed later."/>
+    <int name="step_order" value="10"/>
+  </consts>
+  <view name="wizard_summary_root"
+        extends="lv_obj" width="100%" height="100%" style_bg_opa="0" style_border_width="0" style_pad_all="0"
+        flex_flow="column" style_flex_main_place="start" style_flex_cross_place="center">
+    <!-- Configuration summary -->
+    <ui_card name="configuration_summary_card"
+             width="100%" flex_grow="1" style_pad_all="#space_md" style_pad_gap="#space_sm" flex_flow="column"
+             style_flex_main_place="start" style_flex_cross_place="start" scrollable="true">
+      <!-- Config summary: two-column layout -->
+      <lv_obj width="100%"
+              height="content" style_pad_all="0" style_pad_gap="#space_md" style_flex_main_place="start"
+              style_flex_cross_place="start">
+        <bind_style_if_eq name="summary_portrait" subject="ui_is_portrait" ref_value="1"/>
+        <bind_style_if_eq name="summary_landscape" subject="ui_is_portrait" ref_value="0"/>
+        <!-- Left column: Connection settings -->
+        <lv_obj
+                height="content" style_pad_all="0" style_pad_gap="#space_xs" flex_flow="column"
+                style_flex_main_place="start" style_flex_cross_place="start">
+          <bind_style_if_eq name="summary_column_portrait" subject="ui_is_portrait" ref_value="1"/>
+          <bind_style_if_eq name="summary_column_landscape" subject="ui_is_portrait" ref_value="0"/>
+          <text_heading width="100%" long_mode="wrap" text="Connection" style_pad_bottom="#space_xs"/>
+          <!-- Printer Name -->
+          <lv_obj width="100%" style_pad_all="0" flex_flow="column" style_pad_gap="0">
+            <text_small width="100%" long_mode="wrap" text="Printer Name"/>
+            <text_body name="summary_printer_name_label" bind_text="summary_printer_name" width="100%" long_mode="wrap"/>
+          </lv_obj>
+          <!-- WiFi -->
+          <lv_obj width="100%"
+                  height="content" style_pad_all="0" style_pad_top="#space_xs" flex_flow="column" style_pad_gap="0">
+            <text_small width="100%" long_mode="wrap" text="WiFi Network"/>
+            <text_body name="summary_wifi_ssid_label" bind_text="summary_wifi_ssid" width="100%" long_mode="wrap"/>
+          </lv_obj>
+          <!-- Moonraker -->
+          <lv_obj width="100%"
+                  height="content" style_pad_all="0" style_pad_top="#space_xs" flex_flow="column" style_pad_gap="0">
+            <text_small width="100%" long_mode="wrap" text="Moonraker"/>
+            <text_body name="summary_moonraker_label" bind_text="summary_moonraker_connection" width="100%" long_mode="wrap"/>
+          </lv_obj>
+        </lv_obj>
+        <!-- Right column: Hardware mapping -->
+        <lv_obj
+                height="content" style_pad_all="0" style_pad_gap="#space_xs" flex_flow="column"
+                style_flex_main_place="start" style_flex_cross_place="start">
+          <bind_style_if_eq name="summary_column_portrait" subject="ui_is_portrait" ref_value="1"/>
+          <bind_style_if_eq name="summary_column_landscape" subject="ui_is_portrait" ref_value="0"/>
+          <text_heading width="100%" long_mode="wrap" text="Hardware" style_pad_bottom="#space_xs"/>
+          <!-- Heated Bed -->
+          <lv_obj width="100%" style_pad_all="0" flex_flow="column" style_pad_gap="0">
+            <text_small width="100%" long_mode="wrap" text="Heated Bed"/>
+            <text_body name="summary_bed_label" bind_text="summary_bed" width="100%" long_mode="wrap"/>
+          </lv_obj>
+          <!-- Hotend -->
+          <lv_obj width="100%"
+                  height="content" style_pad_all="0" style_pad_top="#space_xs" flex_flow="column" style_pad_gap="0">
+            <text_small width="100%" long_mode="wrap" text="Hotend"/>
+            <text_body name="summary_hotend_label" bind_text="summary_hotend" width="100%" long_mode="wrap"/>
+          </lv_obj>
+          <!-- Part Cooling Fan (conditionally visible) -->
+          <lv_obj name="part_fan_row"
+                  width="100%" height="content" style_pad_all="0" style_pad_top="#space_xs" flex_flow="column"
+                  style_pad_gap="0">
+            <text_small width="100%" long_mode="wrap" text="Part Cooling Fan"/>
+            <text_body name="summary_part_fan_label" bind_text="summary_part_fan" width="100%" long_mode="wrap"/>
+            <bind_flag_if_eq subject="summary_part_fan_visible" flag="hidden" ref_value="0"/>
+          </lv_obj>
+          <!-- Hotend Cooling Fan (conditionally visible) -->
+          <lv_obj name="hotend_fan_row"
+                  width="100%" height="content" style_pad_all="0" style_pad_top="#space_xs" flex_flow="column"
+                  style_pad_gap="0">
+            <text_small width="100%" long_mode="wrap" text="Hotend Fan"/>
+            <text_body name="summary_hotend_fan_label" bind_text="summary_hotend_fan" width="100%" long_mode="wrap"/>
+            <bind_flag_if_eq subject="summary_hotend_fan_visible" flag="hidden" ref_value="0"/>
+          </lv_obj>
+          <!-- LED Strip (conditionally visible) -->
+          <lv_obj name="led_strip_row"
+                  width="100%" height="content" style_pad_all="0" style_pad_top="#space_xs" flex_flow="column"
+                  style_pad_gap="0">
+            <text_small width="100%" long_mode="wrap" text="LED Strip"/>
+            <text_body name="summary_led_strip_label" bind_text="summary_led_strip" width="100%" long_mode="wrap"/>
+            <bind_flag_if_eq subject="summary_led_strip_visible" flag="hidden" ref_value="0"/>
+          </lv_obj>
+          <!-- Filament Sensor (conditionally visible) -->
+          <lv_obj name="filament_sensor_row"
+                  width="100%" height="content" style_pad_all="0" style_pad_top="#space_xs" flex_flow="column"
+                  style_pad_gap="0">
+            <text_small width="100%" long_mode="wrap" text="Filament Sensor"/>
+            <text_body name="summary_filament_sensor_label" bind_text="summary_filament_sensor" width="100%" long_mode="wrap"/>
+            <bind_flag_if_eq subject="summary_filament_sensor_visible" flag="hidden" ref_value="0"/>
+          </lv_obj>
+          <!-- AMS/Multi-Material System (conditionally visible) -->
+          <lv_obj name="ams_row"
+                  width="100%" height="content" style_pad_all="0" style_pad_top="#space_xs" flex_flow="column"
+                  style_pad_gap="0">
+            <text_small width="100%" long_mode="wrap" text="Multi-Filament System"/>
+            <text_body name="summary_ams_type_label" bind_text="summary_ams_type" width="100%" long_mode="wrap"/>
+            <bind_flag_if_eq subject="summary_ams_visible" flag="hidden" ref_value="0"/>
+          </lv_obj>
+          <!-- Input Shaping / Accelerometer (conditionally visible) -->
+          <lv_obj name="input_shaper_row"
+                  width="100%" height="content" style_pad_all="0" style_pad_top="#space_xs" flex_flow="column"
+                  style_pad_gap="0">
+            <text_small width="100%" long_mode="wrap" text="Input Shaping"/>
+            <text_body name="summary_input_shaper_label" bind_text="summary_input_shaper" width="100%" long_mode="wrap"/>
+            <bind_flag_if_eq subject="summary_input_shaper_visible" flag="hidden" ref_value="0"/>
+          </lv_obj>
+        </lv_obj>
+      </lv_obj>
+    </ui_card>
+  </view>
+</component>

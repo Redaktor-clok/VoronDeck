@@ -1,0 +1,1689 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "ui_modal.h"
+
+#include "ui_button.h"
+#include "ui_callback_helpers.h"
+#include "ui_effects.h"
+#include "ui_event_safety.h"
+#include "ui_keyboard_manager.h"
+#include "ui_update_queue.h"
+#include "ui_utils.h"
+
+#include "display_settings_manager.h"
+#include "exception_policy.h"
+#include "helix-xml/src/xml/lv_xml.h"
+#include "lvgl.h"
+#include "memory_utils.h"
+#include "settings_manager.h"
+#include "system/crash_handler.h"
+#include "theme_manager.h"
+
+#include <spdlog/fmt/fmt.h>
+#include <spdlog/spdlog.h>
+
+#include <algorithm>
+#include <memory>
+#include <optional>
+#include <string>
+
+using namespace helix;
+
+// ============================================================================
+// MODAL STYLE CONSTANTS
+// ============================================================================
+// Default backdrop opacity if globals.xml constant not found
+static constexpr uint8_t kDefaultModalBackdropOpacity = 100;
+
+// Helper to get backdrop opacity from globals.xml
+static uint8_t get_modal_backdrop_opacity() {
+    const char* opacity_str = lv_xml_get_const(nullptr, "modal_backdrop_opacity");
+    if (opacity_str) {
+        int val = atoi(opacity_str);
+        if (val >= 0 && val <= 255) {
+            return static_cast<uint8_t>(val);
+        }
+    }
+    return kDefaultModalBackdropOpacity;
+}
+
+// ============================================================================
+// ANIMATION CONSTANTS
+// ============================================================================
+// Duration values match globals.xml tokens for consistency
+static constexpr int32_t kModalEntranceDurationMs = 250; // anim_normal
+static constexpr int32_t kModalExitDurationMs = 150;     // anim_fast
+
+// Scale animation uses percentage values (0-256 in LVGL)
+// We animate from 85% (218) to 100% (256), with slight overshoot for bounce
+static constexpr int32_t kModalScaleStart = 218; // ~85% scale
+static constexpr int32_t kModalScaleEnd = 256;   // 100% scale
+
+namespace {
+bool g_callbacks_registered = false;
+} // namespace
+
+// Walk a widget tree depth-first, visiting every non-null object. The three
+// disarm passes below differ only in what they do per object; expressing the
+// skeleton once means a future pass cannot forget the child iteration or the
+// null guard the recursive originals each carried separately.
+template <typename Fn> static void for_each_in_tree(lv_obj_t* obj, Fn&& fn) {
+    if (!obj)
+        return;
+    fn(obj);
+    uint32_t child_count = lv_obj_get_child_count(obj);
+    for (uint32_t i = 0; i < child_count; i++) {
+        for_each_in_tree(lv_obj_get_child(obj, i), fn);
+    }
+}
+
+// Clear user_data on an object tree to prevent stale pointer dispatch.
+// Subclasses that stash `this` there rely on this: ClogDetectionConfigModal
+// walks up looking for the first non-null user_data and casts it to its own type
+// (clog_detection_config_modal.cpp:20), so a slot left set after teardown resolves
+// to a freed instance.
+//
+// ui_button is the one thing that must be left alone. It owns its user_data slot
+// (a heap UiButtonData) and button_delete_cb frees it by reading the slot back and
+// checking a magic word - null it here and the allocation is stranded with nothing
+// left to free it.
+static void clear_user_data_in_tree(lv_obj_t* root) {
+    for_each_in_tree(root, [](lv_obj_t* obj) {
+        if (lv_obj_get_user_data(obj) != nullptr && !ui_button_owns_user_data(obj)) {
+            lv_obj_set_user_data(obj, nullptr);
+        }
+    });
+}
+
+// Remove every event callback in the tree whose per-callback user_data is
+// `owner`. lv_obj_remove_event_cb_with_user_data treats a null callback as a
+// wildcard (lv_obj_event.c), so one pass catches wire_button()'s hooks and any
+// a subclass added itself.
+static void remove_owner_callbacks_in_tree(lv_obj_t* root, void* owner) {
+    for_each_in_tree(root, [owner](lv_obj_t* obj) {
+        lv_obj_remove_event_cb_with_user_data(obj, nullptr, owner);
+    });
+}
+
+// Recursively remove LV_OBJ_FLAG_CLICKABLE from an object tree. lv_obj_hit_test
+// rejects a non-clickable object (lv_obj_pos.c:1209), so a NEW press can no
+// longer select anything in the tree. This does NOT stop a press that is already
+// down - see Modal::disarm_tree.
+static void disable_clicks_in_tree(lv_obj_t* root) {
+    for_each_in_tree(root, [](lv_obj_t* obj) { lv_obj_remove_flag(obj, LV_OBJ_FLAG_CLICKABLE); });
+}
+
+// ============================================================================
+// MODALSTACK IMPLEMENTATION
+// ============================================================================
+
+ModalStack& ModalStack::instance() {
+    static ModalStack instance;
+    return instance;
+}
+
+// A visible modal blocks the navbar: its backdrop covers the always-on-top
+// chrome (E-stop included) until the last visible modal starts to close.
+static void sync_chrome_cover(const ModalStack& stack) {
+    helix::ui::set_chrome_covered(stack.covers_chrome());
+}
+
+// A handle whose widget died reads nullptr: it must not match a nullptr query.
+static bool handle_names(const helix::ui::WeakWidget& handle, const lv_obj_t* obj) {
+    return obj && handle.get() == obj;
+}
+
+void ModalStack::push(lv_obj_t* backdrop, lv_obj_t* dialog, const std::string& component_name,
+                      Modal* owner) {
+    stack_.push_back({helix::ui::WeakWidget(backdrop),
+                      helix::ui::WeakWidget(dialog),
+                      component_name,
+                      false /* exiting */,
+                      owner,
+                      true,
+                      {}});
+    sync_chrome_cover(*this);
+    if (backdrop) {
+        lv_obj_move_foreground(backdrop);
+        // Added after the entry's handle hook, so the handle reads nullptr by now.
+        // DECLARATIVE_OK: LV_EVENT_DELETE cleanup has no declarative equivalent.
+        lv_obj_add_event_cb(
+            backdrop, [](lv_event_t*) { ModalStack::instance().prune_dead(); }, LV_EVENT_DELETE,
+            nullptr);
+    }
+    spdlog::debug("[ModalStack] Pushed modal '{}' (stack depth: {})", component_name,
+                  stack_.size());
+    crash_handler::breadcrumb::note("modal+", component_name.c_str(),
+                                    static_cast<long>(stack_.size()));
+}
+
+/// Delete a stack-owned instance, refusing if it managed to re-show itself.
+/// A one-shot that is visible again has a NEW stack entry tracking it; freeing
+/// here would leave that entry's owner dangling, so the instance is leaked
+/// loudly instead - the error names the programming mistake.
+static void free_owned_instance(Modal* instance) {
+    if (instance->is_visible()) {
+        spdlog::error("[ModalStack] owned instance '{}' re-shown before its free - leaking it "
+                      "rather than dangling the new entry's owner; show_owned() modals must be "
+                      "one-shot",
+                      instance->get_name());
+        return;
+    }
+    delete instance;
+}
+
+void ModalStack::remove(lv_obj_t* backdrop, bool free_owned_now) {
+    auto it = std::find_if(stack_.begin(), stack_.end(), [backdrop](const ModalEntry& e) {
+        return handle_names(e.backdrop, backdrop);
+    });
+    if (it != stack_.end()) {
+        spdlog::debug("[ModalStack] Removed modal '{}' (stack depth: {})", it->component_name,
+                      stack_.size() - 1);
+        crash_handler::breadcrumb::note("modal-", it->component_name.c_str(),
+                                        static_cast<long>(stack_.size() - 1));
+        std::unique_ptr<Modal> owned = std::move(it->owned_instance);
+        stack_.erase(it);
+        sync_chrome_cover(*this);
+        if (owned) {
+            // An owned instance must die BEFORE its widget tree: subclass
+            // destructors may touch widgets they created in on_show()
+            // (BufferStatusModal's meter walks LVGL's event list on its
+            // objects), and hide() has already nulled the instance's own
+            // pointers so ~Modal takes its trivial path and leaves the tree
+            // alone. finish_exit() passes free_owned_now=true: it runs outside
+            // any hide() frame, and frees here, before the backdrop deletion it
+            // queues next. A caller inside a hide() frame, whose trailing
+            // statements must not run on freed memory, defers the free a tick.
+            Modal* doomed = owned.release();
+            if (free_owned_now) {
+                free_owned_instance(doomed);
+            } else {
+                helix::ui::queue_update("ModalStack::free_owned",
+                                        [doomed]() { free_owned_instance(doomed); });
+            }
+        }
+    }
+}
+
+void ModalStack::prune_dead() {
+    // Backwards, so an erase leaves the earlier indices valid.
+    bool pruned = false;
+    for (size_t i = stack_.size(); i-- > 0;) {
+        if (stack_[i].backdrop) {
+            continue;
+        }
+        spdlog::debug("[ModalStack] Dropping modal '{}': its backdrop was deleted",
+                      stack_[i].component_name);
+        Modal* doomed = stack_[i].owned_instance.release();
+        stack_.erase(stack_.begin() + static_cast<std::ptrdiff_t>(i));
+        pruned = true;
+        if (doomed) {
+            helix::ui::queue_update("ModalStack::free_owned",
+                                    [doomed]() { free_owned_instance(doomed); });
+        }
+    }
+    if (pruned) {
+        sync_chrome_cover(*this);
+    }
+}
+
+void ModalStack::assume_ownership(lv_obj_t* backdrop, std::unique_ptr<Modal> instance) {
+    for (auto& entry : stack_) {
+        if (handle_names(entry.backdrop, backdrop)) {
+            entry.owner = instance.get();
+            entry.owned_instance = std::move(instance);
+            return;
+        }
+    }
+    spdlog::warn("[ModalStack] assume_ownership: backdrop not in stack - freeing the instance");
+    // The unique_ptr frees it here; ~Modal sees its own hide()-nulled pointers.
+}
+
+void ModalStack::clear() {
+    // Drain from the top, one entry at a time: freeing an owned instance can
+    // erase its own entry (~Modal -> remove()), so holding an iterator across
+    // the loop body is unsafe. Each entry is moved out first.
+    while (!stack_.empty()) {
+        auto entry = std::move(stack_.back());
+        stack_.pop_back();
+
+        // Free the instance first. Its ~Modal finds no stack entry (popped
+        // above) and takes the already-untracked path - no widget cleanup,
+        // no second remove() - so this loop owns deleting the widgets for
+        // owned and unowned entries alike.
+        entry.owned_instance.reset();
+
+        // A modal whose exit animation never completed stays in the stack as
+        // exiting=true with its remove() still owed to exit_animation_done(). If
+        // the backdrop's ancestor (e.g. the screen it was created on) is deleted
+        // first, LVGL frees the backdrop with that subtree and the entry's handle
+        // reads nullptr.
+        lv_obj_t* backdrop = entry.backdrop;
+        if (!backdrop) {
+            continue;
+        }
+        // Cancel animations before deletion - exit animation exec callbacks
+        // trigger lv_obj_set_style_*() which crashes on freed objects
+        lv_anim_delete(backdrop, nullptr);
+        lv_obj_t* dialog = lv_obj_get_child(backdrop, 0);
+        if (dialog) {
+            lv_anim_delete(dialog, nullptr);
+        }
+        lv_obj_delete(backdrop);
+    }
+    sync_chrome_cover(*this);
+}
+
+lv_obj_t* ModalStack::top_dialog() const {
+    // Return topmost non-exiting modal
+    for (auto it = stack_.rbegin(); it != stack_.rend(); ++it) {
+        if (!it->exiting && it->dialog) {
+            return it->dialog;
+        }
+    }
+    return nullptr;
+}
+
+std::string ModalStack::top_component_name() const {
+    // Walk from top, skipping exiting entries (matches top_dialog semantics).
+    for (auto it = stack_.rbegin(); it != stack_.rend(); ++it) {
+        if (!it->exiting)
+            return it->component_name;
+    }
+    return "";
+}
+
+lv_obj_t* ModalStack::dialog_for_component(const std::string& component_name) const {
+    for (auto it = stack_.rbegin(); it != stack_.rend(); ++it) {
+        if (!it->exiting && it->dialog && it->component_name == component_name)
+            return it->dialog;
+    }
+    return nullptr;
+}
+
+lv_obj_t* ModalStack::backdrop_for(lv_obj_t* dialog) const {
+    for (const auto& entry : stack_) {
+        if (handle_names(entry.dialog, dialog)) {
+            return entry.backdrop;
+        }
+    }
+    return nullptr;
+}
+
+std::string ModalStack::component_name_for(lv_obj_t* dialog) const {
+    for (const auto& entry : stack_) {
+        if (handle_names(entry.dialog, dialog)) {
+            return entry.component_name;
+        }
+    }
+    return "";
+}
+
+Modal* ModalStack::owner_for(lv_obj_t* dialog) const {
+    for (const auto& entry : stack_) {
+        if (handle_names(entry.dialog, dialog)) {
+            return entry.owner;
+        }
+    }
+    return nullptr;
+}
+
+void ModalStack::reassign_owner(lv_obj_t* backdrop, Modal* new_owner) {
+    for (auto& entry : stack_) {
+        if (handle_names(entry.backdrop, backdrop)) {
+            entry.owner = new_owner;
+            return;
+        }
+    }
+}
+
+bool ModalStack::backdrop_for_backdrop(lv_obj_t* backdrop) const {
+    for (const auto& entry : stack_) {
+        if (handle_names(entry.backdrop, backdrop)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ModalStack::empty() const {
+    // Returns true if no visible (non-exiting) modals
+    for (const auto& entry : stack_) {
+        if (!entry.exiting) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void ModalStack::add_external_cover() {
+    ++external_covers_;
+    sync_chrome_cover(*this);
+}
+
+void ModalStack::remove_external_cover() {
+    if (external_covers_ > 0) {
+        --external_covers_;
+    }
+    sync_chrome_cover(*this);
+}
+
+bool ModalStack::covers_chrome() const {
+    if (external_covers_ > 0) {
+        return true;
+    }
+    for (const auto& entry : stack_) {
+        if (!entry.exiting && entry.covers_chrome) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ModalStack::set_covers_chrome(lv_obj_t* backdrop, bool covers) {
+    for (auto& entry : stack_) {
+        if (handle_names(entry.backdrop, backdrop)) {
+            entry.covers_chrome = covers;
+            sync_chrome_cover(*this);
+            return;
+        }
+    }
+}
+
+lv_obj_t* ModalStack::lowest_covering_backdrop() const {
+    for (const auto& entry : stack_) {
+        if (!entry.exiting && entry.covers_chrome && entry.backdrop) {
+            return entry.backdrop;
+        }
+    }
+    return nullptr;
+}
+
+bool ModalStack::mark_exiting(lv_obj_t* backdrop) {
+    for (auto& entry : stack_) {
+        if (handle_names(entry.backdrop, backdrop)) {
+            if (entry.exiting) {
+                spdlog::debug("[ModalStack] Modal '{}' already exiting - ignoring",
+                              entry.component_name);
+                return false; // Already exiting
+            }
+            entry.exiting = true;
+            spdlog::debug("[ModalStack] Marked modal '{}' as exiting", entry.component_name);
+            sync_chrome_cover(*this);
+            return true;
+        }
+    }
+    return false; // Not found
+}
+
+bool ModalStack::is_exiting(lv_obj_t* backdrop) const {
+    for (const auto& entry : stack_) {
+        if (handle_names(entry.backdrop, backdrop)) {
+            return entry.exiting;
+        }
+    }
+    return false;
+}
+
+void ModalStack::animate_entrance(lv_obj_t* dialog) {
+    if (!dialog) {
+        spdlog::warn("[ModalStack] animate_entrance called with no dialog");
+        return;
+    }
+
+    // Find backdrop for this dialog
+    lv_obj_t* backdrop = backdrop_for(dialog);
+    if (!backdrop) {
+        return;
+    }
+
+    // Safety: verify dialog's screen is still valid before style operations
+    lv_obj_t* screen = lv_obj_get_screen(dialog);
+    if (!screen) {
+        return;
+    }
+
+    // Set transform pivot to center so scaling happens from center, not corner
+    lv_obj_set_style_transform_pivot_x(dialog, LV_PCT(50), LV_PART_MAIN);
+    lv_obj_set_style_transform_pivot_y(dialog, LV_PCT(50), LV_PART_MAIN);
+
+    // Show the final state when animations are off, or on a tier where each frame
+    // of a full-screen fade plus a scaled dialog (an ARGB layer and a transformed
+    // blit) costs more than the frame budget.
+    if (!DisplaySettingsManager::instance().get_animations_enabled() ||
+        !helix::ui::full_style_effects_active()) {
+        lv_obj_set_style_opa(backdrop, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_transform_scale(dialog, kModalScaleEnd, LV_PART_MAIN);
+        lv_obj_set_style_opa(dialog, LV_OPA_COVER, LV_PART_MAIN);
+        spdlog::debug("[ModalStack] Animations disabled - showing modal instantly");
+        return;
+    }
+
+    // Start backdrop transparent
+    lv_obj_set_style_opa(backdrop, LV_OPA_TRANSP, LV_PART_MAIN);
+
+    // Start dialog scaled down and transparent
+    lv_obj_set_style_transform_scale(dialog, kModalScaleStart, LV_PART_MAIN);
+    lv_obj_set_style_opa(dialog, LV_OPA_TRANSP, LV_PART_MAIN);
+
+    // Fade in backdrop
+    lv_anim_t backdrop_anim;
+    lv_anim_init(&backdrop_anim);
+    lv_anim_set_var(&backdrop_anim, backdrop);
+    lv_anim_set_values(&backdrop_anim, LV_OPA_TRANSP, LV_OPA_COVER);
+    lv_anim_set_duration(&backdrop_anim, kModalEntranceDurationMs);
+    lv_anim_set_path_cb(&backdrop_anim, lv_anim_path_ease_out);
+    lv_anim_set_exec_cb(&backdrop_anim, [](void* obj, int32_t value) {
+        // No liveness guard: LVGL's lv_obj_destructor cancels an object's animations
+        // when it is freed (lv_obj.c), so this exec cb can never fire on a freed object.
+        lv_obj_set_style_opa(static_cast<lv_obj_t*>(obj), static_cast<lv_opa_t>(value),
+                             LV_PART_MAIN);
+    });
+    lv_anim_start(&backdrop_anim);
+
+    // Scale up dialog with overshoot
+    lv_anim_t scale_anim;
+    lv_anim_init(&scale_anim);
+    lv_anim_set_var(&scale_anim, dialog);
+    lv_anim_set_values(&scale_anim, kModalScaleStart, kModalScaleEnd);
+    lv_anim_set_duration(&scale_anim, kModalEntranceDurationMs);
+    lv_anim_set_path_cb(&scale_anim, lv_anim_path_overshoot);
+    lv_anim_set_exec_cb(&scale_anim, [](void* obj, int32_t value) {
+        // No liveness guard: see the opacity cbs above.
+        lv_obj_set_style_transform_scale(static_cast<lv_obj_t*>(obj), static_cast<int16_t>(value),
+                                         LV_PART_MAIN);
+    });
+    lv_anim_start(&scale_anim);
+
+    // Fade in dialog
+    lv_anim_t fade_anim;
+    lv_anim_init(&fade_anim);
+    lv_anim_set_var(&fade_anim, dialog);
+    lv_anim_set_values(&fade_anim, LV_OPA_TRANSP, LV_OPA_COVER);
+    lv_anim_set_duration(&fade_anim, kModalEntranceDurationMs);
+    lv_anim_set_path_cb(&fade_anim, lv_anim_path_ease_out);
+    lv_anim_set_exec_cb(&fade_anim, [](void* obj, int32_t value) {
+        // No liveness guard: LVGL's lv_obj_destructor cancels an object's animations
+        // when it is freed (lv_obj.c), so this exec cb can never fire on a freed object.
+        lv_obj_set_style_opa(static_cast<lv_obj_t*>(obj), static_cast<lv_opa_t>(value),
+                             LV_PART_MAIN);
+    });
+    lv_anim_start(&fade_anim);
+
+    spdlog::debug("[ModalStack] Started entrance animation");
+}
+
+void ModalStack::exit_animation_done(lv_anim_t* anim) {
+    finish_exit(static_cast<lv_obj_t*>(anim->var));
+}
+
+void ModalStack::finish_exit(lv_obj_t* backdrop) {
+    // The no-animation exit passes nullptr when the backdrop died before its tick.
+    if (!backdrop) {
+        return;
+    }
+
+    // Safety check: if backdrop was already removed from stack (e.g., by
+    // Modal::~Modal or clear()), it's already been deleted — nothing to do.
+    auto& stack = ModalStack::instance();
+    if (!stack.backdrop_for_backdrop(backdrop)) {
+        spdlog::debug("[ModalStack] Exit complete - backdrop already removed from stack");
+        return;
+    }
+
+    // Cancel all remaining animations on the backdrop and its dialog child
+    // before hiding or deleting. The dialog scale/fade animations may still
+    // be running and their exec callbacks trigger lv_obj_set_style_*() →
+    // lv_obj_invalidate() → blur_walk_cb(), which crashes if the backdrop
+    // is mid-deletion.
+    lv_obj_t* dialog = lv_obj_get_child(backdrop, 0);
+    if (dialog) {
+        lv_anim_delete(dialog, nullptr);
+    }
+    lv_anim_delete(backdrop, nullptr);
+
+    // Remove from stack (animation is complete, safe to remove) and free an
+    // owned instance NOW, in this timer context: the backdrop deletion queued
+    // below must come after the instance's death, or a subclass destructor
+    // that touches its widgets (BufferStatusModal's meter) walks freed memory.
+    stack.remove(backdrop, /*free_owned_now=*/true);
+
+    // Hide immediately, then defer actual deletion to the next LVGL tick.
+    // MUST use lv_obj_delete_async() (not a custom lv_async_call lambda) so
+    // that obj_delete_core() can cancel the pending async if something else
+    // deletes the backdrop first (e.g., Modal::~Modal via safe_delete).
+    // Custom lambdas aren't cancelled by LVGL's built-in cancellation logic
+    // which only matches lv_obj_delete_async_cb — crash #399.
+    spdlog::debug("[ModalStack] Exit complete - deferring backdrop deletion");
+    helix::ui::safe_delete_deferred_raw(backdrop);
+}
+
+void ModalStack::animate_exit(lv_obj_t* backdrop, lv_obj_t* dialog) {
+    if (!backdrop || !dialog) {
+        return;
+    }
+
+    // Deterministically cancel any in-flight ENTRANCE animations before starting the
+    // exit. Entrance and exit use distinct exec_cb lambdas, so LVGL's
+    // remove_concurrent_anims (matches var + exec_cb) does NOT replace them — a fast
+    // dismiss otherwise leaves entrance anims fighting the exit over opa/scale. The
+    // wildcard (nullptr) form deletes every anim whose var is this object. Combined
+    // with the wildcard cancel in exit_animation_done and lv_obj_destructor's own
+    // lv_anim_delete(obj, NULL), no exec cb can fire on a freed object.
+    lv_anim_delete(backdrop, nullptr);
+    lv_anim_delete(dialog, nullptr);
+
+    // Same rule as animate_entrance: no animation, or too costly on this tier
+    if (!DisplaySettingsManager::instance().get_animations_enabled() ||
+        !helix::ui::full_style_effects_active()) {
+        lv_obj_set_style_transform_scale(dialog, kModalScaleEnd, LV_PART_MAIN);
+        lv_obj_set_style_opa(dialog, LV_OPA_COVER, LV_PART_MAIN);
+        spdlog::debug("[ModalStack] Exit without animation - hiding, finishing next tick");
+        // finish_exit frees an owned instance before it queues the tree's delete;
+        // this runs inside hide()'s frame, so the whole sequence waits a tick.
+        lv_obj_add_flag(backdrop, LV_OBJ_FLAG_HIDDEN);
+        helix::ui::queue_update(
+            "ModalStack::finish_exit",
+            [backdrop = helix::ui::WeakWidget(backdrop)]() { ModalStack::finish_exit(backdrop); });
+        return;
+    }
+
+    // Fade out backdrop (triggers deletion on completion)
+    lv_anim_t backdrop_anim;
+    lv_anim_init(&backdrop_anim);
+    lv_anim_set_var(&backdrop_anim, backdrop);
+    lv_anim_set_values(&backdrop_anim, LV_OPA_COVER, LV_OPA_TRANSP);
+    lv_anim_set_duration(&backdrop_anim, kModalExitDurationMs);
+    lv_anim_set_path_cb(&backdrop_anim, lv_anim_path_ease_in);
+    lv_anim_set_exec_cb(&backdrop_anim, [](void* obj, int32_t value) {
+        // No liveness guard: LVGL's lv_obj_destructor cancels an object's animations
+        // when it is freed (lv_obj.c), so this exec cb can never fire on a freed object.
+        lv_obj_set_style_opa(static_cast<lv_obj_t*>(obj), static_cast<lv_opa_t>(value),
+                             LV_PART_MAIN);
+    });
+    lv_anim_set_completed_cb(&backdrop_anim, exit_animation_done);
+    lv_anim_start(&backdrop_anim);
+
+    // Scale down dialog
+    lv_anim_t scale_anim;
+    lv_anim_init(&scale_anim);
+    lv_anim_set_var(&scale_anim, dialog);
+    lv_anim_set_values(&scale_anim, kModalScaleEnd, kModalScaleStart);
+    lv_anim_set_duration(&scale_anim, kModalExitDurationMs);
+    lv_anim_set_path_cb(&scale_anim, lv_anim_path_ease_in);
+    lv_anim_set_exec_cb(&scale_anim, [](void* obj, int32_t value) {
+        // No liveness guard: see the opacity cbs above.
+        lv_obj_set_style_transform_scale(static_cast<lv_obj_t*>(obj), static_cast<int16_t>(value),
+                                         LV_PART_MAIN);
+    });
+    lv_anim_start(&scale_anim);
+
+    // Fade out dialog
+    lv_anim_t fade_anim;
+    lv_anim_init(&fade_anim);
+    lv_anim_set_var(&fade_anim, dialog);
+    lv_anim_set_values(&fade_anim, LV_OPA_COVER, LV_OPA_TRANSP);
+    lv_anim_set_duration(&fade_anim, kModalExitDurationMs);
+    lv_anim_set_path_cb(&fade_anim, lv_anim_path_ease_in);
+    lv_anim_set_exec_cb(&fade_anim, [](void* obj, int32_t value) {
+        // No liveness guard: LVGL's lv_obj_destructor cancels an object's animations
+        // when it is freed (lv_obj.c), so this exec cb can never fire on a freed object.
+        lv_obj_set_style_opa(static_cast<lv_obj_t*>(obj), static_cast<lv_opa_t>(value),
+                             LV_PART_MAIN);
+    });
+    lv_anim_start(&fade_anim);
+
+    spdlog::debug("[ModalStack] Started exit animation");
+}
+
+// ============================================================================
+// MODAL CLASS - CONSTRUCTOR / DESTRUCTOR
+// ============================================================================
+
+Modal::Modal() = default;
+
+Modal::~Modal() {
+    // RAII: auto-hide if still visible
+    // Use safe delete to handle shutdown race conditions
+    if (backdrop_) {
+        // An owning C++ object (e.g. an overlay holding a unique_ptr<Modal>) can
+        // outlive the widget tree the backdrop was created in; backdrop_ then reads
+        // nullptr and this block is skipped. A backdrop no longer tracked by
+        // ModalStack belongs to whichever path removed it: drop our pointers and
+        // skip cleanup.
+        auto& stack = ModalStack::instance();
+        if (!stack.backdrop_for_backdrop(backdrop_)) {
+            spdlog::debug("[Modal] ~Modal: backdrop already cleaned up externally, "
+                          "skipping widget cleanup");
+            backdrop_ = nullptr;
+            dialog_ = nullptr;
+            spdlog::trace("[Modal] Destroyed");
+            return;
+        }
+
+        // If the backdrop is mid-exit-animation, exit_animation_done owns
+        // final cleanup. Removing event callbacks or deleting the widget here
+        // races with the animation and corrupts LVGL's event list. Leave the
+        // widget alone and let the animation complete.
+        if (stack.is_exiting(backdrop_)) {
+            spdlog::debug("[Modal] ~Modal: backdrop mid-exit, deferring to animation");
+            backdrop_ = nullptr;
+            dialog_ = nullptr;
+            spdlog::trace("[Modal] Destroyed");
+            return;
+        }
+
+        // Cancel any exit animations BEFORE deleting — prevents exit_animation_done
+        // callback from firing on the soon-to-be-freed backdrop
+        lv_anim_delete(backdrop_, nullptr);
+        if (dialog_) {
+            lv_anim_delete(dialog_, nullptr);
+        }
+        // Same disarm as hide(); the derived class is already gone here, so
+        // nothing may dispatch into it.
+        disarm_tree(backdrop_, dialog_, this);
+
+        // Hide immediately without calling virtual on_hide() - derived class already destroyed
+        // Note: lv_obj_safe_delete handles focus group cleanup (helix::ui::defocus_tree)
+        stack.remove(backdrop_);
+        helix::ui::safe_delete(backdrop_);
+        // dialog_ is a child of backdrop_ and was destroyed with it
+        dialog_ = nullptr;
+    }
+    spdlog::trace("[Modal] Destroyed");
+}
+
+void Modal::disarm_tree(lv_obj_t* backdrop, lv_obj_t* dialog, Modal* owner) {
+    if (dialog) {
+        // Order matters only in that all three must happen before the widgets
+        // start animating out; the dialog stays alive for kModalExitDurationMs
+        // after a hide, and every callback on it is still wired.
+        clear_user_data_in_tree(dialog);
+        disable_clicks_in_tree(dialog);
+
+        // Clearing CLICKABLE stops a NEW press from selecting anything in the
+        // tree, but it does NOT stop one that is already down: LVGL dispatches
+        // LV_EVENT_CLICKED on release to the object captured at press time and
+        // gates that on LV_STATE_DISABLED only, never on the flag
+        // (lv_indev.c indev_proc_release). A finger held on the confirm button
+        // while a background path closes the modal would still fire the
+        // callback on lift-off. Dropping the captured object closes that.
+        //
+        // Note this resets the pressed object for every indev, not only one
+        // pressing this dialog - lv_indev_reset's obj argument scopes
+        // last_pressed/last_hovered but not act_obj. Correct here regardless: a
+        // modal owns input behind a full-screen backdrop, so there is no other
+        // legitimate press in flight to cancel.
+        lv_indev_reset(nullptr, dialog);
+    }
+
+    if (backdrop) {
+        // These carry `this` as per-callback user_data for an instance modal, so
+        // they must not survive into the exit animation.
+        lv_obj_remove_event_cb(backdrop, backdrop_click_cb);
+        lv_obj_remove_event_cb(backdrop, esc_key_cb);
+    }
+
+    // A stack-owned instance is freed when its entry goes, while these widgets
+    // live out kModalExitDurationMs first. Any callback still carrying it -
+    // wire_button()'s hooks, or one a subclass added - would then dispatch on
+    // freed memory. disable_clicks_in_tree() stops a finger from reaching
+    // them, but not lv_obj_send_event (which `ctl click` and tests use, and
+    // which ignores the CLICKABLE flag).
+    if (owner) {
+        // backdrop is the dialog's parent, so one walk from there covers both.
+        remove_owner_callbacks_in_tree(backdrop ? backdrop : dialog, owner);
+    }
+}
+
+// ============================================================================
+// MODAL CLASS - STATIC FACTORY API
+// ============================================================================
+
+lv_obj_t* Modal::show(const char* component_name, const char** attrs) {
+    if (!component_name) {
+        spdlog::error("[Modal] show() called with null component_name");
+        return nullptr;
+    }
+
+    spdlog::info("[Modal] Showing modal: {}", component_name);
+
+    lv_obj_t* parent = lv_screen_active();
+    if (!parent) {
+        spdlog::warn("[Modal] No active screen - cannot show modal '{}'", component_name);
+        return nullptr;
+    }
+
+    // Create backdrop using shared utility
+    lv_obj_t* backdrop =
+        helix::ui::create_fullscreen_backdrop(parent, get_modal_backdrop_opacity());
+    if (!backdrop) {
+        spdlog::error("[Modal] Failed to create backdrop");
+        return nullptr;
+    }
+
+    // Create XML component inside backdrop
+    lv_obj_t* dialog = static_cast<lv_obj_t*>(lv_xml_create(backdrop, component_name, attrs));
+    if (!dialog) {
+        spdlog::error("[Modal] Failed to create modal from XML: {}", component_name);
+        helix::ui::safe_delete(backdrop);
+        return nullptr;
+    }
+
+    // Position dialog centered
+    lv_obj_align(dialog, LV_ALIGN_CENTER, 0, 0);
+
+    // Apply current theme palette to dialog tree (context-aware input styling)
+    theme_apply_current_palette_to_tree(dialog);
+
+    // Add backdrop click handler
+    lv_obj_add_event_cb(backdrop, backdrop_click_cb, LV_EVENT_CLICKED, nullptr);
+
+    // Add ESC key handler
+    lv_obj_add_event_cb(backdrop, esc_key_cb, LV_EVENT_KEY, nullptr);
+    lv_obj_add_flag(backdrop, LV_OBJ_FLAG_CLICKABLE);
+    lv_group_t* group = lv_group_get_default();
+    if (group) {
+        lv_group_add_obj(group, backdrop);
+    }
+
+    // Bring to foreground
+    helix::ui::bring_to_front(backdrop);
+
+    // Add to stack
+    ModalStack::instance().push(backdrop, dialog, component_name);
+
+    // Animate entrance
+    ModalStack::instance().animate_entrance(dialog);
+
+    spdlog::info("[Modal] Modal shown successfully");
+    return dialog;
+}
+
+bool Modal::show_owned(std::unique_ptr<Modal> modal, lv_obj_t* parent, const char** attrs) {
+    Modal* raw = modal.get();
+    if (!raw->show(parent, attrs)) {
+        // The unique_ptr frees the failed instance; show() already cleaned up
+        // any partially built widgets.
+        return false;
+    }
+    ModalStack::instance().assume_ownership(raw->backdrop(), std::move(modal));
+    return true;
+}
+
+void ModalStack::raise_visible_to_foreground() {
+    for (const auto& entry : stack_) {
+        if (!entry.exiting && entry.backdrop) {
+            helix::ui::bring_to_front(entry.backdrop);
+        }
+    }
+}
+
+void ModalStack::set_tag(lv_obj_t* backdrop, std::string tag) {
+    for (auto& entry : stack_) {
+        if (handle_names(entry.backdrop, backdrop)) {
+            entry.tag = std::move(tag);
+            return;
+        }
+    }
+}
+
+bool ModalStack::has_visible_untagged() const {
+    return std::any_of(stack_.begin(), stack_.end(),
+                       [](const ModalEntry& e) { return !e.exiting && e.tag.empty(); });
+}
+
+std::string ModalStack::top_visible_tag() const {
+    for (auto it = stack_.rbegin(); it != stack_.rend(); ++it) {
+        if (!it->exiting && !it->tag.empty()) {
+            return it->tag;
+        }
+    }
+    return {};
+}
+
+// Visible modals come back in front of a backdrop that is on its way out.
+static void raise_top_modal_to_foreground(ModalStack& stack) {
+    stack.raise_visible_to_foreground();
+}
+
+static const char* close_reason_name(ModalCloseReason reason) {
+    switch (reason) {
+    case ModalCloseReason::Programmatic:
+        return "programmatic";
+    case ModalCloseReason::BackdropTap:
+        return "backdrop tap";
+    case ModalCloseReason::EscKey:
+        return "esc key";
+    case ModalCloseReason::ButtonPress:
+        return "button press";
+    case ModalCloseReason::HotReload:
+        return "hot reload";
+    case ModalCloseReason::External:
+        return "external sweep";
+    }
+    return "unknown";
+}
+
+void Modal::hide(lv_obj_t* dialog, ModalCloseReason reason) {
+    if (!dialog) {
+        spdlog::error("[Modal] hide() called with null dialog");
+        return;
+    }
+
+    // Check if LVGL is initialized (may be called during shutdown)
+    if (!lv_is_initialized()) {
+        spdlog::debug("[Modal] hide() called after LVGL shutdown - ignoring");
+        return;
+    }
+
+    // Find backdrop for this dialog — if not in stack, it was already deleted
+    auto& stack = ModalStack::instance();
+    lv_obj_t* backdrop = stack.backdrop_for(dialog);
+    if (!backdrop) {
+        spdlog::warn("[Modal] Dialog not found in stack - already deleted or orphaned");
+        return;
+    }
+
+    // Check if already exiting (animation in progress) - ignore double-hide
+    if (stack.is_exiting(backdrop)) {
+        spdlog::debug("[Modal] Modal already exiting - ignoring hide()");
+        return;
+    }
+
+    // A dialog shown through the instance API needs the instance teardown:
+    // on_hide(), async-lifetime invalidation, and button user_data clearing.
+    // Callers reaching for the static overload (typically as
+    // Modal::hide(Modal::get_top())) can't know which kind they hold, so
+    // delegate. The owner is cleared when the entry is marked exiting, so the
+    // is_exiting guard above guarantees this pointer is still live.
+    if (Modal* owner = stack.owner_for(dialog)) {
+        owner->hide(reason);
+        raise_top_modal_to_foreground(stack);
+        return;
+    }
+
+    spdlog::info("[Modal] Hiding modal '{}' ({})", stack.component_name_for(dialog),
+                 close_reason_name(reason));
+
+    // An owner-less dialog (the confirmation/alert helpers, and the static
+    // Modal::show factory) has no instance teardown to delegate to, but the
+    // window between "closing" and "freed" is the same one, so it gets the same
+    // disarm. Without it a second tap re-runs the confirm action against state
+    // the first already consumed, and because top_dialog() skips exiting
+    // entries, a nested Modal::hide(Modal::get_top()) resolves to the modal
+    // UNDERNEATH.
+    disarm_tree(backdrop, dialog);
+
+    // Remove entire tree from focus group to prevent scroll-on-focus during exit animation
+    helix::ui::defocus_tree(backdrop);
+
+    // Mark as exiting (stays in stack until animation completes)
+    stack.mark_exiting(backdrop);
+
+    // Animate exit (animation callback will remove from stack when done)
+    stack.animate_exit(backdrop, dialog);
+
+    raise_top_modal_to_foreground(stack);
+}
+
+void Modal::set_covers_chrome(lv_obj_t* dialog, bool covers) {
+    auto& stack = ModalStack::instance();
+    if (lv_obj_t* backdrop = stack.backdrop_for(dialog)) {
+        stack.set_covers_chrome(backdrop, covers);
+    }
+}
+
+lv_obj_t* Modal::get_top() {
+    return ModalStack::instance().top_dialog();
+}
+
+bool Modal::any_visible() {
+    return !ModalStack::instance().empty();
+}
+
+bool Modal::rebuild_top() {
+    auto& stack = ModalStack::instance();
+    lv_obj_t* dialog = stack.top_dialog();
+    if (!dialog)
+        return false;
+
+    std::string name = stack.top_component_name();
+    if (name.empty()) {
+        spdlog::warn("[Modal::rebuild_top] top dialog has no component name — skipping");
+        return false;
+    }
+
+    // No modal can be faithfully rebuilt from its XML alone, so hot reload
+    // closes the top one instead of resurrecting a broken copy.
+    //
+    // An instance-backed modal loses on_show() population and its button
+    // wiring. A statically shown one loses just as much: modal_confirm
+    // and modal_alert pass title/message as runtime attrs to lv_xml_create
+    // and then attach their button callbacks with lv_obj_add_event_cb, and
+    // neither survives a re-show. The result looked convincing and was inert -
+    // resolve_params found no value for $title/$message and left the labels at
+    // LVGL's default label text, so the dialog came back reading "Text"/"Text"
+    // with dead buttons. The remaining static modals populate inputs after show
+    // or cache the dialog handle in a member the rebuild would dangle.
+    //
+    // Re-opening the dialog is one interaction; a zombie that lies about its
+    // contents is not worth the convenience.
+    if (Modal* owner = stack.owner_for(dialog)) {
+        spdlog::info("[Modal::rebuild_top] Modal '{}' is instance-backed - hiding instead of "
+                     "rebuilding",
+                     name);
+        owner->hide(ModalCloseReason::HotReload);
+        return false;
+    }
+
+    spdlog::info("[Modal::rebuild_top] Modal '{}' cannot be rebuilt from XML (runtime attrs and "
+                 "post-show wiring are not recoverable) - hiding instead",
+                 name);
+    Modal::hide(dialog, ModalCloseReason::HotReload);
+    return false;
+}
+
+// ============================================================================
+// MODAL CLASS - INSTANCE API (for subclasses)
+// ============================================================================
+
+bool Modal::show(lv_obj_t* /*parent*/, const char** attrs) {
+    if (backdrop_) {
+        spdlog::warn("[{}] show() called while already visible - hiding first", get_name());
+        hide();
+    }
+
+    // Always use the active screen — callers may pass a stale parent_screen_
+    // pointer that becomes dangling after screen transitions (#522, #523, #524).
+    parent_ = lv_screen_active();
+    if (!parent_) {
+        spdlog::warn("[{}] No active screen - cannot show modal", get_name());
+        return false;
+    }
+
+    spdlog::info("[{}] Showing modal", get_name());
+
+    // Register generic XML callbacks for backwards compatibility with modals
+    // that use XML callback names without wire_*_button().
+    register_xml_callbacks({
+        {"on_modal_ok_clicked", ok_button_cb},
+        {"on_modal_cancel_clicked", cancel_button_cb},
+    });
+
+    if (!create_and_show(parent_, component_name(), attrs)) {
+        return false;
+    }
+
+    // Call hook for subclass customization
+    on_show();
+
+    spdlog::debug("[{}] Modal shown successfully", get_name());
+    return true;
+}
+
+void Modal::hide(ModalCloseReason reason) {
+    if (!backdrop_) {
+        return; // Already hidden, safe to call multiple times
+    }
+
+    // Read by on_hide() (and anything it calls) to tell a caller's own close
+    // from one the caller did not initiate. Every hide() sets it, so a bail-out
+    // below can only leave a value the next real hide() overwrites.
+    close_reason_ = reason;
+
+    // Check if backdrop is still tracked — if not, it was deleted by another path
+    if (!ModalStack::instance().backdrop_for_backdrop(backdrop_)) {
+        spdlog::warn("[{}] hide() called but backdrop already removed from stack", get_name());
+        backdrop_ = nullptr;
+        dialog_ = nullptr;
+        return;
+    }
+
+    // Check if already exiting (animation in progress)
+    if (ModalStack::instance().is_exiting(backdrop_)) {
+        spdlog::debug("[{}] Modal already exiting - ignoring hide()", get_name());
+        return;
+    }
+
+    spdlog::info("[{}] Hiding modal ({})", get_name(), close_reason_name(reason));
+
+    // Cancel all deferred async callbacks before any widget cleanup
+    lifetime_.invalidate();
+
+    // Make the tree inert before anything can dispatch into a subclass whose
+    // on_hide() may queue its own teardown work.
+    disarm_tree(backdrop_, dialog_, this);
+
+    // Drop the stack's owner pointer before the hook runs: an on_hide() that
+    // reaches back into the static Modal::hide(dialog) overload would
+    // otherwise be delegated straight back into this function. Nothing may
+    // read the owner after this point.
+    ModalStack::instance().reassign_owner(backdrop_, nullptr);
+
+    // Call hook before destruction
+    on_hide();
+    if (reason != ModalCloseReason::ButtonPress) {
+        on_dismissed();
+    }
+
+    // Save pointers before clearing (needed for animation)
+    lv_obj_t* backdrop = backdrop_;
+    lv_obj_t* dialog = dialog_;
+
+    // Clear our pointers first (so is_visible() returns false during animation)
+    backdrop_ = nullptr;
+    dialog_ = nullptr;
+
+    // Remove entire tree from focus group to prevent scroll-on-focus during exit animation
+    helix::ui::defocus_tree(backdrop);
+
+    // Mark as exiting (stays in stack until animation completes)
+    ModalStack::instance().mark_exiting(backdrop);
+
+    // Animate exit (animation callback will remove from stack when done)
+    ModalStack::instance().animate_exit(backdrop, dialog);
+
+    // Same as the static overload: a modal underneath this one has to come back
+    // to the front, or it spends the exit animation dimmed behind an exiting
+    // backdrop that still swallows taps.
+    raise_top_modal_to_foreground(ModalStack::instance());
+
+    spdlog::debug("[{}] Modal hidden", get_name());
+}
+
+// ============================================================================
+// MODAL CLASS - HELPERS
+// ============================================================================
+
+lv_obj_t* Modal::find_widget(const char* name) {
+    if (!dialog_ || !name) {
+        return nullptr;
+    }
+    return lv_obj_find_by_name(dialog_, name);
+}
+
+void Modal::wire_button(const char* name, const char* role_name, lv_event_cb_t cb) {
+    wire_button_with(name, role_name, cb, this);
+}
+
+void Modal::wire_button_with(const char* name, const char* role_name, lv_event_cb_t cb,
+                             void* user_data) {
+    lv_obj_t* btn = find_widget(name);
+    if (btn) {
+        // Per-callback user_data (4th param), NOT lv_obj_set_user_data() which
+        // collides with ui_button's UiButtonData. Read via
+        // lv_event_get_user_data(e). Passed through verbatim - null is a value.
+        lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, user_data);
+        spdlog::trace("[{}] Wired {} button '{}'", get_name(), role_name, name);
+    } else {
+        spdlog::warn("[{}] {} button '{}' not found", get_name(), role_name, name);
+    }
+}
+
+void Modal::wire_ok_button(const char* name) {
+    wire_button(name, "OK", ok_button_cb);
+}
+void Modal::wire_cancel_button(const char* name) {
+    wire_button(name, "Cancel", cancel_button_cb);
+}
+void Modal::wire_tertiary_button(const char* name) {
+    wire_button(name, "Tertiary", tertiary_button_cb);
+}
+void Modal::wire_quaternary_button(const char* name) {
+    wire_button(name, "Quaternary", quaternary_button_cb);
+}
+void Modal::wire_quinary_button(const char* name) {
+    wire_button(name, "Quinary", quinary_button_cb);
+}
+void Modal::wire_senary_button(const char* name) {
+    wire_button(name, "Senary", senary_button_cb);
+}
+
+// ============================================================================
+// MODAL CLASS - INTERNAL
+// ============================================================================
+
+bool Modal::create_and_show(lv_obj_t* parent, const char* comp_name, const char** attrs) {
+    // Create backdrop using shared utility
+    backdrop_ = helix::ui::create_fullscreen_backdrop(parent, get_modal_backdrop_opacity());
+    if (!backdrop_) {
+        spdlog::error("[{}] Failed to create backdrop", get_name());
+        return false;
+    }
+
+    // Create XML component inside backdrop
+    dialog_ = static_cast<lv_obj_t*>(lv_xml_create(backdrop_, comp_name, attrs));
+    if (!dialog_) {
+        spdlog::error("[{}] Failed to create modal from XML component '{}'", get_name(), comp_name);
+        helix::ui::safe_delete(backdrop_);
+        return false;
+    }
+
+    // Position dialog centered
+    lv_obj_align(dialog_, LV_ALIGN_CENTER, 0, 0);
+
+    // Apply current theme palette to dialog tree (context-aware input styling)
+    theme_apply_current_palette_to_tree(dialog_);
+
+    // Add backdrop click handler
+    lv_obj_add_event_cb(backdrop_, backdrop_click_cb, LV_EVENT_CLICKED, this);
+
+    // Add ESC key handler
+    lv_obj_add_event_cb(backdrop_, esc_key_cb, LV_EVENT_KEY, this);
+    lv_obj_add_flag(backdrop_, LV_OBJ_FLAG_CLICKABLE);
+    lv_group_t* group = lv_group_get_default();
+    if (group) {
+        lv_group_add_obj(group, backdrop_);
+    }
+
+    // Bring to foreground
+    helix::ui::bring_to_front(backdrop_);
+
+    // Add to stack, recording this instance as the owner so the static
+    // Modal::hide(dialog) overload can delegate back to instance teardown
+    ModalStack::instance().push(backdrop_, dialog_, comp_name, this);
+
+    // Animate entrance
+    ModalStack::instance().animate_entrance(dialog_);
+
+    return true;
+}
+
+void Modal::destroy() {
+    if (backdrop_) {
+        // Cancel any exit animations before deleting
+        lv_anim_delete(backdrop_, nullptr);
+        if (dialog_) {
+            lv_anim_delete(dialog_, nullptr);
+        }
+        ModalStack::instance().remove(backdrop_);
+        helix::ui::safe_delete(backdrop_);
+        // dialog_ is a child of backdrop_ and was destroyed with it
+        dialog_ = nullptr;
+    }
+}
+
+// ============================================================================
+// MODAL CLASS - STATIC EVENT HANDLERS
+// ============================================================================
+
+// Helper macro to reduce boilerplate in button callbacks.
+// All button callbacks follow the same pattern: extract Modal* from the
+// per-callback user_data and call the appropriate virtual method.
+// Uses lv_event_get_user_data (per-callback) not lv_obj_get_user_data
+// (per-object) to avoid colliding with ui_button's internal UiButtonData.
+#define MODAL_BUTTON_CB_IMPL(cb_name, method_name, button_label)                                   \
+    void Modal::cb_name(lv_event_t* e) {                                                           \
+        LVGL_SAFE_EVENT_CB_BEGIN("[Modal] " #cb_name);                                             \
+        auto* self = static_cast<Modal*>(lv_event_get_user_data(e));                               \
+        if (self) {                                                                                \
+            spdlog::debug("[{}] " button_label " button clicked", self->get_name());               \
+            self->method_name();                                                                   \
+        }                                                                                          \
+        LVGL_SAFE_EVENT_CB_END();                                                                  \
+    }
+
+void Modal::backdrop_click_cb(lv_event_t* e) {
+    LVGL_SAFE_EVENT_CB_BEGIN("[Modal] backdrop_click_cb");
+
+    lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+    lv_obj_t* current_target = static_cast<lv_obj_t*>(lv_event_get_current_target(e));
+
+    // Only respond if click was directly on backdrop (not bubbled from child)
+    if (target != current_target) {
+        return;
+    }
+
+    auto* self = static_cast<Modal*>(lv_event_get_user_data(e));
+    if (self) {
+        // Instance modal
+        spdlog::debug("[{}] Backdrop clicked - closing", self->get_name());
+        self->hide(ModalCloseReason::BackdropTap);
+    } else {
+        // Static modal - find in stack and close topmost
+        auto& stack = ModalStack::instance();
+        lv_obj_t* top_dialog = stack.top_dialog();
+        lv_obj_t* top_backdrop = top_dialog ? stack.backdrop_for(top_dialog) : nullptr;
+
+        if (top_backdrop == current_target) {
+            spdlog::debug("[Modal] Backdrop clicked on topmost modal - closing");
+            Modal::hide(top_dialog, ModalCloseReason::BackdropTap);
+        }
+    }
+
+    LVGL_SAFE_EVENT_CB_END();
+}
+
+void Modal::esc_key_cb(lv_event_t* e) {
+    LVGL_SAFE_EVENT_CB_BEGIN("[Modal] esc_key_cb");
+
+    uint32_t key = lv_event_get_key(e);
+    if (key != LV_KEY_ESC) {
+        return;
+    }
+
+    auto* self = static_cast<Modal*>(lv_event_get_user_data(e));
+    if (self) {
+        spdlog::debug("[{}] ESC key pressed - closing", self->get_name());
+        self->on_escape();
+    } else {
+        // Static modal - hide topmost
+        lv_obj_t* top = ModalStack::instance().top_dialog();
+        if (top) {
+            spdlog::debug("[Modal] ESC key pressed - closing topmost modal");
+            Modal::hide(top, ModalCloseReason::EscKey);
+        }
+    }
+
+    LVGL_SAFE_EVENT_CB_END();
+}
+
+// Generate all button callbacks using the macro
+// Note: lv_event_get_user_data returns NULL for XML-registered callbacks,
+// so we use lv_obj_get_user_data on the target button instead (set by wire_*_button)
+MODAL_BUTTON_CB_IMPL(ok_button_cb, on_ok, "Ok")
+MODAL_BUTTON_CB_IMPL(cancel_button_cb, on_cancel, "Cancel")
+MODAL_BUTTON_CB_IMPL(tertiary_button_cb, on_tertiary, "Tertiary")
+MODAL_BUTTON_CB_IMPL(quaternary_button_cb, on_quaternary, "Quaternary")
+MODAL_BUTTON_CB_IMPL(quinary_button_cb, on_quinary, "Quinary")
+MODAL_BUTTON_CB_IMPL(senary_button_cb, on_senary, "Senary")
+
+#undef MODAL_BUTTON_CB_IMPL
+
+// ============================================================================
+// MODAL DIALOG SUBJECTS
+// ============================================================================
+
+// Static callback for modals using the static Modal::show() API
+// Closes the topmost modal when clicked
+static void static_modal_close_cb(lv_event_t* e) {
+    (void)e;
+    lv_obj_t* top = Modal::get_top();
+    if (top) {
+        Modal::hide(top);
+    }
+}
+
+void helix::ui::modal_init_subjects() {
+    if (g_callbacks_registered) {
+        spdlog::warn("[Modal] Callbacks already registered - skipping");
+        return;
+    }
+
+    // Register event callbacks for modals using static Modal::show() API
+    register_xml_callbacks({
+        // Generic close callback - closes topmost modal (use for OK/Cancel that just dismiss)
+        // Legacy alias for print complete dialog
+        {"on_print_complete_ok", static_modal_close_cb},
+    });
+
+    g_callbacks_registered = true;
+}
+
+helix::ui::ModalDialogAttrs::ModalDialogAttrs(std::string title, std::string message,
+                                              ModalSeverity severity, std::string primary,
+                                              std::string secondary, bool show_cancel)
+    : title_(std::move(title)), message_(std::move(message)), primary_(std::move(primary)),
+      secondary_(std::move(secondary)) {
+    hide_info_ = severity == ModalSeverity::Info ? "false" : "true";
+    hide_warning_ = severity == ModalSeverity::Warning ? "false" : "true";
+    hide_error_ = severity == ModalSeverity::Error ? "false" : "true";
+    hide_secondary_ = show_cancel ? "false" : "true";
+}
+
+const char** helix::ui::ModalDialogAttrs::get() {
+    attrs_ = {"title",           title_.c_str(),   "message",        message_.c_str(),
+              "primary_text",    primary_.c_str(), "secondary_text", secondary_.c_str(),
+              "hide_info",       hide_info_,       "hide_warning",   hide_warning_,
+              "hide_error",      hide_error_,      "hide_secondary", hide_secondary_,
+              "primary_variant", primary_variant_, nullptr};
+    return attrs_.data();
+}
+
+// ============================================================================
+// KEYBOARD REGISTRATION
+// ============================================================================
+
+void helix::ui::modal_register_keyboard(lv_obj_t* modal, lv_obj_t* textarea) {
+    if (!modal || !textarea) {
+        spdlog::error("[Modal] Cannot register keyboard: modal={}, textarea={}", (void*)modal,
+                      (void*)textarea);
+        return;
+    }
+
+    // Position keyboard at bottom-center (default for modals).
+    // Registration is handled automatically by the text_input XML widget.
+    KeyboardManager::instance().set_position(LV_ALIGN_BOTTOM_MID, 0, 0);
+}
+
+// ============================================================================
+// CONFIRMATION DIALOG HELPERS
+// ============================================================================
+
+namespace {
+
+/// Payload for a deferred dismissal callback.
+/// The owner behind the confirmation/alert helpers.
+///
+/// They used to push through the static Modal::show() factory, which records no
+/// owner, so nothing observed the close: no on_hide(), no lifetime_, no disarm,
+/// and a dismissal reported nothing to the caller. That is the root of
+/// prestonbrown/helixscreen#1380.
+///
+/// Owning an instance fixes it centrally: ModalStack has something to delegate
+/// to, the static hide() overload runs real teardown, and on_hide() runs however
+/// the dialog closed.
+///
+/// One-shot, like InfoQrModal, CrashReportModal and the other show_owned()
+/// modals: build_confirmation() hands the instance to the stack, which frees it
+/// when its entry goes (#1382). Modal::disarm_tree() strips every callback
+/// carrying `this` before the entry's removal, so the widgets outliving it by
+/// one exit animation cannot dispatch into freed memory.
+class ConfirmationModal : public Modal {
+  public:
+    ConfirmationModal(std::string title, std::string message, ModalSeverity severity,
+                      std::string primary, std::string secondary, bool show_cancel,
+                      helix::SharedCallback<void()> on_dismiss,
+                      std::optional<helix::LifetimeToken> owner_token)
+        : attrs_(std::move(title), std::move(message), severity, std::move(primary),
+                 std::move(secondary), show_cancel),
+          on_dismiss_(std::move(on_dismiss)), owner_token_(std::move(owner_token)) {}
+
+    /// The callbacks never touch a widget, so nothing of the caller's is
+    /// attached to one and there is no user_data to outlive anything
+    /// (prestonbrown/helixscreen#1383).
+    void set_callbacks(helix::SharedCallback<void()> on_confirm,
+                       helix::SharedCallback<void()> on_cancel, bool has_cancel) {
+        fn_confirm_ = std::move(on_confirm);
+        fn_cancel_ = std::move(on_cancel);
+        has_cancel_ = has_cancel;
+    }
+
+    void set_destructive(bool destructive) {
+        attrs_.set_primary_variant(destructive ? "danger" : "primary");
+    }
+
+    /// Owns its attr strings so they outlive XML creation by construction
+    /// rather than by relying on lv_xml_create not retaining the caller's
+    /// pointers - several call sites pass a local std::string's c_str().
+    bool show_dialog() {
+        const char** attrs = attrs_.get();
+        // lv_screen_active() (not nullptr) disambiguates the instance show()
+        // from the static factory overload; the parameter is ignored anyway.
+        return show(lv_screen_active(), attrs);
+    }
+
+    const char* get_name() const override {
+        return "Confirmation"; // i18n: do not translate - spdlog tag, never shown
+    }
+    const char* component_name() const override {
+        return "modal_dialog";
+    }
+
+  protected:
+    void on_show() override {
+        wire_side("btn_primary", /*primary=*/true);
+        if (has_cancel_) {
+            wire_side("btn_secondary", /*primary=*/false);
+        }
+    }
+
+    // Never reached: every button is routed to our own handler by wire_side(),
+    // precisely so that on_cancel() below can mean one thing.
+    void on_ok() override {
+        hide(ModalCloseReason::ButtonPress);
+    }
+
+    void on_cancel() override {
+        // on_escape()'s default is the ONLY caller - the cancel button goes to
+        // secondary_clicked() instead. So this is unambiguously "closed with no
+        // button pressed": hide and let on_hide() report the dismissal. That is
+        // what makes the documented on_dismiss contract true for ESC as well as
+        // for a backdrop tap, on every dialog shape.
+        hide(ModalCloseReason::EscKey);
+    }
+
+    void on_hide() override {
+        // Programmatic is the caller closing its own dialog; it already knows,
+        // and a deferred on_dismiss there lands a tick after the caller's
+        // teardown may have finished. Everything else - backdrop, ESC, a button
+        // with no caller callback, hot reload - closed the dialog from outside
+        // and is the caller's to learn about.
+        if (!answered_ && on_dismiss_ && close_reason_ != ModalCloseReason::Programmatic) {
+            // Deferred, for two reasons. on_hide() runs mid-teardown - the stack
+            // entry is already un-owned but not yet marked exiting - so calling
+            // back synchronously lets a reentrant modal_hide() run a SECOND full
+            // teardown on the same backdrop. And the token has to be checked when
+            // the callback actually runs, not when it was scheduled - which is
+            // exactly LifetimeToken::defer(), pre-enqueue drop and telemetry
+            // included, rather than a private fork of the same check.
+            if (owner_token_) {
+                owner_token_->defer("ConfirmationModal::on_dismiss", std::move(on_dismiss_));
+            } else {
+                // Untokened callers keep the older contract: the capture
+                // simply has to outlive the dialog.
+                helix::ui::queue_update("ConfirmationModal::on_dismiss", std::move(on_dismiss_));
+            }
+        }
+        // No self-delete: the stack entry owns this instance and frees it when
+        // the entry goes (#1382) - at exit-animation completion, or in clear()
+        // at teardown, which is the path the old async delete never covered.
+    }
+
+  private:
+    /// Whether the caller that opened this dialog is still alive. Untokened
+    /// callers answer true: their capture simply has to outlive the dialog.
+    bool owner_alive() const {
+        return !owner_token_ || !owner_token_->expired();
+    }
+
+    /// Route one side of the dialog through our own handler, so a press is
+    /// always classified (answered vs dismissed) and the close is always ours.
+    void wire_side(const char* name, bool primary) {
+        wire_button_with(name, primary ? "confirm" : "cancel",
+                         primary ? &ConfirmationModal::primary_clicked
+                                 : &ConfirmationModal::secondary_clicked,
+                         this);
+    }
+
+    static void primary_clicked(lv_event_t* e) {
+        LVGL_SAFE_EVENT_CB_BEGIN("[Confirmation] primary_clicked");
+        if (auto* self = static_cast<ConfirmationModal*>(lv_event_get_user_data(e))) {
+            // Only an press that actually reaches a caller callback resolves
+            // anything. With no callback on this side the caller learns nothing
+            // from the press, so leave answered_ false and let on_hide() report
+            // it as a dismissal - otherwise the state on_dismiss exists to clear
+            // is stranded, which is the prestonbrown/helixscreen#1380 leak.
+            if (self->fn_confirm_) {
+                self->answered_ = true;
+            }
+            if (self->fn_confirm_ && self->owner_alive()) {
+                self->fn_confirm_();
+            }
+            // A button press is not the caller's own close, so it carries its
+            // reason even when no callback on this side latched answered_.
+            self->hide(ModalCloseReason::ButtonPress);
+        }
+        LVGL_SAFE_EVENT_CB_END();
+    }
+
+    static void secondary_clicked(lv_event_t* e) {
+        LVGL_SAFE_EVENT_CB_BEGIN("[Confirmation] secondary_clicked");
+        if (auto* self = static_cast<ConfirmationModal*>(lv_event_get_user_data(e))) {
+            // Only an press that actually reaches a caller callback resolves
+            // anything. With no callback on this side the caller learns nothing
+            // from the press, so leave answered_ false and let on_hide() report
+            // it as a dismissal - otherwise the state on_dismiss exists to clear
+            // is stranded, which is the prestonbrown/helixscreen#1380 leak.
+            if (self->fn_cancel_) {
+                self->answered_ = true;
+            }
+            if (self->fn_cancel_ && self->owner_alive()) {
+                self->fn_cancel_();
+            }
+            // A button press is not the caller's own close, so it carries its
+            // reason even when no callback on this side latched answered_.
+            self->hide(ModalCloseReason::ButtonPress);
+        }
+        LVGL_SAFE_EVENT_CB_END();
+    }
+
+    helix::ui::ModalDialogAttrs attrs_;
+    helix::SharedCallback<void()> on_dismiss_;
+    std::optional<helix::LifetimeToken> owner_token_;
+    helix::SharedCallback<void()> fn_confirm_;
+    helix::SharedCallback<void()> fn_cancel_;
+    bool has_cancel_ = false;
+    bool answered_ = false;
+};
+
+/// The one build sequence behind both forms.
+lv_obj_t* build_confirmation(const char* title, const char* message, ModalSeverity severity,
+                             const char* primary_text, const char* cancel_text, bool has_cancel,
+                             helix::SharedCallback<void()> on_dismiss,
+                             std::optional<helix::LifetimeToken> owner_token,
+                             const std::function<void(ConfirmationModal&)>& setup) {
+    if (!title || !message) {
+        spdlog::error("[Modal] title and message are required");
+        return nullptr;
+    }
+
+    auto owner =
+        std::make_unique<ConfirmationModal>(title, message, severity,
+                                            primary_text ? primary_text : "OK", // i18n: universal
+                                            cancel_text ? cancel_text : lv_tr("Cancel"), has_cancel,
+                                            std::move(on_dismiss), std::move(owner_token));
+    setup(*owner);
+    if (!owner->show_dialog()) {
+        spdlog::error("[Modal] Failed to create dialog: '{}'", title);
+        return nullptr; // the unique_ptr frees the never-shown instance
+    }
+    // The stack owns the instance from here: freed when its entry goes, by
+    // whichever path that is (#1382). Grab the widgets before the move: the
+    // two arguments below read owner, and argument evaluation is unsequenced.
+    lv_obj_t* dialog = owner->dialog();
+    lv_obj_t* backdrop = owner->backdrop();
+    ModalStack::instance().assume_ownership(backdrop, std::move(owner));
+    spdlog::debug("[Modal] Dialog shown: '{}'", title);
+    return dialog;
+}
+
+} // namespace
+
+lv_obj_t* helix::ui::modal_confirm(const char* title, const char* message, ModalSeverity severity,
+                                   const char* confirm_text,
+                                   helix::SharedCallback<void()> on_confirm,
+                                   const ConfirmOptions& options) {
+    return build_confirmation(title, message, severity, confirm_text, options.cancel_text,
+                              /*has_cancel=*/true, options.on_dismiss, options.owner_token,
+                              [&](ConfirmationModal& m) {
+                                  m.set_callbacks(std::move(on_confirm), options.on_cancel,
+                                                  /*has_cancel=*/true);
+                                  m.set_destructive(options.destructive);
+                              });
+}
+
+std::string helix::ui::config_rewrite_message(std::string_view what) {
+    const char* tail =
+        lv_tr("VoronDeck writes this to printer.cfg and restarts Klipper. The printer will "
+              "briefly disconnect.");
+
+    while (!what.empty() && what.back() == ' ') {
+        what.remove_suffix(1);
+    }
+    if (what.empty()) {
+        return tail;
+    }
+    return std::string(what) + " " + tail;
+}
+
+lv_obj_t* helix::ui::confirm_config_rewrite(const char* title, std::string_view what,
+                                            const char* confirm_text,
+                                            helix::SharedCallback<void()> on_confirm,
+                                            const ConfirmOptions& options) {
+    const std::string message = config_rewrite_message(what);
+    return modal_confirm(title, message.c_str(), ModalSeverity::Warning, confirm_text,
+                         std::move(on_confirm), options);
+}
+
+lv_obj_t* helix::ui::modal_alert(const char* title, const char* message, ModalSeverity severity,
+                                 const char* ok_text, helix::SharedCallback<void()> on_ok,
+                                 const AlertOptions& options) {
+    return build_confirmation(title, message, severity, ok_text, nullptr, /*has_cancel=*/false,
+                              options.on_dismiss, options.owner_token, [&](ConfirmationModal& m) {
+                                  m.set_callbacks(std::move(on_ok), nullptr,
+                                                  /*has_cancel=*/false);
+                              });
+}
+
+lv_obj_t* helix::ui::show_resonance_memory_refusal(size_t headroom_mb,
+                                                   helix::SharedCallback<void()> on_close,
+                                                   const AlertOptions& options) {
+    std::string msg = lv_tr("There is not enough free memory to run this test. Klipper's "
+                            "analysis would run out of memory and leave the printer stuck "
+                            "until it is power-cycled.");
+    helix::contain_exceptions("[Modal] Memory refusal format", [&] {
+        msg = fmt::format(lv_tr("Only {} MB of memory is free, and Klipper's analysis needs "
+                                "about {} MB. Running the test would leave the printer stuck "
+                                "until it is power-cycled."),
+                          headroom_mb, helix::kResonanceMinHeadroomMb);
+    });
+    AlertOptions all = options;
+    if (on_close && !all.on_dismiss) {
+        all.on_dismiss = on_close;
+    }
+    return modal_alert(lv_tr("Not Enough Memory"), msg.c_str(), ModalSeverity::Error, lv_tr("OK"),
+                       std::move(on_close), all);
+}
+
+lv_obj_t* helix::ui::show_low_ram_resonance_warning(size_t total_mb, lv_obj_t** dialog_handle,
+                                                    helix::SharedCallback<void()> on_confirm,
+                                                    const ConfirmOptions& options) {
+    // A mistranslated {} must never abort through the LVGL C dispatch frame:
+    // the unformatted wording stands in if formatting fails.
+    std::string msg = lv_tr("This device has very little RAM. Resonance calibration is "
+                            "memory-intensive and may cause a \"Timer Too Close\" error. "
+                            "Continue anyway?");
+    helix::contain_exceptions("[Modal] Low-RAM warning format", [&] {
+        msg = fmt::format(lv_tr("This device has only {} MB of RAM. Resonance calibration is "
+                                "memory-intensive and can make the printer firmware report a "
+                                "\"Timer Too Close\" error or restart mid-test. Continue anyway?"),
+                          total_mb);
+    });
+    // The re-entry scaffold lives HERE, once: the caller's stored handle is
+    // cleared on every close path, so a second entry while the dialog is open
+    // is the caller's only remaining guard.
+    //
+    // drop is composed into all three rather than riding on the dismissal
+    // report alone. A button press that reaches a caller callback is an answer,
+    // not a dismissal, so ConfirmationModal suppresses on_dismiss for it - which
+    // means a caller supplying on_cancel would otherwise never get its handle
+    // cleared, and its own `if (!handle)` guard would block every later attempt.
+    ConfirmOptions all = options;
+    auto drop = [dialog_handle]() {
+        if (dialog_handle) {
+            *dialog_handle = nullptr;
+        }
+    };
+    auto lead_with_drop =
+        [drop](helix::SharedCallback<void()> rest) -> helix::SharedCallback<void()> {
+        if (!rest) {
+            return drop;
+        }
+        return [drop, rest = std::move(rest)]() {
+            drop();
+            rest();
+        };
+    };
+    all.on_cancel = lead_with_drop(std::move(all.on_cancel));
+    all.on_dismiss = lead_with_drop(std::move(all.on_dismiss));
+    helix::SharedCallback<void()> confirm = lead_with_drop(std::move(on_confirm));
+    lv_obj_t* dialog = modal_confirm(lv_tr("Low Memory"), msg.c_str(), ModalSeverity::Warning,
+                                     lv_tr("Continue"), std::move(confirm), all);
+    if (dialog_handle) {
+        *dialog_handle = dialog;
+    }
+    return dialog;
+}

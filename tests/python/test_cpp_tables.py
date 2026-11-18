@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""
+Tests for the static-C++-table extractor (scripts/translations/cpp_tables.py).
+
+These tables reach lv_tr() through a variable -- `lv_tr(s.label.c_str())` -- so
+the call-site patterns in extractor.py never saw the strings they hold. The
+AFC/Happy Hare/ACE device-settings surface was untranslated in all nine
+languages as a result.
+
+Each false-positive case below is one the parsers actually produced while being
+written; they are pinned so a later loosening cannot bring them back.
+"""
+
+import sys
+from pathlib import Path
+from textwrap import dedent
+
+scripts_dir = Path(__file__).parent.parent.parent / "scripts"
+sys.path.insert(0, str(scripts_dir))
+
+from translations.cpp_tables import extract_table_strings  # noqa: E402
+
+
+# =============================================================================
+# Toolchange phase templates
+# =============================================================================
+
+
+PHASE_TABLE = dedent("""\
+    AmsBackendAfc::toolchange_phase_template(StepOperationType op) const {
+        switch (op) {
+        case StepOperationType::LOAD_SWAP:
+            return {
+                {"heat", "Heat nozzle", false},    {"cut", "Cut tip", true},
+                {"kick", "Kick away", true},       {"load", "Load complete", false},
+            };
+        case StepOperationType::UNLOAD:
+            return {
+                {"unload", "Retract filament", false},
+            };
+        }
+        return {};
+    }
+""")
+
+
+def test_phase_rows_yield_the_label_not_the_token():
+    found = extract_table_strings(PHASE_TABLE)
+    assert {"Heat nozzle", "Cut tip", "Kick away", "Load complete", "Retract filament"} <= found
+    for token in ("heat", "cut", "kick", "load", "unload"):
+        assert token not in found
+
+
+def test_phase_rows_survive_the_switch_nesting():
+    """
+    Regression: the parser used to count brace levels down to the rows. The
+    `switch` around the `return {...}` arms added one, so a whole row was read
+    as a single field and its two literals were joined -- "cut" + "Cut tip"
+    extracted as the string `cutCut tip`.
+    """
+    found = extract_table_strings(PHASE_TABLE)
+    assert not [s for s in found if s.startswith(("cut", "heat", "kick", "load"))]
+
+
+# =============================================================================
+# DeviceSection / DeviceAction
+# =============================================================================
+
+
+def test_device_section_rows_yield_label_and_description():
+    found = extract_table_strings(dedent("""\
+        std::vector<DeviceSection> afc_default_sections() {
+            return {
+                {"hub", "Hub & Cutter", 4, "Blade change and parking"},
+            };
+        }
+    """))
+    assert "Hub & Cutter" in found
+    assert "Blade change and parking" in found
+    assert "hub" not in found
+
+
+def test_device_section_rows_survive_a_namespace_qualified_return_type():
+    # How every backend actually declares it. An unqualified `DeviceSection` in
+    # the function-signature pattern matched none of them, so section labels and
+    # descriptions were never offered for translation even though this module
+    # exists to catch exactly that.
+    found = extract_table_strings(dedent("""\
+        std::vector<helix::printer::DeviceSection> AmsBackendAce::get_device_sections() const {
+            using DS = helix::printer::DeviceSection;
+            return {
+                DS{"maintenance", "Maintenance", 1, "Feed assist and debug tools"},
+            };
+        }
+    """))
+    assert "Maintenance" in found
+    assert "Feed assist and debug tools" in found
+    assert "maintenance" not in found
+
+
+def test_device_section_declaration_in_a_header_is_not_scanned():
+    # A header DECLARATION has no body. Matching it made the extractor walk to
+    # the next unrelated brace block and read it as if it held section rows.
+    found = extract_table_strings(dedent("""\
+        class AmsBackendToolChanger {
+            std::vector<helix::printer::DeviceSection> get_device_sections() const override;
+        };
+
+        static const char* kNotASection[] = {
+            {"aa", "Should Not Be Extracted", 1, "Nor this description"},
+        };
+    """))
+    assert "Should Not Be Extracted" not in found
+    assert "Nor this description" not in found
+
+
+def test_designated_device_action_yields_label_and_description():
+    found = extract_table_strings(dedent("""\
+        actions.push_back({
+            .id = "hub_cut_enabled",
+            .label = "Cutter Enabled",
+            .icon = "content-cut",
+            .section = "hub",
+            .description = "Enable or disable the hub cutter",
+            .disable_reason = "Cutter not installed",
+        });
+    """))
+    assert "Cutter Enabled" in found
+    assert "Enable or disable the hub cutter" in found
+    # Only ever logged, never rendered.
+    assert "Cutter not installed" not in found
+    assert "content-cut" not in found
+
+
+def test_positional_device_action_yields_label_and_description():
+    found = extract_table_strings(dedent("""\
+        DA{"ace_manual_retract",
+           "Manual Retract",
+           "",
+           "filament_control",
+           "Retract filament to current slot",
+           AT::BUTTON,
+           {}, {}, 0, 100, "", -1, true, ""},
+    """))
+    assert "Manual Retract" in found
+    assert "Retract filament to current slot" in found
+    assert "filament_control" not in found
+
+
+# =============================================================================
+# Builder-lambda helpers
+# =============================================================================
+
+
+def test_device_action_factory_calls_yield_label_and_description():
+    found = extract_table_strings(dedent("""\
+        return {
+            DA::button("a_btn", "Button Label", "setup", "play", "Button hint"),
+            DA::toggle("a_tog", "Toggle Label", "setup", false, "bolt", "Toggle hint"),
+            DA::slider("a_sld", "Slider Label", "speed", 1.0f, 0.5f, 2.0f, "x", "ruler",
+                       "Slider hint"),
+            DeviceAction::dropdown("a_dd", "Dropdown Label", "setup", {"off", "on"},
+                                   std::string("off"), "", "Dropdown hint"),
+        };
+    """))
+    assert {"Button Label", "Button hint", "Toggle Label", "Toggle hint", "Slider Label",
+            "Slider hint", "Dropdown Label", "Dropdown hint"} <= found
+    assert not {"a_btn", "setup", "off", "mm", "ruler"} & found
+
+
+def test_info_factory_yields_label_and_description():
+    found = extract_table_strings(dedent("""\
+        actions.push_back(DA::info("an_info", "Info Label", "tool_offsets", value, "axis_arrow",
+                                   "Info hint"));
+    """))
+    assert {"Info Label", "Info hint"} <= found
+    assert not {"an_info", "tool_offsets", "axis_arrow"} & found
+
+
+def test_builder_lambda_calls_yield_the_label_argument():
+    """hh_defaults.cpp builds its rows through local lambdas, not initializers."""
+    found = extract_table_strings(dedent("""\
+        std::vector<DeviceAction> hh_default_actions() {
+            std::vector<DeviceAction> actions;
+            auto add_button = [&](std::string id, std::string label, std::string section) {
+                DeviceAction a;
+                a.id = std::move(id);
+                a.label = std::move(label);
+                actions.push_back(std::move(a));
+            };
+            add_button("calibrate_bowden", "Calibrate Bowden", "setup");
+            return actions;
+        }
+    """))
+    assert "Calibrate Bowden" in found
+    assert "calibrate_bowden" not in found
+    assert "setup" not in found
+
+
+def test_a_validation_helper_named_label_is_not_a_row_builder():
+    """
+    Regression: matching on the parameter name alone swept up validation
+    helpers, whose `label` names the FIELD that failed. That produced keys like
+    "sync state", "motor state" and "distance" -- none of them ever displayed.
+    A row builder is distinguished by actually constructing a row.
+    """
+    found = extract_table_strings(dedent("""\
+        auto require_bool = [&](const char* label) -> std::pair<bool, AmsError> {
+            if (!value.has_value()) {
+                return {false, AmsError(AmsResult::WRONG_STATE,
+                                        fmt::format("{} value required", label),
+                                        "Missing value", fmt::format("Provide {}", label))};
+            }
+            return {std::any_cast<bool>(value), AmsError()};
+        };
+        auto [enable, err] = require_bool("sync state");
+        auto [motor, err2] = require_bool("motor state");
+    """))
+    assert found == set()
+
+
+# =============================================================================
+# Files with none of these shapes
+# =============================================================================
+
+
+def test_an_unrelated_file_yields_nothing():
+    found = extract_table_strings(dedent("""\
+        void PrinterState::set_temp(double t) {
+            spdlog::info("[PrinterState] temp {}", t);
+            lv_subject_set_int(&temp_, static_cast<int>(t));
+        }
+    """))
+    assert found == set()
+
+
+def test_a_brace_inside_a_literal_does_not_unbalance_the_walk():
+    found = extract_table_strings(dedent("""\
+        std::vector<DeviceSection> sections() {
+            return {
+                {"fmt", "Braces { and }", 0, "A description with } in it"},
+            };
+        }
+    """))
+    assert "Braces { and }" in found
+    assert "A description with } in it" in found

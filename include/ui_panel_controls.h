@@ -1,0 +1,535 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "ui_component_keypad.h"
+#include "ui_heater_icon_binder.h"
+#include "ui_observer_guard.h"
+#include "ui_panel_base.h"
+#include "ui_print_tune_overlay.h"
+#include "ui_temperature_utils.h"
+#include "ui_widget_ref.h"
+
+#include "async_lifetime_guard.h"
+#include "config.h"
+#include "i_moonraker_api.h"
+#include "operation_timeout_guard.h"
+#include "quick_action_buttons.h"
+#include "standard_macros.h"
+#include "subject_managed_panel.h"
+#include "ui/position_observer_bundle.h"
+#include "ui/temperature_observer_bundle.h"
+#include "ui/ui_modal_guard.h"
+
+#include <array>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <string>
+
+// Forward declaration
+class TemperatureService;
+namespace helix {
+class TemperatureController;
+namespace ui {
+struct ControlsPanelTestAccess; // test-only friend (tests/test_helpers/)
+} // namespace ui
+} // namespace helix
+
+/**
+ * @file ui_panel_controls.h
+ * @brief Controls Panel V2 - Dashboard with 5 smart cards
+ *
+ * A card-based dashboard providing quick access to printer controls with
+ * live data display. Uses proper reactive XML event_cb bindings.
+ *
+ * ## V2 Layout (3+1 Grid):
+ * - Row 1: Quick Actions | Temperatures | Cooling
+ * - Row 2: Calibration & Tools (centered)
+ *
+ * ## Key Features:
+ * - Combined nozzle + bed temperature card with dual progress bars
+ * - Quick Actions: Home buttons (All/XY/Z) + configurable macro slots
+ * - Cooling: Part fan hero slider + secondary fans list
+ * - Calibration: Bed mesh, Z-offset, screws, motor disable
+ *
+ * ## Event Binding Pattern:
+ * - Button event handlers: XML `event_cb` + `lv_xml_register_event_cb()`
+ * - Card background clicks: Manual `lv_obj_add_event_cb()` with user_data
+ * - Observer callbacks: RAII ObserverGuard for automatic cleanup
+ *
+ * @see PanelBase for base class documentation
+ * @see ui_nav for overlay navigation
+ */
+class ControlsPanel : public PanelBase {
+  public:
+    /**
+     * @brief Construct ControlsPanel with injected dependencies
+     *
+     * @param printer_state Reference to helix::PrinterState
+     * @param api Pointer to IMoonrakerAPI (may be nullptr)
+     */
+    ControlsPanel(helix::PrinterState& printer_state, helix::IMoonrakerAPI* api);
+
+    ~ControlsPanel() override;
+
+    /**
+     * @brief Set reference to TemperatureService for temperature sub-screens
+     *
+     * Must be called before setup() if temperature panels should work.
+     * @param temp_panel Pointer to TemperatureService instance
+     */
+    void set_temp_control_panel(TemperatureService* temp_panel);
+
+    //
+    // === PanelBase Implementation ===
+    //
+
+    /**
+     * @brief Initialize subjects and register XML event callbacks
+     *
+     * Registers all V2 dashboard subjects for reactive data binding
+     * and registers XML event_cb handlers for buttons.
+     */
+    void init_subjects() override;
+
+    /**
+     * @brief Deinitialize subjects for clean shutdown
+     *
+     * Calls lv_subject_deinit() on all local lv_subject_t members.
+     * Must be called before lv_deinit() to prevent dangling observers.
+     */
+    void deinit_subjects();
+
+    /**
+     * @brief Setup the controls panel: cache its dynamic lists and start observing live data
+     *
+     * Every click handler is wired in the XML (callbacks registered by init_subjects()).
+     *
+     * @param panel Root panel object from lv_xml_create()
+     * @param parent_screen Parent screen (needed for overlay panel creation)
+     */
+    void setup(lv_obj_t* panel, lv_obj_t* parent_screen) override;
+
+    const char* get_name() const override {
+        return "Controls Panel";
+    }
+    const char* get_xml_component_name() const override {
+        return "controls_panel";
+    }
+
+    /**
+     * @brief Called when panel becomes visible
+     *
+     * Refreshes the secondary fans list to handle cases where fan discovery
+     * completed after initial setup or when switching between connections.
+     */
+    void on_activate() override;
+    void on_deactivating(DeactivateReason reason) override;
+
+  private:
+    // Test-only access to private secondary-fan lifetime/observer internals.
+    friend struct helix::ui::ControlsPanelTestAccess;
+
+    //
+    // === Panel Active State (observer suspension) ===
+    //
+
+    bool active_ = false; ///< True when panel is visible; observer callbacks skip work when false
+
+    /// Force-refresh all display values (called on activate to catch up on missed changes)
+    void refresh_all_displays();
+
+    //
+    // === Dependencies ===
+    //
+
+    TemperatureService* temp_control_panel_ = nullptr;
+
+    /// Convenience accessor: the temp controller via the temp service, or
+    /// nullptr if no service is wired up. Centralizes the null-guard the
+    /// temperature command sites share.
+    helix::TemperatureController* controller() const;
+
+    //
+    // === Subject Manager (RAII cleanup) ===
+    //
+
+    SubjectManager subjects_; ///< RAII subject manager - auto-deinits all subjects
+
+    //
+    // === V2 Dashboard Subjects (for XML bind_text/bind_value) ===
+    //
+
+    // Nozzle label (dynamic: "Nozzle:" or "Nozzle N:" for multi-tool)
+    lv_subject_t nozzle_label_subject_{};
+    char nozzle_label_buf_[32] = {};
+    ObserverGuard active_tool_observer_;
+    void update_nozzle_label();
+
+    // Nozzle temperature display
+    lv_subject_t nozzle_temp_subject_{};
+    char nozzle_temp_buf_[32] = {};
+    lv_subject_t nozzle_pct_subject_{};
+    lv_subject_t nozzle_status_subject_{}; ///< duty text ("" = none)
+    char nozzle_status_buf_[helix::ui::temperature::kHeaterStatusBufBytes] = {};
+    lv_subject_t nozzle_status_state_subject_{}; ///< HeaterStatusState int
+
+    // Bed temperature display
+    lv_subject_t bed_temp_subject_{};
+    char bed_temp_buf_[32] = {};
+    lv_subject_t bed_pct_subject_{};
+    lv_subject_t bed_status_subject_{}; ///< duty text ("" = none)
+    char bed_status_buf_[helix::ui::temperature::kHeaterStatusBufBytes] = {};
+    lv_subject_t bed_status_state_subject_{}; ///< HeaterStatusState int
+
+    // Chamber temperature display
+    lv_subject_t chamber_status_subject_{}; ///< duty text ("" = none)
+    char chamber_status_buf_[helix::ui::temperature::kHeaterStatusBufBytes] = {};
+    lv_subject_t chamber_status_state_subject_{}; ///< HeaterStatusState int
+
+    // Heating icon animators (nozzle/bed/chamber), bound from the panel's own
+    // container so lv_obj_find_by_name() cannot pick up another panel's
+    // same-named icon. Each binder owns its own temperature observers.
+    helix::ui::HeaterIconBinder nozzle_icon_binder_;
+    helix::ui::HeaterIconBinder bed_icon_binder_;
+    helix::ui::HeaterIconBinder chamber_icon_binder_;
+
+    // "N more sensors" link: caption plus the count that hides it at zero
+    lv_subject_t more_sensors_subject_{};
+    char more_sensors_buf_[48] = {};
+    lv_subject_t more_sensors_count_{};
+    void update_more_sensors();
+
+    // Calibration & Tools grid: cells sized for the tiles visible after layout,
+    // fitted to the grid's own box (fit_tile_grid); labels only where they fit
+    lv_subject_t calib_grid_labels_{};
+    static void update_calib_grid(lv_obj_t* grid);
+
+    // Fan speed display
+    lv_subject_t fan_speed_subject_{};
+    char fan_speed_buf_[16] = {};
+    lv_subject_t fan_pct_subject_{};
+    uint32_t last_fan_slider_input_ = 0; // Tick of last slider interaction (suppression window)
+
+    //
+    // === Cached Values (for display update efficiency) ===
+    //
+
+    int cached_extruder_temp_ = 0;
+    int cached_extruder_target_ = 0;
+    int cached_bed_temp_ = 0;
+    int cached_bed_target_ = 0;
+    int cached_chamber_temp_ = 0; ///< Chamber current temperature (decidegrees)
+    int cached_chamber_target_ =
+        0; ///< Raw chamber heater target (decidegrees) — used for keypad seed only
+    int cached_chamber_effective_target_ =
+        0; ///< Canonical display target (decidegrees): effective target per chamber_mode
+    int cached_chamber_mode_ = 0; ///< ChamberMode int (Off=0/Heating=1/Maintaining=2)
+
+    // Temperature limits for keypad
+    int nozzle_max_temp_ = 500;  ///< Nozzle max temperature (°C) from heater_generic config
+    int bed_max_temp_ = 150;     ///< Bed max temperature (°C) from heater_bed config
+    int chamber_max_temp_ = 150; ///< Chamber max temperature (°C)
+
+    //
+    // === Observer Guards (RAII cleanup) ===
+    //
+
+    /// @brief Temperature observer bundle (nozzle + bed temps)
+    helix::ui::TemperatureObserverBundle<ControlsPanel> temp_observers_;
+    ObserverGuard fan_observer_;
+    ObserverGuard fans_version_observer_;      // Multi-fan list changes
+    ObserverGuard temp_sensor_count_observer_; // Temp sensor list changes
+    SubjectLifetime chamber_temp_lifetime_;    // Lifetime token for chamber temp subject
+    SubjectLifetime chamber_target_lifetime_;  // Lifetime token for raw heater target subject
+    SubjectLifetime
+        chamber_effective_target_lifetime_; // Lifetime token for effective target subject
+    SubjectLifetime chamber_mode_lifetime_; // Lifetime token for chamber mode subject
+    ObserverGuard chamber_temp_observer_;   // Chamber temperature observer
+    ObserverGuard chamber_target_observer_; // Chamber raw heater target observer (keypad seed)
+    ObserverGuard chamber_effective_target_observer_; // Chamber effective target observer (status)
+    ObserverGuard chamber_mode_observer_;             // Chamber M141 control mode observer
+
+    bool fans_rebuild_pending_ = false; ///< Coalesces rapid fans_version observer notifications
+
+    //
+    // === Lazily-Created Child Panels ===
+    //
+
+    //
+    // === Modal Dialog State ===
+    //
+
+    helix::ui::ModalGuard motors_confirmation_dialog_;
+    OperationTimeoutGuard operation_guard_;
+
+    //
+    // === Dynamic UI Containers ===
+    //
+
+    lv_obj_t* secondary_fans_list_ = nullptr; // Container for dynamic fan rows
+
+    /// @brief Info for a secondary fan row for reactive speed updates
+    struct SecondaryFanRow {
+        std::string object_name;
+        helix::ui::WeakWidget speed_label;
+    };
+    std::vector<SecondaryFanRow> secondary_fan_rows_;    ///< Tracked for reactive updates
+    std::vector<ObserverGuard> secondary_fan_observers_; ///< Per-fan speed observers
+    /// Lifetime tokens for the dynamic per-fan speed subjects observed above. Per-fan
+    /// subjects are destroyed/recreated on fan rediscovery; what makes the guards safe is
+    /// that each token is handed to observe<int>(), not where the token is stored.
+    /// These are copies of shared_ptrs PrinterFanState owns — it signals subject death by
+    /// writing *token = false — so declaring them after the observers (destroyed first) is
+    /// equivalent to declaring them before. Kept index-aligned with
+    /// secondary_fan_observers_. See docs/devel/THREADING.md § 5.
+    std::vector<SubjectLifetime> secondary_fan_lifetimes_;
+    uint32_t fan_populate_gen_ = 0; ///< Incremented on each populate; stale callbacks skip
+
+    //
+    // === Z-Offset Banner (reactive binding - no widget caching needed) ===
+    //
+
+    lv_subject_t z_offset_delta_display_subject_{}; // Formatted delta string (e.g., "+0.05mm")
+    char z_offset_delta_display_buf_[32] = {};
+    ObserverGuard pending_z_offset_observer_; // Observer to update display when delta changes
+
+    //
+    // === Homing Status Subjects (for bind_style visual feedback) ===
+    //
+
+    lv_subject_t x_homed_{};            // 1 if X is homed (for position indicator)
+    lv_subject_t y_homed_{};            // 1 if Y is homed (for position indicator)
+    lv_subject_t xy_homed_{};           // 1 if X and Y are homed
+    lv_subject_t z_homed_{};            // 1 if Z is homed
+    lv_subject_t all_homed_{};          // 1 if all axes are homed
+    ObserverGuard homed_axes_observer_; // Observer for PrinterState::homed_axes_
+
+    //
+    // === Position Display Subjects (for Position card) ===
+    //
+
+    lv_subject_t controls_pos_x_subject_{};
+    lv_subject_t controls_pos_y_subject_{};
+    lv_subject_t controls_pos_z_subject_{};
+    char controls_pos_x_buf_[32] = {};
+    char controls_pos_y_buf_[32] = {};
+    char controls_pos_z_buf_[32] = {};
+    helix::ui::PositionObserverBundle<ControlsPanel> pos_observers_;
+
+    //
+    // === Z-Offset Live Tuning ===
+    //
+
+    char controls_z_offset_buf_[16] = {};
+    lv_subject_t controls_z_offset_subject_{};
+    ObserverGuard gcode_z_offset_observer_;
+    // ZMOD zeroes the live offset outside a print, so the row has to re-pick its
+    // source when either the persisted value or the print state changes.
+    ObserverGuard persisted_z_offset_observer_;
+    ObserverGuard persisted_z_offset_valid_observer_;
+    ObserverGuard z_offset_print_active_observer_;
+
+    //
+    // === Speed/Flow Override Subjects ===
+    //
+
+    lv_subject_t speed_override_subject_{};
+    char speed_override_buf_[16] = {};
+    ObserverGuard speed_factor_observer_;
+
+    helix::QuickActionButtons quick_actions_; ///< The four Quick Actions slots
+
+  public:
+    // === Leveling Commands (shared with MotionPanel) ===
+    void handle_qgl();
+    void handle_z_tilt();
+
+  private:
+    //
+    // === Private Helpers ===
+    //
+
+    void register_observers();
+
+    // Display update helpers
+    void update_nozzle_temp_display();
+    void update_bed_temp_display();
+    void update_chamber_temp_display();
+    void update_fan_display();
+    void populate_secondary_fans(); // Build fan list from helix::PrinterState
+    void update_z_offset_delta_display(int delta_microns); // Format delta for banner
+
+    void handle_save_z_offset();
+
+    //
+    // === V2 Card Click Handlers (navigation to full panels) ===
+    //
+
+    void handle_quick_actions_clicked();
+    void handle_nozzle_temp_clicked();
+    void handle_bed_temp_clicked();
+    void handle_chamber_temp_clicked();
+    void handle_cooling_clicked();
+    void handle_secondary_fans_clicked();
+    void handle_secondary_temps_clicked();
+    void handle_nozzle_target_edit();
+    void handle_bed_target_edit();
+    void handle_chamber_target_edit();
+
+    /// Effective ceiling (°C) a target-edit keypad offers: the shared
+    /// keypad-ceiling authority when the controller is reachable, this panel's
+    /// own compiled-in member otherwise. All three target-edit keypads ask
+    /// this (#1619).
+    int target_edit_max(helix::HeaterType type, int fallback_deg) const;
+    void handle_custom_nozzle_confirmed(float value);
+    void handle_custom_bed_confirmed(float value);
+    void handle_custom_chamber_confirmed(float value);
+
+    /**
+     * @brief Show a temperature keypad dialog for a heater zone.
+     *
+     * @tparam Handler  Pointer-to-member for confirmed callback
+     * @param title     Title shown in the keypad
+     * @param cached_target   Current target in decidegrees
+     * @param default_initial Default initial °C when target is 0
+     * @param max_temp        Maximum allowed temperature in °C
+     */
+    template <void (ControlsPanel::*Handler)(float)>
+    void show_temperature_keypad(const char* title, int cached_target, int default_initial,
+                                 int max_temp);
+
+    //
+    // === Quick Action Button Handlers ===
+    //
+
+    /**
+     * @brief The words one quick action shows the user, start to finish.
+     *
+     * Every field is already translated — the call site runs lv_tr(), which
+     * keeps the literals where the translation sweep can see them. Holding the
+     * whole lifecycle in one struct is what stops the next quick action from
+     * shipping with a start toast and no completion toast.
+     */
+    struct QuickActionText {
+        std::string started;         ///< As the command is dispatched
+        std::string completed;       ///< Once the printer acknowledges it
+        std::string guard_timed_out; ///< The timeout guard gave up waiting
+        std::string rpc_timed_out;   ///< The rpc timed out; the printer may still be working
+        std::string failed_fmt;      ///< Failure, with one {} for the error detail
+    };
+
+    /// Hands the shared success/error callbacks to whichever API entry point
+    /// runs this quick action's command.
+    using QuickActionDispatch = std::function<void(helix::IMoonrakerAPI::SuccessCallback,
+                                                   helix::IMoonrakerAPI::ErrorCallback)>;
+
+    /**
+     * @brief Run one guarded quick action end to end.
+     *
+     * Homing, QGL and Z-Tilt differ only in the command they send and the words
+     * around it. Sharing the body is what keeps the parts the user sees from
+     * drifting apart between them: the busy check, the toast on every outcome,
+     * and the answer when there is no printer to talk to.
+     *
+     * @param timeout_ms How long the guard waits before declaring the op hung.
+     *                   Pass the same constant the API applies to the rpc.
+     * @param text       What the user is told at each outcome.
+     * @param dispatch   Called once, only after the guard is armed and only with
+     *                   a live api_.
+     */
+    void run_quick_action(uint32_t timeout_ms, const QuickActionText& text,
+                          const QuickActionDispatch& dispatch);
+
+    /// The QuickActionText the five homing buttons share, with @p started as the
+    /// one line that names an axis.
+    static QuickActionText homing_text(const char* started);
+
+    /// Home @p axes ("" for all) as a quick action. The axis spelling is the
+    /// same one MoonrakerMotionAPI::home_axes() validates.
+    void home_axes_action(const char* axes, const char* started_toast);
+
+    void handle_home_all();
+    void handle_home_x();
+    void handle_home_y();
+    void handle_home_xy();
+    void handle_home_z();
+
+    //
+    // === Speed/Flow Override Handlers ===
+    //
+
+    void update_speed_display();
+
+    //
+    // === Z-Offset Control Handlers ===
+    //
+
+    void handle_zoffset_tune(); ///< Open Print Tune overlay for live Z-offset tuning
+    /// Reformat the Z-offset row from whichever reading is currently truthful.
+    /// Takes no value: the choice between Klipper's live offset and the
+    /// firmware-persisted one depends on three subjects, so every caller would
+    /// otherwise have to repeat the selection. See
+    /// helix::zoffset::displayed_z_offset_microns().
+    void update_controls_z_offset_display();
+
+    //
+    // === Fan Slider Handler ===
+    //
+
+    void handle_fan_slider_changed(int value);
+
+    //
+    // === Calibration & Motors Handlers ===
+    //
+
+    void handle_motors_clicked();
+    void handle_calibration_bed_mesh();
+    void handle_calibration_zoffset();
+    void handle_calibration_pa();
+    void handle_calibration_screws();
+    void handle_calibration_tool_offsets();
+    void handle_calibration_motors();
+
+    /// XML on_controls_macro: the macro slot index rides in user_data.
+    static void on_macro(lv_event_t* e);
+
+    void subscribe_to_secondary_fan_speeds();
+    void update_secondary_fan_speed(const std::string& object_name, int speed_pct);
+};
+
+// ============================================================================
+// TEMPLATE DEFINITIONS (must be in header)
+// ============================================================================
+
+template <void (ControlsPanel::*Handler)(float)>
+void ControlsPanel::show_temperature_keypad(const char* title, int cached_target,
+                                            int default_initial, int max_temp) {
+    spdlog::debug("[{}] Opening {} keypad", get_name(), title);
+
+    int initial_deci = cached_target > 0 ? cached_target
+                                         : helix::ui::temperature::degrees_to_deci(default_initial);
+    ui_keypad_config_t config = {
+        .initial_value = static_cast<float>(helix::ui::temperature::deci_to_degrees(initial_deci)),
+        .min_value = 0.0f,
+        .max_value = static_cast<float>(max_temp),
+        .title_label = lv_tr(title),
+        .unit_label = "°C",
+        .allow_decimal = false,
+        .allow_negative = false,
+        .callback =
+            [](float value, void* user_data) {
+                auto* self = static_cast<ControlsPanel*>(user_data);
+                if (self) {
+                    (self->*Handler)(value);
+                }
+            },
+        .user_data = this};
+
+    ui_keypad_show(&config);
+}
+
+// Global instance accessor (needed by main.cpp and XML event_cb trampolines)
+ControlsPanel& get_global_controls_panel();

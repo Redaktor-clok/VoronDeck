@@ -1,0 +1,671 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "ui_filename_utils.h"
+#include "ui_format_utils.h"
+
+#include "../helix_test_fixture.h"
+#include "../test_helpers/print_history_manager_test_access.h"
+#include "../test_helpers/printer_state_test_access.h"
+#include "../test_helpers/update_queue_test_access.h"
+#include "app_globals.h"
+#include "display_settings_manager.h"
+#include "format_utils.h"
+#include "print_history_manager.h"
+#include "printer_discovery.h"
+#include "printer_state.h"
+#include "src/ui/panel_widgets/print_status_widget.h"
+#include "system_settings_manager.h"
+#include "tool_state.h"
+
+#include <spdlog/fmt/fmt.h>
+
+#include <chrono>
+#include <string>
+#include <vector>
+
+#include "../catch_amalgamated.hpp"
+
+using namespace helix;
+using namespace helix::ui;
+
+// RAII helper that creates the DetailedFormatter singleton without a real attach().
+// Destroys any pre-existing formatter first so the new one's observers bind to
+// the current PrinterState subjects (tests in this file reset PrinterState in
+// their setup; a formatter from a prior test would hold dangling observer
+// pointers to the freed subjects).
+namespace {
+struct FormatterScope {
+    FormatterScope() {
+        PrintStatusWidget::destroy_formatter_for_test();
+        PrintStatusWidget::ensure_formatter_for_test();
+    }
+    ~FormatterScope() {
+        PrintStatusWidget::release_formatter_for_test();
+    }
+};
+} // namespace
+
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter writes layer and time",
+                 "[print_status][formatter]") {
+    // Tear down any inherited formatter BEFORE resetting PrinterState — otherwise
+    // its observers point to subjects that are about to be deinit'd/reinit'd, and
+    // FormatterScope's later destroy walks a recycled lv_subject_t (macOS SIGSEGV).
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    // Real slicer layer fields — no "~" estimate marker.
+    PrinterPrintStateTestAccess::set_has_real_layer_data(
+        PrinterStateTestAccess::get_print_state(ps), true);
+
+    FormatterScope fs;
+
+    lv_subject_set_int(ps.print_state().get_print_layer_current_subject(), 42);
+    lv_subject_set_int(ps.print_state().get_print_layer_total_subject(), 213);
+    lv_subject_set_int(ps.print_state().get_print_elapsed_subject(), 42 * 60); // 0h 42m
+    lv_subject_set_int(ps.print_state().get_print_time_left_subject(),
+                       2 * 3600 + 14 * 60); // 2h 14m
+
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_layer_text"))) == "42 / 213");
+    // Sub-hour durations carry no "0h": helix::format::duration_padded drops
+    // the hours field below one hour.
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_elapsed_text"))) == "42m");
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_remaining_text"))) == "2h 14m");
+}
+
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter time text omits hours under an hour",
+                 "[print_status][formatter]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    FormatterScope fs;
+
+    lv_subject_set_int(ps.print_state().get_print_elapsed_subject(), 45 * 60);
+    lv_subject_set_int(ps.print_state().get_print_time_left_subject(), 30 * 60);
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+
+    // A hand-rolled "%dh %02dm" renders these as "0h 45m" and "0h 30m".
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_elapsed_text"))) == "45m");
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_remaining_text"))) == "30m");
+}
+
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter filament text switches unit at 1000mm",
+                 "[print_status][formatter]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    FormatterScope fs;
+
+    // Below 1000mm the canonical formatter stays in millimetres. Dividing by
+    // 1000 unconditionally renders this as "0.9m".
+    lv_subject_set_int(ps.print_state().get_print_filament_used_subject(), 850);
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_filament_text"))) == "850mm");
+
+    // Above 1000000mm it switches to kilometres rather than "1200.0m".
+    lv_subject_set_int(ps.print_state().get_print_filament_used_subject(), 1200000);
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_filament_text"))) == "1.20km");
+}
+
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter seeds initial values on construction",
+                 "[print_status][formatter]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    PrinterPrintStateTestAccess::set_has_real_layer_data(
+        PrinterStateTestAccess::get_print_state(ps), true);
+
+    // Set subjects BEFORE creating formatter — seed calls in constructor pick them up
+    lv_subject_set_int(ps.print_state().get_print_layer_current_subject(), 100);
+    lv_subject_set_int(ps.print_state().get_print_layer_total_subject(), 200);
+
+    FormatterScope fs;
+
+    // No drain needed — seed calls are synchronous in the constructor
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_layer_text"))) == "100 / 200");
+}
+
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter layer text omits total when zero",
+                 "[print_status][formatter]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    PrinterPrintStateTestAccess::set_has_real_layer_data(
+        PrinterStateTestAccess::get_print_state(ps), true);
+
+    FormatterScope fs;
+
+    lv_subject_set_int(ps.print_state().get_print_layer_current_subject(), 7);
+    lv_subject_set_int(ps.print_state().get_print_layer_total_subject(), 0);
+
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_layer_text"))) == "7");
+}
+
+// The panel's richest layer path (on_print_layer_changed) marks progress-derived
+// layers with "~" and appends the commanded Z height. The widget renders the same
+// subjects and must produce the same string.
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter layer text marks estimates and shows Z",
+                 "[print_status][formatter]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    FormatterScope fs;
+
+    // A freshly reset PrinterState has neither real layer data nor a Z-derived
+    // layer, so layer_is_accurate() is false and the count is an estimate.
+    REQUIRE(ps.print_state().layer_is_accurate() == false);
+
+    lv_subject_set_int(ps.motion_state().get_gcode_position_z_subject(), 2400); // 24.00mm
+    lv_subject_set_int(ps.print_state().get_print_layer_current_subject(), 42);
+    lv_subject_set_int(ps.print_state().get_print_layer_total_subject(), 213);
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_layer_text"))) == "~42 / 213");
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_layer_z_text"))) == "· 24.0mm");
+}
+
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter filament text empty when zero",
+                 "[print_status][formatter]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    FormatterScope fs;
+
+    lv_subject_set_int(ps.print_state().get_print_filament_used_subject(), 0);
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_filament_text"))) == "");
+}
+
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter filament text formatted in meters",
+                 "[print_status][formatter]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    FormatterScope fs;
+
+    lv_subject_set_int(ps.print_state().get_print_filament_used_subject(), 2500); // 2.5m
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_filament_text"))) == "2.5m");
+}
+
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter nozzle text (decidegree rounding)",
+                 "[print_status][formatter][temps]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    FormatterScope fs;
+    // Temp subjects store decidegrees (1 unit = 0.1°C; see L021 +
+    // helix::units::to_decidegrees which multiplies by 10, not 100).
+    lv_subject_set_int(ps.temperature_state().get_active_extruder_temp_subject(),
+                       2157); // 215.7°C → 216
+    lv_subject_set_int(ps.temperature_state().get_active_extruder_target_subject(), 2200); // 220°C
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_nozzle_text"))) == "216 / 220°C");
+    // bed_text / chamber_text are no longer formatted by the widget — the
+    // XML's temp_display widgets bind directly to bed_temp / chamber_temp.
+}
+
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter multi-extruder label and gate",
+                 "[print_status][formatter][multi_tool]") {
+    // Same hazard as the other tests, but for ToolState's subjects: tear down any
+    // inherited formatter before re-initing the ones it observes.
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    ToolState::instance().init_subjects(false);
+
+    FormatterScope fs;
+    auto& ts = ToolState::instance();
+
+    // Driven through a real tool list, not a poked tool_count: the gate counts
+    // hotends, and set_ams_topology() inflates the tool count to one entry per
+    // filament lane on printers that have exactly one.
+    auto discovery_with = [](const std::vector<std::string>& objects) {
+        helix::PrinterDiscovery disc;
+        disc.parse_objects(nlohmann::json(objects));
+        return disc;
+    };
+
+    // Single extruder — no label, gate=0
+    auto single = discovery_with({"extruder", "heater_bed", "fan"});
+    ts.init_tools(single);
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+    REQUIRE(ts.extruder_count() == 1);
+    REQUIRE(lv_subject_get_int(lv_xml_get_subject(nullptr, "print_status_multi_tool")) == 0);
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_nozzle_badge_text"))) == "");
+
+    // Two extruders — gate=1, label tracks active (default index = 0)
+    auto dual = discovery_with({"extruder", "extruder1", "heater_bed", "fan"});
+    ts.init_tools(dual);
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+    REQUIRE(ts.extruder_count() == 2);
+    REQUIRE(lv_subject_get_int(lv_xml_get_subject(nullptr, "print_status_multi_tool")) == 1);
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_nozzle_badge_text"))) == "1");
+
+    // Back to single — gate=0, label cleared
+    ts.init_tools(single);
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+    REQUIRE(lv_subject_get_int(lv_xml_get_subject(nullptr, "print_status_multi_tool")) == 0);
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_nozzle_badge_text"))) == "");
+}
+
+// =============================================================================
+// Idle tile: which history job it describes
+//
+// Moonraker recomputes each job's `exists` flag per history request, so a job
+// whose gcode has been deleted comes back with exists == false. The idle tile
+// offers "Reprint Last" for whatever it names, so it must describe the newest
+// job that can still be reprinted, not simply the newest job.
+// =============================================================================
+
+namespace {
+
+PrintHistoryJob make_history_job(const char* filename, bool exists, double ended_secs_ago) {
+    const double now =
+        std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+    PrintHistoryJob job;
+    job.filename = filename;
+    job.exists = exists;
+    job.status = PrintJobStatus::COMPLETED;
+    job.start_time = now - ended_secs_ago - 3600.0;
+    job.end_time = now - ended_secs_ago;
+    job.print_duration = 3600.0;
+    job.filament_used = 12500.0;
+    job.filament_str = "12.5m";
+    return job;
+}
+
+/// Installs a hand-built history for get_print_history_manager() and takes it
+/// back down in the right order: the formatter deregisters its observer from
+/// whatever this returns, so the global must outlive the FormatterScope.
+struct ScopedHistory {
+    explicit ScopedHistory(std::vector<PrintHistoryJob> jobs) : manager(nullptr, nullptr) {
+        helix::PrintHistoryManagerTestAccess::set_loaded_jobs(manager, std::move(jobs));
+        set_print_history_manager(&manager);
+    }
+    ~ScopedHistory() {
+        set_print_history_manager(nullptr);
+    }
+    PrintHistoryManager manager;
+};
+
+std::string subject_text(const char* name) {
+    return std::string(lv_subject_get_string(lv_xml_get_subject(nullptr, name)));
+}
+
+} // namespace
+
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter idle tile skips a deleted newest print",
+                 "[print_status][formatter][idle_exists]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    ScopedHistory history({make_history_job("deleted_yesterday.gcode", false, 60.0),
+                           make_history_job("still_here.gcode", true, 2 * 3600.0)});
+
+    {
+        FormatterScope fs; // ctor populates the idle fields
+        UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+
+        REQUIRE(subject_text("print_status_idle_filename") == "still_here");
+        // Timing comes from the surviving job too, not the deleted head.
+        REQUIRE(subject_text("print_status_idle_when") == "Completed 2h ago");
+        REQUIRE(lv_subject_get_int(lv_xml_get_subject(nullptr, "print_status_idle_has_last")) == 1);
+    }
+}
+
+TEST_CASE_METHOD(HelixTestFixture,
+                 "DetailedFormatter idle tile falls back to never-printed when nothing survives",
+                 "[print_status][formatter][idle_exists]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    ScopedHistory history({make_history_job("deleted_a.gcode", false, 60.0),
+                           make_history_job("deleted_b.gcode", false, 7200.0)});
+
+    {
+        FormatterScope fs;
+        UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+
+        // Exactly the presentation used when there is no history at all.
+        REQUIRE(subject_text("print_status_idle_filename").empty());
+        REQUIRE(subject_text("print_status_idle_when") == "No prints yet");
+        REQUIRE(subject_text("print_status_idle_meta").empty());
+        // print_status_detailed_idle.xml binds the Reprint Last button's
+        // disabled state to this being 0.
+        REQUIRE(lv_subject_get_int(lv_xml_get_subject(nullptr, "print_status_idle_has_last")) == 0);
+    }
+}
+
+// The idle tile's text is formatted in C++ and handed to XML as finished strings,
+// so XML's own re-translation on a language switch never reaches it.
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter re-renders its text on a language switch",
+                 "[print_status][formatter][i18n]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+    PrinterPrintStateTestAccess::set_has_real_layer_data(
+        PrinterStateTestAccess::get_print_state(ps), true);
+    lv_subject_set_int(ps.print_state().get_print_filament_used_subject(), 1500);
+    lv_subject_set_int(ps.print_state().get_print_layer_current_subject(), 7);
+
+    ScopedHistory history({make_history_job("slipper.gcode", true, 2 * 3600.0)});
+
+    FormatterScope fs;
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+    REQUIRE(subject_text("print_status_layer_text") == "7");
+    REQUIRE(subject_text("print_status_idle_when") == "Completed 2h ago");
+    REQUIRE(subject_text("print_status_idle_meta") == "12.5m filament • 1h");
+    REQUIRE(subject_text("print_status_filament_text") == "1.5m");
+
+    auto& settings = SystemSettingsManager::instance();
+    settings.set_language("ru");
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+    // With no pack loaded lv_tr() returns the English tag, and every check
+    // below would pass against English.
+    REQUIRE(std::string(lv_tr("Completed {}h ago")) != "Completed {}h ago");
+
+    // The layer and filament values sit beside icons, with no words to translate.
+    CHECK(subject_text("print_status_layer_text") == "7");
+    CHECK(subject_text("print_status_idle_when") == fmt::format(lv_tr("Completed {}h ago"), 2));
+    CHECK(subject_text("print_status_idle_meta") ==
+          fmt::format(lv_tr("{} filament • {}"), "12.5m", helix::format::duration(3600)));
+    CHECK(helix::format::duration(3600) != "1h");
+    CHECK(subject_text("print_status_filament_text") == "1.5m");
+
+    settings.set_language("en");
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+    CHECK(subject_text("print_status_idle_when") == "Completed 2h ago");
+}
+
+// =============================================================================
+// describe_last_print: what the idle tile says about the newest reprintable job.
+// Moonraker leaves end_time null (parsed as 0) and the durations and filament at
+// 0 on in_progress rows and on rows it marks interrupted after a power loss
+// (prestonbrown/helixscreen#1713).
+// =============================================================================
+
+namespace {
+
+constexpr double kNow = 1'800'000'000.0;
+
+PrintHistoryJob job_with(PrintJobStatus status, double start_time, double end_time) {
+    PrintHistoryJob job;
+    job.filename = "benchy.gcode";
+    job.exists = true;
+    job.status = status;
+    job.start_time = start_time;
+    job.end_time = end_time;
+    job.filament_str = "0mm";
+    return job;
+}
+
+std::string relative(double secs) {
+    return helix::ui::format_relative_time(static_cast<uint64_t>(secs * 1000.0));
+}
+
+} // namespace
+
+TEST_CASE("describe_last_print: a completed job reads its age from end_time",
+          "[print_status][last_print]") {
+    auto job = job_with(PrintJobStatus::COMPLETED, kNow - 3 * 3600.0, kNow - 2 * 3600.0);
+    REQUIRE(describe_last_print(job, kNow).when == "Completed 2h ago");
+}
+
+TEST_CASE("describe_last_print: end_time 0 falls back to start_time",
+          "[print_status][last_print]") {
+    auto job = job_with(PrintJobStatus::ERROR, kNow - 3 * 3600.0, 0.0);
+    const std::string when = describe_last_print(job, kNow).when;
+    REQUIRE(when == std::string(lv_tr("Failed")) + " • " + relative(3 * 3600.0));
+}
+
+TEST_CASE("describe_last_print: no timestamps at all shows no age", "[print_status][last_print]") {
+    SECTION("failed") {
+        auto job = job_with(PrintJobStatus::ERROR, 0.0, 0.0);
+        REQUIRE(describe_last_print(job, kNow).when == lv_tr("Failed"));
+    }
+    SECTION("completed") {
+        auto job = job_with(PrintJobStatus::COMPLETED, 0.0, 0.0);
+        REQUIRE(describe_last_print(job, kNow).when == lv_tr("Completed"));
+    }
+    SECTION("in progress") {
+        auto job = job_with(PrintJobStatus::IN_PROGRESS, 0.0, 0.0);
+        REQUIRE(describe_last_print(job, kNow).when.empty());
+    }
+}
+
+TEST_CASE("describe_last_print: only a completed job says Completed",
+          "[print_status][last_print]") {
+    const double start = kNow - 2 * 86400.0;
+    const double end = kNow - 86400.0 - 3600.0;
+
+    auto cancelled = job_with(PrintJobStatus::CANCELLED, start, end);
+    REQUIRE(describe_last_print(cancelled, kNow).when ==
+            std::string(lv_tr("Canceled")) + " • " + relative(kNow - end));
+
+    auto failed = job_with(PrintJobStatus::ERROR, start, end);
+    REQUIRE(describe_last_print(failed, kNow).when ==
+            std::string(lv_tr("Failed")) + " • " + relative(kNow - end));
+
+    // A stale in_progress row makes no claim about how the print ended.
+    auto in_progress = job_with(PrintJobStatus::IN_PROGRESS, start, 0.0);
+    REQUIRE(describe_last_print(in_progress, kNow).when == relative(kNow - start));
+}
+
+TEST_CASE("describe_last_print: zero filament and duration hide the meta line",
+          "[print_status][last_print]") {
+    auto job = job_with(PrintJobStatus::ERROR, kNow - 60.0, 0.0);
+    REQUIRE(job.filament_str == "0mm"); // the strings the parser emits for zero
+    REQUIRE(describe_last_print(job, kNow).meta.empty());
+
+    job.print_duration = 5400.0;
+    REQUIRE(describe_last_print(job, kNow).meta == "1h 30m");
+
+    job.filament_used = 2500.0;
+    job.filament_str = "2.5m";
+    REQUIRE(describe_last_print(job, kNow).meta ==
+            fmt::format(lv_tr("{} filament • {}"), "2.5m", "1h 30m"));
+}
+
+TEST_CASE("describe_last_print: filament and duration each show on their own",
+          "[print_status][last_print]") {
+    auto job = job_with(PrintJobStatus::CANCELLED, kNow - 600.0, kNow - 300.0);
+
+    SECTION("filament with no print time") {
+        job.filament_used = 3000.0;
+        job.filament_str = "3.0m";
+        REQUIRE(describe_last_print(job, kNow).meta == fmt::format(lv_tr("{} filament"), "3.0m"));
+    }
+    SECTION("only wall-clock time, as when cancelled during heat-up") {
+        job.total_duration = 300.0;
+        REQUIRE(describe_last_print(job, kNow).meta == helix::format::duration(300));
+    }
+    SECTION("filament and wall-clock time") {
+        job.filament_used = 3000.0;
+        job.filament_str = "3.0m";
+        job.total_duration = 300.0;
+        REQUIRE(describe_last_print(job, kNow).meta ==
+                fmt::format(lv_tr("{} filament • {}"), "3.0m", helix::format::duration(300)));
+    }
+}
+
+TEST_CASE("describe_last_print: under a second of time hides the meta line",
+          "[print_status][last_print]") {
+    // The QIDI Q2 row Moonraker marked interrupted at startup.
+    PrintHistoryJob job;
+    job.filename = "Центровка (PLA).gcode.3mf";
+    job.exists = true;
+    job.status = parse_job_status("interrupted");
+    job.start_time = 1790458504.47;
+    job.end_time = 0.0;
+    job.print_duration = 0.0;
+    job.total_duration = 0.8278;
+    job.filament_str = "0mm";
+
+    const double now = job.start_time + 600.0;
+    SECTION("wall-clock time under a second") {
+        const auto text = describe_last_print(job, now);
+        REQUIRE(text.meta.empty());
+        REQUIRE(text.when == std::string(lv_tr("Failed")) + " • " + relative(600.0));
+    }
+    SECTION("print time under a second") {
+        job.print_duration = 0.4;
+        REQUIRE(describe_last_print(job, now).meta.empty());
+    }
+    SECTION("one second shows") {
+        job.total_duration = 1.0;
+        REQUIRE(describe_last_print(job, now).meta == helix::format::duration(1));
+    }
+}
+
+TEST_CASE("describe_last_print: an end_time ahead of the clock reads as just now",
+          "[print_status][last_print]") {
+    auto job = job_with(PrintJobStatus::CANCELLED, kNow - 600.0, kNow + 120.0);
+    REQUIRE(describe_last_print(job, kNow).when ==
+            std::string(lv_tr("Canceled")) + " • " + relative(0.0));
+}
+
+TEST_CASE("status_to_label names every job status", "[print_status][last_print][history]") {
+    REQUIRE(std::string(status_to_label(PrintJobStatus::COMPLETED)) == "Completed");
+    REQUIRE(std::string(status_to_label(PrintJobStatus::CANCELLED)) == "Canceled");
+    REQUIRE(std::string(status_to_label(PrintJobStatus::ERROR)) == "Failed");
+    REQUIRE(std::string(status_to_label(PrintJobStatus::IN_PROGRESS)) == "In Progress");
+    REQUIRE(std::string(status_to_label(PrintJobStatus::UNKNOWN)) == "Unknown");
+}
+
+TEST_CASE("describe_last_print: the filename displays the way the file grid shows it",
+          "[print_status][last_print]") {
+    auto job = job_with(PrintJobStatus::COMPLETED, kNow - 120.0, kNow - 60.0);
+    job.filename = "calib/Центровка (PLA).gcode.3mf";
+    const std::string shown = describe_last_print(job, kNow).filename;
+    REQUIRE(shown == helix::gcode::get_display_filename(job.filename));
+    REQUIRE(shown.find(".3mf") == std::string::npos);
+    REQUIRE(shown.find("calib/") == std::string::npos);
+}
+
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter idle tile on an interrupted Moonraker row",
+                 "[print_status][formatter][last_print]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    PrintHistoryJob row = job_with(PrintJobStatus::ERROR, 0.0, 0.0);
+    row.filename = "Центровка (PLA).gcode.3mf";
+    ScopedHistory history({row});
+
+    {
+        FormatterScope fs;
+        UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+
+        REQUIRE(lv_subject_get_int(lv_xml_get_subject(nullptr, "print_status_idle_has_last")) == 1);
+        REQUIRE(subject_text("print_status_idle_filename") ==
+                helix::gcode::get_display_filename(row.filename));
+        REQUIRE(subject_text("print_status_idle_when") == lv_tr("Failed"));
+        REQUIRE(subject_text("print_status_idle_meta").empty());
+    }
+}
+
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter speed/flow text shows live rates",
+                 "[print_status][formatter]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    FormatterScope fs;
+
+    // The card shows the physical rates even with the percent preference set.
+    REQUIRE_FALSE(DisplaySettingsManager::instance().get_speed_flow_physical_units());
+
+    lv_subject_set_int(ps.motion_state().get_live_velocity_subject(), 187);
+    lv_subject_set_int(ps.motion_state().get_live_extruder_velocity_subject(), 500); // 5 mm/s
+    UpdateQueueTestAccess::drain_all(UpdateQueue::instance());
+
+    // 5 mm/s of 1.75 mm filament: 5 * pi * 0.875^2 = 12.03 mm³/s.
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_speed_text"))) == "187 mm/s");
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_flow_text"))) == "· 12.0 mm\xC2\xB3/s");
+}
+
+TEST_CASE_METHOD(HelixTestFixture, "DetailedFormatter seeds the live rates on construction",
+                 "[print_status][formatter]") {
+    PrintStatusWidget::destroy_formatter_for_test();
+
+    PrinterState& ps = get_printer_state();
+    PrinterStateTestAccess::reset(ps);
+    ps.init_subjects(false);
+
+    // Rates already moving before the card exists, as on a widget added mid-print.
+    lv_subject_set_int(ps.motion_state().get_live_velocity_subject(), 187);
+    lv_subject_set_int(ps.motion_state().get_live_extruder_velocity_subject(), 500);
+
+    FormatterScope fs;
+
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_speed_text"))) == "187 mm/s");
+    REQUIRE(std::string(lv_subject_get_string(
+                lv_xml_get_subject(nullptr, "print_status_flow_text"))) == "· 12.0 mm\xC2\xB3/s");
+}

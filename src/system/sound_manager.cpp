@@ -1,0 +1,594 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "sound_manager.h"
+
+#include "audio_settings_manager.h"
+#include "config.h"
+#include "data_root_resolver.h"
+#include "i_moonraker_client.h"
+#include "jz_pwm_sound_backend.h"
+#include "m300_sound_backend.h"
+#include "pwm_sound_backend.h"
+#include "runtime_config.h"
+#include "sound_backend.h"
+#include "sound_sequencer.h"
+#include "sound_theme.h"
+
+#ifdef HELIX_DISPLAY_SDL
+#include "sdl_sound_backend.h"
+#endif
+
+#ifdef HELIX_HAS_ALSA
+#include "alsa_device_enum.h"
+#include "alsa_sound_backend.h"
+#endif
+
+#ifdef HELIX_HAS_TRACKER
+#include "tracker_module.h"
+#include "tracker_player.h"
+#endif
+
+#include <spdlog/spdlog.h>
+
+#include <algorithm>
+#include <cstdlib>
+#include <dirent.h>
+#include <string>
+
+using namespace helix;
+
+// ============================================================================
+// SoundManager singleton
+// ============================================================================
+
+namespace {
+
+/// True when sound is off via --no-sound or the /disable_sound setting — the
+/// state in which no backend may be installed or swapped in.
+bool sound_disabled() {
+    if (get_runtime_config()->disable_sound) {
+        return true;
+    }
+    Config* cfg = Config::get_instance();
+    return cfg->get<bool>("/disable_sound", false);
+}
+
+} // namespace
+
+SoundManager& SoundManager::instance() {
+    static SoundManager instance;
+    return instance;
+}
+
+void SoundManager::tear_down_active_backend() {
+    if (sequencer_) {
+        sequencer_->shutdown();
+        sequencer_.reset();
+    }
+    backend_.reset();
+}
+
+void SoundManager::probe_and_install_host_backend() {
+    backend_ = create_backend();
+    if (backend_) {
+        finalize_backend_setup();
+        return;
+    }
+    spdlog::info("[SoundManager] No host audio backend; awaiting hardware discovery for M300 gate");
+    initialized_ = true;
+}
+
+void SoundManager::set_moonraker_client(IMoonrakerClient* client, bool host_recovery) {
+    client_ = client;
+    spdlog::debug("[SoundManager] Moonraker client set: {} (host_recovery={})",
+                  client ? "connected" : "nullptr", host_recovery);
+
+    // If the client is being cleared (printer switch / app shutdown) and the
+    // active backend is M300, drop it. The next printer's hardware discovery
+    // will reinstall via try_install_m300_backend() only if appropriate —
+    // otherwise we'd carry M300 over to a new printer that has no beeper,
+    // resurrecting the "!! Unknown command:M300" feedback loop.
+    if (!client && backend_ && backend_->needs_moonraker_client()) {
+        spdlog::info("[SoundManager] Dropping M300 backend (client cleared)");
+        tear_down_active_backend();
+
+        // The dropped backend may have displaced the host backend picked at
+        // initialize() (the PWM takeover in try_install_m300_backend()):
+        // leaving backend_ null here keeps a modded AD5M silent until
+        // reboot, because its PWM backend was destroyed by the swap. Re-run
+        // the eager probe under the same disable checks initialize() uses;
+        // if the next printer also has an M300 handler, discovery swaps the
+        // channel again. Skipped for full app shutdown (host_recovery=false),
+        // where the manager is torn down moments later.
+        if (host_recovery && !sound_disabled()) {
+            probe_and_install_host_backend();
+        }
+    }
+}
+
+void SoundManager::initialize() {
+    if (initialized_) {
+        spdlog::debug("[SoundManager] Already initialized");
+        return;
+    }
+
+    // Sounds off via CLI flag or persistent setting: nothing to initialize.
+    // Latch the flag so the later gates (try_install, recovery) see it too.
+    if (sound_disabled()) {
+        spdlog::info("[SoundManager] Sound disabled (--no-sound or /disable_sound), skipping "
+                     "initialization");
+        get_runtime_config()->disable_sound = true;
+        return;
+    }
+
+    // Create the best available host-side backend (SDL/ALSA/PWM). M300 is
+    // NOT a fallback here — it's installed lazily once hardware discovery
+    // confirms the printer's Klipper config has a beeper. Selecting M300
+    // for any Moonraker-connected printer would let the
+    // M300 → "!! Unknown command:M300" → error toast → error_tone → M300
+    // feedback loop fire on any host where local audio fails.
+    probe_and_install_host_backend();
+}
+
+void SoundManager::try_install_m300_backend(bool detected_m300_handler) {
+    // PWM is the one backend M300 may displace: on a modded AD5M both
+    // HelixScreen's PWM sysfs backend and klippy's tone_player write the
+    // same buzzer channel, so keeping PWM installed means the two fight
+    // forever. Real detection only — a forced speaker override says the
+    // user wants sound, not that klippy answers M300, and swapping on that
+    // signal alone would aim M300 at printers that reject it (the
+    // "!! Unknown command:M300" feedback loop). SDL/ALSA/JzPwm are real
+    // host audio and are never displaced.
+    const bool displace_pwm =
+        backend_ && detected_m300_handler && backend_->owns_sysfs_pwm_channel();
+    if (backend_ && !displace_pwm) {
+        return; // Real audio already winning — don't displace it.
+    }
+    if (!client_) {
+        spdlog::debug("[SoundManager] try_install_m300_backend: no Moonraker client");
+        return; // PWM (if installed) stays — nothing to send M300 through
+    }
+    if (sound_disabled()) {
+        return;
+    }
+
+    if (displace_pwm) {
+        spdlog::info("[SoundManager] Klippy owns M300 — replacing PWM sysfs backend with M300");
+        tear_down_active_backend();
+    }
+
+    spdlog::info("[SoundManager] Installing M300 backend (Klipper beeper confirmed)");
+    backend_ = std::make_shared<M300SoundBackend>([this](const std::string& gcode) -> int {
+        auto* c = client_;
+        return c ? c->gcode_script(gcode) : -1;
+    });
+
+    finalize_backend_setup();
+}
+
+void SoundManager::finalize_backend_setup() {
+    if (!backend_) {
+        return;
+    }
+
+    // Defer theme loading until sounds are actually needed
+    if (current_theme_.sounds.empty()) {
+        theme_name_ = AudioSettingsManager::instance().get_sound_theme();
+        if (AudioSettingsManager::instance().get_sounds_enabled()) {
+            load_theme(theme_name_);
+        } else {
+            spdlog::info("[SoundManager] Sounds disabled, deferring theme load");
+        }
+    }
+
+    if (!sequencer_) {
+        sequencer_ = std::make_unique<SoundSequencer>(backend_);
+        sequencer_->start();
+    }
+
+    initialized_ = true;
+    spdlog::info("[SoundManager] Backend ready, theme '{}'", theme_name_);
+}
+
+bool SoundManager::has_alsa_backend() const {
+    return backend_ && backend_->supports_device_selection();
+}
+
+bool SoundManager::set_output_device(const std::string& pcm) {
+#ifdef HELIX_HAS_ALSA
+    // Env override locks the picker (HELIX_ALSA_DEVICE wins, mirrors HELIX_DRM_DEVICE).
+    if (const char* e = std::getenv("HELIX_ALSA_DEVICE"); e && e[0] != '\0') {
+        spdlog::info("[SoundManager] set_output_device ignored: HELIX_ALSA_DEVICE override active");
+        return false;
+    }
+    if (!has_alsa_backend()) {
+        spdlog::debug("[SoundManager] set_output_device: active backend is not ALSA");
+        return false;
+    }
+
+    // Tear down sequencer (joins its thread) and the current backend.
+    tear_down_active_backend();
+
+    // Open the requested device; fall back to "default" on failure.
+    auto alsa = std::make_shared<ALSASoundBackend>();
+    std::string effective = pcm;
+    bool ok = alsa->initialize(pcm);
+    if (!ok) {
+        spdlog::warn("[SoundManager] ALSA device '{}' failed; reverting to 'default'", pcm);
+        effective = "default";
+        ok = alsa->initialize("default");
+    }
+    if (!ok) {
+        spdlog::error("[SoundManager] Audio reinit failed; no backend installed");
+        initialized_ = true; // keep the M300 gate reachable
+        return false;
+    }
+
+    backend_ = alsa;
+    AudioSettingsManager::instance().set_output_device(effective); // persist what opened
+    finalize_backend_setup();                                      // recreate sequencer + theme
+    play("test_beep");
+    return effective == pcm;
+#else
+    (void)pcm;
+    return false;
+#endif
+}
+
+void SoundManager::shutdown() {
+    if (!initialized_)
+        return;
+
+#ifdef HELIX_HAS_TRACKER
+    stop_tracker();
+#endif
+
+    tear_down_active_backend();
+    initialized_ = false;
+
+    spdlog::info("[SoundManager] Shutdown complete");
+}
+
+void SoundManager::play(const std::string& sound_name) {
+    play(sound_name, SoundPriority::UI);
+}
+
+void SoundManager::play(const std::string& sound_name, SoundPriority priority) {
+    // VoronDeck only plays the explicitly enabled print-completion melody.
+    if (sound_name != "print_complete") {
+        return;
+    }
+
+    // Master switch
+    if (!AudioSettingsManager::instance().get_sounds_enabled()) {
+        spdlog::trace("[SoundManager] play('{}') skipped - sounds disabled", sound_name);
+        return;
+    }
+
+    // UI sounds have their own toggle
+    if (is_ui_sound(sound_name) && !AudioSettingsManager::instance().get_ui_sounds_enabled()) {
+        spdlog::trace("[SoundManager] play('{}') skipped - UI sounds disabled", sound_name);
+        return;
+    }
+
+    if (!sequencer_ || !backend_) {
+        spdlog::debug("[SoundManager] play('{}') skipped - no sequencer/backend", sound_name);
+        return;
+    }
+
+    // Lazy-load theme on first use (deferred if sounds were disabled at init)
+    if (current_theme_.sounds.empty() && !theme_name_.empty()) {
+        load_theme(theme_name_);
+    }
+
+    // Look up sound in current theme
+    auto it = current_theme_.sounds.find(sound_name);
+    if (it == current_theme_.sounds.end()) {
+        spdlog::debug("[SoundManager] play('{}') - sound not in theme '{}'", sound_name,
+                      theme_name_);
+        return;
+    }
+
+#ifdef HELIX_HAS_TRACKER
+    if (tracker_ && tracker_->is_playing()) {
+        if (static_cast<int>(priority) >= static_cast<int>(SoundPriority::ALARM)) {
+            // ALARM always kills tracker
+            stop_tracker();
+        } else if (backend_ && backend_->supports_render_source()) {
+            // PCM-capable backend — SFX layers on top of tracker, no preemption
+            spdlog::trace("[SoundManager] play('{}') layered with tracker", sound_name);
+        } else {
+            // Frequency-only backend — can't mix, skip SFX
+            spdlog::debug("[SoundManager] play('{}') skipped - tracker active, no mixing",
+                          sound_name);
+            return;
+        }
+    }
+#endif
+
+    sequencer_->play(it->second, priority);
+    spdlog::debug("[SoundManager] play('{}', priority={})", sound_name, static_cast<int>(priority));
+}
+
+void SoundManager::play(const SoundDefinition& /*sound*/, SoundPriority /*priority*/) {
+    // Legacy game/UI effects are intentionally silent in VoronDeck.
+}
+
+void SoundManager::play_test_beep() {
+    play("test_beep");
+}
+
+void SoundManager::play_print_complete() {
+    play("print_complete", SoundPriority::EVENT);
+}
+
+void SoundManager::play_error_alert() {
+    play("error_alert", SoundPriority::EVENT);
+}
+
+void SoundManager::set_theme(const std::string& name) {
+    theme_name_ = name;
+    load_theme(name);
+    spdlog::info("[SoundManager] Theme changed to '{}'", name);
+}
+
+std::string SoundManager::get_current_theme() const {
+    return theme_name_;
+}
+
+std::vector<std::string> SoundManager::get_available_themes() const {
+    std::vector<std::string> themes;
+
+    // Sound themes are RO seeds shipped with the package; user themes
+    // (if any) are merged from the writable config dir.
+    auto enumerate = [&themes](const std::string& sounds_dir) {
+        DIR* dir = opendir(sounds_dir.c_str());
+        if (!dir) {
+            spdlog::debug("[SoundManager] Could not open {}", sounds_dir);
+            return;
+        }
+        struct dirent* entry;
+        while ((entry = readdir(dir)) != nullptr) {
+            std::string filename = entry->d_name;
+            if (filename.size() > 5 && filename.substr(filename.size() - 5) == ".json") {
+                themes.push_back(filename.substr(0, filename.size() - 5));
+            }
+        }
+        closedir(dir);
+    };
+
+    // Shipped RO sound theme JSONs live under HELIX_DATA_DIR/assets/config/sounds;
+    // user-added themes live in the writable config dir.
+    enumerate(helix::get_data_dir() + "/assets/config/sounds");
+    enumerate(helix::writable_path("sounds"));
+
+    // Dedupe before sorting (user themes can shadow shipped ones by name).
+    std::sort(themes.begin(), themes.end());
+    themes.erase(std::unique(themes.begin(), themes.end()), themes.end());
+    return themes;
+}
+
+std::vector<std::string> SoundManager::get_sound_names() const {
+    std::vector<std::string> names;
+    names.reserve(current_theme_.sounds.size());
+    for (const auto& [key, _] : current_theme_.sounds) {
+        names.push_back(key);
+    }
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+bool SoundManager::is_available() const {
+    return initialized_ && backend_ != nullptr &&
+           AudioSettingsManager::instance().get_sounds_enabled();
+}
+
+bool SoundManager::has_backend() const {
+    return initialized_ && backend_ != nullptr;
+}
+
+std::shared_ptr<SoundBackend> SoundManager::create_backend() {
+    // Host-side audio backends only. M300 (Klipper beeper) is installed
+    // separately via try_install_m300_backend() once hardware discovery
+    // confirms the printer's Klipper config has a beeper output_pin.
+    //
+    // Auto-detection order:
+    // 1. SDL audio available (desktop build) -> SDLBackend
+    // 2. ALSA PCM available (Linux with audio) -> ALSABackend
+    // 3. /sys/class/pwm/pwmchip0 exists -> PWMBackend
+    // 4. None -> wait for M300 gate, or sounds disabled
+    //
+    // A buzzer named on a PWM channel (setting sound.pwm_channel, or the
+    // HELIX_PWM_SOUND override) wins over all of them: a Pi with a passive
+    // buzzer on a header pin still has an ALSA headphone jack that opens fine
+    // and plays to nothing.
+
+#ifdef HELIX_HAS_PWM_SOUND
+    int chip = -1;
+    int channel = -1;
+    if (PWMSoundBackend::resolve_channel(AudioSettingsManager::instance().get_pwm_channel(),
+                                         std::getenv("HELIX_PWM_SOUND"), chip, channel)) {
+        auto pwm = std::make_shared<PWMSoundBackend>("/sys/class/pwm", chip, channel);
+        pwm->set_auto_export(true);
+        pwm->set_klippy_shares_channel(false);
+        if (pwm->initialize()) {
+            spdlog::info("[SoundManager] Using PWM sysfs backend ({}) for the named buzzer",
+                         pwm->channel_path());
+            return pwm;
+        }
+        spdlog::warn("[SoundManager] Named buzzer {} unavailable, falling back",
+                     pwm->channel_path());
+    }
+#endif
+
+#ifdef HELIX_DISPLAY_SDL
+    auto sdl_backend = std::make_shared<SDLSoundBackend>();
+    if (sdl_backend->initialize()) {
+        spdlog::info("[SoundManager] Using SDL audio backend");
+        return sdl_backend;
+    }
+    spdlog::warn("[SoundManager] SDL audio init failed, falling back");
+#endif
+
+#ifdef HELIX_HAS_ALSA
+    {
+        auto alsa_backend = std::make_shared<ALSASoundBackend>();
+        std::string dev = helix::audio::resolve_alsa_device();
+        if (alsa_backend->initialize(dev)) {
+            spdlog::info("[SoundManager] Using ALSA PCM backend ('{}')", dev);
+            return alsa_backend;
+        }
+        // Resilience: a stale saved/env device must not kill audio — retry the
+        // ALSA default before falling through to PWM/M300.
+        if (dev != "default" && alsa_backend->initialize("default")) {
+            spdlog::warn("[SoundManager] ALSA device '{}' failed; using 'default'", dev);
+            return alsa_backend;
+        }
+        spdlog::debug("[SoundManager] ALSA not available, falling back");
+    }
+#endif
+
+#ifdef HELIX_HAS_JZ_PWM
+    // The FlashForge MIPS boards' piezo via the jz_pwm DMA engine, exec'd
+    // through fx-pwm. Probed at runtime, not just gated: /dev/jz_pwm and the
+    // fx-pwm binary are both present only on a FlashForge rig install, so other machines fall
+    // through and remote-UI installs keep the M300 path below.
+    if (JzPwmSoundBackend::available()) {
+        auto jz_backend = std::make_shared<JzPwmSoundBackend>();
+        if (jz_backend->initialize()) {
+            spdlog::info("[SoundManager] Using JzPwm DMA backend (fx-pwm)");
+            return jz_backend;
+        }
+    }
+    spdlog::debug("[SoundManager] JzPwm DMA not available, falling back");
+#endif
+
+#ifdef HELIX_PWM_AUTO_EXPORT
+    // PWM sysfs buzzer. Gated per-platform, NOT probed everywhere: the probe is
+    // "does /sys/class/pwm/pwmchip0 exist", which is true on boards that have a
+    // PWM controller and no buzzer on it. A CC1 has 8 channels there and no
+    // beeper wired to any of them, so an ungated probe means exporting and
+    // driving a channel that belongs to something else -- its backlight is a
+    // platform device on the same controller. Only enable this where the buzzer
+    // is known to exist (AD5M); everywhere else it takes a named channel.
+    auto pwm_backend = std::make_shared<PWMSoundBackend>();
+    // The stock AD5M kernel ships the beeper channel (pwm6) unexported.
+    pwm_backend->set_auto_export(true);
+    if (pwm_backend->initialize()) {
+        spdlog::info("[SoundManager] Using PWM sysfs backend ({})", pwm_backend->channel_path());
+        return pwm_backend;
+    }
+    spdlog::debug("[SoundManager] PWM sysfs not available, falling back");
+#endif
+
+    spdlog::debug("[SoundManager] No host audio backend available");
+    return nullptr;
+}
+
+void SoundManager::load_theme(const std::string& name) {
+    std::string path = helix::find_readable("sounds/" + name + ".json");
+    auto theme = SoundThemeParser::load_from_file(path);
+
+    if (theme) {
+        current_theme_ = std::move(*theme);
+        spdlog::info("[SoundManager] Loaded theme '{}' ({} sounds)", name,
+                     current_theme_.sounds.size());
+    } else {
+        spdlog::warn("[SoundManager] Failed to load theme '{}', keeping current", name);
+        // If no theme is loaded at all, try default as fallback
+        if (current_theme_.sounds.empty() && name != "default") {
+            spdlog::info("[SoundManager] Attempting fallback to 'default' theme");
+            auto fallback =
+                SoundThemeParser::load_from_file(helix::find_readable("sounds/default.json"));
+            if (fallback) {
+                current_theme_ = std::move(*fallback);
+                theme_name_ = "default";
+            }
+        }
+    }
+}
+
+bool SoundManager::plays_startup_sound(bool /*test_mode*/) {
+    return false;
+}
+
+bool SoundManager::is_ui_sound(const std::string& name) {
+    // UI interaction sounds — affected by ui_sounds_enabled toggle
+    return name == "button_tap" || name == "toggle_on" || name == "toggle_off" ||
+           name == "nav_forward" || name == "nav_back" || name == "dropdown_open";
+}
+
+bool SoundManager::can_mix() const {
+    return backend_ && backend_->supports_render_source();
+}
+
+bool SoundManager::can_play_music() const {
+    return backend_ && (backend_->supports_render_source() || backend_->voice_count() > 1);
+}
+
+// ============================================================================
+// Tracker playback (MOD/MED files)
+// ============================================================================
+
+#ifdef HELIX_HAS_TRACKER
+void SoundManager::play_file(const std::string& /*path*/, SoundPriority /*priority*/) {
+    // Background music is not a print-completion notification.
+}
+
+void SoundManager::stop_tracker() {
+    // IMPORTANT: Clear render source and external tick BEFORE destroying tracker
+    if (backend_) {
+        backend_->clear_render_source();
+    }
+    if (sequencer_) {
+        sequencer_->set_external_tick(nullptr);
+    }
+    if (tracker_) {
+        tracker_->stop();
+        tracker_.reset();
+    }
+    tracker_path_.clear();
+    spdlog::debug("[SoundManager] stop_tracker");
+}
+
+bool SoundManager::is_tracker_playing() const {
+    return tracker_ && tracker_->is_playing();
+}
+
+void SoundManager::fade_out_tracker(uint32_t duration_ms) {
+    if (!tracker_ || !tracker_->is_playing())
+        return;
+
+    spdlog::debug("[SoundManager] fade_out_tracker over {}ms", duration_ms);
+
+    // Fade volume from current to 0 in steps on a background thread.
+    // TrackerPlayer::set_volume_override() is thread-safe.
+    auto* tp = tracker_.get();
+    auto fade_start = std::chrono::steady_clock::now();
+    auto fade_dur = std::chrono::milliseconds(duration_ms);
+
+    // Use sequencer thread indirectly: set up a tick-based fade via external_tick wrapper
+    auto original_tick = [tp](float dt_ms) { tp->tick(dt_ms); };
+
+    auto fade_end = fade_start + fade_dur;
+    sequencer_->set_external_tick([this, tp, original_tick, fade_start, fade_end](float dt_ms) {
+        original_tick(dt_ms);
+
+        auto now = std::chrono::steady_clock::now();
+        if (now >= fade_end) {
+            // Fade complete — stop tracker on next iteration
+            tp->set_volume_override(0);
+            // Schedule stop (can't call stop_tracker from within the tick)
+            tp->stop();
+            return;
+        }
+
+        float elapsed_ms = std::chrono::duration<float, std::milli>(now - fade_start).count();
+        float total_ms = std::chrono::duration<float, std::milli>(fade_end - fade_start).count();
+        float progress = elapsed_ms / total_ms;
+        int vol = static_cast<int>(100.0f * (1.0f - progress));
+        tp->set_volume_override(std::max(0, vol));
+    });
+}
+#endif

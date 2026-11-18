@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <consts>
+    <!-- metadata_clip_height: an APPROXIMATION of the preview card's metadata -->
+    <!-- strip height, used only by the four terminal-state overlays -->
+    <!-- (complete/cancelled/error/paused). Those are height="100%" -->
+    <!-- ignore_layout children spanning the whole card, drawn UNDER -->
+    <!-- metadata_clip, so they need a pad_bottom to keep their single badge -->
+    <!-- off the strip. One badge always fits, so an approximation is enough. -->
+    <!-- Declared here, where token discovery registers it globally. -->
+    <px name="metadata_clip_height_micro" value="79"/>
+    <px name="metadata_clip_height_tiny" value="79"/>
+    <px name="metadata_clip_height_small" value="97"/>
+    <px name="metadata_clip_height_medium" value="117"/>
+    <px name="metadata_clip_height_large" value="132"/>
+    <px name="metadata_clip_height_xlarge" value="156"/>
+    <px name="metadata_clip_height_xxlarge" value="196"/>
+  </consts>
+  <!-- Print Status Panel: job tile, printer tile and strip (components/print_status_body.xml). -->
+  <view name="print_status_panel"
+        extends="lv_obj" width="#overlay_width_transient" height="100%" align="right_mid" style_bg_opa="255"
+        style_bg_color="#screen_bg" style_pad_all="0" style_border_width="0" flex_flow="column" clickable="true">
+    <!-- The Files action button opens print select mid-print so files can be
+         browsed and managed (prestonbrown/helixscreen#1395). The E-stop lives
+         on the navbar. -->
+    <header_bar name="overlay_header"
+                title="Print Status" hide_action_icon="false" action_icon="folder"
+                action_icon_callback="on_print_status_files"/>
+    <lv_obj name="overlay_content"
+            width="100%" flex_grow="1" style_pad_left="#space_lg" style_pad_right="#space_lg" style_pad_top="0"
+            style_pad_bottom="#space_md" style_pad_gap="0" scrollable="false">
+      <!-- Disable content when printer not connected or klippy not ready -->
+      <bind_state_if_not_eq subject="nav_buttons_enabled" state="disabled" ref_value="1"/>
+      <print_status_body name="print_status_body"/>
+    </lv_obj>
+  </view>
+</component>

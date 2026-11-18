@@ -1,0 +1,24 @@
+diff --git a/src/stdlib/builtin/lv_string_builtin.c b/src/stdlib/builtin/lv_string_builtin.c
+index 3df98ce8a..b3e9906ea 100644
+--- a/src/stdlib/builtin/lv_string_builtin.c
++++ b/src/stdlib/builtin/lv_string_builtin.c
+@@ -313,6 +313,7 @@ int lv_strncmp(const char * s1, const char * s2, size_t len)
+ 
+ char * lv_strdup(const char * src)
+ {
++    if(src == NULL) return NULL;
+     LV_ASSERT(src != NULL);
+ 
+     size_t len = lv_strlen(src) + 1;
+diff --git a/src/stdlib/clib/lv_string_clib.c b/src/stdlib/clib/lv_string_clib.c
+index 6960b531f..ced69939f 100644
+--- a/src/stdlib/clib/lv_string_clib.c
++++ b/src/stdlib/clib/lv_string_clib.c
+@@ -129,6 +129,7 @@ int lv_strncmp(const char * s1, const char * s2, size_t len)
+ 
+ char * lv_strdup(const char * src)
+ {
++    if(src == NULL) return NULL;
+     LV_ASSERT(src != NULL);
+ 
+     /*strdup uses malloc, so use the lv_malloc when LV_USE_STDLIB_MALLOC is not LV_STDLIB_CLIB */

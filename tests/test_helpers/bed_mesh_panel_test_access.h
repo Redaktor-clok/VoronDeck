@@ -1,0 +1,65 @@
+// Copyright (C) 2025-2026 356C LLC
+// tests/test_helpers/bed_mesh_panel_test_access.h
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include "ui_panel_bed_mesh.h"
+
+namespace helix {
+namespace ui {
+
+// Test-only access to BedMeshPanel's private canvas pointer.
+//
+// Used by test_bed_mesh_canvas_wiring.cpp to reach wire_canvas_and_content()
+// and canvas_ directly: bed_mesh_panel.xml's reactive <if> teardown condemns
+// the old overlay_content/bed_mesh_canvas on every ui_is_portrait flip.
+//
+// The rewire path itself (setup_orientation_rewire_observer ->
+// rewire_after_orientation_flip, which relies on LVGL notifying observers in
+// registration order so ours runs after the XML's own <if> observer) has no
+// automated coverage: driving a real flip needs the whole app's XML registry.
+struct BedMeshPanelTestAccess {
+    static lv_obj_t* canvas(const BedMeshPanel& p) {
+        return p.canvas_;
+    }
+
+    /// Invokes the private wiring method under test directly, without going
+    /// through create() (which needs a fully XML-registered app + Moonraker).
+    static bool wire(BedMeshPanel& p, lv_obj_t* overlay_content) {
+        return p.wire_canvas_and_content(overlay_content);
+    }
+
+    /// Name the profile row @p index shows, as the profile list does.
+    static void set_profile_name(BedMeshPanel& p, int index, const std::string& name) {
+        p.profile_names_[static_cast<size_t>(index)] = name;
+    }
+
+    /// Drives the private SAVE_CONFIG initiation so the expected-restart flow
+    /// tests can exercise it without the panel's full XML UI.
+    static void save_config(BedMeshPanel& p) {
+        p.execute_save_config();
+    }
+
+    /// The SIZE_CHANGED handler wire_canvas_and_content() installs on
+    /// overlay_content, so a test can assert whether it is still registered.
+    /// Its user_data is the panel, so a registration outliving the panel is a
+    /// use-after-free waiting for the next layout pass.
+    static lv_event_cb_t content_size_changed_cb() {
+        return &BedMeshPanel::on_content_size_changed;
+    }
+
+    /// The calibrate-state subject's type. start_calibration() notifies panel
+    /// subjects that only init_subjects() creates, so a test driving the
+    /// state machine proves first that the panel is initialized.
+    static int calibrate_state_type(const BedMeshPanel& p) {
+        return static_cast<int>(p.bed_mesh_calibrate_state_.type);
+    }
+
+    /// The calibrate-state machine's current value.
+    static int calibrate_state(const BedMeshPanel& p) {
+        return p.bed_mesh_calibrate_state_.value.num;
+    }
+};
+
+} // namespace ui
+} // namespace helix

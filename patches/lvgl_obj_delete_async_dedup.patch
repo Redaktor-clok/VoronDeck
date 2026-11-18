@@ -1,0 +1,42 @@
+diff --git a/src/core/lv_obj_tree.c b/src/core/lv_obj_tree.c
+index 9f9d8c9e5..e94438ed1 100644
+--- a/src/core/lv_obj_tree.c
++++ b/src/core/lv_obj_tree.c
+@@ -14,6 +14,10 @@
+ #include "../misc/lv_anim_private.h"
+ #include "../core/lv_global.h"
+ 
++/* Telemetry hook provided by helix_lvgl_anomaly.cpp — reports LVGL anomalies
++ * (double-schedule, UAF near-miss) via TelemetryManager::record_error. */
++extern void helix_lvgl_anomaly(const char * code, const char * context);
++
+ /*********************
+  *      DEFINES
+  *********************/
+@@ -143,6 +147,17 @@ void lv_obj_delete_async(lv_obj_t * obj)
+ {
+     if(obj == NULL) return;
+ 
++    /* A second schedule for one object is a caller bug worth naming: report it and keep
++     * one pending delete. A match means obj is live, so reading it here is safe:
++     * obj_delete_core() cancels an object's pending async deletes before freeing it. */
++    if(lv_async_call_cancel(lv_obj_delete_async_cb, obj) == LV_RESULT_OK) {
++        const char * cls_name = (obj->class_p && obj->class_p->name) ? obj->class_p->name : "?";
++        LV_LOG_WARN("lv_obj_delete_async: duplicate schedule for %p (class=%s)",
++                    (void *)obj, cls_name);
++        char ctx[96];
++        lv_snprintf(ctx, sizeof(ctx), "class=%s", cls_name);
++        helix_lvgl_anomaly("obj_delete_async_dup", ctx);
++    }
+     lv_async_call(lv_obj_delete_async_cb, obj);
+ }
+ 
+@@ -664,7 +679,7 @@ static void obj_indev_reset(lv_indev_t * indev, lv_obj_t * obj)
+ static void obj_delete_core(lv_obj_t * obj)
+ {
+     LV_ASSERT(obj != NULL);
+-    if(obj->is_deleting)
++    if(obj == NULL || obj->is_deleting)
+         return;
+ 
+     obj->is_deleting = true;

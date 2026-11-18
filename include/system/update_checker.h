@@ -1,0 +1,1001 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file update_checker.h
+ * @brief Async update checker for HelixScreen
+ *
+ * Checks the R2 CDN manifest for newer versions of HelixScreen, falling back
+ * to the GitHub releases API when the manifest is unreachable.
+ * Uses background thread to avoid blocking the UI during network operations.
+ *
+ * SAFETY: Downloads and installs require explicit user confirmation and are
+ * blocked while a print is in progress. All errors are handled gracefully
+ * to ensure the printer is never affected.
+ */
+
+#pragma once
+
+#include "ui_observer_guard.h"
+
+#include "async_lifetime_guard.h"
+#include "lvgl.h"
+#include "subject_managed_panel.h"
+
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <functional>
+#include <mutex>
+#include <optional>
+#include <string>
+#include <thread>
+#include <vector>
+
+/**
+ * @brief How the selected channel's served version relates to what is installed
+ */
+enum class ChannelVersionRelation {
+    Unknown = 0, ///< Either version failed to parse — treat as "do nothing"
+    Same,        ///< Channel serves exactly the installed version
+    Newer,       ///< Channel is ahead: an ordinary update
+    Older        ///< Channel is behind: taking it moves this install backward
+};
+
+/**
+ * @brief Compare the installed version against what a channel serves
+ *
+ * Split out of the check worker so the three-way outcome is unit-testable. The
+ * Older case exists because channels are user-selectable: someone who ran the
+ * devel track and switched back to stable is AHEAD of the channel they now
+ * want, and a strict "offer only if newer" rule strands them there forever —
+ * the check reports "Already up to date" and there is no way back short of a
+ * manual reinstall.
+ *
+ * @param installed Currently running version (HELIX_VERSION)
+ * @param channel_version Version the selected channel's manifest serves
+ * @return Relation, or Unknown if either string fails to parse
+ */
+ChannelVersionRelation compare_channel_version(const std::string& installed,
+                                               const std::string& channel_version);
+
+namespace helix {
+class IMoonrakerClient;
+class IMoonrakerAPI;
+} // namespace helix
+
+/**
+ * @brief Async update checker for HelixScreen
+ *
+ * Checks the R2 CDN manifest (GitHub releases API as fallback) to determine if
+ * a newer version is available. Rate-limited to one check per kMinCheckInterval.
+ *
+ * Usage:
+ * @code
+ * auto& checker = UpdateChecker::instance();
+ * checker.init();
+ * checker.check_for_updates([](UpdateChecker::Status status,
+ *                              std::optional<UpdateChecker::ReleaseInfo> info) {
+ *     if (status == UpdateChecker::Status::UpdateAvailable && info) {
+ *         spdlog::info("Update available: {}", info->version);
+ *     }
+ * });
+ * // ... on shutdown:
+ * checker.shutdown();
+ * @endcode
+ */
+class UpdateChecker {
+  public:
+    static constexpr const char* kDefaultR2BaseUrl = "https://releases.helixscreen.org";
+
+    /**
+     * @brief Release information from GitHub
+     */
+    struct ReleaseInfo {
+        std::string version;       ///< Stripped version (e.g., "1.2.3")
+        std::string tag_name;      ///< Original tag (e.g., "v1.2.3")
+        std::string download_url;  ///< Asset download URL for binary
+        std::string release_notes; ///< Body markdown
+        std::string published_at;  ///< ISO 8601 timestamp
+        std::string sha256;        ///< SHA-256 hash (for dev channel verification)
+        size_t download_bytes = 0; ///< Asset size in bytes (0 if unknown)
+        /// True when this release is OLDER than what is installed — the selected
+        /// channel is behind, typically right after switching from a faster
+        /// channel back to a slower one. Offered explicitly and confirmed, never
+        /// auto-notified.
+        bool is_downgrade = false;
+    };
+
+    /**
+     * @brief Update check status
+     */
+    enum class Status {
+        Idle = 0,            ///< No check in progress
+        Checking = 1,        ///< HTTP request pending
+        UpdateAvailable = 2, ///< New version found
+        UpToDate = 3,        ///< Already on latest
+        Error = 4            ///< Check failed
+    };
+
+    /**
+     * @brief Update channel selection
+     */
+    enum class UpdateChannel { Stable = 0, Beta = 1, Dev = 2 };
+
+    /**
+     * @brief Download and install status
+     */
+    enum class DownloadStatus {
+        Idle = 0,        ///< No download in progress
+        Confirming = 1,  ///< User confirming download
+        Downloading = 2, ///< Download in progress
+        Verifying = 3,   ///< Verifying tarball integrity
+        Installing = 4,  ///< Running install.sh
+        Complete = 5,    ///< Install succeeded
+        Error = 6,       ///< Download/install failed
+        Restarting = 7   ///< Static "restarting" screen before _exit(0)
+    };
+
+    /**
+     * @brief Get singleton instance
+     */
+    static UpdateChecker& instance();
+
+    /**
+     * @brief Callback invoked when check completes
+     * @param status Final status of the check
+     * @param info Release info if update is available, nullopt otherwise
+     *
+     * Callback is invoked on the LVGL thread (via ui_queue_update).
+     */
+    using Callback = std::function<void(Status, std::optional<ReleaseInfo>)>;
+
+    /**
+     * @brief Check for updates asynchronously
+     *
+     * Spawns background thread to fetch the channel manifest.
+     * Callback is invoked on LVGL thread when check completes.
+     *
+     * Rate limited: If called within kMinCheckInterval of last check,
+     * returns cached result immediately instead of making a new request.
+     *
+     * @param callback Optional callback for result notification
+     */
+    void check_for_updates(Callback callback = nullptr);
+
+    /**
+     * @brief Get current status (thread-safe)
+     * @return Current status enum value
+     */
+    Status get_status() const;
+
+    /**
+     * @brief Get cached update info if available (thread-safe)
+     * @return ReleaseInfo if update is cached, nullopt otherwise
+     */
+    std::optional<ReleaseInfo> get_cached_update() const;
+
+    /**
+     * @brief Check if an update is available (thread-safe)
+     * @return true if update is available and cached
+     */
+    bool has_update_available() const;
+
+    /**
+     * @brief Get error message from last failed check (thread-safe)
+     * @return Error message, or empty string if no error
+     */
+    std::string get_error_message() const;
+
+    /**
+     * @brief Clear cached update information
+     *
+     * Resets status to Idle and clears cached release info.
+     */
+    void clear_cache();
+
+    /**
+     * @brief Re-evaluate after the user selects a different update channel
+     *
+     * Drops the cached result (it describes the channel they just left),
+     * re-reads the channel config for off-thread readers, clears the rate-limit
+     * clock, and starts a fresh check. Main thread only.
+     *
+     * The rate-limit reset is the load-bearing part: the limiter predates
+     * user-switchable channels, so without it the check returns the PREVIOUS
+     * channel's verdict and the About row keeps advertising a version the newly
+     * selected channel does not serve.
+     */
+    void on_channel_changed();
+
+    /**
+     * @brief Reconcile moonraker.conf's [update_manager helixscreen] with the app's channel
+     *
+     * Mainsail and Fluidd offer whatever that stanza's `channel:` names, so a stale one
+     * offers a beta install a "stable" downgrade. Which side moved is judged against the
+     * channel the two last agreed on (decide_moonraker_channel_sync()): a hand edit of the
+     * stanza is adopted as the app's channel, and an app change rewrites the line, only
+     * when a stanza with a channel line exists, then restarts Moonraker, which reads its
+     * config only at startup. While a job holds the machine the file is still written
+     * but the restart is skipped, so the change lands at Moonraker's next start. Called
+     * on every Moonraker discovery and whenever the effective channel changes. Main
+     * thread only.
+     */
+    void sync_moonraker_channel();
+
+    /**
+     * @brief Initialize the update checker
+     *
+     * Call once at startup. Idempotent - safe to call multiple times.
+     */
+    void init();
+
+    /**
+     * @brief Shutdown and cleanup
+     *
+     * Cancels any pending check and joins worker thread.
+     * Idempotent - safe to call multiple times.
+     */
+    void shutdown();
+
+    // LVGL subjects for UI binding (update check)
+    lv_subject_t* status_subject();
+    lv_subject_t* version_text_subject();
+    lv_subject_t* new_version_subject();
+
+    /// Re-render update_version_text in the active language. A subject string
+    /// is not re-translated by LVGL, so the language switch calls this after
+    /// lv_translation_set_language(). Main thread only.
+    void on_language_changed();
+
+    /// Death signal for the subjects this singleton owns.
+    ///
+    /// shutdown() frees every observer node on them without bumping the
+    /// ObserverGuard invalidation epoch, so outside observers must pass this to
+    /// observe_*(), or their guards call lv_observer_remove() on a freed node.
+    [[nodiscard]] SubjectLifetime get_subjects_lifetime() const {
+        return subjects_.get_subjects_lifetime();
+    }
+
+    // Download and install
+    void start_download();
+    void cancel_download();
+
+    /**
+     * @brief True while a download worker thread is still running.
+     *
+     * NOT the same question as get_download_status(). Cancelling a download
+     * only sets a flag that the worker reads AFTER libhv's synchronous
+     * requests::downloadFile() returns, and the modal resets the status to
+     * Idle the moment the user taps Cancel — so the status enum can say "idle"
+     * for up to an hour while the worker is still inside the blocking call.
+     * Re-entry into start_download() is gated on THIS, never on the enum.
+     */
+    bool download_in_flight() const;
+
+    DownloadStatus get_download_status() const;
+    int get_download_progress() const;
+    std::string get_download_error() const;
+
+    // LVGL subjects for download UI
+    lv_subject_t* download_status_subject();
+    lv_subject_t* download_progress_subject();
+    lv_subject_t* download_text_subject();
+
+    // Download state reporting (public for tests and SettingsPanel)
+    void report_download_status(DownloadStatus status, int progress, const std::string& text,
+                                const std::string& error = "");
+    /// Diagnostic info about candidate selection — populated even when no
+    /// candidate met the free-space threshold, so callers can build a
+    /// useful error message.
+    struct DownloadPathDiag {
+        std::string best_dir;         // best candidate found (regardless of threshold)
+        uint64_t best_free_bytes = 0; // its free space (uint64_t — on 32-bit
+                                      // platforms a 46 GiB rootfs wraps size_t)
+        uint64_t threshold_bytes = 0; // threshold required
+    };
+    /// @param diag Optional diagnostic out-param (for error reporting)
+    /// @param threshold_bytes Required free bytes; 0 → use a 120 MB default
+    ///        for callers without a known download size.
+    std::string get_download_path(DownloadPathDiag* diag = nullptr,
+                                  uint64_t threshold_bytes = 0) const;
+
+    /// Compute the disk-space threshold for an in-app download.
+    /// Returns 1.2x download_bytes + a small buffer when known, else a fixed
+    /// default sized for current release archives. Always honors a 50 MB
+    /// safety floor.
+    static uint64_t required_download_space_bytes(uint64_t download_bytes);
+
+    /**
+     * @brief Derive the installer staging dir handed to install.sh via TMP_DIR.
+     * @param tarball_path Path to the downloaded update tarball.
+     * @param install_root Resolved install root (app_get_install_root()), or ""
+     *        if unknown.
+     * @return A dot-prefixed staging dir guaranteed OUTSIDE install_root.
+     *
+     * Base is dirname(tarball_path). If that base is within-or-equal-to
+     * install_root, the base is relocated to install_root's PARENT (a sibling
+     * of the install dir). This is load-bearing: TMP_DIR is `rm -rf`'d on
+     * cleanup AND the installer's --update flow (release.sh) does dotfile
+     * `rm -rf` inside INSTALL_DIR and `mv INSTALL_DIR ...` during the atomic
+     * swap — a staging dir under INSTALL_DIR would be deleted/relocated out
+     * from under the extracted tree. Pure + static so the safety invariant is
+     * unit-testable without running the installer.
+     */
+    static std::string compute_update_staging_dir(const std::string& tarball_path,
+                                                  const std::string& install_root);
+
+    /**
+     * @brief The filename an update download stages under for a release URL.
+     * @param url The release asset URL; a .zip URL stages under its .zip name.
+     * @return The basename (no directory) of the staged file.
+     *
+     * Dot-prefixed so the staged archive and the scratch files derived from it
+     * stay hidden wherever the free-space search puts them: on boards whose
+     * gcodes root is the whole data partition rather than a directory inside
+     * it, a plainly named archive is a file in the print picker for the whole
+     * update. Pure + static so the hiding invariant is unit-testable without
+     * a network fetch.
+     */
+    static std::string download_filename_for_url(const std::string& url);
+
+    /**
+     * @brief The line of install.sh output the UI shows when an install fails.
+     * @param lines The install log, one entry per line.
+     * @return The first substantive "[ERROR]" or "<command> failed (exit N):"
+     *         line of the final failing block; else the last line with ERROR or
+     *         FAILED; else the last WARNING line; ANSI color stripped. Empty if
+     *         none. Only lines after the last completed step ("... ok") count.
+     *
+     * The installer's step line ("[n/N] <title> ... FAILED") comes after the
+     * lines that explain it, so a plain last-match would show the step's name
+     * instead of its cause. Its refusal blocks are cause-first, advice-after,
+     * so within a block the FIRST substantive [ERROR] line is the cause; the
+     * closing advice line points at log context the touchscreen never shows.
+     * Best-effort steps log errors and carry on, so an error before a
+     * completed step is not the cause.
+     */
+    static std::string install_failure_detail(const std::vector<std::string>& lines);
+
+    /**
+     * @brief install_failure_detail() made safe for telemetry: paths, hosts, IPs
+     *        and the device's own names removed, at most 120 bytes.
+     *
+     * @param identifiers The device's host name and login, removed wherever they
+     *                    appear as a word.
+     */
+    static std::string
+    install_failure_telemetry_detail(const std::vector<std::string>& lines,
+                                     const std::vector<std::string>& identifiers);
+
+    /**
+     * @brief `host` when the update path downloads from it (our release hosts and
+     *        GitHub's), "other" for any other host, empty for empty.
+     */
+    static std::string telemetry_release_host(const std::string& host);
+
+    /**
+     * @brief Probe the init destination with a real new-file write, before the
+     *        archive download.
+     * @param init_dir The directory the service definition installs into
+     *                 (/etc/init.d or /etc/systemd/system).
+     * @return "" when a new file can be created there, else a user-facing
+     *         failure line naming the directory.
+     *
+     * Mirrors the installer's check_service_dest_space: the service definition
+     * is the one update payload that lands on the root filesystem (a ~97MB
+     * overlay on K1-class boards, a different partition from the install dir),
+     * so a free-space check on the install dir says nothing about it. The probe
+     * must create a NEW file: overwriting an existing one needs no fresh blocks
+     * and succeeds on a full filesystem.
+     */
+    static std::string service_dest_probe_error(const std::string& init_dir);
+
+    /**
+     * @brief Whether @p init_dir already holds a HelixScreen service definition
+     *        (any non-hidden entry whose name contains "helixscreen").
+     *
+     * A SysV self-update keeps the installed init script as it is, so a failed
+     * service_dest_probe_error() only blocks the update when there is no script
+     * to keep. install.sh's check_service_dest_space makes the exact call
+     * (it also knows about a root migration or a stale hooks path to rewrite).
+     */
+    static bool service_definition_installed(const std::string& init_dir);
+
+    /**
+     * @brief The directory the service definition installs into on this host.
+     * @return "/etc/systemd/system" when systemd runs, "/etc/init.d" for SysV,
+     *         "" when neither shape is present (a dev machine; the installer's
+     *         own pre-flight then decides).
+     *
+     * Same resolution order as install.sh's detect_init_system, so the probe
+     * aims at the filesystem the installer will actually write.
+     */
+    static std::string init_service_dest_dir();
+
+    /**
+     * @brief Whether an in-app update writes the service destination, so the
+     *        pre-download probe applies.
+     *
+     * Only a root app installs directly, and under systemd it runs inside the
+     * unit's ProtectSystem=strict sandbox: /etc is read-only even for root, and
+     * a self-update writes no unit (the unit's root ExecStartPre refreshes it
+     * on restart). SysV root installs may rewrite their init script.
+     */
+    static bool update_writes_service_dest(bool is_root, bool systemd_init);
+
+    std::string get_platform_asset_name() const;
+
+    /// Single source of truth for the release asset name Moonraker's update
+    /// manager resolves via release_info.json's asset_name. Static so
+    /// repair_release_info() compares against the same expression rather than a
+    /// copy of it — #993 was caused by exactly that name drifting between
+    /// duplicates.
+    static std::string platform_asset_name();
+
+    /**
+     * @brief Outcome of a release_info.json validate-and-repair pass.
+     */
+    enum class ReleaseInfoRepair {
+        NotNeeded, ///< asset_name already matches the platform asset — nothing written
+        Repaired,  ///< file rewritten with the correct asset_name
+        Absent,    ///< no release_info.json to repair (and no deployed layout to create one in)
+        Failed     ///< a repair was needed but could not be written (read-only / permissions)
+    };
+
+    /**
+     * @brief Validate and, if needed, repair the installed release_info.json.
+     *
+     * Moonraker's `type: web` updater downloads the release asset named by this
+     * file's `asset_name`. When that name is missing or matches no asset on the
+     * release, Moonraker silently falls back to the alphabetically-FIRST asset —
+     * never a zip — and extraction dies with "File is not a zip file"
+     * (prestonbrown/helixscreen#993). The file is written once at install time
+     * and was never revalidated, so a stale or wrong value permanently blocked
+     * the very update that would have fixed it; SSH was the only escape.
+     *
+     * This runs at startup and rewrites the file when `asset_name` is absent,
+     * empty, non-string, or != get_platform_asset_name(), preserving the other
+     * fields. It never writes when the value is already correct, and a failure
+     * is never fatal — a bad release_info.json must not stop the app booting.
+     *
+     * A MISSING file is only created when @p install_root looks like a deployed
+     * install (`bin/helix-screen` present). A dev tree resolves its install root
+     * to the source checkout, and creating the file there would litter the repo.
+     *
+     * Static and install-root-parameterised so it is unit-testable against a
+     * temp directory.
+     *
+     * @param install_root Resolved install root (app_get_install_root()), or ""
+     *        if unknown (bind-mounted layout) — then nothing is done.
+     */
+    static ReleaseInfoRepair repair_release_info(const std::string& install_root);
+
+    /**
+     * @brief Get the configured update channel.
+     * @warning MAIN THREAD ONLY — reads Config, which is not thread-safe
+     *          (include/config.h). Off-thread callers want config_snapshot().
+     */
+    UpdateChannel get_channel() const;
+
+    /**
+     * @brief Human-readable name for a channel ("stable", "beta", "dev").
+     *
+     * Single source of truth for the enum→string map so log lines and the debug
+     * bundle's update section cannot drift from each other.
+     */
+    static const char* channel_name(UpdateChannel channel);
+
+    /**
+     * @brief The `channel:` Moonraker's web updater needs to serve @p channel
+     *
+     * Moonraker knows only GitHub's stable and prerelease tracks; Dev ships
+     * prereleases, so it rides beta (the installer's update_manager_web_channel).
+     */
+    static const char* moonraker_channel_name(UpdateChannel channel);
+
+    /// What a moonraker.conf channel sync does with the stanza it read.
+    enum class MoonrakerChannelSync {
+        Write,      ///< Rewrite the stanza to the app's channel
+        Adopt,      ///< The stanza was edited by hand: take its channel into the app
+        RecordOnly, ///< Already agreeing: remember the channel, touch nothing
+        Leave,      ///< A hand edit to a channel the app has no name for
+    };
+
+    /**
+     * @brief Decide which side of a moonraker.conf channel disagreement moved
+     *
+     * @param app         moonraker_channel_name() of the app's effective channel
+     * @param conf        the stanza's `channel:` value, empty when it has none
+     * @param last_synced the channel the two last agreed on, empty when unknown
+     *
+     * Only a stanza that moved away from @p last_synced while the app stayed put counts
+     * as a hand edit; anything else, including no record at all, lets the app win.
+     */
+    static MoonrakerChannelSync decide_moonraker_channel_sync(const std::string& app,
+                                                              const std::string& conf,
+                                                              const std::string& last_synced);
+
+    /**
+     * @brief Resolve the R2 base URL the next check will actually use.
+     *
+     * Reads r2_url from the trusted update_urls.json, falls back to
+     * kDefaultR2BaseUrl when unset, and strips trailing slashes. Single
+     * source of truth for that resolution:
+     * check_for_updates() caches its result into cached_r2_base_url_, and
+     * refresh_config_snapshot() stores it for off-thread readers.
+     *
+     * @warning MAIN THREAD ONLY — reads Config, which is not thread-safe
+     *          (include/config.h). Off-thread callers want config_snapshot().
+     */
+    static std::string effective_r2_base_url();
+
+    /**
+     * @brief Main-thread snapshot of the Config-derived update settings.
+     *
+     * Exists so diagnostics that run on a worker thread (the debug bundle is
+     * collected on HttpExecutor::slow()) can report the channel and effective
+     * manifest URL without reading Config off the main thread.
+     */
+    struct ConfigSnapshot {
+        std::string channel;     ///< "stable" | "beta" | "dev"
+        std::string r2_base_url; ///< effective, normalized manifest base URL
+    };
+
+    /**
+     * @brief Re-read the Config-derived settings into the diagnostics snapshot.
+     * @warning MAIN THREAD ONLY (reads Config).
+     *
+     * Called from init() so the snapshot is valid before any check has run, and
+     * again whenever the user changes the channel, so a switch is visible
+     * without waiting for a check.
+     */
+    void refresh_config_snapshot();
+
+    /** @brief Thread-safe copy of the diagnostics snapshot. Safe from any thread. */
+    ConfigSnapshot config_snapshot() const;
+
+    /**
+     * @brief Find a local install.sh by searching well-known paths
+     * @param extra_search_paths Additional paths to search (prepended to default list)
+     * @return Path to install.sh if found, empty string otherwise
+     *
+     * Searches exe-relative path first, then well-known install locations.
+     * Used as fallback when installer cannot be extracted from update tarball.
+     */
+    static std::string
+    find_local_installer(const std::vector<std::string>& extra_search_paths = {});
+
+    /**
+     * @brief Extract install.sh from a release tarball into a directory
+     * @param tarball_path Path to the .tar.gz release tarball
+     * @param extract_dir  Directory to extract into (helixscreen/ subdir created inside it)
+     * @return Path to the extracted installer (chmod +x applied), or empty string on failure
+     *
+     * Tries GNU tar xzf first; falls back to cp+gunzip+tar for BusyBox compatibility.
+     * The fallback avoids gunzip -k (keep-original) which is absent on older BusyBox builds.
+     * Exposed as public static for unit testing.
+     */
+    static std::string extract_installer_from_tarball(const std::string& tarball_path,
+                                                      const std::string& extract_dir);
+
+    /**
+     * @brief Write the self-restart sentinel into the fallback backup dir
+     *
+     * Tells helixscreen-update.service that the app is handling its own restart.
+     * Creates the dir first: a box updated only through Moonraker may never have
+     * had ~/.helixscreen created. Exposed as public static for unit testing.
+     * @return true when the sentinel was written
+     */
+    static bool write_self_restart_sentinel();
+
+    /** @brief Check if a version is dismissed (user chose to ignore) */
+    bool is_version_dismissed(const std::string& version) const;
+
+    /** @brief Dismiss the current cached update version (persists to config) */
+    void dismiss_current_version();
+
+    /**
+     * @brief Handle notification that Moonraker has finished updating HelixScreen
+     *
+     * Called when we receive a notify_update_response indicating our own update
+     * is complete. Writes the self-restart sentinel (so helixscreen-update.service
+     * skips its restart on systemd) and triggers _exit(0) to let the
+     * watchdog/systemd restart with the new binary.
+     *
+     * Works on all platforms (systemd, SysV, unsupervised) — the universal
+     * replacement for the systemd-only helixscreen-update.path watcher.
+     */
+    static void handle_external_update_complete();
+
+    /**
+     * @brief React to a (re)connected Moonraker: finish a self-restart and listen for updates
+     *
+     * Clears the self-restart sentinel (the app came back up, so
+     * helixscreen-update.service no longer needs to be suppressed) and asks Moonraker to
+     * re-read the version it reports for HelixScreen. Subscribes to
+     * notify_update_response to catch an update finished from Mainsail. Idempotent:
+     * every discovery calls it, and a repeat replaces the earlier subscription.
+     */
+    void on_connected(helix::IMoonrakerClient& client);
+
+    /** @brief Drop the subscription on_connected() made. Safe when never attached. */
+    void detach(helix::IMoonrakerClient& client);
+
+    /** @brief Start automatic update checking (15s initial, then 24h periodic) */
+    void start_auto_check();
+
+    /** @brief Stop automatic update checking */
+    void stop_auto_check();
+
+    // LVGL subjects for notification modal
+    lv_subject_t* release_notes_subject();
+    lv_subject_t* changelog_visible_subject();
+
+    /** @brief Show the update notification modal */
+    void show_update_notification();
+
+    /** @brief Hide the update notification modal */
+    void hide_update_notification();
+
+    /** @brief Result of a portable zip integrity probe. */
+    enum class ZipIntegrity {
+        Ok,           ///< Archive verified intact.
+        Corrupt,      ///< Archive is damaged or not a zip at all.
+        Unverifiable, ///< No tool on this system can test it — caller falls back to SHA256.
+    };
+
+    /**
+     * @brief Test a .zip archive's integrity with whatever tool can do it.
+     *
+     * `unzip -t` cannot be the primary check: support depends on the firmware's
+     * BusyBox vintage (prestonbrown/helixscreen#993). Verified on-device:
+     *
+     * | Platform                 | BusyBox | `unzip -t`            |
+     * |--------------------------|---------|-----------------------|
+     * | FlashForge AD5M          | 1.29.3  | absent — rejects `-t` |
+     * | Creality K1              | 1.31.1  | absent — rejects `-t` |
+     * | Elegoo Centauri Carbon   | 1.36.1  | present, correct      |
+     *
+     * On the first two, `unzip -tqq` exits 1 with "invalid option -- 't'", so an
+     * intact download was reported as a corrupt archive and every in-app update
+     * failed. python3's `zipfile.testzip()` does a real per-entry CRC check and
+     * behaves identically everywhere, so it is tried first — but it needs zlib
+     * as well as zipfile (release zips are deflated, and the AD5M's python3.7
+     * has no zlib), so a python that cannot test reports Unverifiable rather
+     * than Corrupt and we fall back to `unzip -l`.
+     *
+     * Public and static so it can be unit-tested directly.
+     */
+    static ZipIntegrity verify_zip_integrity(const std::string& zip_path);
+
+    /** @brief Which tool this system can use to read a .zip. */
+    enum class ZipTool {
+        Unzip,  ///< An `unzip` binary is available.
+        Python, ///< No unzip, but python3 with zipfile+zlib can do the job.
+        None,   ///< Neither — zip releases cannot be handled at all.
+    };
+
+    /**
+     * @brief Decide how (or whether) this system can read zip archives.
+     *
+     * Not every supported platform ships `unzip`: the Creality K2's OpenWrt
+     * firmware has no unzip binary and no BusyBox unzip applet, but does carry
+     * python3 with zipfile+zlib. Requiring unzip outright made every in-app
+     * update on that firmware fail before it even downloaded, with an
+     * apt-get hint that does not apply there.
+     */
+    static ZipTool available_zip_tool();
+
+    /**
+     * @brief Extract a single member from a .zip archive.
+     *
+     * Prefers `unzip -q -o`, falling back to python3's zipfile when no unzip
+     * binary exists (K2). Restores the member's mode bits on the python path —
+     * zipfile.extract() drops them, and an install.sh or bin/helix-screen that
+     * lands without its exec bit is useless.
+     *
+     * Public and static so it can be unit-tested directly.
+     *
+     * @return 0 on success, non-zero on failure.
+     */
+    static int extract_zip_member(const std::string& zip_path, const std::string& extract_dir,
+                                  const std::string& member);
+
+  private:
+    // Test-only seam (tests/test_helpers/update_checker_test_access.h). Seeds
+    // cached_info_ + status_ so has_update_available() answers true without a
+    // network round trip — the gate every "an update exists" consumer sits
+    // behind. Kept out of the production API so no shipped code can fake one.
+    friend class UpdateCheckerTestAccess;
+
+    UpdateChecker() = default;
+    ~UpdateChecker();
+
+    // Non-copyable
+    UpdateChecker(const UpdateChecker&) = delete;
+    UpdateChecker& operator=(const UpdateChecker&) = delete;
+
+    /**
+     * @brief Worker thread entry point
+     */
+    void do_check();
+
+    // Channel-specific fetch methods
+    bool fetch_stable_release(ReleaseInfo& info, std::string& error);
+    bool fetch_beta_release(ReleaseInfo& info, std::string& error);
+    bool fetch_dev_release(ReleaseInfo& info, std::string& error);
+
+    // R2 CDN fetch (used as primary source before GitHub fallback)
+    bool fetch_r2_manifest(const std::string& channel, ReleaseInfo& info, std::string& error);
+    std::string get_r2_base_url() const;
+
+    /**
+     * @brief Report result to callback on LVGL thread
+     * @param status Final status
+     * @param info Release info (nullopt if not available)
+     * @param error Error message (empty if no error)
+     */
+    void report_result(Status status, std::optional<ReleaseInfo> info, const std::string& error);
+
+    /// Report what a check that fetched @p info concludes for a build at @p current_version:
+    /// available, a downgrade, up to date, or an Error carrying the release when it has
+    /// no build for this board.
+    void report_fetched_release(ReleaseInfo info, const std::string& current_version);
+
+    /// Last hop of sync_moonraker_channel(): restart Moonraker unless a job holds the
+    /// machine or update_manager is busy. @p gen is the sync's moonraker_sync_generation_.
+    void restart_moonraker_for_channel(helix::IMoonrakerAPI& api, uint64_t gen);
+    /// sync_moonraker_channel() with this install's directory supplied; the stanza's
+    /// `path:` must resolve to it.
+    void sync_moonraker_channel_for(const std::string& install_root);
+    /// Take @p conf_channel, a hand edit of the stanza, as the app's update channel the
+    /// way a Settings change does, without writing it back to moonraker.conf.
+    void adopt_moonraker_channel(const std::string& conf_channel);
+    /// on_channel_changed() short of the moonraker.conf sync.
+    void recheck_for_channel();
+
+#ifdef __ANDROID__
+    /**
+     * @brief On a Play install, report what Google Play will serve instead of the manifest
+     *
+     * @param manifest The fetched manifest release (empty version if the fetch failed)
+     * @param manifest_error Why the manifest fetch failed (empty on success)
+     * @return true if the check was reported here; false for a non-Play install,
+     *         whose manifest result the caller reports as usual
+     */
+    bool report_play_verdict(ReleaseInfo manifest, const std::string& manifest_error);
+#endif
+
+    void init_subjects();
+
+    // State (protected by mutex_)
+    std::atomic<Status> status_{Status::Idle};
+    std::optional<ReleaseInfo> cached_info_;
+    std::string error_message_;
+    mutable std::mutex mutex_;
+
+    // Rate limiting
+    std::chrono::steady_clock::time_point last_check_time_{};
+    static constexpr auto kMinCheckInterval = std::chrono::minutes{10};
+
+    // Threading
+    std::thread worker_thread_;
+    std::atomic<bool> cancelled_{false};
+    std::atomic<bool> shutting_down_{false};
+    /// Bumped by each moonraker.conf sync and by detach(), so an in-flight sync
+    /// yields to a newer one and abandons a printer it was detached from.
+    std::atomic<uint64_t> moonraker_sync_generation_{0};
+    std::atomic<bool> initialized_{false};
+    Callback pending_callback_;
+
+    // Channel cached on main thread before worker spawns (Config is not thread-safe).
+    // These are written ONCE in check_for_updates() before the worker is spawned,
+    // which is the only thing that makes the worker's UNLOCKED reads of them
+    // (do_check(), get_r2_base_url()) safe. Never write them anywhere else — a
+    // refresh from the main thread would race an in-flight worker.
+    UpdateChannel cached_channel_{UpdateChannel::Stable};
+    std::string cached_dev_url_;
+    std::string cached_r2_base_url_;
+
+    // Diagnostics-only mirror of the two Config-derived values above, deliberately
+    // SEPARATE from cached_* so it can be refreshed at any time on the main thread
+    // without racing a running check. Written and read only under mutex_; no worker
+    // thread ever touches it.
+    ConfigSnapshot config_snapshot_;
+
+    // LVGL subjects for UI binding (update check)
+    lv_subject_t status_subject_{};
+    lv_subject_t version_text_subject_{};
+    lv_subject_t new_version_subject_{};
+
+    // String buffers for string subjects (must outlive subjects)
+    char version_text_buf_[256]{};
+    char new_version_buf_[64]{};
+
+    // What update_version_text shows, kept untranslated so a language switch
+    // can render it again. Main thread only.
+    struct ShownVersionText {
+        Status status = Status::Idle;
+        std::string version;
+        bool is_downgrade = false;
+        std::string error;
+        /// Error only: the release named by `version` has no build for this board.
+        /// The text is composed at render time, where lv_tr is safe.
+        bool no_build_for_board = false;
+    };
+    ShownVersionText shown_{};
+    void render_version_text();
+
+    // Download state
+    std::atomic<DownloadStatus> download_status_{DownloadStatus::Idle};
+    std::atomic<int> download_progress_{0};
+    std::string download_error_;
+    std::thread download_thread_;
+    std::atomic<bool> download_cancelled_{false};
+    /// True from just before the worker is spawned until its body returns.
+    /// The re-entry guard and the shutdown reap both key off this rather than
+    /// download_status_, which a cancel resets to Idle under a live worker.
+    std::atomic<bool> download_worker_active_{false};
+    /// Latched by perform_update_restart() so the marshalled LVGL-thread call
+    /// and the worker's backstop cannot both fork+exec.
+    std::atomic<bool> restart_initiated_{false};
+    /// How long each terminal frame is held so the LVGL thread can paint it.
+    /// update_download_modal.xml documents 2s on Complete, then 1s on
+    /// Restarting. Members rather than constants so tests need not wait 3s.
+    uint32_t complete_hold_ms_{2000};
+    uint32_t restart_hold_ms_{1000};
+    /// Test-only stand-in for the fork/exec + ::_exit(0) in
+    /// perform_update_restart(). Never set in production; the only writer is
+    /// UpdateCheckerTestAccess.
+    std::function<void()> restart_action_;
+
+    // Download LVGL subjects
+    lv_subject_t download_status_subject_{};
+    lv_subject_t download_progress_subject_{};
+    lv_subject_t download_text_subject_{};
+    char download_text_buf_[256]{};
+
+    // Download internals
+    void do_download();
+    void do_install(const std::string& tarball_path);
+
+    /**
+     * @brief Publish the terminal frames, then hand the restart to the LVGL thread.
+     *
+     * Runs on the download worker, at the tail of a successful do_install().
+     * report_download_status() only QUEUES its subject writes, so calling
+     * ::_exit(0) from here leaves the last painted frame at "Installing... Do
+     * not power off your printer." Holding between the writes lets the LVGL
+     * thread render them, and the exit itself is marshalled the way
+     * Application defers handle_external_update_complete().
+     *
+     * Split out of do_install() so the ordering is unit-testable — do_install()
+     * itself runs install.sh and cannot be.
+     */
+    void finish_install_and_restart(const std::string& install_root, const std::string& version);
+
+    /**
+     * @brief Restart into the newly installed binary. Does not return.
+     *
+     * Once-only: the marshalled LVGL-thread call and the worker's backstop both
+     * reach it, and only the first may fork/exec.
+     */
+    void perform_update_restart(const std::string& install_root);
+
+    /// Bounded wait for the download worker, then join or detach.
+    /// @see the implementation for why detaching is the only option available.
+    void reap_download_thread(std::chrono::milliseconds wait);
+
+    /** @brief Validate downloaded tarball contains binary for correct architecture */
+    bool validate_elf_architecture(const std::string& tarball_path);
+
+    /// Cancel the auto-check timer without logging. Split out of stop_auto_check()
+    /// so the destructor can share it — spdlog may already be gone by then.
+    void cancel_auto_check_timer();
+
+    // Auto-check timer
+    lv_timer_t* auto_check_timer_{nullptr};
+
+    // Notification modal
+    lv_obj_t* notify_modal_{nullptr};
+
+    // Notification subjects
+    lv_subject_t release_notes_subject_{};
+    lv_subject_t changelog_visible_subject_{};
+    char release_notes_buf_[2048]{};
+
+    SubjectManager subjects_;
+    bool subjects_initialized_{false};
+
+    /// Expires the status/progress callbacks queued from the check and download
+    /// worker threads. Declared after `subjects_` so reverse-order member
+    /// destruction invalidates it before the subjects it protects; also
+    /// invalidated by shutdown(), which is where this class tears its subjects
+    /// down (it has no deinit_subjects()). The in-lambda `subjects_initialized_`
+    /// tests are not a substitute — reading that flag is itself a member access
+    /// on a possibly-freed `this` (#1165, #1146).
+    helix::AsyncLifetimeGuard async_lifetime_;
+};
+
+/**
+ * @brief Parse a GitHub release API response into ReleaseInfo
+ *
+ * Declared in the header so the asset-selection rule — a platform key must
+ * anchor its tarball exactly, so k1 never selects the k1-dynamic asset whose
+ * name carries the k1 prefix — is unit-tested against the shipped function
+ * rather than a local twin of it.
+ *
+ * @param json_str GitHub releases API response body
+ * @param info Parsed release info; download_url stays empty when no asset
+ *             matches this build's platform (never a wrong-platform fallback)
+ * @param error Failure reason when the response is not a valid release
+ * @return true when the release parsed to a usable version
+ */
+namespace helix {
+bool parse_github_release(const std::string& json_str, UpdateChecker::ReleaseInfo& info,
+                          std::string& error);
+
+/// parse_github_release() for a build whose asset may sit under any of
+/// @p asset_keys, tried in order (helix::platform::release_asset_keys()).
+bool parse_github_release(const std::string& json_str, UpdateChecker::ReleaseInfo& info,
+                          std::string& error, const std::vector<std::string>& asset_keys);
+
+/**
+ * @brief Parse a release manifest (R2 and dev channel schema) into ReleaseInfo
+ *
+ * The asset is the entry under the first of @p asset_keys the manifest lists.
+ * A manifest listing none of them parses like a GitHub release with no matching
+ * asset: the version is filled in and download_url stays empty (see
+ * release_has_build_for_this_board()).
+ *
+ * @param json_str Manifest body
+ * @param info Parsed release info, download URLs included on success
+ * @param error Failure reason
+ * @param asset_keys Keys this build's asset may sit under, best match first
+ * @return true when the manifest names a version
+ */
+bool parse_release_manifest(const std::string& json_str, UpdateChecker::ReleaseInfo& info,
+                            std::string& error, const std::vector<std::string>& asset_keys);
+
+/// True when @p info carries a download under one of @p asset_keys, or the build has
+/// no asset keys at all (an Android APK updates outside the release assets). A release
+/// without one cannot be installed here, and borrowing another board's asset would
+/// brick it.
+bool release_has_build_for(const UpdateChecker::ReleaseInfo& info,
+                           const std::vector<std::string>& asset_keys);
+
+/// release_has_build_for() with this build's helix::platform::release_asset_keys().
+bool release_has_build_for_this_board(const UpdateChecker::ReleaseInfo& info);
+
+/// The refusal shown for release @p version when it has no download for @p board_name
+/// ("FlashForge Creator 5"). Translated with lv_tr, so main thread only.
+std::string no_build_message(const std::string& version, const std::string& board_name);
+
+/// What a check that fetched @p info concludes on a build at @p installed. A newer or
+/// older release with no download for this board is an Error, the same version is
+/// UpToDate whether or not it has one.
+struct CheckOutcome {
+    UpdateChecker::Status status = UpdateChecker::Status::UpToDate;
+    bool is_downgrade = false; ///< UpdateAvailable only: the channel is behind the install
+};
+CheckOutcome decide_check_outcome(const std::string& installed,
+                                  const UpdateChecker::ReleaseInfo& info);
+
+/// decide_check_outcome() for a build whose asset may sit under any of @p asset_keys.
+CheckOutcome decide_check_outcome(const std::string& installed,
+                                  const UpdateChecker::ReleaseInfo& info,
+                                  const std::vector<std::string>& asset_keys);
+
+/**
+ * @brief Strip a leading 'v' or 'V' from a GitHub release tag
+ *
+ * GitHub releases are tagged "v1.2.3" but version comparison needs "1.2.3".
+ * Declared in the header so the rule is unit-tested against the shipped
+ * function rather than a local twin of it.
+ *
+ * @param tag Release tag as GitHub serves it
+ * @return The tag without its version prefix
+ */
+std::string strip_version_prefix(const std::string& tag);
+} // namespace helix

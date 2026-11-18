@@ -1,0 +1,110 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Safety & Alerts Settings Overlay Panel -->
+<!-- E-Stop confirmation, cancel escalation, escalation timeout, print completion alert -->
+<component>
+  <view name="settings_safety_overlay" extends="overlay_panel" title="Safety &amp; Alerts" bg_color="#screen_bg"
+        title_font="#font_body">
+    <!-- Content Area - no padding, rows handle their own -->
+    <lv_obj name="overlay_content"
+            width="100%" flex_grow="1" style_pad_top="0" style_pad_left="0" style_pad_right="0"
+            style_pad_bottom="#space_lg" scrollable="true" flex_flow="column">
+      <!-- All safety settings live in a single grouped-list card (no section
+           headers in this overlay); the card owns the horizontal inset. -->
+      <setting_group name="group_safety">
+        <!-- ================================================================== -->
+        <!-- E-STOP CONFIRMATION -->
+        <!-- ================================================================== -->
+        <setting_toggle_row name="row_estop_confirm"
+                            label="E-Stop Confirmation" icon="alert_octagon"
+                            description="Require confirmation before emergency stop" subject="settings_estop_confirm"
+                            callback="on_estop_confirm_changed"/>
+        <!-- ================================================================== -->
+        <!-- CANCEL ESCALATION -->
+        <!-- ================================================================== -->
+        <setting_toggle_row name="row_cancel_escalation"
+                            label="Cancel Escalation" icon="alert_octagon"
+                            description="Escalate to emergency stop if cancel doesn't respond"
+                            subject="settings_cancel_escalation_enabled" callback="on_cancel_escalation_changed"/>
+        <!-- ================================================================== -->
+        <!-- CANCEL ESCALATION TIMEOUT (visible only when escalation enabled) -->
+        <!-- ================================================================== -->
+        <lv_obj name="container_cancel_escalation_timeout" width="100%" style_pad_all="0" scrollable="false">
+          <bind_flag_if_eq subject="settings_cancel_escalation_enabled" flag="hidden" ref_value="0"/>
+          <setting_dropdown_row name="row_cancel_escalation_timeout"
+                                label="Escalation Timeout" icon="clock"
+                                description="Time to wait before escalating to emergency stop"
+                                options="15 seconds&#10;30 seconds&#10;60 seconds&#10;120 seconds"
+                                options_tag="15 seconds&#10;30 seconds&#10;60 seconds&#10;120 seconds"
+                                bind_selected="settings_cancel_escalation_timeout"
+                                callback="on_cancel_escalation_timeout_changed"/>
+        </lv_obj>
+        <!-- ================================================================== -->
+        <!-- MACRO RUN CONFIRMATION -->
+        <!-- ================================================================== -->
+        <setting_toggle_row name="row_macro_confirm"
+                            label="Confirm before running macros" icon="script_text"
+                            description="Show a confirmation dialog when tapping a macro"
+                            subject="settings_macro_confirm" callback="on_macro_confirm_changed"/>
+        <!-- ================================================================== -->
+        <!-- SPAGHETTI DETECTION (only when a detection source is capable) -->
+        <!-- ================================================================== -->
+        <lv_obj name="container_detection" width="100%" style_pad_all="0" scrollable="false" flex_flow="column">
+          <bind_flag_if_eq subject="detection_available" flag="hidden" ref_value="0"/>
+          <setting_toggle_row name="row_detection_enabled"
+                              label="Spaghetti Detection" icon="eye"
+                              description="Watch the camera during a print for failed prints"
+                              subject="detection_enabled" callback="on_detection_enabled_changed"/>
+          <!-- Firmware-pausing sources ignore this setting (the pause already
+               happened), so the row only shows when HelixScreen does the pausing. -->
+          <lv_obj name="container_detection_pause" width="100%" style_pad_all="0" scrollable="false" flex_flow="column">
+            <bind_flag_if_eq subject="detection_pause_applicable" flag="hidden" ref_value="0"/>
+            <setting_toggle_row name="row_detection_pause"
+                                label="Pause on Detection" icon="pause"
+                                description="Pause the print when a failure is seen (off = warn only)"
+                                subject="detection_pause_on_detect" disabled="detection_enabled" disabled_ref_value="0"
+                                callback="on_detection_pause_changed"/>
+          </lv_obj>
+        </lv_obj>
+        <!-- ================================================================== -->
+        <!-- BED CLEAR CHECK (only when the printer has a switchable camera bed check) -->
+        <!-- ================================================================== -->
+        <lv_obj name="container_bed_check" width="100%" style_pad_all="0" scrollable="false" flex_flow="column">
+          <bind_flag_if_eq subject="detection_bed_check_available" flag="hidden" ref_value="0"/>
+          <setting_toggle_row name="row_bed_check"
+                              label="Bed Clear Check" icon="train_flatbed"
+                              description="Camera checks the bed is empty before each print"
+                              subject="detection_bed_check_enabled" callback="on_bed_check_changed"
+                              disabled="detection_bed_check_switchable" disabled_ref_value="0"/>
+        </lv_obj>
+        <!-- ================================================================== -->
+        <!-- SLICER PRINTS THAT DO NOT FIT: the plugin's fit_check_blocks_autostart -->
+        <!-- ================================================================== -->
+        <plugin_feature_toggle_row name="row_fit_check_blocks_autostart"
+                                   feature="fit_check_blocks_autostart" label="Hold slicer prints that do not fit"
+                                   icon="ruler"
+                                   description="When a slicer uploads and starts a file that moves past this printer's travel, heats past its limits or uses a missing tool, keep the file but do not start it."
+                                   subject="plugin_feature_on_fit_check_blocks_autostart"
+                                   callback="on_plugin_feature_switch_changed"/>
+        <!-- ================================================================== -->
+        <!-- PRINT COMPLETION ALERT -->
+        <!-- ================================================================== -->
+        <setting_dropdown_row name="row_completion_alert" row_flow="row_wrap" dropdown_width="100%"
+                              label="Print Completion Alert" icon="notifications"
+                              description="Notify when print finishes" options="Off&#10;Notification&#10;Alert"
+                              options_tag="Off&#10;Notification&#10;Alert" bind_selected="settings_completion_alert"
+                              callback="on_completion_alert_changed"/>
+        <!-- ================================================================== -->
+        <!-- MINIMUM TOAST SEVERITY (#1213) -->
+        <!-- ================================================================== -->
+        <setting_dropdown_row name="row_min_toast_severity"
+                              label="On-screen Alerts" icon="message"
+                              description="Lowest notification level that interrupts with a toast"
+                              options="All&#10;Warnings &amp; errors&#10;Errors only"
+                              options_tag="All&#10;Warnings &amp; errors&#10;Errors only"
+                              bind_selected="settings_min_toast_severity" callback="on_min_toast_severity_changed"/>
+      </setting_group>
+    </lv_obj>
+  </view>
+</component>

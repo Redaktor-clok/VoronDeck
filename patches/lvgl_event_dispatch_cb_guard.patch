@@ -1,0 +1,111 @@
+diff --git a/src/core/lv_obj_event.c b/src/core/lv_obj_event.c
+index 49d7e8785..de842cef7 100644
+--- a/src/core/lv_obj_event.c
++++ b/src/core/lv_obj_event.c
+@@ -20,6 +20,12 @@ __attribute__((weak)) extern void helix_crash_note_event(const void * target,
+                                                           const void * original_target,
+                                                           unsigned int code);
+ 
++/* HelixScreen 3XNZQB2R: pair the bare-pointer event hook with widget
++ * identity (class name + object name) for crash diagnosis. Weak so
++ * non-helixscreen builds (splash/watchdog/tests) link without it. */
++__attribute__((weak)) extern void helix_crash_note_event_target_id(const char * class_name,
++                                                                    const char * obj_name);
++
+ /*********************
+  *      DEFINES
+  *********************/
+@@ -371,6 +377,17 @@ static lv_result_t event_send_core(lv_event_t * e)
+ 
+     /* HelixScreen: record innermost dispatch target for crash diagnosis. */
+     if(helix_crash_note_event) helix_crash_note_event(e->current_target, e->original_target, (unsigned int)e->code);
++    /* HelixScreen 3XNZQB2R: pair the bare-pointer hook with widget identity
++     * so the crash report can name the widget instead of just hex pointer. */
++    if(helix_crash_note_event_target_id && e->current_target) {
++        lv_obj_t * _hx_t = (lv_obj_t *)e->current_target;
++        const char * _hx_cls = (_hx_t->class_p != NULL) ? _hx_t->class_p->name : NULL;
++        const char * _hx_nm = NULL;
++#if LV_USE_OBJ_NAME
++        if(_hx_t->spec_attr != NULL) _hx_nm = _hx_t->spec_attr->name;
++#endif
++        helix_crash_note_event_target_id(_hx_cls, _hx_nm);
++    }
+ 
+     lv_indev_t * indev_act = lv_indev_active();
+     if(indev_act) {
+diff --git a/src/misc/lv_event.c b/src/misc/lv_event.c
+index 12133463f..80c696a58 100644
+--- a/src/misc/lv_event.c
++++ b/src/misc/lv_event.c
+@@ -15,6 +15,12 @@
+  * to TelemetryManager with a hex backtrace. Weak so unit tests link without it. */
+ extern void helix_lvgl_anomaly(const char * code, const char * context) __attribute__((weak));
+ 
++/* HelixScreen: bridge to the binary's text segment bounds, populated by
++ * crash_handler::install(). Used by the dispatch-cb gate below to detect a
++ * corrupted dsc->cb pointer (heap address instead of text). Weak so non-
++ * helixscreen builds (splash/watchdog/tests) link without it. */
++extern int helix_get_text_bounds(unsigned long * lo, unsigned long * hi) __attribute__((weak));
++
+ /*********************
+  *      DEFINES
+  *********************/
+@@ -191,6 +197,19 @@ lv_result_t lv_event_send(lv_event_list_t * list, lv_event_t * e, bool preproces
+     const uint32_t size = event_array_size(list);
+     for(uint32_t i = 0; i < size && !e->deleted; i++) {
+         lv_event_dsc_t * dsc = *event_array_at(list, i);
++        /* HelixScreen: a torn (NULL) list entry has to surface as an anomaly
++         * naming the widget and slot rather than a fault at address 0. Skip
++         * it so the remaining callbacks still run. This treats the symptom;
++         * whatever corrupted the list is not addressed here. */
++        if(dsc == NULL) {
++            if(helix_lvgl_anomaly) {
++                char ctx[96];
++                snprintf(ctx, sizeof(ctx), "obj=%p i=%u code=%d",
++                         (void *)e->current_target, (unsigned)i, (int)e->code);
++                helix_lvgl_anomaly("event_dsc_null", ctx);
++            }
++            continue;
++        }
+         if(dsc->cb == NULL) continue;
+         if(event_is_marked_deleting(dsc)) continue;
+         const bool is_preprocessed = (dsc->filter & LV_EVENT_PREPROCESS) != 0;
+@@ -201,7 +220,37 @@ lv_result_t lv_event_send(lv_event_list_t * list, lv_event_t * e, bool preproces
+ #if LV_USE_EXT_DATA
+             e->ext_data.data = dsc->ext_data.data;
+ #endif
+-            dsc->cb(e);
++            /* HelixScreen: gate dsc->cb against the binary's text segment.
++             * Bundle 3XNZQB2R crashed at the call below via R3==PC indirect
++             * call to a heap address — the per-widget event_dsc_t->cb slot
++             * was corrupted to a non-text pointer (cluster:pstat-async-delete
++             * sub-signature, distinct from the global event_stack surface
++             * v0.99.55-v0.99.56 structurally fixed). Convert the crash into
++             * a recoverable anomaly: if cb is outside [text_lo, text_hi),
++             * report + skip. Snapshot dsc->cb once so a concurrent bg-thread
++             * write between the bounds check and the call can't slip a bad
++             * pointer past the gate. Bounds-check is best-effort:
++             * helix_get_text_bounds() returns 0 during early init before
++             * crash_handler::install() runs — falls back to "no check" then,
++             * which is fine because the corruption is a runtime mutation. */
++            lv_event_cb_t cb_snap = dsc->cb;
++            {
++                unsigned long _hx_lo = 0, _hx_hi = 0;
++                if(helix_get_text_bounds && helix_get_text_bounds(&_hx_lo, &_hx_hi) &&
++                   ((unsigned long)(uintptr_t)cb_snap < _hx_lo ||
++                    (unsigned long)(uintptr_t)cb_snap >= _hx_hi)) {
++                    if(helix_lvgl_anomaly) {
++                        char ctx[160];
++                        snprintf(ctx, sizeof(ctx),
++                                 "obj=%p cb=%p dsc=%p i=%u code=%d",
++                                 (void *)e->current_target, (void *)cb_snap,
++                                 (void *)dsc, (unsigned)i, (int)e->code);
++                        helix_lvgl_anomaly("event_dsc_cb_oob", ctx);
++                    }
++                    continue;
++                }
++            }
++            cb_snap(e);
+             if(e->stop_processing) break;
+ 
+             /*Stop if the object is deleted*/

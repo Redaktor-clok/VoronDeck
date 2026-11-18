@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <!-- Full-screen backdrop overlay - tap to dismiss -->
+  <view name="context_backdrop" extends="context_menu_backdrop">
+    <!-- Context menu card - positioned by C++ -->
+    <context_menu_card title="Select Fan" pad_gap="#space_xs">
+      <!-- Fan rows populated dynamically by C++ -->
+      <!-- max_height set dynamically by C++ to ~2/3 screen height -->
+      <lv_obj name="fan_list"
+              width="100%" height="content" flex_flow="column" style_pad_all="#space_xs" style_pad_gap="0"
+              scrollable="true"/>
+    </context_menu_card>
+  </view>
+</component>

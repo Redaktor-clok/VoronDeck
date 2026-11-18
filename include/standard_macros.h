@@ -1,0 +1,544 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file standard_macros.h
+ * @brief Unified registry for mapping semantic operations to printer macros
+ *
+ * The StandardMacros system provides:
+ * - Semantic macro slots (Load Filament, Pause, Clean Nozzle, etc.)
+ * - Auto-detection from printer via naming patterns
+ * - Fallback to HELIX_* helper macros when printer doesn't have its own
+ * - User configuration via Settings overlay
+ * - Graceful handling of empty slots
+ *
+ * @pattern Singleton with priority-based resolution
+ * @threading Main thread only (not thread-safe)
+ */
+
+#pragma once
+
+#include "ui_observer_guard.h" // SubjectLifetime
+
+#include "bed_mesh_probe_temp.h"
+#include "subject_managed_panel.h" // SubjectManager
+
+#include <functional>
+#include <lvgl.h>
+#include <map>
+#include <optional>
+#include <string>
+#include <vector>
+
+// Forward declarations
+namespace helix {
+class IMoonrakerAPI;
+}
+struct MoonrakerError;
+
+namespace helix {
+class PrinterDiscovery;
+}
+
+/**
+ * @brief Standard macro slot identifiers
+ *
+ * These represent semantic operations that can be mapped to printer-specific macros.
+ */
+enum class StandardMacroSlot {
+    LoadFilament,   ///< Load filament into toolhead
+    UnloadFilament, ///< Unload filament from toolhead
+    Purge,          ///< Purge/prime nozzle
+    Pause,          ///< Pause current print
+    Resume,         ///< Resume paused print
+    Cancel,         ///< Cancel current print
+    BedMesh,        ///< Bed mesh calibration (BED_MESH_CALIBRATE/G29)
+    BedLevel,       ///< Physical bed leveling (QGL/Z-Tilt)
+    ScrewsTilt,     ///< Manual bed screw guidance (SCREWS_TILT_CALCULATE)
+    CleanNozzle,    ///< Nozzle cleaning/wiping
+    HeatSoak,       ///< Chamber/bed heat soak
+    ParkToolhead,   ///< Park the toolhead (machine-specific park position)
+
+    COUNT ///< Number of slots (for iteration)
+};
+
+/**
+ * @brief Source of the macro assignment for a slot
+ */
+enum class MacroSource {
+    NONE,       ///< No macro assigned
+    CONFIGURED, ///< User explicitly configured in Settings
+    SHIPPED,    ///< Sequence the printer database ships for this printer
+    DETECTED,   ///< Auto-detected from printer
+    FALLBACK    ///< Using HELIX_* fallback macro
+};
+
+/**
+ * @brief Information about a standard macro slot
+ *
+ * Contains the slot's identity, current assignment, and resolution details.
+ */
+struct StandardMacroInfo {
+    StandardMacroSlot slot; ///< The slot enum value
+
+    std::string slot_name;    ///< Machine name: "load_filament"
+    std::string display_name; ///< English key for translation: "Load Filament"
+
+    /// @brief Get translated display name for current locale
+    [[nodiscard]] const char* translated_name() const;
+
+    std::string configured_macro; ///< User override the printer defines (or empty)
+
+    /**
+     * @brief The sequence the printer database ships for this printer (or empty).
+     *
+     * Outranks detection because it is hand-authored for one machine and
+     * detection is not: detection matches a name and stops, with no way to know
+     * which parameters that machine's macro needs or what it already prepares.
+     *
+     * Unlike the other three this may be a multi-line SCRIPT rather than a macro
+     * name — printers need a sequence more often than they need a rename. It may
+     * contain the placeholders MacroScriptValues names; resolve_macro_script()
+     * substitutes them.
+     */
+    std::string shipped_macro;
+
+    /**
+     * @brief The shipped sequence heats, homes and prepares the probe itself.
+     *
+     * Data from the printer database, never implied by the tier: a sequence
+     * authored for one machine may still expect the app's preparation ahead of
+     * it. Consulted only while shipped_macro wins.
+     */
+    bool shipped_self_prepares = false;
+
+    std::string detected_macro; ///< Auto-detected (or empty)
+    std::string fallback_macro; ///< HELIX_* fallback (or empty)
+
+    /**
+     * @brief The user's configured macro when the connected printer has no such
+     *        gcode_macro.
+     *
+     * StandardMacros::init() moves an unverifiable name out of
+     * `configured_macro` and into here, so is_empty() / get_macro() /
+     * get_source() answer as though the slot were unconfigured: dispatch falls
+     * through to the detected macro, the HELIX fallback, or the caller's own
+     * fallback path instead of sending a command Klipper will reject.
+     *
+     * The name is kept rather than dropped for two reasons — save_to_config()
+     * round-trips the user's choice (the printer may just be mid-restart), and
+     * the UI can distinguish "you configured this and it is broken" from
+     * "nothing is assigned here".
+     */
+    std::string missing_macro;
+
+    /**
+     * @brief Did the user configure a macro this printer does not define?
+     * @return true when the configured name was demoted by init()
+     */
+    [[nodiscard]] bool has_missing_macro() const {
+        return !missing_macro.empty();
+    }
+
+    /**
+     * @brief The macro name the user asked for, whether or not it resolves.
+     *
+     * Settings shows this so a demoted slot still displays what was chosen.
+     */
+    [[nodiscard]] const std::string& requested_macro() const {
+        return configured_macro.empty() ? missing_macro : configured_macro;
+    }
+
+    /**
+     * @brief Check if this slot has no usable macro
+     * @return true if all three sources are empty
+     */
+    [[nodiscard]] bool is_empty() const {
+        return configured_macro.empty() && shipped_macro.empty() && detected_macro.empty() &&
+               fallback_macro.empty();
+    }
+
+    /**
+     * @brief Get the resolved macro name
+     *
+     * Priority: configured > shipped > detected > fallback
+     *
+     * The user's explicit choice wins over everything, including a sequence we
+     * ship: a printer whose stock macro is wrong is exactly why the override
+     * exists. Below that, specific beats general.
+     *
+     * @return First non-empty macro name or script, or empty string if none
+     */
+    [[nodiscard]] std::string get_macro() const {
+        if (!configured_macro.empty())
+            return configured_macro;
+        if (!shipped_macro.empty())
+            return shipped_macro;
+        if (!detected_macro.empty())
+            return detected_macro;
+        return fallback_macro;
+    }
+
+    /**
+     * @brief Get the source of the current macro assignment
+     * @return The MacroSource indicating where the macro came from
+     */
+    [[nodiscard]] MacroSource get_source() const {
+        if (!configured_macro.empty())
+            return MacroSource::CONFIGURED;
+        if (!shipped_macro.empty())
+            return MacroSource::SHIPPED;
+        if (!detected_macro.empty())
+            return MacroSource::DETECTED;
+        if (!fallback_macro.empty())
+            return MacroSource::FALLBACK;
+        return MacroSource::NONE;
+    }
+};
+
+namespace helix {
+
+/// Values a shipped sequence may reference by placeholder.
+struct MacroScriptValues {
+    /// Replaces `{profile_arg}`: the bed mesh profile argument with its leading
+    /// space (` PROFILE=cold`), or empty to leave the firmware's default profile.
+    std::string profile_arg;
+
+    /// Replaces `{bed_temp}`, in whole degrees C: the bed temperature to probe at.
+    int bed_temp_c = bed_mesh::kDefaultProbeBedTempC;
+
+    /// Replaces `{screws_tilt_builtin}`: Klipper's SCREWS_TILT_CALCULATE under the
+    /// name a wrapper renamed it to. Empty when nothing wraps it, and then a shipped
+    /// sequence naming the placeholder gives way to the next tier.
+    std::string screws_tilt_builtin;
+};
+
+/// A slot resolved into something runnable.
+struct ResolvedMacroScript {
+    /// The winning macro name or sequence, with its placeholders substituted.
+    std::string script;
+
+    /// The script prepares the machine itself, so a caller that would otherwise
+    /// heat, home or prepend preparation gcode must not. True only when the
+    /// shipped tier won and its database entry says so
+    /// (StandardMacroInfo::shipped_self_prepares): the name-based skip rules
+    /// cannot recognise a script.
+    bool self_prepares = false;
+
+    /// The script marks where a profile argument goes, so whatever it stores lands
+    /// in the profile the caller named.
+    bool takes_profile_arg = false;
+
+    /// The shipped tier won: a sequence authored for this printer, every command of
+    /// which is meant to exist.
+    bool shipped = false;
+};
+
+/**
+ * @brief Resolve @p info into a runnable script.
+ *
+ * The priority is StandardMacroInfo::get_macro()'s; this adds the two things a
+ * caller would otherwise open-code, and get subtly different from the next
+ * caller: substituting placeholders, and deciding whether the winner brings its
+ * own preparation.
+ *
+ * @param info    The slot to resolve.
+ * @param values  What each placeholder is replaced with, wherever it appears.
+ * @param accept_fallback Whether the HELIX_* fallback tier may win. Pass false
+ *        from a caller whose operation must happen unconditionally: the
+ *        fallbacks are "if needed" macros (HELIX_BED_MESH_IF_NEEDED reports
+ *        "using existing mesh" and returns without probing), which is right at
+ *        print start and wrong for a button that means "do it now".
+ */
+[[nodiscard]] ResolvedMacroScript resolve_macro_script(const StandardMacroInfo& info,
+                                                       const helix::MacroScriptValues& values,
+                                                       bool accept_fallback = true);
+
+} // namespace helix
+
+/**
+ * @brief Unified registry for standard macro operations (singleton)
+ *
+ * Maps semantic operations (Load Filament, Pause, etc.) to printer-specific
+ * G-code macros using a priority-based resolution system:
+ *
+ * 1. User configured - Explicit selection in Settings
+ * 2. Auto-detected - Found on printer via pattern matching
+ * 3. HELIX fallback - HelixScreen's helper macro (if available)
+ * 4. Empty - No macro; functionality disabled
+ *
+ * @code
+ * // Initialize after printer discovery
+ * StandardMacros::instance().init(capabilities);
+ *
+ * // Execute a macro
+ * StandardMacros::instance().execute(
+ *     StandardMacroSlot::LoadFilament, api,
+ *     []() { spdlog::info("Loading..."); },
+ *     [](const auto& err) { spdlog::error("Failed: {}", err.message); }
+ * );
+ *
+ * // Check if slot is available
+ * if (!StandardMacros::instance().get(StandardMacroSlot::CleanNozzle).is_empty()) {
+ *     // Show clean nozzle button
+ * }
+ * @endcode
+ */
+class StandardMacros {
+  public:
+    using SuccessCallback = std::function<void()>;
+    using ErrorCallback = std::function<void(const MoonrakerError&)>;
+
+    /**
+     * @brief Get singleton instance
+     * @return Reference to global StandardMacros instance
+     */
+    static StandardMacros& instance();
+
+    // Non-copyable
+    StandardMacros(const StandardMacros&) = delete;
+    StandardMacros& operator=(const StandardMacros&) = delete;
+
+    /**
+     * @brief Initialize with hardware discovery
+     *
+     * Call this after printer discovery to enable auto-detection.
+     * Loads user config and runs pattern matching on available macros.
+     *
+     * @param hardware Hardware discovery with discovered macros
+     * @param printer_type Printer database key, for the shipped-sequence tier.
+     *        Empty simply leaves that tier unfilled, which is what a test with
+     *        no database wants.
+     */
+    void init(const helix::PrinterDiscovery& hardware, const std::string& printer_type = "");
+
+    // ========================================================================
+    // Observability
+    // ========================================================================
+
+    /**
+     * @brief Initialize the subjects this registry publishes
+     *
+     * Called from SubjectInitializer before any XML is instantiated. Separate
+     * from init(): the resolution table exists from construction, but LVGL is
+     * not up yet at that point.
+     *
+     * @param register_xml Expose the subjects under their XML names
+     */
+    void init_subjects(bool register_xml = true);
+
+    /// @brief Tear down the subjects; self-registered with StaticSubjectRegistry.
+    void deinit_subjects();
+
+    /**
+     * @brief Death signal for the subjects this singleton owns.
+     *
+     * Observers outside StandardMacros MUST pass this to observe_*().
+     * deinit_subjects() frees every observer node on these subjects, so a guard
+     * without the token dereferences freed memory on its next reset().
+     */
+    [[nodiscard]] SubjectLifetime get_subjects_lifetime() const {
+        return subjects_.get_subjects_lifetime();
+    }
+
+    /**
+     * @brief Monotonic counter bumped whenever slot resolution changes
+     *
+     * Which macros a printer has is not fixed: a Klipper restart or a config
+     * change adds and removes gcode_macros under a live UI, and every init()
+     * re-runs detection and re-validates the configured names against the new
+     * list. Surfaces that render slot availability observe this instead of
+     * sampling once at panel build.
+     */
+    lv_subject_t* get_macros_version_subject() {
+        return &macros_version_;
+    }
+
+    /**
+     * @brief Reset to uninitialized state
+     *
+     * Clears all detected macros. User config is preserved.
+     * Call init() again after reconnecting to printer.
+     */
+    void reset();
+
+    /**
+     * @brief Check if initialized
+     * @return true if init() has been called
+     */
+    [[nodiscard]] bool is_initialized() const {
+        return initialized_;
+    }
+
+    // ========================================================================
+    // Slot Access
+    // ========================================================================
+
+    /**
+     * @brief Get info for a specific slot
+     * @param slot The slot to query
+     * @return Reference to slot info (valid until next init/reset)
+     */
+    [[nodiscard]] const StandardMacroInfo& get(StandardMacroSlot slot) const;
+
+    /**
+     * @brief Get all slot infos
+     *
+     * Returns slots in enum order. Useful for UI listing.
+     *
+     * @return Vector of all slot infos
+     */
+    [[nodiscard]] const std::vector<StandardMacroInfo>& all() const {
+        return slots_;
+    }
+
+    /**
+     * @brief Did the user hand-assign a macro for this slot that the printer defines?
+     *
+     * The capability layer's question, answered here because this is the module
+     * that owns the user's assignment. Name-pattern detection is only one way a
+     * printer can have (say) a nozzle-clean macro; the other is the user pointing
+     * `/standard_macros/clean_nozzle` at whatever their macro is actually called.
+     * A capability resolved from detection alone reads false for those printers
+     * even though every button driven off the slot works (#1354).
+     *
+     * The printer's own macro list is re-checked here rather than trusting
+     * `configured_macro` to have been validated: init() demotes an unresolvable
+     * name into missing_macro, but set_macro() and load_from_config() both write
+     * configured_macro without consulting hardware, so the check must not depend
+     * on when it is asked relative to init().
+     *
+     * @param slot The slot to query
+     * @param hardware Discovery for the printer the answer is about
+     * @return true when the configured macro for @p slot exists on @p hardware
+     */
+    [[nodiscard]] bool has_configured_macro(StandardMacroSlot slot,
+                                            const helix::PrinterDiscovery& hardware) const;
+
+    /**
+     * @brief Get slot enum from slot name
+     * @param name Slot name (e.g., "load_filament")
+     * @return Slot enum, or nullopt if not found
+     */
+    [[nodiscard]] static std::optional<StandardMacroSlot> slot_from_name(const std::string& name);
+
+    /**
+     * @brief Get slot name from enum
+     * @param slot The slot enum
+     * @return Slot name string
+     */
+    [[nodiscard]] static std::string slot_to_name(StandardMacroSlot slot);
+
+    // ========================================================================
+    // Configuration
+    // ========================================================================
+
+    /**
+     * @brief Set user-configured macro for a slot
+     *
+     * Pass empty string to clear configuration and use auto-detection.
+     * Automatically saves to config file.
+     *
+     * @param slot The slot to configure
+     * @param macro Macro name, or empty to clear
+     */
+    void set_macro(StandardMacroSlot slot, const std::string& macro);
+
+    /**
+     * @brief Load slot configurations from config file
+     */
+    void load_from_config();
+
+    /**
+     * @brief Save current configurations to config file
+     */
+    void save_to_config();
+
+    // ========================================================================
+    // Execution
+    // ========================================================================
+
+    /**
+     * @brief Execute the macro for a slot
+     *
+     * Resolves the macro using priority chain, then executes via API.
+     * If slot is empty, returns false immediately without calling callbacks.
+     * Callbacks run on the main thread, whichever thread the printer answers on.
+     *
+     * @param slot The slot to execute
+     * @param api IMoonrakerAPI instance for execution
+     * @param on_success Called when macro execution starts
+     * @param on_error Called on execution failure
+     * @param suppress_auto_toast Maps to helix::rpc_error_policy::CallerIntent::silent
+     *        — see the parameterized overload below for the full contract.
+     * @return true if macro was found and execution attempted,
+     *         false if slot is empty (no callbacks called)
+     */
+    bool execute(StandardMacroSlot slot, helix::IMoonrakerAPI* api, SuccessCallback on_success,
+                 ErrorCallback on_error, uint32_t timeout_ms = 0, bool suppress_auto_toast = false);
+
+    /**
+     * @brief Execute macro with parameters
+     *
+     * @param slot The slot to execute
+     * @param api IMoonrakerAPI instance for execution
+     * @param params Parameters to pass to macro
+     * @param on_success Called when macro execution starts
+     * @param on_error Called on execution failure
+     * @param timeout_ms Timeout override (0 = default macro timeout)
+     * @param suppress_auto_toast Maps to helix::rpc_error_policy::CallerIntent::silent.
+     *        If true, the Request Tracker will NOT emit the generic "Printer
+     *        command '...' failed" RPC_ERROR toast on failure; the caller's
+     *        on_error callback is expected to surface the error to the user with
+     *        action-specific context. The cross-source dedup that suppresses
+     *        Klipper's `!!` broadcast for the same root cause follows from
+     *        on_error being a real user-facing report, not from this flag (see
+     *        rpc_error_policy.h and rpc_error_correlation.h).
+     * @return true if macro was found and execution attempted
+     */
+    bool execute(StandardMacroSlot slot, helix::IMoonrakerAPI* api,
+                 const std::map<std::string, std::string>& params, SuccessCallback on_success,
+                 ErrorCallback on_error, uint32_t timeout_ms = 0, bool suppress_auto_toast = false);
+
+  private:
+    StandardMacros();
+    ~StandardMacros() = default;
+
+    /**
+     * @brief Initialize slot definitions (names, display names, fallbacks)
+     */
+    void init_slot_definitions();
+
+    /**
+     * @brief Run auto-detection for all slots
+     * @param hardware Hardware discovery with macro list
+     */
+    void auto_detect(const helix::PrinterDiscovery& hardware);
+
+    /**
+     * @brief Try to detect a macro for a slot using patterns
+     * @param hardware Hardware discovery
+     * @param slot Slot to detect for
+     * @param patterns Patterns to match (uppercase)
+     * @return Detected macro name, or empty if none found
+     */
+    std::string try_detect(const helix::PrinterDiscovery& hardware, StandardMacroSlot slot,
+                           const std::vector<std::string>& patterns);
+
+    /**
+     * @brief Demote configured macros the printer does not define
+     *
+     * @param hardware Hardware discovery with the printer's macro list
+     */
+    void validate_configured(const helix::PrinterDiscovery& hardware);
+
+    /// @brief Bump macros_version_ so observers re-read slot availability.
+    void bump_version();
+
+    std::vector<StandardMacroInfo> slots_;
+    bool initialized_ = false;
+
+    SubjectManager subjects_;
+    bool subjects_initialized_ = false;
+    lv_subject_t macros_version_{};
+};

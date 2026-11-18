@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Help & About Overlay Panel -->
+<!-- VoronDeck help; diagnostic upload is deferred until our support server is ready. -->
+<component>
+  <view name="settings_help_overlay" extends="overlay_panel" title="Help &amp; About" title_font="#font_body" bg_color="#screen_bg">
+    <!-- Content Area - no padding, rows handle their own -->
+    <lv_obj name="overlay_content"
+            width="100%" flex_grow="1" style_pad_top="0" style_pad_left="0" style_pad_right="0"
+            style_pad_bottom="#space_lg" scrollable="true" flex_flow="column">
+      <!-- All help/about actions live in a single grouped-list card (no section
+           headers in this overlay); the card owns the horizontal inset. -->
+      <setting_group name="group_help">
+        <setting_action_row name="row_replay_tour"
+                            label="Replay Welcome Tour" icon="play_circle"
+                            description="See the quick tour of VoronDeck again" callback="on_replay_tour_clicked"/>
+        <setting_action_row name="row_getting_started"
+                            label="Getting Started" icon="lightbulb_outline"
+                            description="Setup, navigation and gestures" callback="on_getting_started_clicked"/>
+        <setting_action_row name="row_user_guide"
+                            label="User Guide" icon="book" description="VoronDeck user guide is being updated"
+                            callback="on_user_guide_clicked"/>
+        <setting_action_row name="row_about"
+                            label="About" icon="info" description="Version and printer info" callback="on_about_clicked"/>
+      </setting_group>
+    </lv_obj>
+  </view>
+</component>

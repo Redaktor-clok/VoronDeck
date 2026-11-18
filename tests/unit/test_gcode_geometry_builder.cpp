@@ -1,0 +1,1389 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "gcode_geometry_builder.h"
+#include "gcode_parser.h"
+#include "gcode_selection_style.h"
+
+#include <glm/gtc/matrix_transform.hpp>
+#include <limits>
+#include <optional>
+#include <set>
+#include <utility>
+
+#include "../catch_amalgamated.hpp"
+
+using namespace helix::gcode;
+using Catch::Approx;
+
+namespace {
+
+/// An extrusion from `a` to `b`.
+ToolpathSegment extrusion(glm::vec3 a, glm::vec3 b, FeatureType feature = FeatureType::Unknown,
+                          float width = 0.4f, float amount = 1.0f) {
+    ToolpathSegment seg;
+    seg.start = a;
+    seg.end = b;
+    seg.is_extrusion = true;
+    seg.extrusion_amount = amount;
+    seg.width = width;
+    seg.feature_type = feature;
+    return seg;
+}
+
+/// One layer per entry, each at its Z, inside the given box (none: the box stays empty).
+ParsedGCodeFile file_of(const std::vector<std::pair<float, std::vector<ToolpathSegment>>>& layers,
+                        std::optional<std::pair<glm::vec3, glm::vec3>> box = std::pair{
+                            glm::vec3{0, 0, 0}, glm::vec3{100, 100, 10}}) {
+    ParsedGCodeFile gcode;
+    if (box) {
+        gcode.global_bounding_box.min = box->first;
+        gcode.global_bounding_box.max = box->second;
+    }
+    for (const auto& [z, segments] : layers) {
+        Layer layer;
+        layer.z_height = z;
+        layer.segments = segments;
+        gcode.total_segments += segments.size();
+        gcode.layers.push_back(std::move(layer));
+    }
+    return gcode;
+}
+
+/// `n` segments end to end along +X from the origin, `step` mm each, at `z`.
+std::vector<ToolpathSegment> line_x(int n, float step, float z) {
+    std::vector<ToolpathSegment> out;
+    for (int i = 0; i < n; i++) {
+        out.push_back(extrusion({i * step, 0, z}, {(i + 1) * step, 0, z}));
+    }
+    return out;
+}
+
+/// `n` zig-zag segments `step` mm apart, which no merging tolerance can fuse.
+ParsedGCodeFile zigzag(int n, float step) {
+    std::vector<ToolpathSegment> segs;
+    for (int i = 0; i < n; ++i) {
+        const float x = static_cast<float>(i) * step;
+        const bool even = i % 2 == 0;
+        ToolpathSegment seg =
+            extrusion({x, even ? 0.0f : 1.0f, 0.2f}, {x + step, even ? 1.0f : 0.0f, 0.2f});
+        seg.extrusion_amount = 0.0f;
+        segs.push_back(seg);
+    }
+    ParsedGCodeFile gcode = file_of({{0.2f, segs}}, std::nullopt);
+    gcode.global_bounding_box.expand({0, 0, 0});
+    gcode.global_bounding_box.expand({n * step + 1.0f, 2, 1});
+    return gcode;
+}
+
+SimplificationOptions merging(bool on, float tolerance_mm = 0.1f) {
+    SimplificationOptions opts;
+    opts.enable_merging = on;
+    opts.tolerance_mm = tolerance_mm;
+    return opts;
+}
+
+} // namespace
+
+// ============================================================================
+// QuantizationParams and SimplificationOptions
+// ============================================================================
+
+TEST_CASE("Geometry Builder: QuantizationParams keeps the box and round-trips inside it",
+          "[gcode][geometry][quantization][edge]") {
+    QuantizationParams params;
+    AABB bbox;
+    bbox.min = glm::vec3(-100.0f, -100.0f, 0.0f);
+    bbox.max = glm::vec3(100.0f, 100.0f, 100.0f);
+    params.calculate_scale(bbox);
+    REQUIRE(params.min_bounds.x == Approx(-100.0f));
+    REQUIRE(params.min_bounds.y == Approx(-100.0f));
+    REQUIRE(params.min_bounds.z == Approx(0.0f));
+    REQUIRE(params.max_bounds.x == Approx(100.0f));
+    REQUIRE(params.max_bounds.y == Approx(100.0f));
+    REQUIRE(params.max_bounds.z == Approx(100.0f));
+    REQUIRE(params.scale_factor > 0.0f);
+
+    struct Row {
+        const char* what;
+        glm::vec3 min, max;
+        std::vector<glm::vec3> points;
+        float margin;
+    };
+    const Row rows[] = {
+        {"200 mm cube",
+         {0, 0, 0},
+         {200, 200, 200},
+         {{50, 100, 150}, {0, 0, 0}, {200, 200, 200}},
+         0.01f},
+        {"300 mm build volume",
+         {-150, -150, 0},
+         {150, 150, 300},
+         {{-150, -150, 0}, {150, 150, 300}},
+         0.02f},
+    };
+    for (const auto& row : rows) {
+        CAPTURE(row.what);
+        AABB box;
+        box.min = row.min;
+        box.max = row.max;
+        QuantizationParams q;
+        q.calculate_scale(box);
+        for (const glm::vec3& p : row.points) {
+            CAPTURE(p.x, p.y, p.z);
+            const glm::vec3 d = q.dequantize_vec3(q.quantize_vec3(p));
+            CHECK(d.x == Approx(p.x).margin(row.margin));
+            CHECK(d.y == Approx(p.y).margin(row.margin));
+            CHECK(d.z == Approx(p.z).margin(row.margin));
+        }
+        // One axis on its own goes the same way.
+        CHECK(q.dequantize(q.quantize(100.0f, box.min.x), box.min.x) ==
+              Approx(100.0f).margin(row.margin));
+    }
+
+    // A zero-size box falls back to the default scale.
+    AABB zero;
+    zero.min = zero.max = glm::vec3(0.0f);
+    QuantizationParams fallback;
+    fallback.calculate_scale(zero);
+    CHECK(fallback.scale_factor == Approx(1000.0f));
+}
+
+TEST_CASE("Geometry Builder: SimplificationOptions::validate clamps to its range",
+          "[gcode][geometry][simplification]") {
+    struct Row {
+        float tolerance, tolerance_after;
+    };
+    for (const auto& row : {Row{0.0001f, 0.001f}, Row{10.0f, 5.0f}, Row{0.15f, 0.15f}}) {
+        CAPTURE(row.tolerance);
+        SimplificationOptions options;
+        options.tolerance_mm = row.tolerance;
+        options.validate();
+        CHECK(options.tolerance_mm == Approx(row.tolerance_after));
+    }
+    SimplificationOptions options;
+    options.min_segment_length_mm = 0.00001f;
+    options.validate();
+    CHECK(options.min_segment_length_mm == Approx(0.0001f));
+}
+
+// ============================================================================
+// RibbonGeometry
+// ============================================================================
+
+TEST_CASE("Geometry Builder: RibbonGeometry - construction and destruction",
+          "[gcode][geometry][ribbon]") {
+    RibbonGeometry geometry;
+
+    REQUIRE(geometry.vertices.empty());
+    REQUIRE(geometry.indices.empty());
+    REQUIRE(geometry.strips.empty());
+    REQUIRE(geometry.strip_color_index.empty());
+    REQUIRE(geometry.color_palette.empty());
+    REQUIRE(geometry.color_cache != nullptr);
+}
+
+TEST_CASE("Geometry Builder: RibbonVertex is 8 bytes", "[gcode][geometry][ribbon]") {
+    // The vertex pool dominates geometry memory on large gcode (millions of
+    // entries), so every byte here is multiplied by ~5N per extrusion segment.
+    // 6 B quantized position + 2 B octahedral normal, no padding at align 2.
+    // Adding a per-vertex color_index back would pad this to 10 B for no gain —
+    // color lives in RibbonGeometry::strip_color_index instead.
+    STATIC_REQUIRE(sizeof(RibbonVertex) == 8);
+    STATIC_REQUIRE(alignof(RibbonVertex) == 2);
+    STATIC_REQUIRE(offsetof(RibbonVertex, normal) == 6);
+}
+
+TEST_CASE("Geometry Builder: RibbonGeometry - clear", "[gcode][geometry][ribbon]") {
+    RibbonGeometry geometry;
+    geometry.vertices.push_back({{100, 200, 300}, {0, 0}});
+    geometry.strips.push_back({0, 1, 2, 3});
+    geometry.strip_color_index.push_back(0);
+    geometry.color_palette.push_back(0xFF0000);
+    geometry.extrusion_triangle_count = 10;
+    geometry.moving_mesh = std::make_unique<RibbonGeometry>();
+    geometry.strip_layer_index.push_back(2);
+    geometry.layer_strip_ranges.push_back({0, 1});
+    geometry.max_layer_index = 2;
+    geometry.prepared_buffers.push_back({std::vector<uint8_t>(48), 4});
+    REQUIRE(geometry.memory_usage() > 0);
+
+    geometry.clear();
+
+    REQUIRE(geometry.vertices.empty());
+    REQUIRE(geometry.strips.empty());
+    REQUIRE(geometry.strip_color_index.empty());
+    REQUIRE(geometry.color_palette.empty());
+    REQUIRE(geometry.extrusion_triangle_count == 0);
+    REQUIRE(geometry.moving_mesh == nullptr);
+    // The layer index and the GPU staging copy go too, or a cleared viewer keeps
+    // drawing layers from the previous file.
+    CHECK(geometry.strip_layer_index.empty());
+    CHECK(geometry.layer_strip_ranges.empty());
+    CHECK(geometry.max_layer_index == 0);
+    CHECK(geometry.prepared_buffers.empty());
+    CHECK(geometry.memory_usage() == 0);
+}
+
+TEST_CASE("Geometry Builder: RibbonGeometry - memory usage", "[gcode][geometry][ribbon]") {
+    RibbonGeometry geometry;
+
+    size_t empty_memory = geometry.memory_usage();
+    REQUIRE(empty_memory == 0);
+
+    // Add some data
+    geometry.vertices.push_back({{100, 200, 300}, {0, 0}});
+    geometry.strips.push_back({0, 1, 2, 3});
+    geometry.strip_color_index.push_back(0);
+    geometry.color_palette.push_back(0xFF0000);
+
+    size_t used_memory = geometry.memory_usage();
+    REQUIRE(used_memory > empty_memory);
+
+    // strip_color_index must be accounted for, not silently omitted.
+    size_t before_colors = geometry.memory_usage();
+    geometry.strip_color_index.resize(1000, 0);
+    REQUIRE(geometry.memory_usage() == before_colors + 999);
+
+    // A moving mesh counts toward the owning geometry's usage: it is live
+    // memory while the viewer holds both.
+    auto mesh = std::make_unique<RibbonGeometry>();
+    mesh->vertices.resize(256);
+    size_t before_mesh = geometry.memory_usage();
+    geometry.moving_mesh = std::move(mesh);
+    REQUIRE(geometry.memory_usage() == before_mesh + 256 * sizeof(RibbonVertex));
+}
+
+// ============================================================================
+// GeometryBuilder - colour
+// ============================================================================
+
+TEST_CASE("Geometry Builder: auxiliary geometry never reaches the ribbon",
+          "[gcode][geometry][aux_skip]") {
+    // The 3D builder's budget is the scarce resource on low-RAM devices; a
+    // multi-color prime tower can be a large fraction of a file's segments.
+    // Purge/tower segments (already outside the fit bounds) must not be
+    // collected at all - not drawn, not budgeted.
+    auto make_gcode = []() {
+        return file_of({{0.2f,
+                         {extrusion({10, 10, 0.2f}, {100, 100, 0.2f}, FeatureType::OuterWall),
+                          extrusion({200, 200, 0.2f}, {250, 250, 0.2f}, FeatureType::WipeTower)}}},
+                       std::nullopt);
+    };
+
+    SimplificationOptions options;
+    options.enable_merging = false;
+
+    GeometryBuilder builder;
+    RibbonGeometry geometry = builder.build(make_gcode(), options);
+
+    // The tower segment is never collected: one input segment, and no vertex
+    // lands at the tower's coordinates.
+    REQUIRE(builder.last_stats().input_segments == 1);
+}
+
+TEST_CASE("Geometry Builder: the filament colour lands in the palette, a bad one changes nothing",
+          "[gcode][geometry][color]") {
+    struct Row {
+        const char* what;
+        const char* color;
+        uint32_t present;
+        std::optional<uint32_t> absent;
+    };
+    const Row rows[] = {
+        {"with # (OrcaSlicer teal)", "#26A69A", 0x26A69A, std::nullopt},
+        {"without #", "FF0000", 0xFF0000, std::nullopt},
+        {"another red", "#ED1C24", 0xED1C24, std::nullopt},
+        // A rejected colour is a no-op: the default teal stays, never black.
+        {"not hex", "XYZ", 0x26A69A, 0x000000u},
+        // #RRGGBBAA drops alpha; shifting channels would read 0x0080FF.
+        {"8 digits with alpha", "#800080FF", 0x800080, 0x0080FFu},
+    };
+    for (const auto& row : rows) {
+        CAPTURE(row.what);
+        GeometryBuilder builder;
+        builder.set_filament_color(row.color);
+        RibbonGeometry geometry = builder.build(
+            file_of({{0.2f, {extrusion({0, 0, 0.2f}, {10, 0, 0.2f})}}}), merging(false));
+        REQUIRE(geometry.vertices.size() > 0);
+        REQUIRE(geometry.color_palette.size() >= 1);
+        const auto has = [&](uint32_t c) {
+            return std::find(geometry.color_palette.begin(), geometry.color_palette.end(), c) !=
+                   geometry.color_palette.end();
+        };
+        CHECK(has(row.present));
+        if (row.absent) {
+            CHECK_FALSE(has(*row.absent));
+        }
+    }
+}
+
+TEST_CASE("Geometry Builder: Color computation - no palette or color is one color at every Z",
+          "[gcode][geometry][color]") {
+    // The 2D renderer paints a file with no palette and no filament color in one
+    // color, so the 3D mesh must not shade it by height.
+    std::vector<std::pair<float, std::vector<ToolpathSegment>>> layers;
+    for (float z : {0.2f, 5.0f, 10.0f}) {
+        layers.push_back({z, {extrusion({0, 0, z}, {10, 0, z})}});
+    }
+    GeometryBuilder builder;
+    RibbonGeometry geometry = builder.build(file_of(layers), merging(false));
+
+    REQUIRE(geometry.vertices.size() > 0);
+    REQUIRE(geometry.color_palette.size() == 1);
+    CHECK((geometry.color_palette[0] & 0xFFFFFFu) == 0x26A69Au);
+}
+
+// ============================================================================
+// GeometryBuilder - what a build collects, merges and emits
+// ============================================================================
+
+TEST_CASE("Geometry Builder: a build counts its input, merges only collinear runs, and emits "
+          "geometry for extrusions",
+          "[gcode][geometry][simplification][generation][config][realworld][edge]") {
+    using Layers = std::vector<std::pair<float, std::vector<ToolpathSegment>>>;
+    std::vector<ToolpathSegment> hull;
+    for (int i = 0; i < 20; i++) {
+        const float a1 = i * M_PI / 20.0f;
+        const float a2 = (i + 1) * M_PI / 20.0f;
+        hull.push_back(extrusion({50 + 20 * cos(a1), 50 + 20 * sin(a1), 10.0f},
+                                 {50 + 20 * cos(a2), 50 + 20 * sin(a2), 10.0f},
+                                 FeatureType::Unknown, 0.4f, 0.3f));
+    }
+    std::vector<ToolpathSegment> square;
+    const glm::vec3 corners[] = {
+        {95, 95, 0.2f}, {105, 95, 0.2f}, {105, 105, 0.2f}, {95, 105, 0.2f}};
+    for (int i = 0; i < 4; i++) {
+        square.push_back(
+            extrusion(corners[i], corners[(i + 1) % 4], FeatureType::Unknown, 0.4f, 0.5f));
+    }
+    std::vector<ToolpathSegment> infill;
+    for (int i = 0; i < 10; i++) {
+        const float y = 10.0f + i * 8.0f;
+        infill.push_back(extrusion({10, y, 5}, {90, y, 5}, FeatureType::Unknown, 0.4f, 2.0f));
+    }
+    ToolpathSegment travel;
+    travel.start = {0, 0, 0.2f};
+    travel.end = {10, 0, 0.2f};
+    travel.is_extrusion = false;
+    ToolpathSegment no_width = extrusion({0, 0, 0.2f}, {10, 0, 0.2f});
+    no_width.width = 0.0f; // the configured width applies
+
+    enum class Out { kEqual, kFewer, kAny };
+    struct Row {
+        const char* what;
+        Layers layers;
+        SimplificationOptions options;
+        size_t input;
+        Out out;
+        size_t out_min; // output segments must exceed this
+        bool travel_free;
+        glm::vec3 box_min{0, 0, 0};
+        glm::vec3 box_max{100, 100, 10};
+    };
+    const Row rows[] = {
+        {"three collinear segments merge",
+         {{0.2f, line_x(3, 10, 0.2f)}},
+         merging(true),
+         3,
+         Out::kFewer,
+         0,
+         false},
+        {"a right angle does not merge",
+         {{0.2f,
+           {extrusion({0, 0, 0.2f}, {10, 0, 0.2f}), extrusion({10, 0, 0.2f}, {10, 10, 0.2f})}}},
+         merging(true),
+         2,
+         Out::kEqual,
+         0,
+         false},
+        {"merging off keeps every segment",
+         {{0.2f, line_x(5, 10, 0.2f)}},
+         merging(false),
+         5,
+         Out::kEqual,
+         0,
+         false},
+        {"a curve barely merges",
+         {{10.0f, hull}},
+         merging(true),
+         20,
+         Out::kAny,
+         15,
+         false,
+         {0, 0, 0},
+         {100, 100, 50}},
+        {"a closed square",
+         {{0.2f, square}},
+         SimplificationOptions{},
+         4,
+         Out::kAny,
+         0,
+         false,
+         {90, 90, 0},
+         {110, 110, 20}},
+        {"three layers",
+         {{0.2f, line_x(1, 10, 0.2f)}, {0.4f, line_x(1, 10, 0.4f)}, {0.6f, line_x(1, 10, 0.6f)}},
+         SimplificationOptions{},
+         3,
+         Out::kAny,
+         0,
+         false},
+        {"a travel is counted but draws nothing",
+         {{0.2f, {travel, extrusion({10, 0, 0.2f}, {20, 0, 0.2f})}}},
+         merging(false),
+         2,
+         Out::kAny,
+         0,
+         true},
+        {"parallel infill lines",
+         {{5.0f, infill}},
+         SimplificationOptions{},
+         10,
+         Out::kAny,
+         0,
+         false,
+         {0, 0, 0},
+         {100, 100, 50}},
+        {"a 0.01 mm segment",
+         {{0.2f,
+           {extrusion({10, 10, 0.2f}, {10.01f, 10, 0.2f}, FeatureType::Unknown, 0.4f, 0.001f)}}},
+         SimplificationOptions{},
+         1,
+         Out::kAny,
+         0,
+         false},
+        {"a segment with no width",
+         {{0.2f, {no_width}}},
+         SimplificationOptions{},
+         1,
+         Out::kAny,
+         0,
+         false},
+    };
+    for (const auto& row : rows) {
+        CAPTURE(row.what);
+        GeometryBuilder builder;
+        if (row.layers.front().second.front().width == 0.0f) {
+            builder.set_extrusion_width(0.5f);
+        }
+        RibbonGeometry geometry =
+            builder.build(file_of(row.layers, std::pair{row.box_min, row.box_max}), row.options);
+        const auto& stats = builder.last_stats();
+        CHECK(stats.input_segments == row.input);
+        switch (row.out) {
+        case Out::kEqual:
+            CHECK(stats.output_segments == row.input);
+            break;
+        case Out::kFewer:
+            CHECK(stats.output_segments < row.input);
+            break;
+        case Out::kAny:
+            break;
+        }
+        CHECK(stats.output_segments > row.out_min);
+        CHECK(geometry.vertices.size() > 0);
+        CHECK(geometry.extrusion_triangle_count > 0);
+        REQUIRE(geometry.strips.size() > 0);
+        CHECK(geometry.strip_color_index.size() == geometry.strips.size());
+        CHECK(geometry.color_palette.size() > 0);
+        if (row.travel_free) {
+            CHECK(geometry.travel_triangle_count == 0);
+        }
+    }
+
+    SECTION("a non-default layer height") {
+        GeometryBuilder builder;
+        builder.set_layer_height(0.3f);
+        RibbonGeometry geometry = builder.build(file_of({{0.3f, line_x(1, 10, 0.3f)}}), {});
+        CHECK(geometry.vertices.size() > 0);
+    }
+    SECTION("an empty file") {
+        GeometryBuilder builder;
+        RibbonGeometry geometry = builder.build(file_of({}), {});
+        CHECK(geometry.vertices.empty());
+        CHECK(geometry.strips.empty());
+    }
+    SECTION("merging off reports no simplification") {
+        GeometryBuilder builder;
+        builder.build(file_of({{0.2f, line_x(5, 10, 0.2f)}}), merging(false));
+        CHECK(builder.last_stats().simplification_ratio == Approx(0.0f));
+    }
+}
+
+TEST_CASE("Geometry Builder: strips and strip_color_index stay in lockstep after build()",
+          "[gcode][geometry][generation]") {
+    // The two vectors are pushed from three separate sites in
+    // generate_ribbon_vertices (side faces, start cap fan, end cap fan). A
+    // missed push on any of them silently shifts every later strip's color.
+    // Several layers with several segments each, so both cap paths and the
+    // vertex-sharing path between connected segments are all exercised.
+    std::vector<std::pair<float, std::vector<ToolpathSegment>>> layers;
+    for (int l = 0; l < 4; ++l) {
+        const float z = 0.2f * static_cast<float>(l + 1);
+        std::vector<ToolpathSegment> segs;
+        for (int s = 0; s < 5; ++s) {
+            ToolpathSegment seg =
+                extrusion({10.0f + s * 5.0f, 10.0f, z}, {15.0f + s * 5.0f, 10.0f, z});
+            seg.extrusion_amount = 0.0f;
+            seg.layer_index = static_cast<uint16_t>(l);
+            segs.push_back(seg);
+        }
+        layers.push_back({z, segs});
+    }
+    GeometryBuilder builder;
+    RibbonGeometry geometry = builder.build(file_of(layers), merging(false));
+
+    REQUIRE(geometry.strips.size() > 0);
+    REQUIRE(geometry.strip_color_index.size() == geometry.strips.size());
+    REQUIRE(geometry.strip_layer_index.size() == geometry.strips.size());
+
+    // Every recorded index must resolve inside the palette — an out-of-range
+    // entry would silently fall back to the default teal at expansion time.
+    for (uint8_t ci : geometry.strip_color_index) {
+        REQUIRE(ci < geometry.color_palette.size());
+    }
+}
+
+TEST_CASE("Geometry Builder: BuildStats - statistics tracking", "[gcode][geometry][stats]") {
+    GeometryBuilder builder;
+    builder.build(file_of({{0.2f, line_x(10, 10, 0.2f)}}), merging(true));
+
+    const auto& stats = builder.last_stats();
+
+    REQUIRE(stats.input_segments == 10);
+    REQUIRE(stats.output_segments > 0);
+    REQUIRE(stats.output_segments <= stats.input_segments);
+    REQUIRE(stats.vertices_generated > 0);
+    REQUIRE(stats.triangles_generated > 0);
+    REQUIRE(stats.memory_bytes > 0);
+    REQUIRE(stats.simplification_ratio >= 0.0f);
+    REQUIRE(stats.simplification_ratio <= 1.0f);
+}
+
+// ============================================================================
+// Budget integration tests
+// ============================================================================
+
+TEST_CASE("GeometryBuilder: respects tube_sides from BudgetConfig", "[gcode][budget][builder]") {
+    const ParsedGCodeFile gcode = zigzag(100, 1.0f);
+
+    SimplificationOptions opts;
+    opts.enable_merging = false; // Ensure all segments are processed
+
+    GeometryBuilder builder;
+    // Build with default (uses config tube_sides)
+    auto geom_default = builder.build(gcode, opts);
+    size_t verts_default = geom_default.vertices.size();
+
+    // Build with budget config forcing tube_sides=4
+    GeometryBuilder builder4;
+    builder4.set_budget_tube_sides(4);
+    auto geom_4 = builder4.build(gcode, opts);
+    size_t verts_4 = geom_4.vertices.size();
+
+    // N=4 should produce fewer or equal vertices than default
+    REQUIRE(verts_4 <= verts_default);
+}
+
+TEST_CASE("GeometryBuilder: budget abort returns with flag set", "[gcode][budget][builder]") {
+    const ParsedGCodeFile gcode = zigzag(10000, 0.5f);
+
+    GeometryBuilder builder;
+    builder.set_budget_tube_sides(4);
+    builder.set_budget_limit(1024); // 1KB budget — impossibly small
+
+    SimplificationOptions opts;
+    opts.enable_merging = false; // Ensure all segments are processed
+    auto geom = builder.build(gcode, opts);
+
+    // Build should have aborted
+    REQUIRE(builder.was_budget_exceeded());
+}
+
+// ============================================================================
+// prepare_interleaved_buffers() Tests
+// ============================================================================
+
+TEST_CASE("prepare_interleaved_buffers produces correct buffer count and vertex counts",
+          "[gcode][geometry][prepared_buffers]") {
+    // Build geometry from a 2-layer gcode
+    ParsedGCodeFile gcode;
+
+    // Layer 0
+    Layer layer0;
+    layer0.z_height = 0.2f;
+    for (int i = 0; i < 3; ++i) {
+        ToolpathSegment seg;
+        float x = static_cast<float>(i) * 5.0f;
+        seg.start = {x, 0.0f, 0.2f};
+        seg.end = {x + 4.0f, 0.0f, 0.2f};
+        seg.is_extrusion = true;
+        seg.width = 0.4f;
+        layer0.segments.push_back(seg);
+    }
+    gcode.layers.push_back(std::move(layer0));
+
+    // Layer 1
+    Layer layer1;
+    layer1.z_height = 0.4f;
+    for (int i = 0; i < 2; ++i) {
+        ToolpathSegment seg;
+        float x = static_cast<float>(i) * 5.0f;
+        seg.start = {x, 0.0f, 0.4f};
+        seg.end = {x + 4.0f, 0.0f, 0.4f};
+        seg.is_extrusion = true;
+        seg.width = 0.4f;
+        layer1.segments.push_back(seg);
+    }
+    gcode.layers.push_back(std::move(layer1));
+
+    gcode.total_segments = 5;
+    gcode.global_bounding_box.expand({0, 0, 0.2f});
+    gcode.global_bounding_box.expand({15, 1, 0.4f});
+
+    GeometryBuilder builder;
+    SimplificationOptions opts;
+    opts.enable_merging = false;
+    auto geom = builder.build(gcode, opts);
+
+    REQUIRE(!geom.layer_strip_ranges.empty());
+
+    geom.prepare_interleaved_buffers();
+
+    // Buffer count matches number of layers
+    REQUIRE(geom.prepared_buffers.size() == geom.layer_strip_ranges.size());
+
+    // Each buffer's vertex_count == strip_count * 6 (2 triangles = 6 verts per strip)
+    for (size_t i = 0; i < geom.layer_strip_ranges.size(); ++i) {
+        size_t strip_count = geom.layer_strip_ranges[i].second;
+        REQUIRE(geom.prepared_buffers[i].vertex_count == strip_count * 6);
+        // Data is raw bytes — one PackedVertex (20B) per vertex.
+        REQUIRE(geom.prepared_buffers[i].data.size() ==
+                geom.prepared_buffers[i].vertex_count * PackedVertex::stride());
+    }
+
+    // Empty geometry prepares nothing.
+    RibbonGeometry empty;
+    empty.prepare_interleaved_buffers();
+    CHECK(empty.prepared_buffers.empty());
+}
+
+TEST_CASE("prepare_interleaved_buffers data matches manual expansion",
+          "[gcode][geometry][prepared_buffers]") {
+    // Minimal geometry: 1 layer, 1 segment
+    ParsedGCodeFile gcode;
+    Layer layer;
+    layer.z_height = 0.2f;
+    ToolpathSegment seg;
+    seg.start = {10.0f, 10.0f, 0.2f};
+    seg.end = {20.0f, 10.0f, 0.2f};
+    seg.is_extrusion = true;
+    seg.width = 0.4f;
+    layer.segments.push_back(seg);
+    gcode.layers.push_back(std::move(layer));
+    gcode.total_segments = 1;
+    gcode.global_bounding_box.expand({10, 10, 0.2f});
+    gcode.global_bounding_box.expand({20, 10, 0.2f});
+
+    GeometryBuilder builder;
+    SimplificationOptions opts;
+    opts.enable_merging = false;
+    auto geom = builder.build(gcode, opts);
+
+    REQUIRE(!geom.strips.empty());
+    REQUIRE(!geom.vertices.empty());
+
+    geom.prepare_interleaved_buffers();
+
+    REQUIRE(geom.prepared_buffers.size() >= 1);
+    auto& buf = geom.prepared_buffers[0];
+    REQUIRE(buf.vertex_count > 0);
+    REQUIRE(buf.data.size() == buf.vertex_count * PackedVertex::stride());
+
+    // Manually expand the first strip and compare against the packed layout.
+    const auto& strip = geom.strips[0];
+    static constexpr int kTriIndices[6] = {0, 1, 2, 1, 3, 2};
+    const auto* packed = reinterpret_cast<const PackedVertex*>(buf.data.data());
+
+    for (int ti = 0; ti < 6; ++ti) {
+        const auto& vert = geom.vertices[strip[static_cast<size_t>(kTriIndices[ti])]];
+        glm::vec3 pos = geom.quantization.dequantize_vec3(vert.position);
+
+        // Color is per-strip, not per-vertex.
+        uint32_t rgb = 0x26A69A; // Default teal
+        if (!geom.strip_color_index.empty() &&
+            geom.strip_color_index[0] < geom.color_palette.size()) {
+            rgb = geom.color_palette[geom.strip_color_index[0]];
+        }
+        uint8_t expected_color[4];
+        PackedVertex::encode_color(rgb, expected_color);
+        // Normals are stored pre-encoded in the vertex — the packed bytes must
+        // be a straight copy, not a re-encode.
+        const int8_t expected_normal[2] = {vert.normal[0], vert.normal[1]};
+
+        const auto& pv = packed[ti];
+        // Positions are stored quantized and dequantized on the GPU, so the
+        // packed bytes must be the raw int16 …
+        REQUIRE(pv.position[0] == vert.position.x);
+        REQUIRE(pv.position[1] == vert.position.y);
+        REQUIRE(pv.position[2] == vert.position.z);
+        // … and dequantizing them must still land on the mm coordinate the
+        // renderer's matrix fold will produce.
+        REQUIRE(geom.quantization.dequantize(pv.position[0], geom.quantization.min_bounds.x) ==
+                Approx(pos.x).margin(0.01f));
+        REQUIRE(geom.quantization.dequantize(pv.position[1], geom.quantization.min_bounds.y) ==
+                Approx(pos.y).margin(0.01f));
+        REQUIRE(geom.quantization.dequantize(pv.position[2], geom.quantization.min_bounds.z) ==
+                Approx(pos.z).margin(0.01f));
+        REQUIRE(pv.color[0] == expected_color[0]);
+        REQUIRE(pv.color[1] == expected_color[1]);
+        REQUIRE(pv.color[2] == expected_color[2]);
+        REQUIRE(pv.color[3] == expected_color[3]);
+        REQUIRE(pv.normal[0] == expected_normal[0]);
+        REQUIRE(pv.normal[1] == expected_normal[1]);
+    }
+}
+
+// ============================================================================
+// PackedVertex GPU layout
+// ============================================================================
+
+TEST_CASE("Geometry Builder: PackedVertex is 12 bytes with GL-friendly offsets",
+          "[gcode][geometry][packed_vertex]") {
+    // Positions ride to the GPU as raw quantized int16 and are dequantized by a
+    // transform folded into u_mvp / u_model_view. Sending float positions
+    // instead cost 8 bytes a vertex — 1.4 GB on a 28 MB gcode.
+    STATIC_REQUIRE(sizeof(PackedVertex) == 12);
+    STATIC_REQUIRE(PackedVertex::stride() == 12);
+
+    // Offsets must stay put: the renderer hands these to glVertexAttribPointer.
+    CHECK(PackedVertex::position_offset() == 0);
+    CHECK(PackedVertex::normal_offset() == 6);
+    CHECK(PackedVertex::color_offset() == 8);
+
+    // Stride a multiple of 4 keeps GL drivers off the slow path, and the 4-byte
+    // color attribute stays naturally aligned.
+    CHECK(PackedVertex::stride() % 4 == 0);
+    CHECK(PackedVertex::color_offset() % 4 == 0);
+}
+
+TEST_CASE("Geometry Builder: affine dequantization matches the matrix fold",
+          "[gcode][geometry][packed_vertex]") {
+    // The renderer replaces the CPU-side dequantize_vec3() with
+    // translate(min_bounds) * scale(1/scale_factor) baked into its matrices.
+    // If those two ever disagree the model silently renders at the wrong scale
+    // or position, so pin the equivalence here.
+    AABB bbox;
+    bbox.min = {12.5f, -30.0f, 0.0f};
+    bbox.max = {212.5f, 170.0f, 250.0f};
+
+    QuantizationParams q;
+    q.calculate_scale(bbox);
+
+    const float inv = 1.0f / q.scale_factor;
+    const glm::mat4 dequant =
+        glm::translate(glm::mat4(1.0f), q.min_bounds) * glm::scale(glm::mat4(1.0f), glm::vec3(inv));
+
+    for (const glm::vec3& p : {glm::vec3{12.5f, -30.0f, 0.0f}, glm::vec3{100.0f, 20.0f, 125.0f},
+                               glm::vec3{212.5f, 170.0f, 250.0f}}) {
+        const QuantizedVertex qv = q.quantize_vec3(p);
+        const glm::vec3 cpu = q.dequantize_vec3(qv);
+        const glm::vec4 gpu =
+            dequant * glm::vec4(static_cast<float>(qv.x), static_cast<float>(qv.y),
+                                static_cast<float>(qv.z), 1.0f);
+
+        INFO("point " << p.x << "," << p.y << "," << p.z);
+        CHECK(gpu.x == Approx(cpu.x).margin(0.001));
+        CHECK(gpu.y == Approx(cpu.y).margin(0.001));
+        CHECK(gpu.z == Approx(cpu.z).margin(0.001));
+        CHECK(gpu.w == Approx(1.0f));
+    }
+}
+
+TEST_CASE("Geometry Builder: moving RibbonGeometry preserves every member",
+          "[gcode][geometry][move]") {
+    // The move operations are hand-written, so a member added to the struct is
+    // silently dropped unless it is also added here, and ui_gcode_viewer moves
+    // the built geometry into its owning pointer.
+    RibbonGeometry src;
+    src.layer_height_mm = 0.32f;
+    src.max_layer_index = 7;
+    src.quantization.scale_factor = 123.5f;
+    src.quantization.min_bounds = {1.0f, 2.0f, 3.0f};
+    src.prepared_buffers.resize(3);
+    src.prepared_buffers[1].vertex_count = 42;
+    src.prepared_buffers[1].data.assign(42 * PackedVertex::stride(), uint8_t{7});
+    src.strips.push_back({0, 1, 2, 3});
+    src.strips.push_back({4, 5, 6, 7});
+    src.strip_color_index = {3, 9};
+    src.strip_layer_index = {0, 1};
+    src.color_palette = {0x111111, 0x222222, 0x333333, 0x444444, 0x555555,
+                         0x666666, 0x777777, 0x888888, 0x999999, 0xAAAAAA};
+    src.object_runs = {ObjectRun{0, 12, 3}, ObjectRun{12, 6, 5}};
+    src.layer_object_run_ranges = {{0, 1}, {1, 1}};
+    src.vertices.push_back({{100, 200, 300}, {0, 0}});
+    src.extrusion_triangle_count = 42;
+    src.moving_mesh = std::make_unique<RibbonGeometry>();
+    src.moving_mesh->max_layer_index = 4;
+
+    const auto check_moved = [](const RibbonGeometry& dst) {
+        CHECK(dst.vertices.size() == 1);
+        CHECK(dst.extrusion_triangle_count == 42);
+        CHECK(dst.color_cache != nullptr);
+        CHECK(dst.layer_height_mm == Approx(0.32f));
+        CHECK(dst.max_layer_index == 7);
+        CHECK(dst.quantization.scale_factor == Approx(123.5f));
+        // Dropping moving_mesh on a move would silently disable the weak-GPU
+        // moving view even though the mesh was built.
+        REQUIRE(dst.moving_mesh != nullptr);
+        CHECK(dst.moving_mesh->max_layer_index == 4);
+        REQUIRE(dst.prepared_buffers.size() == 3);
+        CHECK(dst.prepared_buffers[1].vertex_count == 42);
+        CHECK(dst.prepared_buffers[1].data.size() == 42 * PackedVertex::stride());
+        // Dropping strip_color_index on a move would recolor the whole model to
+        // the default teal, since strip_color() falls back when the index is missing.
+        REQUIRE(dst.strip_color_index.size() == dst.strips.size());
+        CHECK(dst.strip_color_index[0] == 3);
+        CHECK(dst.strip_color_index[1] == 9);
+        CHECK(dst.strip_color(1) == 0xAAAAAA);
+        CHECK(dst.strip_layer_index.size() == 2);
+        // Dropping the run tables on a move would leave the GLES shell pass with
+        // nothing to draw, which looks exactly like the feature not existing.
+        REQUIRE(dst.object_runs.size() == 2);
+        CHECK(dst.object_runs[1].object_index == 5);
+        REQUIRE(dst.layer_object_runs(1).count == 1);
+        CHECK(dst.layer_object_runs(1).first->vertex_offset == 12);
+    };
+    SECTION("move construction") {
+        RibbonGeometry dst(std::move(src));
+        check_moved(dst);
+    }
+    SECTION("move assignment") {
+        RibbonGeometry dst;
+        dst = std::move(src);
+        check_moved(dst);
+    }
+}
+
+// ============================================================================
+// Per-object vertex runs (GLES selection silhouette)
+// ============================================================================
+//
+// The 3D shell pass needs to draw one object's triangles out of a VBO that is
+// grouped per LAYER and carries no object identity. RibbonGeometry::object_runs is
+// that indirection, and it is only correct if every run indexes its own layer's
+// VBO exactly. A run that is off by one strip draws part of the neighbouring
+// object's silhouette; a run past the end reads past the buffer.
+
+namespace {
+
+/// One extrusion segment, deliberately placed 5mm from the previous segment's end
+/// so the builder never shares vertices between them. Sharing changes how many
+/// strips a segment emits (the start cap is skipped), which would make the
+/// per-object strip proportions below untestable.
+ToolpathSegment run_test_segment(int slot, float z, int16_t object_index,
+                                 FeatureType feature = FeatureType::Unknown) {
+    const float x = static_cast<float>(slot % 40) * 4.0f;
+    const float y = static_cast<float>(slot / 40) * 4.0f;
+    ToolpathSegment seg = extrusion({x, y, z}, {x + 1.0f, y, z}, feature);
+    seg.object_name_index = object_index;
+    return seg;
+}
+
+SimplificationOptions no_merge_options() {
+    SimplificationOptions opts;
+    // Merging is object-aware, but leaving it on makes the strip count per object
+    // depend on collinearity rather than on the run bookkeeping under test.
+    opts.enable_merging = false;
+    return opts;
+}
+
+ParsedGCodeFile make_run_fixture(const std::vector<std::vector<int16_t>>& layers_objects,
+                                 const std::vector<std::string>& object_names) {
+    ParsedGCodeFile gcode;
+    gcode.global_bounding_box.min = glm::vec3(0, 0, 0);
+    gcode.global_bounding_box.max = glm::vec3(200, 200, 20);
+    gcode.object_name_table = object_names;
+
+    int slot = 0;
+    float z = 0.2f;
+    for (const auto& objects : layers_objects) {
+        Layer layer;
+        layer.z_height = z;
+        for (int16_t obj : objects) {
+            layer.segments.push_back(run_test_segment(slot++, z, obj));
+        }
+        gcode.layers.push_back(layer);
+        gcode.total_segments += objects.size();
+        z += 0.2f;
+    }
+    return gcode;
+}
+
+} // namespace
+
+TEST_CASE("Geometry Builder: object runs cover each object's vertices with no gaps or overlap",
+          "[gcode][geometry][objectruns]") {
+    // Interleaved EXCLUDE_OBJECT blocks within a layer: A A B B A. That must
+    // produce three runs per layer, not two, because the trailing A is not
+    // adjacent to the leading A in the VBO.
+    const std::vector<int16_t> pattern{0, 0, 1, 1, 0};
+    ParsedGCodeFile gcode = make_run_fixture({pattern, pattern}, {"objA", "objB"});
+
+    GeometryBuilder builder;
+    SimplificationOptions opts = no_merge_options();
+    RibbonGeometry geometry = builder.build(gcode, opts);
+
+    REQUIRE(geometry.layer_object_run_ranges.size() == 2);
+    REQUIRE_FALSE(geometry.object_runs.empty());
+
+    for (size_t layer = 0; layer < 2; ++layer) {
+        auto runs = geometry.layer_object_runs(layer);
+        REQUIRE(runs.count == 3);
+
+        const size_t layer_vertices = geometry.layer_strip_ranges[layer].second * 6;
+        REQUIRE(layer_vertices > 0);
+
+        // Object identity, in file order.
+        CHECK(runs.first[0].object_index == 0);
+        CHECK(runs.first[1].object_index == 1);
+        CHECK(runs.first[2].object_index == 0);
+
+        // No gaps, no overlap, and the whole layer is covered: every segment in
+        // this fixture belongs to an object, so the runs must partition the VBO.
+        size_t expected_offset = 0;
+        for (const auto& run : runs) {
+            CHECK(run.vertex_offset == expected_offset);
+            CHECK(run.vertex_count % 6 == 0); // strip-aligned
+            // Offsets stay inside THIS layer's VBO — they are not indices into
+            // the global vertex array.
+            CHECK(static_cast<size_t>(run.vertex_offset) + run.vertex_count <= layer_vertices);
+            expected_offset += run.vertex_count;
+        }
+        CHECK(expected_offset == layer_vertices);
+
+        // Two segments of A, two of B, one of A — identical segments, so the first
+        // two runs must be exactly twice the third.
+        CHECK(runs.first[0].vertex_count == runs.first[1].vertex_count);
+        CHECK(runs.first[0].vertex_count == 2 * runs.first[2].vertex_count);
+    }
+}
+
+TEST_CASE("Geometry Builder: an object run longer than uint16 splits at a strip boundary",
+          "[gcode][geometry][objectruns]") {
+    // One object, one layer, enough contiguous segments that its vertex stretch
+    // cannot fit in ObjectRun::vertex_count. Truncating instead of splitting would
+    // silently drop most of the silhouette.
+    std::vector<int16_t> single_object(400, int16_t{0});
+    ParsedGCodeFile gcode = make_run_fixture({single_object}, {"objA"});
+
+    GeometryBuilder builder;
+    SimplificationOptions opts = no_merge_options();
+    RibbonGeometry geometry = builder.build(gcode, opts);
+
+    const size_t layer_vertices = geometry.layer_strip_ranges[0].second * 6;
+    REQUIRE(layer_vertices > kMaxRunVertices);
+
+    auto runs = geometry.layer_object_runs(0);
+    REQUIRE(runs.count >= 2);
+
+    size_t expected_offset = 0;
+    for (const auto& run : runs) {
+        CHECK(run.object_index == 0);
+        CHECK(run.vertex_count <= kMaxRunVertices);
+        CHECK(run.vertex_count % 6 == 0);
+        CHECK(run.vertex_offset == expected_offset);
+        expected_offset += run.vertex_count;
+    }
+    // Split, not truncated: the pieces still cover the whole stretch.
+    CHECK(expected_offset == layer_vertices);
+}
+
+TEST_CASE("Geometry Builder: the run-count guard leaves the run table empty",
+          "[gcode][geometry][objectruns][slow]") {
+    // Alternating objects every segment defeats run coalescing entirely, so the
+    // run count tracks the segment count. Past kMaxObjectRuns the side table
+    // stops being cheap relative to the geometry it indexes, and collection is
+    // abandoned so the renderer behaves exactly as it did before runs existed.
+    std::vector<int16_t> alternating(kMaxObjectRuns + 64, int16_t{0});
+    for (size_t i = 0; i < alternating.size(); ++i) {
+        alternating[i] = static_cast<int16_t>(i % 2);
+    }
+    ParsedGCodeFile gcode = make_run_fixture({alternating}, {"objA", "objB"});
+
+    GeometryBuilder builder;
+    builder.set_budget_tube_sides(4); // smallest tube: keeps this fixture's mesh affordable
+    SimplificationOptions opts = no_merge_options();
+    RibbonGeometry geometry = builder.build(gcode, opts);
+
+    // The geometry itself is still built and still renders.
+    REQUIRE_FALSE(geometry.vertices.empty());
+    REQUIRE_FALSE(geometry.strips.empty());
+
+    // But no runs at all — not a truncated table, which would silhouette an
+    // arbitrary prefix of the plate.
+    CHECK(geometry.object_runs.empty());
+    CHECK(geometry.layer_object_run_ranges.empty());
+    CHECK(geometry.layer_object_runs(0).empty());
+}
+
+TEST_CASE("Geometry Builder: a file with no exclude-object metadata allocates no run table",
+          "[gcode][geometry][objectruns]") {
+    // Most files have no EXCLUDE_OBJECT_DEFINE at all. They must not pay a byte
+    // for the silhouette they can never show.
+    std::vector<int16_t> unowned(8, int16_t{-1});
+    ParsedGCodeFile gcode = make_run_fixture({unowned, unowned}, {});
+    REQUIRE(gcode.object_name_table.empty());
+
+    GeometryBuilder builder;
+    SimplificationOptions opts = no_merge_options();
+    RibbonGeometry geometry = builder.build(gcode, opts);
+
+    REQUIRE_FALSE(geometry.vertices.empty());
+    CHECK(geometry.object_runs.empty());
+    CHECK(geometry.object_runs.capacity() == 0);
+    CHECK(geometry.layer_object_run_ranges.empty());
+    CHECK(geometry.layer_object_run_ranges.capacity() == 0);
+    CHECK(geometry.layer_object_runs(0).empty());
+}
+
+TEST_CASE("Geometry Builder: every feature type of a selected object joins a run",
+          "[gcode][geometry][objectruns]") {
+    // The runs are what render_selection_tag() draws, and the rim is derived from
+    // the boundary of the tagged region. Restricting collection to walls leaves
+    // the interior untagged on any ;TYPE-annotated file, which is most of them: the
+    // top face reads as a hole, every real hole gets its own ring, and the
+    // silhouette fragments when the object is viewed from above.
+    const std::vector<FeatureType> features{FeatureType::OuterWall,   FeatureType::InnerWall,
+                                            FeatureType::SolidInfill, FeatureType::TopSurface,
+                                            FeatureType::Bridge,      FeatureType::SparseInfill,
+                                            FeatureType::Support,     FeatureType::BottomSurface};
+
+    ParsedGCodeFile gcode;
+    gcode.global_bounding_box.min = glm::vec3(0, 0, 0);
+    gcode.global_bounding_box.max = glm::vec3(200, 200, 20);
+    gcode.object_name_table = {"objA"};
+
+    Layer layer;
+    layer.z_height = 0.2f;
+    int slot = 0;
+    for (FeatureType f : features) {
+        layer.segments.push_back(run_test_segment(slot++, 0.2f, 0, f));
+    }
+    gcode.layers.push_back(layer);
+    gcode.total_segments = features.size();
+
+    GeometryBuilder builder;
+    SimplificationOptions opts = no_merge_options();
+    RibbonGeometry geometry = builder.build(gcode, opts);
+
+    // One object, one layer, every segment adjacent in the VBO: the runs must
+    // coalesce into a single run spanning the whole layer.
+    auto runs = geometry.layer_object_runs(0);
+    REQUIRE(runs.count == 1);
+    CHECK(runs.first[0].object_index == 0);
+    CHECK(runs.first[0].vertex_offset == 0);
+
+    const size_t layer_vertices = geometry.layer_strip_ranges[0].second * 6;
+    REQUIRE(layer_vertices > 0);
+    // Seven of the eight segments are not walls, so a wall-only filter still
+    // yields one run but drops vertex_count to an eighth of the layer.
+    CHECK(runs.first[0].vertex_count == layer_vertices);
+}
+
+TEST_CASE("Geometry Builder: segments outside any object do not join a run",
+          "[gcode][geometry][objectruns]") {
+    // Purge lines, prime blobs and wipe towers carry object_name_index == -1.
+    // Folding them into the neighbouring run would paint them white along with
+    // the selected object.
+    ParsedGCodeFile gcode = make_run_fixture({{0, -1, 0}}, {"objA"});
+
+    GeometryBuilder builder;
+    SimplificationOptions opts = no_merge_options();
+    RibbonGeometry geometry = builder.build(gcode, opts);
+
+    auto runs = geometry.layer_object_runs(0);
+    REQUIRE(runs.count == 2);
+    CHECK(runs.first[0].object_index == 0);
+    CHECK(runs.first[1].object_index == 0);
+    // A gap where the unowned segment sits — the second run does not start where
+    // the first one ended.
+    CHECK(runs.first[1].vertex_offset >
+          static_cast<uint32_t>(runs.first[0].vertex_offset + runs.first[0].vertex_count));
+    const size_t layer_vertices = geometry.layer_strip_ranges[0].second * 6;
+    CHECK(static_cast<size_t>(runs.first[1].vertex_offset) + runs.first[1].vertex_count <=
+          layer_vertices);
+}
+
+// ===========================================================================
+// AABB helpers + the tube-expansion constants
+// ===========================================================================
+
+TEST_CASE("default_plate_bbox is the 200x200 fallback for an empty box", "[gcode][aabb]") {
+    // Callers substitute this when a box is empty, because the +/-inf sentinels
+    // of an empty AABB turn into NaN offsets in compute_auto_fit() and every
+    // projected point becomes garbage.
+    const auto bb = helix::gcode::AABB::default_plate_bbox();
+    CHECK_FALSE(bb.is_empty());
+    CHECK(bb.min == glm::vec3(0.0f, 0.0f, 0.0f));
+    CHECK(bb.max == glm::vec3(200.0f, 200.0f, 0.0f));
+}
+
+TEST_CASE("expand_by grows both directions on every axis", "[gcode][aabb]") {
+    helix::gcode::AABB bb;
+    bb.min = glm::vec3(10.0f, 20.0f, 30.0f);
+    bb.max = glm::vec3(11.0f, 21.0f, 31.0f);
+    bb.expand_by(2.0f);
+    CHECK(bb.min == glm::vec3(8.0f, 18.0f, 28.0f));
+    CHECK(bb.max == glm::vec3(13.0f, 23.0f, 33.0f));
+}
+
+TEST_CASE("tube_half_diagonal is the exact worst-case reach off the centre line",
+          "[gcode][geometry_builder]") {
+    // A 0.4mm tube reaches 0.2mm off the centre line, and on a diagonal that
+    // lands in two axes at once: 0.2 * sqrt(2).
+    CHECK(helix::gcode::tube_half_diagonal(0.4f) == Catch::Approx(0.4f * 0.5f * 1.41421356f));
+    CHECK(helix::gcode::tube_half_diagonal(0.0f) == Catch::Approx(0.0f));
+}
+
+TEST_CASE("quantization slack keeps a 1.5x margin", "[gcode][geometry_builder]") {
+    // The bounds grow by 1.5x the tube width: the exact reach times the slack.
+    const float width = 0.4f;
+    const float margin = helix::gcode::tube_half_diagonal(width) * helix::gcode::kQuantBoundsSlack;
+    CHECK(margin == Catch::Approx(width * 1.5f).epsilon(1e-5));
+    // And it must stay strictly larger than the exact reach, or the bounds stop
+    // being conservative and vertices can quantize out of range.
+    CHECK(margin > helix::gcode::tube_half_diagonal(width));
+}
+
+TEST_CASE("Geometry Builder: a cancelled build emits no geometry", "[gcode][geometry][cancel]") {
+    // The viewer's build thread runs this pass after parsing; leaving the
+    // preview joins that thread on the UI thread, so the pass must be
+    // stoppable rather than costing a full build's wall clock (#1706).
+    // The predicate fires from the first check, so a build that honours it
+    // returns at once and empty.
+    auto make_gcode = []() {
+        ParsedGCodeFile gcode;
+        Layer layer;
+        layer.z_height = 0.2f;
+        layer.segment_count_extrusion = 50000;
+        for (int i = 0; i < 50000; ++i) {
+            ToolpathSegment seg;
+            seg.start = glm::vec3(i % 100, (i / 100) % 100, 0.2f);
+            seg.end = seg.start + glm::vec3(1.0f, 0.3f, 0.0f);
+            seg.is_extrusion = true;
+            seg.extrusion_amount = 1.0f;
+            seg.width = 0.4f;
+            layer.segments.push_back(seg);
+        }
+        gcode.layers.push_back(std::move(layer));
+        gcode.total_segments = 50000;
+        gcode.drawable_segments = 50000;
+        return gcode;
+    };
+
+    SimplificationOptions options;
+    options.enable_merging = false;
+
+    GeometryBuilder full_builder;
+    RibbonGeometry full = full_builder.build(make_gcode(), options);
+    REQUIRE_FALSE(full.vertices.empty());
+
+    GeometryBuilder cancelled_builder;
+    RibbonGeometry cancelled = cancelled_builder.build(make_gcode(), options, [] { return true; });
+    REQUIRE(cancelled.vertices.empty());
+}
+
+// ============================================================================
+// Moving mesh band layers
+// ============================================================================
+//
+// The weak-GPU moving mesh is this builder run with set_band_layers(n): exterior
+// shells are kept on every n-th layer, counted from the first printed layer, and
+// drawn n layer-heights tall so consecutive bands touch with no gaps. The first
+// printed layer and the horizontal skins are kept one layer tall.
+
+namespace {
+
+/// 9 layers of one outer wall plus one sparse-infill extrusion each, 0.2 mm layers.
+ParsedGCodeFile make_banded_gcode(int layer_count) {
+    std::vector<std::pair<float, std::vector<ToolpathSegment>>> layers;
+    for (int li = 0; li < layer_count; ++li) {
+        const float z = 0.2f * static_cast<float>(li + 1);
+        layers.push_back({z,
+                          {extrusion({10, 10, z}, {60, 10, z}, FeatureType::OuterWall),
+                           extrusion({10, 20, z}, {60, 20, z}, FeatureType::SparseInfill)}});
+    }
+    return file_of(layers, std::pair{glm::vec3{0, 0, 0}, glm::vec3{100, 100, 4}});
+}
+
+SimplificationOptions band_options() {
+    SimplificationOptions opts;
+    opts.enable_merging = false;
+    return opts;
+}
+
+ToolpathSegment band_extrusion(float y, float z, FeatureType type) {
+    return extrusion({10, y, z}, {60, y, z}, type);
+}
+
+/// Dequantized Z extent of the strips built from one source layer.
+std::pair<float, float> layer_z_extent(const RibbonGeometry& geometry, uint16_t layer) {
+    float lo = std::numeric_limits<float>::max();
+    float hi = std::numeric_limits<float>::lowest();
+    for (size_t s = 0; s < geometry.strips.size(); ++s) {
+        if (geometry.strip_layer_index[s] != layer) {
+            continue;
+        }
+        for (uint32_t vi : geometry.strips[s]) {
+            const float z = geometry.quantization.dequantize_vec3(geometry.vertices[vi].position).z;
+            lo = std::min(lo, z);
+            hi = std::max(hi, z);
+        }
+    }
+    return {lo, hi};
+}
+
+} // namespace
+
+TEST_CASE("Geometry Builder: band layers keep only exterior features of every n-th layer",
+          "[gcode][geometry][bands]") {
+    GeometryBuilder builder;
+    builder.set_band_layers(3);
+    RibbonGeometry geometry = builder.build(make_banded_gcode(9), band_options());
+
+    // Layers 0, 3 and 6 survive with their outer walls. Infill is collected
+    // only on the first printed layer, which the mesh keeps whole.
+    REQUIRE(builder.last_stats().input_segments == 4);
+    std::set<uint16_t> layers(geometry.strip_layer_index.begin(), geometry.strip_layer_index.end());
+    REQUIRE(layers == std::set<uint16_t>{0, 3, 6});
+
+    // The original layer index survives: the renderer's solid/ghost split by
+    // progress layer reads strip_layer_index, not position in the mesh.
+    REQUIRE(geometry.layer_strip_ranges.size() == 9);
+    REQUIRE(geometry.layer_strip_ranges[3].second > 0);
+    REQUIRE(geometry.layer_strip_ranges[1].second == 0);
+}
+
+TEST_CASE("Geometry Builder: a band is n layer heights tall and bands touch",
+          "[gcode][geometry][bands]") {
+    GeometryBuilder builder;
+    builder.set_band_layers(3);
+    RibbonGeometry geometry = builder.build(make_banded_gcode(9), band_options());
+    REQUIRE_FALSE(geometry.strips.empty());
+
+    // A tube's top edge sits at the layer's Z, so layer 0's band spans 0.0 to
+    // 0.6 mm and layer 3's starts exactly where it ends.
+    const auto [lo0, hi0] = layer_z_extent(geometry, 0);
+    const auto [lo3, hi3] = layer_z_extent(geometry, 3);
+    REQUIRE(hi0 - lo0 == Approx(0.6f).margin(0.02f)); // 3 * 0.2 mm
+    REQUIRE(lo0 == Approx(0.0f).margin(0.02f));
+    REQUIRE(lo3 == Approx(hi0).margin(0.02f));
+}
+
+TEST_CASE("Geometry Builder: bands keep every extrusion when the file names no feature types",
+          "[gcode][geometry][bands]") {
+    ParsedGCodeFile gcode = make_banded_gcode(4);
+    for (auto& layer : gcode.layers) {
+        for (auto& seg : layer.segments) {
+            seg.feature_type = FeatureType::Unknown; // no ;TYPE: comments in the file
+        }
+    }
+
+    GeometryBuilder builder;
+    builder.set_band_layers(2);
+    RibbonGeometry geometry = builder.build(gcode, band_options());
+
+    // Layers 0 and 2, both segments each: Unknown is not "known interior".
+    REQUIRE(builder.last_stats().input_segments == 4);
+    REQUIRE(geometry.strip_layer_index.size() == geometry.strips.size());
+}
+
+TEST_CASE("Geometry Builder: bands count from the first printed layer, not a purge layer",
+          "[gcode][geometry][bands]") {
+    // Start-gcode purge alone on layer 0, the model on layers 1..9.
+    ParsedGCodeFile gcode = make_banded_gcode(10);
+    gcode.layers[0].segments = {band_extrusion(5, 0.2f, FeatureType::Custom)};
+
+    GeometryBuilder builder;
+    builder.set_band_layers(3);
+    RibbonGeometry geometry = builder.build(gcode, band_options());
+
+    std::set<uint16_t> layers(geometry.strip_layer_index.begin(), geometry.strip_layer_index.end());
+    REQUIRE(layers == std::set<uint16_t>{1, 4, 7});
+    // Layer 1's wall and infill, then the walls of 4 and 7.
+    REQUIRE(builder.last_stats().input_segments == 4);
+}
+
+TEST_CASE("Geometry Builder: skins survive the band stride, one layer tall",
+          "[gcode][geometry][bands]") {
+    // A top surface on layer 4 (not a band layer at n=3) and a bottom surface
+    // on layer 6 (a band layer).
+    ParsedGCodeFile gcode = make_banded_gcode(9);
+    gcode.layers[4].segments.push_back(
+        band_extrusion(30, gcode.layers[4].z_height, FeatureType::TopSurface));
+    gcode.layers[6].segments.push_back(
+        band_extrusion(30, gcode.layers[6].z_height, FeatureType::BottomSurface));
+
+    SECTION("every layer") {
+        GeometryBuilder builder;
+        builder.set_band_layers(3);
+        RibbonGeometry geometry = builder.build(gcode, band_options());
+        REQUIRE(geometry.layer_strip_ranges[4].second > 0);
+
+        // One layer tall, top edge at the layer's Z: 0.8 to 1.0 mm.
+        const auto [lo, hi] = layer_z_extent(geometry, 4);
+        REQUIRE(hi - lo == Approx(0.2f).margin(0.02f));
+        REQUIRE(hi == Approx(gcode.layers[4].z_height).margin(0.02f));
+    }
+
+    SECTION("band layers only") {
+        GeometryBuilder builder;
+        builder.set_band_layers(3, false);
+        RibbonGeometry geometry = builder.build(gcode, band_options());
+        REQUIRE(geometry.layer_strip_ranges[4].second == 0);
+        REQUIRE(geometry.layer_strip_ranges[6].second > 0); // on a band layer it stays
+    }
+}
+
+TEST_CASE("Geometry Builder: a band shell and a skin never merge into one tube",
+          "[gcode][geometry][bands]") {
+    // On band layer 3, a wall runs straight on into a top surface: the same
+    // line, width and layer, so plain merging would fuse them.
+    ParsedGCodeFile gcode = make_banded_gcode(6);
+    const float z = gcode.layers[3].z_height;
+    ToolpathSegment skin = band_extrusion(10, z, FeatureType::TopSurface);
+    skin.start = glm::vec3(60, 10, z);
+    skin.end = glm::vec3(90, 10, z);
+    gcode.layers[3].segments.insert(gcode.layers[3].segments.begin() + 1, skin);
+
+    SimplificationOptions merging;
+    merging.enable_merging = true;
+    GeometryBuilder builder;
+    builder.set_band_layers(3);
+    RibbonGeometry geometry = builder.build(gcode, merging);
+
+    // The wall's band rises two layers above its path; the skin's top edge is
+    // the path itself. Fused, the skin's span would rise with the band.
+    float skin_hi = std::numeric_limits<float>::lowest();
+    for (size_t s = 0; s < geometry.strips.size(); ++s) {
+        if (geometry.strip_layer_index[s] != 3) {
+            continue;
+        }
+        for (uint32_t vi : geometry.strips[s]) {
+            const glm::vec3 p =
+                geometry.quantization.dequantize_vec3(geometry.vertices[vi].position);
+            if (p.x > 70.0f) {
+                skin_hi = std::max(skin_hi, p.z);
+            }
+        }
+    }
+    REQUIRE(skin_hi == Approx(z).margin(0.03f));
+}
+
+TEST_CASE("Geometry Builder: band layers default to off", "[gcode][geometry][bands]") {
+    GeometryBuilder builder;
+    RibbonGeometry geometry = builder.build(make_banded_gcode(3), band_options());
+    REQUIRE(builder.last_stats().input_segments == 6); // every layer, every feature
+}

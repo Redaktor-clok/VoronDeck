@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include <cctype>
+#include <string>
+#include <vector>
+
+namespace helix {
+
+enum class ErrorSeverity { INFO, WARNING, CRITICAL };
+
+enum class ErrorSource {
+    GENERIC,
+    KLIPPER,
+    HEATER,
+    AFC,
+    CFS,
+    IFS,
+    QIDI,
+    HAPPY_HARE,
+    SNAPMAKER,
+    ACE,
+    TOOLCHANGER,
+    OPENAMS
+};
+
+/// A one-tap fix offered alongside an error, rendered as a button by
+/// RecoveryModalPresenter. Two kinds of producer populate these: the generic
+/// error_classify::classify() for the codes whose error-table row offers a fix
+/// (printer::klipper_error_classify) plus the paused-print Resume/OK fallbacks, and
+/// the AMS backends' own build_recovery_actions(), which derive a context-aware
+/// set from live hardware state (AFC, Happy Hare, AD5X IFS; QIDI hardcodes a
+/// lone dismiss). An empty list is meaningful, not merely unpopulated — it is
+/// what makes decide_presentation() choose MODAL over MODAL_WITH_RECOVER.
+struct RecoveryAction {
+    std::string label;   ///< Button label, e.g. "Unload"
+    std::string gcode;   ///< G-code to run on tap
+    std::string log_tag; ///< spdlog tag on tap
+    std::string style;   ///< "" (neutral) | "primary" | "danger" — maps to PromptButton.color
+    /// True when running @ref gcode pushes filament through the nozzle, so it
+    /// needs the hotend at or above Klipper's min_extrude_temp. The presenter
+    /// preheats and defers the send instead of firing into a cold nozzle: the
+    /// heater can be off by the time the user taps (the post-op cooldown timer
+    /// armed by an earlier operation, TURN_OFF_HEATERS on a print ERROR, or
+    /// Klipper's idle_timeout), and a cold recovery fails exactly like the
+    /// operation that raised the error. False for anything that moves filament
+    /// only between the lane and the spool, or that just clears state.
+    bool needs_hot_nozzle = false;
+    /// Asked before the gcode is sent, as the body of a confirm titled with
+    /// label; empty sends on the tap.
+    std::string confirm_message;
+};
+
+/// Result of classifying one gcode-response line. Produced by the pure
+/// `error_classify::classify()`; consumed by the router's presenter.
+struct ErrorEvent {
+    ErrorSource source = ErrorSource::GENERIC;
+    ErrorSeverity severity = ErrorSeverity::WARNING;
+    std::string title;  ///< short, already-translated; "" -> presenter default
+    std::string detail; ///< FULL, untruncated, translated message text
+    /// FULL, untruncated, UN-translated text exactly as Klipper sent it (the
+    /// `!!`/`Error:` prefix stripped, nothing else). This is the cross-channel
+    /// dedup identity: the RPC channel records Klipper's raw wording, while
+    /// `detail` may have been rewritten by clean_error_text() ("Must home axis
+    /// first" -> "Must home axes first"). Comparing raw-to-raw keeps both sides
+    /// in the same normalization. Empty when a classifier doesn't populate it,
+    /// in which case `detail` is already the raw text.
+    std::string raw_detail;
+    std::string code; ///< Klipper error code if any ("key840"), else ""
+    std::vector<RecoveryAction> recovery_actions;
+    bool sticky = false;
+    /// The firmware refused a command the user just sent, and this event says
+    /// why. The router presents it even when the command's RPC caller recorded
+    /// the same rejection, and that caller hands its own report to the router
+    /// (rpc_error_correlation::report_unless_explained). Each refusal answers a fresh
+    /// command, so it shows again even if the user dismissed an identical one.
+    bool command_refusal = false;
+};
+
+/// Inputs the classifier needs beyond the raw line. Kept as a plain struct
+/// so the classifier stays pure and unit-testable without globals.
+struct ClassifyContext {
+    bool is_paused = false;   ///< print currently paused (pause_resume.is_paused)
+    bool is_printing = false; ///< print active (print_stats.state == "printing")
+};
+
+/// Which error shape a gcode-response line carries. The two mark different
+/// failures — `!!` is a broadcast, `Error:` a command response — and
+/// classification keys off which one.
+enum class GcodeErrorPrefix { None, Bang, Error };
+
+struct GcodeErrorLine {
+    GcodeErrorPrefix prefix = GcodeErrorPrefix::None;
+    /// The line with its error prefix and one following space stripped.
+    std::string text;
+};
+
+/// Split one gcode-response line into its error prefix (if any) and the text
+/// after it. `None` for every non-error line — `//` comments, `ok` acks,
+/// status — the single rule every classifier applies before reading a line,
+/// so a comment quoting an error's wording can never classify.
+[[nodiscard]] inline GcodeErrorLine parse_gcode_error_line(const std::string& line) {
+    if (line.size() >= 2 && line[0] == '!' && line[1] == '!') {
+        return {GcodeErrorPrefix::Bang,
+                (line.size() >= 3 && line[2] == ' ') ? line.substr(3) : line.substr(2)};
+    }
+    if (line.size() >= 6) {
+        std::string p = line.substr(0, 5);
+        for (auto& c : p)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (p == "error" && line[5] == ':') {
+            return {GcodeErrorPrefix::Error,
+                    (line.size() >= 7 && line[6] == ' ') ? line.substr(7) : line.substr(6)};
+        }
+    }
+    return {};
+}
+
+} // namespace helix

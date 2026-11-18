@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <api>
+    <prop name="prefix" type="string" default="home_sensor_bank_sensor"/>
+    <prop name="index" type="string" default="0"/>
+  </api>
+  <view extends="lv_obj" width="50%" height="content" flex_flow="row"
+        style_pad_all="0" style_pad_right="#space_xs" style_pad_gap="#space_xxs"
+        style_flex_cross_place="center" scrollable="false" clickable="false">
+    <icon src="thermometer" size="xs" variant="muted"/>
+    <text_tiny name="sensor_name" bind_text="${prefix}_${index}_name" width="0" flex_grow="1" long_mode="dots"/>
+    <text_tiny name="sensor_temperature" bind_text="${prefix}_${index}_temp"/>
+  </view>
+</component>

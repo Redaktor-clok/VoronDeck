@@ -1,0 +1,1773 @@
+{
+  "_comment": "Default home layouts, in half-cell tracks (TRACKS_PER_CELL = 2), authored per tier against the square-cell track counts. Placement keys are a tier (micro, tiny, small, medium, large, xlarge, xxlarge; include/ui_breakpoint.h) or a tier on one measured grid ('<tier>@<cols>x<rows>'), which wins over the bare tier on that grid. 'anchors' is the landscape table; 'variants' holds per-layout tables keyed by LayoutManager::variant_chain(). A fixed anchor sits where its key says. A 'slot' fills its region with the first alternative that fits and whose lead cell has a qualifying candidate (gate open, every 'requires' subject non-zero, not already placed); the last alternative is taken whenever it fits. Each cell takes the first qualifying candidate of its list, so cells sharing a list fill in the order they are written and any cell left over stays empty; slots resolve in table order. 'at' is [col, row, colspan, rowspan] relative to the region. Candidate lists hold only hardware- or capability-gated widgets, so a printer without the hardware gets an empty cell, never a stand-in. Widgets not placed are auto-placed at their registry default_enabled, so 'disabled' switches a default-enabled widget off where a tier has no room for it. 'gaps' lists, per placement key, the [col, row, colspan, rowspan] blocks left empty on purpose: every track is a tile, a declared gap, or a slot cell with no qualifying candidate (tests/unit/test_default_layout.cpp coverage case). The resolver does not read 'gaps'.",
+  "candidate_lists": {
+    "ENV_FIL": [
+      "active_spool",
+      "filament",
+      "led",
+      "dryer",
+      {
+        "id": "chamber_temperature",
+        "requires": [
+          "printer_is_enclosed"
+        ]
+      }
+    ]
+  },
+  "anchors": [
+    {
+      "id": "printer_image",
+      "placements": {
+        "micro": {
+          "col": 0,
+          "row": 0,
+          "colspan": 6,
+          "rowspan": 4
+        },
+        "tiny": {
+          "col": 0,
+          "row": 0,
+          "colspan": 4,
+          "rowspan": 4
+        },
+        "small": {
+          "col": 0,
+          "row": 0,
+          "colspan": 4,
+          "rowspan": 4
+        },
+        "medium": {
+          "col": 0,
+          "row": 0,
+          "colspan": 4,
+          "rowspan": 4
+        },
+        "large": {
+          "col": 0,
+          "row": 0,
+          "colspan": 4,
+          "rowspan": 4
+        },
+        "xlarge": {
+          "col": 0,
+          "row": 0,
+          "colspan": 4,
+          "rowspan": 4
+        },
+        "xxlarge": {
+          "col": 0,
+          "row": 0,
+          "colspan": 6,
+          "rowspan": 6
+        }
+      }
+    },
+    {
+      "id": "temperature",
+      "placements": {
+        "micro": {
+          "col": 6,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "micro@8x6": {
+          "col": 0,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "tiny": {
+          "col": 4,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "small": {
+          "col": 4,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "medium": {
+          "col": 4,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "large": {
+          "col": 4,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "xlarge": {
+          "col": 4,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "xxlarge": {
+          "col": 16,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        }
+      }
+    },
+    {
+      "id": "bed_temperature",
+      "placements": {
+        "micro": {
+          "col": 8,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "micro@8x6": {
+          "col": 2,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "tiny": {
+          "col": 6,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "small": {
+          "col": 6,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "medium": {
+          "col": 6,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "large": {
+          "col": 6,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "xlarge": {
+          "col": 6,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "xxlarge": {
+          "col": 18,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        }
+      }
+    },
+    {
+      "id": "fan_stack",
+      "placements": {
+        "micro": {
+          "col": 6,
+          "row": 2,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "tiny": {
+          "col": 4,
+          "row": 2,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "small": {
+          "col": 4,
+          "row": 2,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "medium": {
+          "col": 8,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "large": {
+          "col": 12,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "xlarge": {
+          "col": 12,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "xxlarge": {
+          "col": 20,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        }
+      }
+    },
+    {
+      "id": "notifications",
+      "placements": {
+        "micro": {
+          "col": 10,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "micro@8x6": {
+          "col": 6,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "tiny": {
+          "col": 8,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "small": {
+          "col": 8,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "medium": {
+          "col": 10,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "large": {
+          "col": 14,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "xlarge": {
+          "col": 14,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "xxlarge": {
+          "col": 22,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        }
+      }
+    },
+    {
+      "id": "print_status",
+      "config": {
+        "layout_style": "detailed"
+      },
+      "placements": {
+        "micro": {
+          "col": 0,
+          "row": 4,
+          "colspan": 8,
+          "rowspan": 4
+        },
+        "micro@8x6": {
+          "col": 0,
+          "row": 2,
+          "colspan": 8,
+          "rowspan": 4
+        },
+        "tiny": {
+          "col": 0,
+          "row": 4,
+          "colspan": 10,
+          "rowspan": 4
+        },
+        "small": {
+          "col": 0,
+          "row": 4,
+          "colspan": 10,
+          "rowspan": 4
+        },
+        "medium": {
+          "col": 0,
+          "row": 4,
+          "colspan": 8,
+          "rowspan": 4
+        },
+        "large": {
+          "col": 0,
+          "row": 4,
+          "colspan": 8,
+          "rowspan": 4
+        },
+        "xlarge": {
+          "col": 0,
+          "row": 4,
+          "colspan": 8,
+          "rowspan": 4
+        },
+        "xxlarge": {
+          "col": 6,
+          "row": 0,
+          "colspan": 10,
+          "rowspan": 6
+        }
+      }
+    },
+    {
+      "id": "temp_graph",
+      "placements": {
+        "micro": {
+          "col": 8,
+          "row": 4,
+          "colspan": 4,
+          "rowspan": 4
+        },
+        "medium": {
+          "col": 8,
+          "row": 2,
+          "colspan": 4,
+          "rowspan": 6
+        },
+        "large": {
+          "col": 12,
+          "row": 6,
+          "colspan": 4,
+          "rowspan": 4
+        },
+        "xlarge": {
+          "col": 12,
+          "row": 6,
+          "colspan": 4,
+          "rowspan": 4
+        },
+        "xxlarge": {
+          "col": 0,
+          "row": 6,
+          "colspan": 16,
+          "rowspan": 6
+        }
+      }
+    },
+    {
+      "id": "tips",
+      "placements": {
+        "small": {
+          "col": 0,
+          "row": 8,
+          "colspan": 10,
+          "rowspan": 2
+        },
+        "large": {
+          "col": 0,
+          "row": 8,
+          "colspan": 8,
+          "rowspan": 2
+        },
+        "xlarge": {
+          "col": 0,
+          "row": 8,
+          "colspan": 8,
+          "rowspan": 2
+        },
+        "xxlarge": {
+          "col": 0,
+          "row": 12,
+          "colspan": 16,
+          "rowspan": 2
+        }
+      }
+    },
+    {
+      "slot": "tool_strip",
+      "placements": {
+        "large": {
+          "col": 8,
+          "row": 2,
+          "colspan": 8,
+          "rowspan": 2
+        },
+        "xlarge": {
+          "col": 8,
+          "row": 2,
+          "colspan": 8,
+          "rowspan": 2
+        },
+        "xxlarge": {
+          "col": 16,
+          "row": 8,
+          "colspan": 8,
+          "rowspan": 2
+        }
+      },
+      "alternatives": [
+        {
+          "cells": [
+            {
+              "candidates": [
+                {
+                  "id": "tool_switcher",
+                  "requires": [
+                    "ams_is_tool_changer"
+                  ]
+                }
+              ],
+              "at": [
+                0,
+                0,
+                8,
+                2
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slot": "spool_env",
+      "placements": {
+        "micro": {
+          "col": 8,
+          "row": 2,
+          "colspan": 4,
+          "rowspan": 2
+        },
+        "micro@8x6": {
+          "col": 4,
+          "row": 0,
+          "colspan": 2,
+          "rowspan": 2
+        },
+        "tiny": {
+          "col": 6,
+          "row": 2,
+          "colspan": 4,
+          "rowspan": 2
+        },
+        "small": {
+          "col": 6,
+          "row": 2,
+          "colspan": 4,
+          "rowspan": 2
+        },
+        "large": {
+          "col": 8,
+          "row": 0,
+          "colspan": 4,
+          "rowspan": 2
+        },
+        "xlarge": {
+          "col": 8,
+          "row": 0,
+          "colspan": 4,
+          "rowspan": 2
+        },
+        "xxlarge": {
+          "col": 16,
+          "row": 2,
+          "colspan": 4,
+          "rowspan": 2
+        }
+      },
+      "alternatives": [
+        {
+          "cells": [
+            {
+              "candidates": [
+                {
+                  "id": "tool_switcher",
+                  "requires": [
+                    "ams_is_tool_changer"
+                  ]
+                }
+              ],
+              "at": [
+                0,
+                0,
+                4,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "cells": [
+            {
+              "candidates": [
+                "ams"
+              ],
+              "at": [
+                0,
+                0,
+                4,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "cells": [
+            {
+              "candidates": "ENV_FIL",
+              "at": [
+                0,
+                0,
+                2,
+                2
+              ]
+            },
+            {
+              "candidates": "ENV_FIL",
+              "at": [
+                2,
+                0,
+                2,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "cells": [
+            {
+              "candidates": [
+                "ams",
+                "filament",
+                "led",
+                "dryer",
+                {
+                  "id": "chamber_temperature",
+                  "requires": [
+                    "printer_is_enclosed"
+                  ]
+                },
+                {
+                  "id": "active_spool",
+                  "requires": [
+                    "printer_has_spoolman"
+                  ]
+                }
+              ],
+              "at": [
+                0,
+                0,
+                2,
+                2
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slot": "spool_env_rl",
+      "placements": {
+        "medium": {
+          "col": 4,
+          "row": 2,
+          "colspan": 4,
+          "rowspan": 2
+        }
+      },
+      "alternatives": [
+        {
+          "cells": [
+            {
+              "candidates": [
+                {
+                  "id": "tool_switcher",
+                  "requires": [
+                    "ams_is_tool_changer"
+                  ]
+                }
+              ],
+              "at": [
+                0,
+                0,
+                4,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "cells": [
+            {
+              "candidates": [
+                "ams"
+              ],
+              "at": [
+                0,
+                0,
+                4,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "cells": [
+            {
+              "candidates": "ENV_FIL",
+              "at": [
+                2,
+                0,
+                2,
+                2
+              ]
+            },
+            {
+              "candidates": "ENV_FIL",
+              "at": [
+                0,
+                0,
+                2,
+                2
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slot": "readout_1",
+      "placements": {
+        "xxlarge": {
+          "col": 20,
+          "row": 2,
+          "colspan": 2,
+          "rowspan": 2
+        }
+      },
+      "alternatives": [
+        {
+          "cells": [
+            {
+              "candidates": "ENV_FIL",
+              "at": [
+                0,
+                0,
+                2,
+                2
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slot": "readout_2",
+      "placements": {
+        "xxlarge": {
+          "col": 22,
+          "row": 2,
+          "colspan": 2,
+          "rowspan": 2
+        }
+      },
+      "alternatives": [
+        {
+          "cells": [
+            {
+              "candidates": "ENV_FIL",
+              "at": [
+                0,
+                0,
+                2,
+                2
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slot": "mesh",
+      "placements": {
+        "large": {
+          "col": 8,
+          "row": 6,
+          "colspan": 4,
+          "rowspan": 4
+        },
+        "xlarge": {
+          "col": 8,
+          "row": 6,
+          "colspan": 4,
+          "rowspan": 4
+        },
+        "xxlarge": {
+          "col": 16,
+          "row": 4,
+          "colspan": 8,
+          "rowspan": 4
+        }
+      },
+      "alternatives": [
+        {
+          "cells": [
+            {
+              "candidates": [
+                "bed_mesh_tile"
+              ],
+              "at": [
+                0,
+                0,
+                8,
+                6
+              ]
+            }
+          ]
+        },
+        {
+          "cells": [
+            {
+              "candidates": [
+                "bed_mesh_tile"
+              ],
+              "at": [
+                0,
+                0,
+                8,
+                4
+              ]
+            }
+          ]
+        },
+        {
+          "cells": [
+            {
+              "candidates": [
+                "bed_mesh_tile"
+              ],
+              "at": [
+                0,
+                0,
+                4,
+                4
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "disabled": {
+    "micro": [
+      "tips",
+      "notifications"
+    ],
+    "micro@8x6": [
+      "tips",
+      "temp_graph",
+      "printer_image",
+      "fan_stack",
+      "notifications"
+    ],
+    "tiny": [
+      "tips",
+      "temp_graph",
+      "notifications"
+    ],
+    "small": [
+      "temp_graph",
+      "notifications"
+    ],
+    "medium": [
+      "tips",
+      "notifications"
+    ],
+    "xxlarge": [
+      "notifications"
+    ],
+    "large": [
+      "notifications"
+    ],
+    "xlarge": [
+      "notifications"
+    ]
+  },
+  "gaps": {
+    "large": [
+      [
+        4,
+        2,
+        4,
+        2
+      ],
+      [
+        8,
+        4,
+        8,
+        2
+      ]
+    ],
+    "xlarge": [
+      [
+        4,
+        2,
+        4,
+        2
+      ],
+      [
+        8,
+        4,
+        8,
+        2
+      ]
+    ],
+    "xxlarge": [
+      [
+        16,
+        10,
+        8,
+        4
+      ]
+    ]
+  },
+  "variants": {
+    "_comment": "Per-layout tables. Notifications sit in the top-right corner of every one. Slots whose cells may come up empty sit beside a declared gap or at an edge, so a printer with less hardware shows one calm empty block rather than a hole between two tiles.",
+    "ultrawide": {
+      "_comment": "ULTRAWIDE (1480x320 -> 36x8 tracks, 1920x440 -> 46x10). Two bands. Top: the printer image at the left, a deliberate empty span, then the readout cluster at the right edge with notifications in the corner; its slot cells fill from the right so any left unfilled join the empty span. Bottom: print status on the left half, the temperature graph on the right half. Only tiny and small are authored: micro falls back to tiny, and every shipping ultrawide panel has a narrow axis of 320 or 440.",
+      "anchors": [
+        {
+          "id": "printer_image",
+          "placements": {
+            "tiny": {
+              "col": 0,
+              "row": 0,
+              "colspan": 8,
+              "rowspan": 4
+            },
+            "small": {
+              "col": 0,
+              "row": 0,
+              "colspan": 8,
+              "rowspan": 4
+            }
+          }
+        },
+        {
+          "id": "temperature",
+          "placements": {
+            "tiny": {
+              "col": 28,
+              "row": 0,
+              "colspan": 2,
+              "rowspan": 2
+            },
+            "small": {
+              "col": 38,
+              "row": 0,
+              "colspan": 2,
+              "rowspan": 2
+            }
+          }
+        },
+        {
+          "id": "bed_temperature",
+          "placements": {
+            "tiny": {
+              "col": 30,
+              "row": 0,
+              "colspan": 2,
+              "rowspan": 2
+            },
+            "small": {
+              "col": 40,
+              "row": 0,
+              "colspan": 2,
+              "rowspan": 2
+            }
+          }
+        },
+        {
+          "id": "fan_stack",
+          "placements": {
+            "tiny": {
+              "col": 32,
+              "row": 0,
+              "colspan": 2,
+              "rowspan": 2
+            },
+            "small": {
+              "col": 42,
+              "row": 0,
+              "colspan": 2,
+              "rowspan": 2
+            }
+          }
+        },
+        {
+          "id": "notifications",
+          "placements": {
+            "tiny": {
+              "col": 34,
+              "row": 0,
+              "colspan": 2,
+              "rowspan": 2
+            },
+            "small": {
+              "col": 44,
+              "row": 0,
+              "colspan": 2,
+              "rowspan": 2
+            }
+          }
+        },
+        {
+          "id": "print_status",
+          "config": {
+            "layout_style": "detailed"
+          },
+          "placements": {
+            "tiny": {
+              "col": 0,
+              "row": 4,
+              "colspan": 18,
+              "rowspan": 4
+            },
+            "small": {
+              "col": 0,
+              "row": 4,
+              "colspan": 23,
+              "rowspan": 6
+            }
+          }
+        },
+        {
+          "id": "temp_graph",
+          "placements": {
+            "tiny": {
+              "col": 18,
+              "row": 4,
+              "colspan": 18,
+              "rowspan": 4
+            },
+            "small": {
+              "col": 23,
+              "row": 4,
+              "colspan": 23,
+              "rowspan": 6
+            }
+          }
+        },
+        {
+          "slot": "readout_1",
+          "placements": {
+            "tiny": {
+              "col": 34,
+              "row": 2,
+              "colspan": 2,
+              "rowspan": 2
+            },
+            "small": {
+              "col": 44,
+              "row": 2,
+              "colspan": 2,
+              "rowspan": 2
+            }
+          },
+          "alternatives": [
+            {
+              "cells": [
+                {
+                  "candidates": "ENV_FIL",
+                  "at": [
+                    0,
+                    0,
+                    2,
+                    2
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "slot": "readout_2",
+          "placements": {
+            "tiny": {
+              "col": 32,
+              "row": 2,
+              "colspan": 2,
+              "rowspan": 2
+            },
+            "small": {
+              "col": 42,
+              "row": 2,
+              "colspan": 2,
+              "rowspan": 2
+            }
+          },
+          "alternatives": [
+            {
+              "cells": [
+                {
+                  "candidates": "ENV_FIL",
+                  "at": [
+                    0,
+                    0,
+                    2,
+                    2
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "slot": "spool_env_rl",
+          "placements": {
+            "tiny": {
+              "col": 28,
+              "row": 2,
+              "colspan": 4,
+              "rowspan": 2
+            },
+            "small": {
+              "col": 38,
+              "row": 2,
+              "colspan": 4,
+              "rowspan": 2
+            }
+          },
+          "alternatives": [
+            {
+              "cells": [
+                {
+                  "candidates": [
+                    "ams"
+                  ],
+                  "at": [
+                    0,
+                    0,
+                    4,
+                    2
+                  ]
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "candidates": "ENV_FIL",
+                  "at": [
+                    2,
+                    0,
+                    2,
+                    2
+                  ]
+                },
+                {
+                  "candidates": "ENV_FIL",
+                  "at": [
+                    0,
+                    0,
+                    2,
+                    2
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "disabled": {
+        "tiny": [
+          "tips",
+          "notifications"
+        ],
+        "small": [
+          "tips",
+          "notifications"
+        ],
+        "xxlarge": [
+          "notifications"
+        ],
+        "large": [
+          "notifications"
+        ],
+        "micro": [
+          "notifications"
+        ],
+        "xlarge": [
+          "notifications"
+        ],
+        "medium": [
+          "notifications"
+        ]
+      },
+      "gaps": {
+        "tiny": [
+          [
+            8,
+            0,
+            20,
+            4
+          ]
+        ],
+        "small": [
+          [
+            8,
+            0,
+            30,
+            4
+          ]
+        ]
+      }
+    },
+    "portrait": {
+      "_comment": "VoronDeck portrait: printer beside named heaters, passive sensors and a horizontal fan bank; full-width graph, filament, last job below. Home canvas scrolls vertically. These are visual default placements only; inventory and saved device settings are unchanged.",
+      "anchors": [
+        {
+          "id": "printer_image",
+          "placements": {
+            "micro": {
+              "col": 0,
+              "row": 0,
+              "colspan": 4,
+              "rowspan": 5
+            },
+            "tiny": {
+              "col": 0,
+              "row": 0,
+              "colspan": 4,
+              "rowspan": 5
+            },
+            "small": {
+              "col": 0,
+              "row": 0,
+              "colspan": 4,
+              "rowspan": 5
+            },
+            "medium": {
+              "col": 0,
+              "row": 0,
+              "colspan": 4,
+              "rowspan": 5
+            },
+            "large": {
+              "col": 0,
+              "row": 0,
+              "colspan": 4,
+              "rowspan": 5
+            },
+            "xlarge": {
+              "col": 0,
+              "row": 0,
+              "colspan": 4,
+              "rowspan": 5
+            },
+            "xxlarge": {
+              "col": 0,
+              "row": 0,
+              "colspan": 6,
+              "rowspan": 5
+            }
+          }
+        },
+        {
+          "id": "temperature",
+          "placements": {
+            "micro": {
+              "col": 4,
+              "row": 0,
+              "colspan": 4,
+              "rowspan": 1
+            },
+            "tiny": {
+              "col": 4,
+              "row": 0,
+              "colspan": 4,
+              "rowspan": 1
+            },
+            "small": {
+              "col": 4,
+              "row": 0,
+              "colspan": 6,
+              "rowspan": 1
+            },
+            "medium": {
+              "col": 4,
+              "row": 0,
+              "colspan": 4,
+              "rowspan": 1
+            },
+            "large": {
+              "col": 4,
+              "row": 0,
+              "colspan": 6,
+              "rowspan": 1
+            },
+            "xlarge": {
+              "col": 4,
+              "row": 0,
+              "colspan": 6,
+              "rowspan": 1
+            },
+            "xxlarge": {
+              "col": 6,
+              "row": 0,
+              "colspan": 8,
+              "rowspan": 1
+            }
+          }
+        },
+        {
+          "id": "bed_temperature",
+          "placements": {
+            "micro": {
+              "col": 4,
+              "row": 1,
+              "colspan": 4,
+              "rowspan": 1
+            },
+            "tiny": {
+              "col": 4,
+              "row": 1,
+              "colspan": 4,
+              "rowspan": 1
+            },
+            "small": {
+              "col": 4,
+              "row": 1,
+              "colspan": 6,
+              "rowspan": 1
+            },
+            "medium": {
+              "col": 4,
+              "row": 1,
+              "colspan": 4,
+              "rowspan": 1
+            },
+            "large": {
+              "col": 4,
+              "row": 1,
+              "colspan": 6,
+              "rowspan": 1
+            },
+            "xlarge": {
+              "col": 4,
+              "row": 1,
+              "colspan": 6,
+              "rowspan": 1
+            },
+            "xxlarge": {
+              "col": 6,
+              "row": 1,
+              "colspan": 8,
+              "rowspan": 1
+            }
+          }
+        },
+        {
+          "id": "fan_stack",
+          "placements": {
+            "micro": {
+              "col": 4,
+              "row": 3,
+              "colspan": 4,
+              "rowspan": 2
+            },
+            "tiny": {
+              "col": 4,
+              "row": 3,
+              "colspan": 4,
+              "rowspan": 2
+            },
+            "small": {
+              "col": 4,
+              "row": 3,
+              "colspan": 6,
+              "rowspan": 2
+            },
+            "medium": {
+              "col": 4,
+              "row": 3,
+              "colspan": 4,
+              "rowspan": 2
+            },
+            "large": {
+              "col": 4,
+              "row": 3,
+              "colspan": 6,
+              "rowspan": 2
+            },
+            "xlarge": {
+              "col": 4,
+              "row": 3,
+              "colspan": 6,
+              "rowspan": 2
+            },
+            "xxlarge": {
+              "col": 6,
+              "row": 3,
+              "colspan": 8,
+              "rowspan": 2
+            }
+          }
+        },
+        {
+          "id": "notifications",
+          "placements": {}
+        },
+        {
+          "id": "tips",
+          "placements": {}
+        },
+        {
+          "id": "print_status",
+          "config": {
+            "layout_style": "detailed"
+          },
+          "placements": {
+            "micro": {
+              "col": 0,
+              "row": 11,
+              "colspan": 8,
+              "rowspan": 4
+            },
+            "tiny": {
+              "col": 0,
+              "row": 11,
+              "colspan": 8,
+              "rowspan": 4
+            },
+            "small": {
+              "col": 0,
+              "row": 11,
+              "colspan": 10,
+              "rowspan": 4
+            },
+            "medium": {
+              "col": 0,
+              "row": 11,
+              "colspan": 8,
+              "rowspan": 4
+            },
+            "large": {
+              "col": 0,
+              "row": 11,
+              "colspan": 10,
+              "rowspan": 4
+            },
+            "xlarge": {
+              "col": 0,
+              "row": 11,
+              "colspan": 10,
+              "rowspan": 4
+            },
+            "xxlarge": {
+              "col": 0,
+              "row": 11,
+              "colspan": 14,
+              "rowspan": 4
+            }
+          }
+        },
+        {
+          "id": "temp_graph",
+          "placements": {
+            "micro": {
+              "col": 0,
+              "row": 5,
+              "colspan": 8,
+              "rowspan": 4
+            },
+            "tiny": {
+              "col": 0,
+              "row": 5,
+              "colspan": 8,
+              "rowspan": 4
+            },
+            "small": {
+              "col": 0,
+              "row": 5,
+              "colspan": 10,
+              "rowspan": 4
+            },
+            "medium": {
+              "col": 0,
+              "row": 5,
+              "colspan": 8,
+              "rowspan": 4
+            },
+            "large": {
+              "col": 0,
+              "row": 5,
+              "colspan": 10,
+              "rowspan": 4
+            },
+            "xlarge": {
+              "col": 0,
+              "row": 5,
+              "colspan": 10,
+              "rowspan": 4
+            },
+            "xxlarge": {
+              "col": 0,
+              "row": 5,
+              "colspan": 14,
+              "rowspan": 4
+            }
+          }
+        },
+        {
+          "slot": "spool_env",
+          "placements": {
+            "micro": {
+              "col": 0,
+              "row": 9,
+              "colspan": 8,
+              "rowspan": 2
+            },
+            "tiny": {
+              "col": 0,
+              "row": 9,
+              "colspan": 8,
+              "rowspan": 2
+            },
+            "small": {
+              "col": 0,
+              "row": 9,
+              "colspan": 10,
+              "rowspan": 2
+            },
+            "medium": {
+              "col": 0,
+              "row": 9,
+              "colspan": 8,
+              "rowspan": 2
+            },
+            "large": {
+              "col": 0,
+              "row": 9,
+              "colspan": 10,
+              "rowspan": 2
+            },
+            "xlarge": {
+              "col": 0,
+              "row": 9,
+              "colspan": 10,
+              "rowspan": 2
+            },
+            "xxlarge": {
+              "col": 0,
+              "row": 9,
+              "colspan": 14,
+              "rowspan": 2
+            }
+          },
+          "alternatives": [
+            {
+              "cells": [
+                {
+                  "candidates": [
+                    "ams"
+                  ],
+                  "at": [
+                    0,
+                    0,
+                    8,
+                    2
+                  ]
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "candidates": [
+                    "active_spool"
+                  ],
+                  "at": [
+                    0,
+                    0,
+                    8,
+                    2
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "slot": "readout_1",
+          "placements": {
+            "xxlarge": {
+              "col": 10,
+              "row": 2,
+              "colspan": 2,
+              "rowspan": 2
+            }
+          },
+          "alternatives": [
+            {
+              "cells": [
+                {
+                  "candidates": "ENV_FIL",
+                  "at": [
+                    0,
+                    0,
+                    2,
+                    2
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "slot": "readout_2",
+          "placements": {
+            "xxlarge": {
+              "col": 12,
+              "row": 2,
+              "colspan": 2,
+              "rowspan": 2
+            }
+          },
+          "alternatives": [
+            {
+              "cells": [
+                {
+                  "candidates": "ENV_FIL",
+                  "at": [
+                    0,
+                    0,
+                    2,
+                    2
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "slot": "mesh",
+          "placements": {
+            "xxlarge": {
+              "col": 0,
+              "row": 20,
+              "colspan": 8,
+              "rowspan": 4
+            },
+            "xxlarge@14x32": {
+              "col": 0,
+              "row": 22,
+              "colspan": 8,
+              "rowspan": 4
+            },
+            "tiny@8x34": {
+              "col": 0,
+              "row": 22,
+              "colspan": 8,
+              "rowspan": 6
+            },
+            "small@10x44": {
+              "col": 0,
+              "row": 22,
+              "colspan": 8,
+              "rowspan": 6
+            }
+          },
+          "alternatives": [
+            {
+              "cells": [
+                {
+                  "candidates": [
+                    "bed_mesh_tile"
+                  ],
+                  "at": [
+                    0,
+                    0,
+                    8,
+                    6
+                  ]
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "candidates": [
+                    "bed_mesh_tile"
+                  ],
+                  "at": [
+                    0,
+                    0,
+                    8,
+                    4
+                  ]
+                }
+              ]
+            },
+            {
+              "cells": [
+                {
+                  "candidates": [
+                    "bed_mesh_tile"
+                  ],
+                  "at": [
+                    0,
+                    0,
+                    4,
+                    4
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "home_sensor_bank",
+          "placements": {
+            "micro": {
+              "col": 4,
+              "row": 2,
+              "colspan": 4,
+              "rowspan": 1
+            },
+            "tiny": {
+              "col": 4,
+              "row": 2,
+              "colspan": 4,
+              "rowspan": 1
+            },
+            "small": {
+              "col": 4,
+              "row": 2,
+              "colspan": 6,
+              "rowspan": 1
+            },
+            "medium": {
+              "col": 4,
+              "row": 2,
+              "colspan": 4,
+              "rowspan": 1
+            },
+            "large": {
+              "col": 4,
+              "row": 2,
+              "colspan": 6,
+              "rowspan": 1
+            },
+            "xlarge": {
+              "col": 4,
+              "row": 2,
+              "colspan": 6,
+              "rowspan": 1
+            },
+            "xxlarge": {
+              "col": 6,
+              "row": 2,
+              "colspan": 8,
+              "rowspan": 1
+            }
+          }
+        }
+      ],
+      "disabled": {
+        "micro": [
+          "tips",
+          "notifications"
+        ],
+        "tiny": [
+          "tips",
+          "notifications"
+        ],
+        "tiny@8x34": [
+          "notifications"
+        ],
+        "small": [
+          "tips",
+          "notifications"
+        ],
+        "medium": [
+          "tips",
+          "notifications"
+        ],
+        "large": [
+          "tips",
+          "notifications"
+        ],
+        "xlarge": [
+          "tips",
+          "notifications"
+        ],
+        "xxlarge": [
+          "tips",
+          "notifications"
+        ]
+      },
+      "gaps": {
+        "xxlarge": [],
+        "xxlarge@14x32": [
+          [
+            6,
+            4,
+            8,
+            2
+          ],
+          [
+            8,
+            22,
+            6,
+            4
+          ],
+          [
+            0,
+            26,
+            14,
+            6
+          ]
+        ],
+        "tiny@8x34": [
+          [
+            4,
+            28,
+            4,
+            2
+          ],
+          [
+            0,
+            30,
+            8,
+            4
+          ]
+        ],
+        "small@10x44": [
+          [
+            8,
+            22,
+            2,
+            6
+          ],
+          [
+            0,
+            28,
+            10,
+            16
+          ]
+        ],
+        "micro": [],
+        "tiny": [],
+        "small": [],
+        "medium": [],
+        "large": [],
+        "xlarge": []
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "buffer": null,
+  "lane_loaded": "lane1",
+  "lanes": [
+    "lane1",
+    "lane2",
+    "lane3",
+    "lane4"
+  ],
+  "tool_end": "EBBCan:gpio24",
+  "tool_end_status": true,
+  "tool_load_speed": 25.0,
+  "tool_sensor_after_extruder": 0.0,
+  "tool_start": "EBBCan:gpio6",
+  "tool_start_status": true,
+  "tool_stn": 42.0,
+  "tool_stn_unload": 90.0,
+  "tool_unload_speed": 25.0
+}

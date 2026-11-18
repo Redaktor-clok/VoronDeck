@@ -1,0 +1,114 @@
+// Copyright (C) 2025-2026 356C LLC
+// tests/test_helpers/controls_panel_test_access.h
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include "ui_observer_guard.h" // ObserverGuard, SubjectLifetime
+#include "ui_panel_controls.h"
+
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace helix::ui {
+
+// Test-only access to ControlsPanel's private secondary-fan internals.
+//
+// Locks in the SubjectLifetime member-vector doctrine (L084/L077): the per-fan
+// speed subjects are dynamic (freed + recreated on fan rediscovery), so each
+// observer's lifetime token must live in a member vector that outlives the
+// paired ObserverGuard — never a stack local. These accessors let the
+// conformance test inspect that the member vectors exist, stay aligned, and
+// that the retained token copies observe subject death on rediscovery.
+struct ControlsPanelTestAccess {
+    using SecondaryFanRow = ControlsPanel::SecondaryFanRow;
+
+    static void confirm_custom_nozzle(ControlsPanel& p, float celsius) {
+        p.handle_custom_nozzle_confirmed(celsius);
+    }
+    static int cached_extruder_target(const ControlsPanel& p) {
+        return p.cached_extruder_target_;
+    }
+
+    static std::vector<SecondaryFanRow>& rows(ControlsPanel& p) {
+        return p.secondary_fan_rows_;
+    }
+
+    static std::vector<ObserverGuard>& observers(ControlsPanel& p) {
+        return p.secondary_fan_observers_;
+    }
+
+    static std::vector<SubjectLifetime>& lifetimes(ControlsPanel& p) {
+        return p.secondary_fan_lifetimes_;
+    }
+
+    /// Seed the tracked rows directly from a list of Klipper object names.
+    /// subscribe_to_secondary_fan_speeds() only reads row.object_name, so the
+    /// speed_label may stay null.
+    static void set_rows(ControlsPanel& p, const std::vector<std::string>& object_names) {
+        p.secondary_fan_rows_.clear();
+        for (const auto& name : object_names) {
+            p.secondary_fan_rows_.push_back({name, {}});
+        }
+    }
+
+    /// Invoke the private subscribe path under test.
+    static void subscribe(ControlsPanel& p) {
+        p.subscribe_to_secondary_fan_speeds();
+    }
+
+    /// Wire the container the real teardown/rebuild path (populate_secondary_fans)
+    /// requires, so the production cleanup can be exercised end-to-end.
+    static void set_fans_list(ControlsPanel& p, lv_obj_t* list) {
+        p.secondary_fans_list_ = list;
+    }
+
+    /// Invoke the real production teardown + rebuild path.
+    static void populate(ControlsPanel& p) {
+        p.populate_secondary_fans();
+    }
+
+    // --- Quick actions (homing, QGL, Z-Tilt) ---------------------------------
+    //
+    // The seven quick-action buttons share one guarded body. These accessors let
+    // a test drive that body with a dispatch it controls, so the guard contract
+    // can be asserted without a printer: who gets dispatched, and when the guard
+    // is released.
+    using QuickActionText = ControlsPanel::QuickActionText;
+
+    static void run_quick_action(ControlsPanel& p, uint32_t timeout_ms, const QuickActionText& text,
+                                 const ControlsPanel::QuickActionDispatch& dispatch) {
+        p.run_quick_action(timeout_ms, text, dispatch);
+    }
+
+    static QuickActionText homing_text(const char* started) {
+        return ControlsPanel::homing_text(started);
+    }
+
+    /// Invoke the macro quick button's dispatch, the same entry the touch
+    /// handler and the remote-control server use.
+    static void execute_macro(ControlsPanel& p, size_t index) {
+        p.quick_actions_.execute(index, p.api_, p.object_lifetime_.token());
+    }
+
+    /// Open Bed Mesh the way its calibration card does, on @p screen.
+    static void open_bed_mesh(ControlsPanel& p, lv_obj_t* screen) {
+        p.parent_screen_ = screen;
+        p.handle_calibration_bed_mesh();
+    }
+
+    static bool guard_active(ControlsPanel& p) {
+        return p.operation_guard_.is_active();
+    }
+
+    // --- Target-edit keypad ceiling ------------------------------------------
+    //
+    // The three heater keypads derive their maximum from the shared
+    // keypad-ceiling authority; this lets a test ask the panel the same
+    // question the keypad will be shown with (#1619).
+    static int target_edit_max(ControlsPanel& p, helix::HeaterType type, int fallback_deg) {
+        return p.target_edit_max(type, fallback_deg);
+    }
+};
+
+} // namespace helix::ui

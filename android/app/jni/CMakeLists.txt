@@ -1,0 +1,427 @@
+cmake_minimum_required(VERSION 3.14)
+project(HelixScreen)
+
+# Project root is three levels up from android/app/jni/
+get_filename_component(PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+
+# Every config but Debug is a release build, as every cross target in mk/cross.mk
+# is: XML hot reload defaults off, the theme token table is on, and LVGL's style
+# asserts are off. AGP builds its release buildType as RelWithDebInfo, so this
+# names the one config it excludes rather than the ones it includes. lv_conf.h
+# derives LV_USE_ASSERT_STYLE from it and lv_style_t has a sentinel member only
+# under that assert, so the define is set here at directory scope, ahead of
+# every target: two targets that disagree about it disagree about the layout of
+# every style they share, and nothing at link time notices.
+add_compile_definitions($<$<NOT:$<CONFIG:Debug>>:HELIX_RELEASE_BUILD>)
+
+# CI's debug APK is a compile check that nobody attaches a debugger to, and its
+# DWARF is most of what that job's ccache has to store.
+if(HELIX_NO_DEBUG_INFO)
+    add_compile_options(-g0)
+endif()
+
+# ============================================================================
+# SDL2
+# ============================================================================
+set(SDL2_DIR "${PROJECT_ROOT}/lib/sdl2")
+add_subdirectory(${SDL2_DIR} SDL2)
+
+# ============================================================================
+# spdlog (header-only)
+# ============================================================================
+set(SPDLOG_DIR "${PROJECT_ROOT}/lib/spdlog")
+# Just add include path, no build needed
+
+# ============================================================================
+# libhv (static library)
+# ============================================================================
+set(LIBHV_DIR "${PROJECT_ROOT}/lib/libhv")
+# libhv has its own CMakeLists.txt but we need to configure it for Android
+set(WITH_OPENSSL OFF CACHE BOOL "" FORCE)
+set(WITH_NGHTTP2 OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+
+# libhv's CMakeLists writes its generated hconfig.h (and the include/hv copies)
+# into its own SOURCE directory, the same files the desktop build's ./configure
+# writes with WITH_OPENSSL on. Configuring it in place makes the two builds
+# overwrite each other's config, and an Android build that follows a native one
+# compiles libhv's OpenSSL backend against headers the NDK does not have.
+# Configure a staging directory instead: every libhv entry is a symlink back to
+# the real tree except hconfig.h and include/, which are generated here, so the
+# source tree is read but never written and edits still show up live.
+set(LIBHV_STAGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/libhv-src")
+file(MAKE_DIRECTORY "${LIBHV_STAGE_DIR}")
+file(GLOB _libhv_entries RELATIVE "${LIBHV_DIR}" "${LIBHV_DIR}/*")
+foreach(_entry IN LISTS _libhv_entries)
+    if(_entry STREQUAL "hconfig.h" OR _entry STREQUAL "include")
+        continue()
+    endif()
+    file(REMOVE "${LIBHV_STAGE_DIR}/${_entry}")
+    file(CREATE_LINK "${LIBHV_DIR}/${_entry}" "${LIBHV_STAGE_DIR}/${_entry}" SYMBOLIC)
+endforeach()
+add_subdirectory(${LIBHV_STAGE_DIR} libhv)
+
+# ============================================================================
+# libjpeg-turbo (shared — dlopen'd at runtime by CameraStream)
+# ============================================================================
+# Android ships no libturbojpeg, so CameraStream's dlopen fails and every MJPEG
+# frame falls back to stb_image: scalar IDCT (STBI_NEON is never defined) *and*
+# no decode-time downscale, because compute_scaled_size() is gated on
+# tjGetScalingFactors. A 1080p stream then costs a full-res scalar decode plus an
+# LVGL software rescale per frame (prestonbrown/helixscreen#1245).
+#
+# ExternalProject_Add rather than add_subdirectory: libjpeg-turbo's top-level
+# CMakeLists.txt hard-fails with "cannot be integrated into another build system
+# using add_subdirectory()" whenever CMAKE_SOURCE_DIR != its own source dir, and
+# tells downstreams to use ExternalProject_Add instead. A separate configure also
+# keeps its install rules, CMAKE_INSTALL_PREFIX and C flags out of our build.
+include(ExternalProject)
+set(LIBJPEG_TURBO_DIR "${PROJECT_ROOT}/lib/libjpeg-turbo")
+set(TURBOJPEG_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo")
+set(TURBOJPEG_SO "${TURBOJPEG_BINARY_DIR}/libturbojpeg.so")
+
+# Fail the build if SIMD is silently dropped on the ABIs that are the whole point
+# of this: a libturbojpeg without SIMD is barely worth shipping. Arm NEON is
+# intrinsics-only, so the NDK's clang is the only prerequisite and REQUIRE_SIMD is
+# safe. x86-64 needs a separate NASM-syntax assembler; this NDK bundles yasm and
+# CMake finds it, so that ABI gets SIMD too — but it is an emulator-only ABI, so
+# let it warn and degrade rather than hard-fail on a host where yasm is missing.
+if(ANDROID_ABI MATCHES "^arm")
+    set(TURBOJPEG_REQUIRE_SIMD 1)
+else()
+    set(TURBOJPEG_REQUIRE_SIMD 0)
+endif()
+
+ExternalProject_Add(turbojpeg_ext
+    SOURCE_DIR "${LIBJPEG_TURBO_DIR}"
+    BINARY_DIR "${TURBOJPEG_BINARY_DIR}"
+    DOWNLOAD_COMMAND ""
+    UPDATE_COMMAND ""
+    # Build only the TurboJPEG API shared library — not libjpeg.so, not the
+    # bundled tools, not the install tree.
+    BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target turbojpeg
+    INSTALL_COMMAND ""
+    BUILD_BYPRODUCTS "${TURBOJPEG_SO}"
+    CMAKE_ARGS
+        -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+        -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+        # Deliberately NOT ${CMAKE_BUILD_TYPE}: the NDK's Debug config passes no
+        # -O flag at all, and -O0 NEON intrinsics are slower than the stb_image
+        # path this replaces. Nobody steps through libjpeg-turbo, so pin it
+        # optimized and let a debug APK still show the real decode cost.
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}
+        -DCMAKE_INSTALL_PREFIX=${TURBOJPEG_BINARY_DIR}/install
+        -DANDROID_ABI=${ANDROID_ABI}
+        -DANDROID_PLATFORM=${ANDROID_PLATFORM}
+        -DANDROID_NDK=${ANDROID_NDK}
+        # TurboJPEG API only: no static libs, no cjpeg/djpeg/tjbench, no
+        # regression tests, no fuzzers, no Java/JNA bindings.
+        -DENABLE_SHARED=1
+        -DENABLE_STATIC=0
+        -DWITH_TURBOJPEG=1
+        -DWITH_TOOLS=0
+        -DWITH_TESTS=0
+        -DWITH_FUZZ=0
+        -DWITH_SIMD=1
+        -DREQUIRE_SIMD=${TURBOJPEG_REQUIRE_SIMD}
+    # AGP's ninja parser forwards compiler diagnostics and drops plain progress
+    # output, so a sub-build that streams to the console leaves no record of what
+    # it configured. Log to files instead and replay them only if it breaks — the
+    # configure log is where "SIMD extensions: ARM64" is confirmed.
+    LOG_CONFIGURE 1
+    LOG_BUILD 1
+    LOG_OUTPUT_ON_FAILURE 1
+)
+
+# ============================================================================
+# LVGL (static library from source globs)
+# ============================================================================
+file(GLOB_RECURSE LVGL_SOURCES "${PROJECT_ROOT}/lib/lvgl/src/*.c")
+# Also include the C++ thorvg sources
+file(GLOB_RECURSE LVGL_CXX_SOURCES "${PROJECT_ROOT}/lib/lvgl/src/*.cpp")
+
+# Exclude XML and expat sources from LVGL — those are now in lib/helix-xml
+list(FILTER LVGL_SOURCES EXCLUDE REGEX ".*/xml/.*\\.c$")
+list(FILTER LVGL_SOURCES EXCLUDE REGEX ".*/libs/expat/.*\\.c$")
+
+add_library(lvgl STATIC ${LVGL_SOURCES} ${LVGL_CXX_SOURCES})
+target_include_directories(lvgl PUBLIC
+    "${PROJECT_ROOT}"              # For lv_conf.h at project root
+    "${PROJECT_ROOT}/include"      # For lvgl_assert_handler.h
+    "${PROJECT_ROOT}/lib/lvgl"     # For lvgl.h
+    "${PROJECT_ROOT}/lib/lvgl/src" # For <misc/lv_types.h> etc. — helix-xml's
+                                   # public headers include LVGL this way, so
+                                   # it must be PUBLIC, not private to lvgl.
+                                   # Mirrors -isystem $(LVGL_DIR)/src in LVGL_INC.
+)
+target_compile_definitions(lvgl PUBLIC LV_CONF_INCLUDE_SIMPLE HELIX_DISPLAY_SDL)
+# LVGL's SDL driver needs SDL headers
+target_link_libraries(lvgl PUBLIC SDL2)
+
+# ============================================================================
+# Helix XML engine (extracted from LVGL, with our patches baked in)
+# ============================================================================
+set(HELIX_XML_DIR "${PROJECT_ROOT}/lib/helix-xml")
+file(GLOB HELIX_XML_SOURCES
+    "${HELIX_XML_DIR}/src/xml/*.c"
+    "${HELIX_XML_DIR}/src/xml/parsers/*.c"
+    "${HELIX_XML_DIR}/src/libs/expat/*.c"
+)
+add_library(helix_xml STATIC ${HELIX_XML_SOURCES})
+target_include_directories(helix_xml PUBLIC
+    "${HELIX_XML_DIR}"             # For helix_xml.h
+    "${HELIX_XML_DIR}/src"         # For xml/*.h internal headers
+)
+target_include_directories(helix_xml PRIVATE
+    "${PROJECT_ROOT}"              # For lv_conf.h
+    "${PROJECT_ROOT}/include"      # For lvgl_assert_handler.h
+)
+# lib/lvgl and lib/lvgl/src arrive transitively as PUBLIC includes of the lvgl
+# target linked below — helix-xml's own headers need them, so they cannot be
+# private here.
+target_compile_definitions(helix_xml PUBLIC LV_CONF_INCLUDE_SIMPLE)
+target_link_libraries(helix_xml PUBLIC lvgl)
+
+# ============================================================================
+# lv_markdown (static library)
+# ============================================================================
+set(LV_MARKDOWN_DIR "${PROJECT_ROOT}/lib/lv_markdown")
+file(GLOB LV_MARKDOWN_SOURCES
+    "${LV_MARKDOWN_DIR}/src/*.c"
+    "${LV_MARKDOWN_DIR}/deps/md4c/md4c.c"
+)
+add_library(lv_markdown STATIC ${LV_MARKDOWN_SOURCES})
+target_include_directories(lv_markdown PUBLIC
+    "${LV_MARKDOWN_DIR}/src"
+    "${LV_MARKDOWN_DIR}/deps/md4c"
+    "${PROJECT_ROOT}"
+    "${PROJECT_ROOT}/include"          # For lvgl_assert_handler.h
+    "${PROJECT_ROOT}/lib/lvgl"
+)
+target_compile_definitions(lv_markdown PUBLIC LV_CONF_INCLUDE_SIMPLE)
+
+# ============================================================================
+# HelixScreen main library
+# ============================================================================
+# CONFIGURE_DEPENDS re-globs on every build, so an incremental build picks up a
+# new source file instead of linking without it.
+file(GLOB_RECURSE HELIX_SOURCES CONFIGURE_DEPENDS "${PROJECT_ROOT}/src/*.cpp")
+
+# Exclude files not needed on Android
+list(FILTER HELIX_SOURCES EXCLUDE REGEX ".*/test_.*\\.cpp$")
+list(FILTER HELIX_SOURCES EXCLUDE REGEX ".*/helix_splash\\.cpp$")
+list(FILTER HELIX_SOURCES EXCLUDE REGEX ".*/helix_watchdog\\.cpp$")
+list(FILTER HELIX_SOURCES EXCLUDE REGEX ".*/lvgl-demo/.*")
+list(FILTER HELIX_SOURCES EXCLUDE REGEX ".*/bluetooth/.*\\.cpp$")
+# Remote-control subsystem (helixctl server + folded REPL client) is dev/test-only.
+# The Makefile ships it just for PLATFORM_TARGET=native (ENABLE_REMOTE_CONTROL); Android
+# never defines HELIX_ENABLE_REMOTE_CONTROL, so every call site is #ifdef'd out and these
+# translation units are dead weight — remote_client.cpp additionally needs lib/linenoise.
+list(FILTER HELIX_SOURCES EXCLUDE REGEX ".*/remote/.*\\.cpp$")
+
+# Also exclude Objective-C++ files (.mm) - they're macOS only
+# (CMake won't glob them with *.cpp anyway, but be explicit)
+
+# Glob font sources
+file(GLOB FONT_SOURCES "${PROJECT_ROOT}/assets/fonts/*.c")
+
+# Glob generated translation source
+file(GLOB TRANS_SOURCES "${PROJECT_ROOT}/src/generated/*.c")
+
+# Quirc QR decoder library (vendored)
+file(GLOB QUIRC_SOURCES "${PROJECT_ROOT}/lib/quirc/lib/*.c")
+
+# Lua 5.4 for the plugin runtime, built as the Makefile's LUA_SRCS: compiled as
+# C++ so a Lua error unwinds as an exception and a binding's destructors run, and
+# without the io, os, package and debug libraries, which keeps them out of every
+# plugin's reach. A library of its own because main's precompiled header would
+# otherwise be forced into these sources.
+set(LUA_DIR "${PROJECT_ROOT}/lib/lua")
+file(GLOB LUA_SOURCES "${LUA_DIR}/*.c")
+foreach(_excluded lua.c onelua.c ltests.c linit.c liolib.c loslib.c loadlib.c ldblib.c)
+    list(REMOVE_ITEM LUA_SOURCES "${LUA_DIR}/${_excluded}")
+endforeach()
+set_source_files_properties(${LUA_SOURCES} PROPERTIES LANGUAGE CXX)
+add_library(lua STATIC ${LUA_SOURCES})
+target_compile_options(lua PRIVATE -std=c++17 -w)
+
+add_library(main SHARED ${HELIX_SOURCES} ${FONT_SOURCES} ${TRANS_SOURCES} ${QUIRC_SOURCES})
+
+# Generated git-hash header, required by src/system/helix_version.cpp. Gradle
+# never runs the Makefile, so run the Makefile's own generator from here rather
+# than reimplementing it: the header's format and its only-rewrite-on-change
+# behaviour then have exactly one author. BUILD_DIR points at the CMake binary
+# dir so `make clean` and a Gradle build cannot pull the header out from under
+# each other, and that dir is searched ahead of ${PROJECT_ROOT}/build/generated
+# below, or a Makefile build's leftover copy would supply a hash from whenever
+# that build last ran. Configure-time only: the hash goes stale until the next
+# reconfigure, which is what "android-dev" used to say outright.
+set(HELIX_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env "BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+            bash "${PROJECT_ROOT}/scripts/gen-git-hash.sh"
+    WORKING_DIRECTORY "${PROJECT_ROOT}"
+    RESULT_VARIABLE GIT_HASH_RESULT
+)
+if(NOT GIT_HASH_RESULT EQUAL 0)
+    message(FATAL_ERROR "gen-git-hash.sh failed (${GIT_HASH_RESULT}); "
+                        "src/system/helix_version.cpp cannot compile without it")
+endif()
+
+target_include_directories(main PRIVATE
+    "${HELIX_GENERATED_DIR}"            # For helix_git_hash.h (generated above)
+    "${PROJECT_ROOT}/include"
+    "${PROJECT_ROOT}"
+    "${PROJECT_ROOT}/lib"                   # For lvgl/lvgl.h, spdlog/spdlog.h etc.
+    "${PROJECT_ROOT}/lib/lvgl"              # For direct lvgl includes
+    "${PROJECT_ROOT}/lib/lvgl/src"          # For drivers/sdl/lv_sdl_window.h etc.
+    "${LIBHV_STAGE_DIR}/include"            # Android's own generated hv/hconfig.h
+    "${LIBHV_STAGE_DIR}/cpputil"            # For json.hpp (nlohmann)
+    "${LIBHV_STAGE_DIR}"                    # For hv/ includes
+    "${PROJECT_ROOT}/lib/spdlog/include"
+    "${PROJECT_ROOT}/lib/stb" # For stb_image.h
+    "${PROJECT_ROOT}/lib/glm"
+    "${PROJECT_ROOT}/lib/lv_markdown/src"
+    "${PROJECT_ROOT}/lib/lv_markdown/deps/md4c"
+    "${PROJECT_ROOT}/lib/mdns"
+    "${PROJECT_ROOT}/lib/quirc/lib"
+    "${PROJECT_ROOT}/lib/cpp-terminal/include"
+    "${PROJECT_ROOT}/assets/fonts"
+    "${PROJECT_ROOT}/src/generated"
+    "${PROJECT_ROOT}/build/generated"   # For contributors.h (from gen-contributors.sh)
+    "${PROJECT_ROOT}/lib/helix-xml"     # For helix_xml.h
+    "${PROJECT_ROOT}/lib/helix-xml/src" # For xml/*.h internal headers
+)
+
+# Read version from VERSION.txt
+file(READ "${PROJECT_ROOT}/VERSION.txt" HELIX_VERSION)
+string(STRIP "${HELIX_VERSION}" HELIX_VERSION)
+# The numeric fields come from the version's core triple only. A prerelease or
+# build suffix has to be cut off first: splitting the full string on "." puts
+# "0-beta" in the patch field, which reaches every translation unit as
+# -DHELIX_VERSION_PATCH=0-beta, and helix_version_at_least() compares that as an
+# integer. Mirrors the HELIX_VERSION_CORE rule in the top-level Makefile.
+string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)" _helix_version_core "${HELIX_VERSION}")
+if(NOT _helix_version_core)
+    message(FATAL_ERROR "VERSION.txt does not start with a MAJOR.MINOR.PATCH triple: '${HELIX_VERSION}'")
+endif()
+set(HELIX_VERSION_MAJOR "${CMAKE_MATCH_1}")
+set(HELIX_VERSION_MINOR "${CMAKE_MATCH_2}")
+set(HELIX_VERSION_PATCH "${CMAKE_MATCH_3}")
+
+# Diagnostic uploads (prestonbrown/helixscreen#1410): the Android counterpart of the
+# Makefile's ENABLE_DIAGNOSTIC_UPLOADS. Off for a plain build; build.gradle turns it on
+# for builds signed with the release keystore. An app has no environment to carry the
+# HELIX_DIAGNOSTIC_UPLOADS runtime opt-in, so a dev APK opts in with -PhelixDiagUploads.
+option(HELIX_DIAGNOSTIC_UPLOADS "Mark this build as allowed to upload diagnostics" OFF)
+
+target_compile_definitions(main PRIVATE
+    HELIX_DISPLAY_SDL
+    HELIX_PLATFORM_ANDROID
+    HELIX_HAS_SOUND
+    HELIX_HAS_TRACKER
+    # Feature gates keep their defaults from include/helix_features.h, which
+    # lvgl_pch.h brings into every source; only the ones this app changes are
+    # listed. The Belt Tension panel reads Klipper's /tmp results, so it needs
+    # the screen co-located with Klipper.
+    HELIX_HAS_BELT_TUNER=0
+    # FONT_SOURCES above globs every face under assets/fonts/*.c with no tier
+    # filtering, so every tier is linked.
+    HELIX_MAX_FONT_TIER=6
+    ENABLE_GLES_3D
+    # The Makefile's ENABLE_SCREENSAVER default; idle handling already
+    # covers Android's own panel sleep.
+    HELIX_ENABLE_SCREENSAVER
+    # Crash reports name the build they came from, as each cross target does.
+    HELIX_BINARY_VARIANT="android"
+    $<$<CONFIG:Debug>:HELIX_ENABLE_MOCKS>
+    $<$<BOOL:${HELIX_DIAGNOSTIC_UPLOADS}>:HELIX_ENABLE_DIAGNOSTIC_UPLOADS>
+    LV_CONF_INCLUDE_SIMPLE
+    HELIX_VERSION="${HELIX_VERSION}"
+    HELIX_VERSION_MAJOR=${HELIX_VERSION_MAJOR}
+    HELIX_VERSION_MINOR=${HELIX_VERSION_MINOR}
+    HELIX_VERSION_PATCH=${HELIX_VERSION_PATCH}
+)
+
+target_compile_options(main PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:-std=c++17>
+    -Wall
+    -Wno-unused-function
+)
+
+# Use the same precompiled header as the Makefile build — it force-includes
+# lvgl.h, helix_xml.h, spdlog, and common STL headers into every TU.
+target_precompile_headers(main PRIVATE
+    "$<$<COMPILE_LANGUAGE:CXX>:${PROJECT_ROOT}/include/lvgl_pch.h>"
+)
+# A PCH that records its inputs' mtimes differs on every checkout, so ccache
+# could never reuse an object compiled against it.
+target_compile_options(main PRIVATE
+    "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-Xclang -fno-pch-timestamp>"
+)
+
+# Large-file support on 32-bit ABIs (armeabi-v7a), mirroring the per-object
+# -D_FILE_OFFSET_BITS=64 in mk/rules.mk: bionic's LP32 off_t is 32-bit, so the
+# G-code reader's fseeko/ftello and helix_fs's stat() fail on a file past 2 GB.
+# The define must precede every system header, and the precompiled header has
+# already latched off_t, so these sources skip the PCH and force-include it as
+# plain source instead, as the Makefile build does. 64-bit ABIs are unaffected.
+if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+    set(HELIX_LFS_SOURCES
+        "${PROJECT_ROOT}/src/rendering/gcode_data_source.cpp"
+        "${PROJECT_ROOT}/src/system/text_io.cpp"
+        "${PROJECT_ROOT}/src/system/helix_fs.cpp"
+    )
+    set_source_files_properties(${HELIX_LFS_SOURCES} PROPERTIES
+        SKIP_PRECOMPILE_HEADERS ON
+        COMPILE_DEFINITIONS _FILE_OFFSET_BITS=64
+        COMPILE_OPTIONS "-include;${PROJECT_ROOT}/include/lvgl_pch.h"
+    )
+endif()
+
+# Link everything
+find_library(log-lib log)
+find_library(z-lib z)
+target_link_libraries(main
+    SDL2
+    lvgl
+    helix_xml
+    lv_markdown
+    lua
+    hv_static
+    GLESv2
+    ${log-lib}
+    ${z-lib}
+    android
+)
+
+# libturbojpeg is loaded with dlopen(), never linked, so nothing above pulls it
+# into the APK — stage it by hand into CMAKE_LIBRARY_OUTPUT_DIRECTORY, AGP's
+# per-ABI obj dir, which is what mergeNativeLibs collects and packages.
+#
+# This is a standalone target, NOT a POST_BUILD hook on `main`: mergeNativeLibs
+# re-syncs its output from the obj dir every build, so a copy that only fires
+# when libmain.so happens to relink silently drops the library out of the APK on
+# any incremental build that leaves `main` up to date.
+#
+# CMake's Android platform sets CMAKE_PLATFORM_NO_VERSIONED_SONAME, so
+# libjpeg-turbo's VERSION/SOVERSION collapse to a plain "libturbojpeg.so" — the
+# APK packager only accepts unversioned lib*.so names, never libturbojpeg.so.0.
+if(NOT CMAKE_LIBRARY_OUTPUT_DIRECTORY)
+    message(FATAL_ERROR
+        "CMAKE_LIBRARY_OUTPUT_DIRECTORY is unset — libturbojpeg.so has nowhere to be "
+        "staged and would be missing from the APK. AGP normally supplies it.")
+endif()
+set(TURBOJPEG_STAGED "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/libturbojpeg.so")
+add_custom_command(
+    OUTPUT "${TURBOJPEG_STAGED}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TURBOJPEG_SO}" "${TURBOJPEG_STAGED}"
+    DEPENDS turbojpeg_ext "${TURBOJPEG_SO}"
+    COMMENT "Staging libturbojpeg.so for packaging"
+    VERBATIM
+)
+add_custom_target(turbojpeg_staged ALL DEPENDS "${TURBOJPEG_STAGED}")
+# AGP builds the named library targets, not `all`, so this has to hang off main.
+add_dependencies(main turbojpeg_staged)

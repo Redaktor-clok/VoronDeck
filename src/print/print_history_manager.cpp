@@ -1,0 +1,818 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "print_history_manager.h"
+
+#include "ui_filename_utils.h"
+#include "ui_update_queue.h"
+
+#include "connection_staleness.h"
+#include "i_moonraker_api.h"
+#include "i_moonraker_client.h"
+#include "json_utils.h"
+#include "print_history_parse.h"
+
+#include <spdlog/spdlog.h>
+
+#include <algorithm>
+#include <optional>
+#include <utility>
+
+using namespace helix;
+
+// ============================================================================
+// Construction / Destruction
+// ============================================================================
+
+PrintHistoryManager::PrintHistoryManager(IMoonrakerAPI* api, IMoonrakerClient* client)
+    : api_(api), client_(client) {
+    spdlog::debug("[HistoryManager] Created");
+    subscribe_to_notifications();
+    watch_connection_state();
+}
+
+PrintHistoryManager::~PrintHistoryManager() {
+    connection_observer_.reset();
+
+    // Unregister notification callbacks
+    if (client_) {
+        client_->unregister_method_callback("notify_history_changed", "PrintHistoryManager");
+        client_->unregister_method_callback("notify_filelist_changed", "PrintHistoryManager");
+    }
+}
+
+// ============================================================================
+// Fetch / Refresh
+// ============================================================================
+
+int PrintHistoryManager::limit_for(HistoryScope scope) {
+    return scope == HistoryScope::COMPLETE ? kCompleteJobLimit : kRecentJobLimit;
+}
+
+void PrintHistoryManager::queue_refetch(HistoryScope scope) {
+    // Widen rather than overwrite: a RECENT invalidation arriving behind a
+    // COMPLETE one must not be what the single re-issue ends up asking for.
+    int wanted = static_cast<int>(scope);
+    int current = pending_scope_.load();
+    while (current < wanted && !pending_scope_.compare_exchange_weak(current, wanted)) {
+    }
+}
+
+void PrintHistoryManager::fetch(HistoryScope scope) {
+    if (!api_) {
+        spdlog::warn("[HistoryManager] No API available, cannot fetch");
+        return;
+    }
+
+    if (!api_->is_connected()) {
+        spdlog::debug("[HistoryManager] Not connected yet, deferring history fetch");
+        return;
+    }
+
+    if (hold_until_discovery_ && !discovered_) {
+        held_scope_ = std::max(held_scope_, static_cast<int>(scope));
+        spdlog::debug("[HistoryManager] Holding history fetch until discovery completes");
+        return;
+    }
+
+    // Atomic check-and-set prevents concurrent fetches. Pairs with the reset
+    // in the BG-thread callbacks below.
+    bool expected = false;
+    if (!is_fetching_.compare_exchange_strong(expected, true)) {
+        // The in-flight request was issued before this one, so its response
+        // cannot describe whatever just changed. Queue a single re-issue rather
+        // than dropping the request outright: deleting several files in a row
+        // otherwise leaves the cache one delete behind until the next
+        // notification happens to arrive.
+        //
+        // Only invalidations and scope escalations reach here. A caller that
+        // merely wants the cache populated at a scope already in flight goes
+        // through ensure_loaded(), which returns without arming this.
+        queue_refetch(scope);
+        spdlog::debug("[HistoryManager] Fetch already in progress, queuing one refetch");
+        return;
+    }
+
+    const int limit = limit_for(scope);
+    in_flight_scope_.store(static_cast<int>(scope));
+
+    // A request going out supersedes any response still waiting for the main
+    // thread, and releases the flag if that response is never applied at all.
+    // is_fetching_ is already true here, so ensure_loaded() joins on that
+    // instead and clearing this opens no window.
+    delivery_pending_.store(false);
+
+    spdlog::debug("[HistoryManager] Fetching history (limit={})", limit);
+    request_page(scope, limit, {});
+}
+
+void PrintHistoryManager::request_page(HistoryScope scope, int limit,
+                                       std::vector<PrintHistoryJob> acc) {
+    const int start = static_cast<int>(acc.size());
+    const int page = wire_page_jobs_ > 0 ? std::min(wire_page_jobs_, limit - start) : limit;
+    auto token = lifetime_.token();
+
+    api_->history().get_history_list(
+        page, start, 0.0, 0.0, // limit, start, since, before
+        [this, token, scope, limit, page, acc = std::move(acc)](
+            const std::vector<PrintHistoryJob>& jobs, uint64_t /*total*/) mutable {
+            const bool short_page = static_cast<int>(jobs.size()) < page;
+            // A job started between two pages shifts the offsets by one, repeating a job.
+            for (const auto& job : jobs) {
+                auto same_id = [&job](const PrintHistoryJob& j) { return j.job_id == job.job_id; };
+                if (std::none_of(acc.begin(), acc.end(), same_id)) {
+                    acc.push_back(job);
+                }
+            }
+            if (!short_page && static_cast<int>(acc.size()) < limit) {
+                // is_fetching_ stays set: the load is still in flight.
+                token.defer("PrintHistoryManager::next_page",
+                            [this, scope, limit, acc = std::move(acc)]() mutable {
+                                request_page(scope, limit, std::move(acc));
+                            });
+                return;
+            }
+            // Hand the join over BEFORE releasing is_fetching_: across these two
+            // stores ensure_loaded() must still see a load it can ride on, or
+            // the whole list goes out a second time while this one sits in the
+            // queue waiting for a busy main thread.
+            delivery_pending_.store(true);
+            // Clear guard BEFORE posting defer so a freeze-drop doesn't strand us.
+            is_fetching_.store(false);
+            // A short last page means every job is here; requested keeps that reading.
+            const int requested = short_page ? static_cast<int>(acc.size()) + 1 : limit;
+            token.defer("PrintHistoryManager::fetch_success",
+                        [this, scope, requested, jobs = std::move(acc)]() mutable {
+                            on_history_fetched(std::move(jobs), scope, requested);
+                        });
+        },
+        [this, token](const MoonrakerError& error) {
+            in_flight_scope_.store(kNoFetch);
+            is_fetching_.store(false);
+            // spdlog is thread-safe; logging the warn even on a destroyed
+            // manager is harmless (informational).
+            (void)token;
+            spdlog::warn("[HistoryManager] Failed to fetch history: {}", error.message);
+        });
+}
+
+bool PrintHistoryManager::is_loaded(HistoryScope scope) const {
+    if (!is_loaded_) {
+        return false;
+    }
+    if (scope == HistoryScope::RECENT) {
+        return true;
+    }
+    // A short response means the printer has no more jobs to give, so a RECENT
+    // load on a printer with a short history answers COMPLETE too.
+    return holds_every_job_ || loaded_scope_ == HistoryScope::COMPLETE;
+}
+
+bool PrintHistoryManager::covers_since(double since) const {
+    if (!is_loaded_) {
+        return false;
+    }
+    // Only a short response proves the cache holds every job. A COMPLETE load
+    // that came back full was cut off by its limit, and covers only what it holds.
+    if (holds_every_job_) {
+        return true;
+    }
+    // Newest-first order, so the last entry is the oldest job cached and marks
+    // how far back the slice reaches.
+    return !cached_jobs_.empty() && cached_jobs_.back().start_time <= since;
+}
+
+void PrintHistoryManager::ensure_loaded(HistoryScope scope) {
+    if (is_loaded(scope)) {
+        return;
+    }
+    // A request is already out, or its response is downloaded and only waiting
+    // for the main thread to apply it. When that request is at least as wide as
+    // what this caller needs, its response populates the cache and notifies
+    // every observer, which is all the caller wanted, so routing through
+    // fetch() here would only arm a redundant re-issue of the same list. A
+    // narrower request does not serve the caller, and falls through to widen.
+    //
+    // Both flags are load-bearing. is_fetching_ is released on the WebSocket
+    // thread the moment the response arrives, so on its own it reads as
+    // "nothing in flight" for as long as the main thread takes to drain the
+    // handler - hundreds of milliseconds on a 2-core board painting the home
+    // panel at startup, which is exactly when every panel activates and asks.
+    if ((is_fetching_.load() || delivery_pending_.load()) &&
+        in_flight_scope_.load() >= static_cast<int>(scope)) {
+        spdlog::debug("[HistoryManager] Load already in flight, joining it");
+        return;
+    }
+
+    fetch(scope);
+}
+
+void PrintHistoryManager::ensure_covers_since(double since) {
+    if (is_loaded_ && !covers_since(since)) {
+        // The slice stops short of the window. Moonraker's `since` parameter
+        // cannot widen it in place: it would drop the newest-job selection on a
+        // printer that has printed nothing inside the window. Escalate to the
+        // whole list first, then page older jobs in behind it.
+        if (wanted_since_ == 0.0 || since < wanted_since_) {
+            wanted_since_ = since;
+        }
+        if (!is_loaded(HistoryScope::COMPLETE)) {
+            coverage_load_pending_ = true;
+            ensure_loaded(HistoryScope::COMPLETE);
+        } else {
+            load_older();
+        }
+        return;
+    }
+    ensure_loaded(HistoryScope::RECENT);
+}
+
+void PrintHistoryManager::load_older() {
+    if (!api_ || !is_loaded_ || holds_every_job_ || older_exhausted_ || cached_jobs_.empty() ||
+        cached_jobs_.size() >= job_budget_) {
+        return;
+    }
+    bool expected = false;
+    if (!is_fetching_.compare_exchange_strong(expected, true)) {
+        return; // its response notifies, and an ensure_covers_since() target asks again
+    }
+
+    // Moonraker's `before` is strict. Nudging it past the oldest cached job
+    // keeps jobs that share its start time; the job_id dedupe drops the repeat.
+    constexpr double kBoundarySlackSeconds = 0.001;
+    const double before = cached_jobs_.back().start_time + kBoundarySlackSeconds;
+    const uint64_t generation = cache_generation_;
+    spdlog::debug("[HistoryManager] Fetching older jobs (before={})", before);
+
+    auto token = lifetime_.token();
+    api_->history().get_history_list(
+        kOlderPageJobs, 0, 0.0, before,
+        [this, token, generation](const std::vector<PrintHistoryJob>& jobs, uint64_t /*total*/) {
+            is_fetching_.store(false);
+            std::vector<PrintHistoryJob> jobs_copy = jobs;
+            token.defer("PrintHistoryManager::older_page",
+                        [this, generation, jobs = std::move(jobs_copy)]() mutable {
+                            on_older_page(std::move(jobs), generation);
+                        });
+        },
+        [this, token](const MoonrakerError& error) {
+            is_fetching_.store(false);
+            spdlog::warn("[HistoryManager] Failed to fetch older history: {}", error.message);
+            // A full load queued behind this page still has to run. The coverage
+            // target stays, for the next ensure_covers_since() to resume.
+            token.defer("PrintHistoryManager::older_page_failed", [this]() {
+                const int queued = pending_scope_.exchange(kNoFetch);
+                if (queued != kNoFetch) {
+                    fetch(static_cast<HistoryScope>(queued));
+                }
+            });
+        });
+}
+
+void PrintHistoryManager::on_older_page(std::vector<PrintHistoryJob>&& jobs, uint64_t generation) {
+    if (generation == cache_generation_ && is_loaded_) {
+        const bool short_page = static_cast<int>(jobs.size()) < kOlderPageJobs;
+        size_t added = 0;
+        for (auto& job : jobs) {
+            auto same_id = [&job](const PrintHistoryJob& j) { return j.job_id == job.job_id; };
+            if (std::none_of(cached_jobs_.begin(), cached_jobs_.end(), same_id)) {
+                adopt_original(job);
+                cached_jobs_.push_back(std::move(job));
+                ++added;
+            }
+        }
+        holds_every_job_ = short_page;
+        // A full page of jobs already cached cannot move `before` on, so asking
+        // again would return it forever.
+        older_exhausted_ = !short_page && added == 0;
+        build_filename_stats();
+        notify_observers();
+    }
+
+    const int queued = pending_scope_.exchange(kNoFetch);
+    if (queued != kNoFetch) {
+        fetch(static_cast<HistoryScope>(queued));
+        return;
+    }
+    continue_coverage();
+}
+
+void PrintHistoryManager::continue_coverage() {
+    if (wanted_since_ == 0.0) {
+        return;
+    }
+    if (covers_since(wanted_since_)) {
+        wanted_since_ = 0.0;
+    } else if (!is_loaded(HistoryScope::COMPLETE)) {
+        return; // the escalation to the whole list is still to land
+    } else if (!older_exhausted_ && cached_jobs_.size() < job_budget_) {
+        load_older();
+    } else {
+        wanted_since_ = 0.0; // nothing more can come: stop asking
+    }
+}
+
+const PrintHistoryJob* PrintHistoryManager::get_newest_existing_job() const {
+    if (!is_loaded_) {
+        return nullptr;
+    }
+    for (const auto& job : cached_jobs_) {
+        if (job.exists) {
+            return &job;
+        }
+    }
+    return nullptr;
+}
+
+void PrintHistoryManager::watch_connection_state() {
+    if (!api_) {
+        return;
+    }
+
+    // api_->printer_state() rather than the global accessor: it is the state
+    // this manager's API already reads and writes, which keeps the wiring
+    // honest under test.
+    connection_observer_ =
+        helix::observe_connection_staleness(api_->printer_state(), this, "HistoryManager");
+}
+
+void PrintHistoryManager::hold_until_discovery() {
+    hold_until_discovery_ = true;
+    discovered_ = false;
+    if (!api_) {
+        return;
+    }
+    // Only leaving CONNECTED means a new discovery is coming. The subject trails the
+    // client, so discovery can complete while it still reads CONNECTING; its catching up
+    // must not close the gate again. Immediate, so the close is ordered with the subject
+    // write and lands before the next connection's discovery opens the gate.
+    auto* conn = api_->printer_state().network_state().get_printer_connection_state_subject();
+    last_conn_state_ = lv_subject_get_int(conn);
+    discovery_gate_observer_ = helix::ui::observe<int>(
+        conn, this,
+        [](PrintHistoryManager* self, int conn_state) {
+            const int connected = static_cast<int>(ConnectionState::CONNECTED);
+            if (self->last_conn_state_ == connected && conn_state != connected) {
+                self->discovered_ = false;
+            }
+            self->last_conn_state_ = conn_state;
+        },
+        api_->printer_state().get_subjects_lifetime(), helix::ui::Dispatch::Immediate);
+}
+
+void PrintHistoryManager::on_discovery_complete() {
+    discovered_ = true;
+    const int held = std::exchange(held_scope_, kNoFetch);
+    if (held != kNoFetch) {
+        ensure_loaded(static_cast<HistoryScope>(held));
+    }
+}
+
+void PrintHistoryManager::invalidate() {
+    spdlog::debug("[HistoryManager] Cache invalidated");
+    is_loaded_ = false;
+    // A file change can be the original being deleted or re-sliced. Answers
+    // still in flight describe the file as it was, so they are dropped.
+    originals_.clear();
+    ++originals_generation_;
+}
+
+void PrintHistoryManager::forget_printer() {
+    spdlog::debug("[HistoryManager] Forgetting the previous printer's history");
+    invalidate();
+    cached_jobs_.clear();
+    notify_observers();
+}
+
+// ============================================================================
+// Observer Pattern
+// ============================================================================
+
+void PrintHistoryManager::add_observer(HistoryChangedCallback* cb) {
+    if (cb && *cb) {
+        observers_.push_back(cb);
+        spdlog::debug("[HistoryManager] Added observer (total: {})", observers_.size());
+    }
+}
+
+void PrintHistoryManager::remove_observer(HistoryChangedCallback* cb) {
+    if (!cb) {
+        return;
+    }
+
+    auto it = std::find(observers_.begin(), observers_.end(), cb);
+    if (it != observers_.end()) {
+        observers_.erase(it);
+        spdlog::debug("[HistoryManager] Removed observer (remaining: {})", observers_.size());
+    }
+}
+
+// ============================================================================
+// Private Implementation
+// ============================================================================
+
+void PrintHistoryManager::on_history_fetched(std::vector<PrintHistoryJob>&& jobs,
+                                             HistoryScope scope, int requested) {
+    // The response is no longer in transit; is_loaded_ takes over as what tells
+    // ensure_loaded() the cache is populated.
+    delivery_pending_.store(false);
+    in_flight_scope_.store(kNoFetch);
+
+    spdlog::debug("[HistoryManager] Fetched {} jobs (limit={})", jobs.size(), requested);
+
+    cached_jobs_ = std::move(jobs);
+    for (auto& job : cached_jobs_) {
+        adopt_original(job);
+    }
+    ++cache_generation_;
+    older_exhausted_ = false;
+    if (!coverage_load_pending_) {
+        wanted_since_ = 0.0;
+    }
+    coverage_load_pending_ = false;
+    // Moonraker fills a page up to the limit and stops, so a short response is
+    // the whole history and the cache answers COMPLETE however narrow the
+    // request was.
+    holds_every_job_ = static_cast<int>(cached_jobs_.size()) < requested;
+    loaded_scope_ = scope;
+    build_filename_stats();
+
+    is_loaded_ = true;
+    // is_fetching_ was cleared on the BG thread before this defer was posted.
+
+    notify_observers();
+
+    // A change landed while this request was in flight; its response predates
+    // that change, so go around once more, at the widest scope anything asked
+    // for meanwhile. Bounded: the slot is cleared before the re-issue, so it
+    // only repeats while changes keep arriving.
+    const int queued = pending_scope_.exchange(kNoFetch);
+    if (queued != kNoFetch) {
+        spdlog::debug("[HistoryManager] Re-fetching (history changed mid-flight)");
+        fetch(static_cast<HistoryScope>(queued));
+        return;
+    }
+    continue_coverage();
+}
+
+void PrintHistoryManager::apply_job_update(PrintHistoryJob&& job) {
+    adopt_original(job);
+    auto same_id = [&job](const PrintHistoryJob& j) { return j.job_id == job.job_id; };
+    auto it = std::find_if(cached_jobs_.begin(), cached_jobs_.end(), same_id);
+
+    if (it != cached_jobs_.end()) {
+        // A job announced as added and then as finished keeps its id, so the
+        // second notification replaces the first rather than duplicating it.
+        *it = std::move(job);
+        spdlog::debug("[HistoryManager] Patched cached job in place");
+    } else {
+        // Cached jobs are newest-first, and get_newest_existing_job() reads the
+        // first match as the newest, so a job has to land in start_time order
+        // rather than simply at the front.
+        auto pos =
+            std::lower_bound(cached_jobs_.begin(), cached_jobs_.end(), job.start_time,
+                             [](const PrintHistoryJob& j, double t) { return j.start_time > t; });
+        cached_jobs_.insert(pos, std::move(job));
+        spdlog::debug("[HistoryManager] Inserted job from notification ({} cached)",
+                      cached_jobs_.size());
+    }
+
+    // Fidelity is unchanged. One more job does not complete a truncated cache,
+    // and a cache holding every job still holds every job. The list is allowed
+    // to run past its fetch limit: trimming the tail would shrink the window
+    // covers_since() reports, and the growth is bounded by prints this session.
+    build_filename_stats();
+    notify_observers();
+}
+
+void PrintHistoryManager::apply_original(PrintHistoryJob& job, const OriginalFile& original) {
+    job.exists = original.exists;
+    job.modified = original.modified;
+    job.thumbnails = original.thumbnails;
+}
+
+void PrintHistoryManager::adopt_original(PrintHistoryJob& job) {
+    if (!helix::gcode::is_rewritten_gcode_path(job.filename)) {
+        return;
+    }
+    // The rewrite's own file and thumbnails are deleted when the print ends.
+    apply_original(job, OriginalFile{});
+
+    // A name that cannot place the original stays as reported: adopting a
+    // same-named file from another folder would reprint the wrong one.
+    std::optional<std::string> original = helix::gcode::trusted_original_path(job.filename);
+    if (!original) {
+        return;
+    }
+    job.archive_plate = helix::gcode::rewritten_archive_plate(job.filename);
+    job.filename = std::move(*original);
+    job.from_rewrite = true;
+
+    if (auto it = originals_.find(job.filename); it != originals_.end()) {
+        apply_original(job, it->second); // answered, or still missing while asked
+        return;
+    }
+    if (!api_) {
+        return; // nothing asked, so nothing to remember
+    }
+    originals_.emplace(job.filename, OriginalFile{});
+
+    const std::string filename = job.filename;
+    const uint64_t generation = originals_generation_;
+    auto token = lifetime_.token();
+    api_->files().get_file_metadata(
+        filename,
+        [this, token, filename, generation](const FileMetadata& metadata) {
+            OriginalFile answer;
+            answer.exists = true;
+            answer.modified = metadata.modified;
+            answer.thumbnails = metadata.thumbnails;
+            token.defer("PrintHistoryManager::original_metadata",
+                        [this, filename, generation, answer = std::move(answer)]() mutable {
+                            on_original_answered(filename, generation, std::move(answer));
+                        });
+        },
+        [this, token, filename, generation](const MoonrakerError&) {
+            token.defer("PrintHistoryManager::original_missing", [this, filename, generation]() {
+                if (helix::gcode::is_3mf(filename) && api_) {
+                    // A printer that cannot read a .3mf has no metadata for
+                    // one; whether it is still there is the listing's answer.
+                    look_for_archive(filename, generation);
+                    return;
+                }
+                on_original_answered(filename, generation, OriginalFile{});
+            });
+        },
+        /*silent=*/true);
+}
+
+void PrintHistoryManager::look_for_archive(const std::string& filename, uint64_t generation) {
+    const std::string dir = helix::gcode_dir_of(filename);
+    auto& waiting = archive_listings_[{generation, dir}];
+    waiting.push_back(filename);
+    if (waiting.size() > 1) {
+        return; // the listing under way answers it too
+    }
+    auto token = lifetime_.token();
+    api_->files().get_directory(
+        "gcodes", dir,
+        [this, token, dir, generation](const std::vector<FileInfo>& files) {
+            std::unordered_map<std::string, double> listed;
+            for (const auto& f : files) {
+                if (!f.is_dir) {
+                    listed[f.filename] = f.modified;
+                    listed[f.path] = f.modified;
+                }
+            }
+            token.defer("PrintHistoryManager::archive_listed",
+                        [this, dir, generation, listed = std::move(listed)]() {
+                            answer_archive_listing(dir, generation, &listed);
+                        });
+        },
+        [this, token, dir, generation](const MoonrakerError&) {
+            token.defer("PrintHistoryManager::archive_unlisted", [this, dir, generation]() {
+                answer_archive_listing(dir, generation, nullptr);
+            });
+        });
+}
+
+void PrintHistoryManager::answer_archive_listing(
+    const std::string& dir, uint64_t generation,
+    const std::unordered_map<std::string, double>* listed) {
+    const auto it = archive_listings_.find({generation, dir});
+    if (it == archive_listings_.end()) {
+        return;
+    }
+    const std::vector<std::string> waiting = std::move(it->second);
+    archive_listings_.erase(it);
+    for (const auto& filename : waiting) {
+        OriginalFile answer;
+        if (listed) {
+            const auto f = listed->find(helix::gcode::get_filename_basename(filename));
+            if (f != listed->end()) {
+                answer.exists = true;
+                answer.modified = f->second;
+            }
+        }
+        on_original_answered(filename, generation, std::move(answer));
+    }
+}
+
+void PrintHistoryManager::on_original_answered(const std::string& filename, uint64_t generation,
+                                               OriginalFile original) {
+    if (generation != originals_generation_) {
+        return; // asked before an invalidation; the refetch asks again
+    }
+    spdlog::debug("[HistoryManager] Original '{}' of a rewritten job: {}", filename,
+                  original.exists ? "found" : "missing");
+    bool changed = false;
+    for (auto& job : cached_jobs_) {
+        // A job that printed the original directly keeps its own record.
+        if (job.from_rewrite && job.filename == filename) {
+            apply_original(job, original);
+            changed = true;
+        }
+    }
+    originals_[filename] = std::move(original);
+    if (changed) {
+        build_filename_stats();
+        notify_observers();
+    }
+}
+
+void PrintHistoryManager::invalidate_and_refetch() {
+    // Stale the cache immediately: every consumer that checks is_loaded()
+    // before reading must see it as stale from the moment the change is known,
+    // even though the round-trip that repairs it waits out the debounce.
+    invalidate();
+
+    const HistoryScope scope = loaded_scope_;
+    refetch_debounce_.schedule_once([this, scope]() { fetch(scope); });
+}
+
+void PrintHistoryManager::build_filename_stats() {
+    filename_stats_.clear();
+
+    for (const auto& job : cached_jobs_) {
+        // Strip path from filename to get basename
+        std::string basename = job.filename;
+        auto slash_pos = basename.rfind('/');
+        if (slash_pos != std::string::npos) {
+            basename = basename.substr(slash_pos + 1);
+        }
+
+        if (basename.empty()) {
+            continue;
+        }
+
+        auto& stats = filename_stats_[basename];
+
+        // Count successes and failures
+        if (job.status == PrintJobStatus::COMPLETED) {
+            stats.success_count++;
+        } else if (job.status == PrintJobStatus::CANCELLED || job.status == PrintJobStatus::ERROR) {
+            stats.failure_count++;
+        }
+
+        // Track most recent job for this filename
+        if (job.start_time > stats.last_print_time) {
+            stats.last_print_time = job.start_time;
+            stats.last_status = job.status;
+            stats.uuid = job.uuid;
+            stats.size_bytes = job.size_bytes;
+        }
+    }
+
+    spdlog::debug("[HistoryManager] Built stats for {} unique filenames", filename_stats_.size());
+}
+
+std::vector<PrintHistoryJob> PrintHistoryManager::get_jobs_since(double since) const {
+    std::vector<PrintHistoryJob> filtered;
+    filtered.reserve(cached_jobs_.size()); // Avoid reallocation
+
+    for (const auto& job : cached_jobs_) {
+        if (job.start_time >= since) {
+            filtered.push_back(job);
+        }
+    }
+
+    return filtered;
+}
+
+void PrintHistoryManager::notify_observers() {
+    // Iterate a snapshot so an observer callback can add/remove observers without
+    // invalidating our loop. But the snapshot holds raw HistoryChangedCallback*
+    // whose pointees can be freed mid-dispatch: a registrant destroyed during
+    // this pass (e.g. a PrintStatusWidget torn down on panel teardown) removes
+    // itself via remove_observer() from its destructor. Re-check each pointer
+    // against the live set before calling — a pointer no longer in observers_
+    // has been removed and may now dangle, so calling through it is a
+    // use-after-free (debug bundle S52DJB5W: SIGSEGV at ~0x800020c during
+    // nav-away + reconnect).
+    auto observers_copy = observers_;
+    for (auto* cb : observers_copy) {
+        if (std::find(observers_.begin(), observers_.end(), cb) == observers_.end()) {
+            continue;
+        }
+        if (cb && *cb) {
+            (*cb)();
+        }
+    }
+}
+
+bool PrintHistoryManager::history_action_carries_job(const std::string& action) {
+    // The only two actions Moonraker emits on this notification, both from its
+    // job tracker, and both carrying the complete job record the list endpoint
+    // would return for it.
+    return action == "added" || action == "finished";
+}
+
+bool PrintHistoryManager::filelist_change_affects_history(const std::string& action,
+                                                          const std::string& item_root,
+                                                          const std::string& source_root) {
+    // notify_filelist_changed fires for every file operation, including uploads
+    // and Moonraker's own metadata scans (an AFC printer rewrites
+    // AFC/AFC.var.unit on every SET_* command). Only the actions that can make
+    // a job's file stop being where history says it is invalidate the cached
+    // `exists` flags; everything else must not cost a history round-trip.
+    if (action != "delete_file" && action != "delete_dir" && action != "move_file" &&
+        action != "move_dir") {
+        return false;
+    }
+
+    // History only ever names files in the `gcodes` root, so an operation
+    // confined to another one cannot orphan a job — the timelapse component
+    // moves frames and renders for the whole duration of a print. Either end
+    // of a move being `gcodes` counts (see filelist_change_affects_gcodes).
+    return helix::json_util::filelist_change_affects_gcodes(item_root, source_root);
+}
+
+void PrintHistoryManager::subscribe_to_notifications() {
+    if (!client_) {
+        return;
+    }
+
+    auto token = lifetime_.token();
+
+    // Bare expired() check on the bg thread is the L081 Mechanism C anti-pattern
+    // (detector hit on v0.99.60/ad5x telemetry). token.defer() runs its own
+    // expiration check atomically on the main thread, so the bg-side short-circuit
+    // gains nothing and trips the watchdog. Let defer handle it.
+    // The notification carries the whole job it is announcing, so the common
+    // case folds one record into the cache instead of re-pulling the list. The
+    // refetch below is the fallback for a payload we cannot use: a foreign
+    // action, a missing job object, or a cache with nothing to patch.
+    client_->register_method_callback(
+        "notify_history_changed", "PrintHistoryManager", [this, token](const nlohmann::json& data) {
+            spdlog::debug("[HistoryManager] Received notify_history_changed");
+
+            // bg thread: parse only, no member access. Moonraker can send
+            // null/missing fields, so probe before reading.
+            std::string action;
+            nlohmann::json job_json;
+            if (const auto* payload = helix::json_util::notification_payload(data)) {
+                action = helix::json_util::safe_string(*payload, "action");
+                const auto job_it = payload->find("job");
+                if (job_it != payload->end() && job_it->is_object()) {
+                    job_json = *job_it;
+                }
+            }
+
+            if (history_action_carries_job(action) && job_json.is_object()) {
+                // Same parser the list response goes through, including the
+                // server-recomputed `exists` flag.
+                PrintHistoryJob job = helix::parse_history_job(job_json);
+                token.defer("PrintHistoryManager::history_job_patch",
+                            [this, action, job = std::move(job)]() mutable {
+                                if (!is_loaded_) {
+                                    // Nothing to amend. A patch cannot
+                                    // establish which jobs precede this one.
+                                    fetch(loaded_scope_);
+                                    return;
+                                }
+                                spdlog::debug("[HistoryManager] Applying '{}' job from "
+                                              "notification, no refetch",
+                                              action);
+                                apply_job_update(std::move(job));
+                            });
+                return;
+            }
+
+            token.defer("PrintHistoryManager::notify_history_changed",
+                        [this]() { invalidate_and_refetch(); });
+        });
+
+    // Deleting or moving a gcode file fires notify_filelist_changed, never
+    // notify_history_changed - Moonraker emits the latter only when a job is
+    // added or history is cleared. Without this the cache keeps serving a job
+    // whose file is gone, which the Print Status idle tile then offers as
+    // "Reprint Last". Covers our own deletes and external ones alike (Mainsail,
+    // Fluidd, OrcaSlicer).
+    client_->register_method_callback(
+        "notify_filelist_changed", "PrintHistoryManager",
+        [this, token](const nlohmann::json& data) {
+            // bg thread: parse into plain strings only, no member access.
+            // Moonraker can send null/missing fields, so probe before reading.
+            std::string action;
+            std::string item_root;
+            std::string source_root;
+            if (const auto* payload = helix::json_util::notification_payload(data)) {
+                action = helix::json_util::safe_string(*payload, "action");
+                const auto item_it = payload->find("item");
+                if (item_it != payload->end() && item_it->is_object()) {
+                    item_root = helix::json_util::safe_string(*item_it, "root");
+                }
+                const auto source_it = payload->find("source_item");
+                if (source_it != payload->end() && source_it->is_object()) {
+                    source_root = helix::json_util::safe_string(*source_it, "root");
+                }
+            }
+            if (!filelist_change_affects_history(action, item_root, source_root)) {
+                return;
+            }
+            spdlog::debug("[HistoryManager] filelist action '{}' on root '{}' invalidates history",
+                          action, item_root);
+            token.defer("PrintHistoryManager::notify_filelist_changed",
+                        [this]() { invalidate_and_refetch(); });
+        });
+}

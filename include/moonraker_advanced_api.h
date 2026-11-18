@@ -1,0 +1,545 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file moonraker_advanced_api.h
+ * @brief Advanced panel operations via Moonraker
+ *
+ * Extracted from MoonrakerAPI to encapsulate bed mesh, input shaper, PID calibration,
+ * machine limits, and macro execution in a dedicated class. Uses MoonrakerClient for
+ * JSON-RPC transport and MoonrakerAPI for G-code execution.
+ */
+
+#pragma once
+
+#include "advanced_panel_types.h"
+#include "belt_tension_types.h"
+#include "calibration_types.h"
+#include "helix_shared_callback.h"
+#include "i_moonraker_sub_apis.h"
+#include "moonraker_error.h"
+#include "moonraker_types.h"
+
+#include <functional>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <set>
+#include <string>
+#include <vector>
+
+// Forward declarations
+namespace helix {
+class IMoonrakerClient;
+} // namespace helix
+class MoonrakerAPI;
+class OperationTimeoutGuard; // NAMESPACE_OK: matches the global-namespace class in
+                             // operation_timeout_guard.h
+
+namespace helix::calibration {
+/**
+ * @brief The idle-fallback backstop armed by the most recent absorbed transport
+ *        error, or nullptr when no calibration is waiting one out.
+ *
+ * Test observability only. The collectors are internal to
+ * moonraker_advanced_api.cpp and the backstop budget runs to minutes, so a test
+ * fires the timer the driver installed (`OperationTimeoutGuard::pending_timer()`
+ * + `lv_timer_ready()`) instead of waiting it out. Main thread only.
+ */
+OperationTimeoutGuard* armed_idle_backstop();
+
+/**
+ * @brief The idle-fallback grace window armed by an idle report, or nullptr.
+ *
+ * Test observability only, same contract as armed_idle_backstop(). Firing this
+ * rather than advancing the clock also keeps a case off the mock printer's own
+ * calibration timers: MoonrakerClientMock's PID simulation emits its result at
+ * virtual t=3000ms, which is exactly the grace budget.
+ */
+OperationTimeoutGuard* armed_idle_grace();
+} // namespace helix::calibration
+
+/**
+ * @brief Advanced Panel Operations API via Moonraker
+ *
+ * Provides high-level operations for bed mesh management, input shaper calibration,
+ * PID tuning, machine limits configuration, and macro execution. These operations
+ * typically involve long-running G-code commands with response parsing via
+ * notify_gcode_response callbacks.
+ *
+ * All async methods use callbacks. Long-running operations use Collector state machines
+ * that monitor gcode_response notifications for progress and results.
+ *
+ * Usage:
+ *   MoonrakerAdvancedAPI advanced(client, api);
+ *   advanced.start_bed_mesh_calibrate(command, on_progress, on_complete, on_error);
+ */
+class MoonrakerAdvancedAPI : public helix::IAdvancedAPI {
+  public:
+    using SuccessCallback = helix::SharedCallback<void()>;
+    using ErrorCallback = helix::SharedCallback<void(const MoonrakerError&)>;
+
+    /// Progress callback for bed mesh calibration: (current_probe, total_probes)
+    using BedMeshProgressCallback = std::function<void(int current, int total)>;
+
+    /// Callback for accelerometer noise level check (noise value 0-1000+, <100 is good)
+    using NoiseCheckCallback = std::function<void(float noise_level)>;
+
+    /// Callback for input shaper configuration query
+    using InputShaperConfigCallback = std::function<void(const InputShaperConfig&)>;
+
+    /// Callback for heater control type query (returns "pid", "mpc", etc.)
+    using HeaterControlTypeCallback = helix::SharedCallback<void(const std::string& control_type)>;
+
+    /// Callback for PID calibration progress (sample number, tolerance value; -1.0 = n/a)
+    using PIDProgressCallback = std::function<void(int sample, float tolerance)>;
+
+    /// Callback for PID calibration result
+    using PIDCalibrateCallback = std::function<void(float kp, float ki, float kd)>;
+
+    /// Result struct for MPC calibration.
+    /// Lives on IAdvancedAPI (start_mpc_calibrate is declared there); aliased
+    /// here so existing qualified references (MoonrakerAdvancedAPI::MPCResult)
+    /// keep resolving.
+    using MPCResult = IAdvancedAPI::MPCResult;
+
+    /// Callback for MPC calibration result
+    using MPCCalibrateCallback = std::function<void(const MPCResult&)>;
+
+    /// Progress callback for MPC calibration (phase, total_phases, description)
+    using MPCProgressCallback =
+        std::function<void(int phase, int total_phases, const std::string& description)>;
+
+    /**
+     * @brief Constructor
+     *
+     * @param client MoonrakerClient instance (must remain valid during API lifetime)
+     * @param api MoonrakerAPI instance for G-code execution (must remain valid during API lifetime)
+     */
+    MoonrakerAdvancedAPI(helix::IMoonrakerClient& client, MoonrakerAPI& api);
+    virtual ~MoonrakerAdvancedAPI() = default;
+
+    // ========================================================================
+    // Bed Mesh Operations (with internal state)
+    // ========================================================================
+
+    /**
+     * @brief Get currently active bed mesh profile
+     *
+     * Returns pointer to the active mesh profile loaded from Moonraker's
+     * bed_mesh object. The probed_matrix field contains the 2D Z-height
+     * array ready for rendering.
+     *
+     * @return Pointer to active mesh profile, or nullptr if none loaded
+     */
+    const BedMeshProfile* get_active_bed_mesh() const override;
+
+    /**
+     * @brief Update bed mesh data from Moonraker status
+     *
+     * Called by MoonrakerClient when bed_mesh data is received from
+     * Moonraker subscriptions. Parses the JSON and updates local storage.
+     *
+     * Thread-safe: Uses internal mutex for synchronization.
+     *
+     * @param bed_mesh_data JSON object containing bed_mesh status fields
+     */
+    void update_bed_mesh(const json& bed_mesh_data) override;
+
+    /**
+     * @brief Get list of available mesh profile names
+     *
+     * Returns profile names from bed_mesh.profiles (e.g., "default",
+     * "adaptive", "calibration"). Empty vector if no profiles available
+     * or discovery hasn't completed.
+     *
+     * @return Vector of profile names
+     */
+    std::vector<std::string> get_bed_mesh_profiles() const override;
+
+    /**
+     * @brief Check if bed mesh data is available
+     *
+     * @return true if a mesh profile with valid probed_matrix is loaded
+     */
+    bool has_bed_mesh() const override;
+
+    /**
+     * @brief Get mesh data for a specific stored profile
+     *
+     * Returns the mesh data for any stored profile (not just the active one).
+     * This enables showing Z range for all profiles in the list.
+     *
+     * @param profile_name Name of the profile to retrieve
+     * @return Pointer to profile data, or nullptr if not found
+     */
+    const BedMeshProfile* get_bed_mesh_profile(const std::string& profile_name) const override;
+
+    /**
+     * @brief Get set of currently excluded object names (async)
+     *
+     * Queries Klipper's exclude_object module for the list of objects
+     * that have been excluded from the current print.
+     *
+     * @param on_success Callback with set of excluded object names
+     * @param on_error Error callback
+     */
+    void get_excluded_objects(std::function<void(const std::set<std::string>&)> on_success,
+                              ErrorCallback on_error) override;
+
+    /**
+     * @brief Get list of available objects in current print (async)
+     *
+     * Queries Klipper's exclude_object module for the list of objects
+     * defined in the current G-code file (from EXCLUDE_OBJECT_DEFINE).
+     *
+     * @param on_success Callback with vector of available object names
+     * @param on_error Error callback
+     */
+    void get_available_objects(std::function<void(const std::vector<std::string>&)> on_success,
+                               ErrorCallback on_error) override;
+
+    // ========================================================================
+    // Bed Leveling Operations
+    // ========================================================================
+
+    /**
+     * @brief Start automatic bed mesh calibration with progress tracking
+     *
+     * Executes BED_MESH_CALIBRATE command and tracks probe progress via
+     * notify_gcode_response parsing.
+     *
+     * @param on_progress Called for each probe point (current, total)
+     * @param on_complete Called when calibration completes successfully
+     * @param on_error Called on failure
+     * @param expected_probes Hint for total probe count (from configfile).
+     *        Used as denominator when firmware doesn't emit "Probing point X/Y"
+     *        progress lines.  0 = unknown (shows indeterminate spinner).
+     * @param probe_samples Number of probe samples per mesh point (from [probe]
+     *        or [bltouch] config).  Used to divide the fallback "probe at" line
+     *        count back to mesh points.  Default 1.
+     */
+    void start_bed_mesh_calibrate(const BedMeshCommand& command,
+                                  BedMeshProgressCallback on_progress, SuccessCallback on_complete,
+                                  ErrorCallback on_error, int expected_probes = 0,
+                                  int probe_samples = 1) override;
+
+    /**
+     * @brief Calculate screw adjustments for manual bed leveling
+     *
+     * Executes SCREWS_TILT_CALCULATE command. Requires [screws_tilt_adjust]
+     * section in printer.cfg.
+     *
+     * @param on_success Called with screw adjustment results
+     * @param on_error Called on failure
+     */
+    void calculate_screws_tilt(helix::ScrewTiltCallback on_success,
+                               ErrorCallback on_error) override;
+
+    /**
+     * @brief Run Quad Gantry Level
+     *
+     * Executes QUAD_GANTRY_LEVEL command for Voron-style printers.
+     *
+     * @param on_success Called when leveling completes
+     * @param on_error Called on failure
+     */
+    void run_qgl(SuccessCallback on_success, ErrorCallback on_error) override;
+
+    /**
+     * @brief Run Z-Tilt Adjust
+     *
+     * Executes Z_TILT_ADJUST command for multi-motor Z printers.
+     *
+     * @param on_success Called when adjustment completes
+     * @param on_error Called on failure
+     */
+    void run_z_tilt_adjust(SuccessCallback on_success, ErrorCallback on_error) override;
+
+    // ========================================================================
+    // Input Shaper Operations
+    // ========================================================================
+
+    /**
+     * @brief Start resonance test for input shaper calibration
+     *
+     * Executes SHAPER_CALIBRATE for the specified axis.
+     * Requires accelerometer configuration in printer.cfg.
+     *
+     * The sweep range is read from `configfile.settings.resonance_tester`
+     * before the command is sent, so progress tracks the frequencies this
+     * printer will actually test rather than an assumed range.
+     *
+     * @param axis Axis to test ('X' or 'Y')
+     * @param on_progress Called with progress percentage (0-100) and phase.
+     *        The sweep maps onto the whole 0-100 range; once the analysis
+     *        phase begins the percent is 0 and carries no meaning - the phase
+     *        is the signal (show an indeterminate spinner, not a bar position).
+     * @param on_complete Called with test results
+     * @param on_error Called on failure
+     */
+    void start_resonance_test(char axis, helix::ShaperProgressCallback on_progress,
+                              helix::InputShaperCallback on_complete,
+                              ErrorCallback on_error) override;
+
+    /**
+     * @brief Start Klippain Shake&Tune calibration
+     *
+     * Executes AXES_SHAPER_CALIBRATION macro from Klippain.
+     * Provides enhanced calibration with graphs.
+     *
+     * @param axis Axis to calibrate ("X", "Y", or "all")
+     * @param on_success Called when calibration completes
+     * @param on_error Called on failure
+     */
+    void start_klippain_shaper_calibration(const std::string& axis, SuccessCallback on_success,
+                                           ErrorCallback on_error) override;
+
+    /**
+     * @brief Apply input shaper settings
+     *
+     * Sets the shaper type and frequency via SET_INPUT_SHAPER command.
+     *
+     * @param axis Axis to configure ('X' or 'Y')
+     * @param shaper_type Shaper algorithm (e.g., "mzv", "ei")
+     * @param freq_hz Shaper frequency in Hz
+     * @param on_success Called when settings are applied
+     * @param on_error Called on failure
+     */
+    void set_input_shaper(char axis, const std::string& shaper_type, double freq_hz,
+                          SuccessCallback on_success, ErrorCallback on_error) override;
+
+    /**
+     * @brief Check accelerometer noise level
+     *
+     * Runs MEASURE_AXES_NOISE G-code command to measure the ambient noise
+     * level of the accelerometer. Used to verify ADXL345 is working correctly
+     * before running resonance tests.
+     *
+     * @param on_complete Called with noise level on success
+     * @param on_error Called on failure (e.g., no accelerometer configured)
+     */
+    void measure_axes_noise(NoiseCheckCallback on_complete, ErrorCallback on_error) override;
+
+    /**
+     * @brief Get current input shaper configuration
+     *
+     * Queries the printer state to retrieve the currently active input
+     * shaper settings for both X and Y axes.
+     *
+     * @param on_success Called with current InputShaperConfig
+     * @param on_error Called on failure
+     */
+    void get_input_shaper_config(InputShaperConfigCallback on_success,
+                                 ErrorCallback on_error) override;
+
+    // ========================================================================
+    // PID Calibration Operations
+    // ========================================================================
+
+    /**
+     * @brief Fetch current PID values for a heater from printer configuration
+     *
+     * Queries configfile.settings to get the currently active PID parameters.
+     * Used to show old->new deltas after PID calibration.
+     *
+     * @param heater Heater name ("extruder" or "heater_bed")
+     * @param on_complete Called with current Kp, Ki, Kd values
+     * @param on_error Called if values cannot be retrieved
+     */
+    void get_heater_pid_values(const std::string& heater, PIDCalibrateCallback on_complete,
+                               ErrorCallback on_error) override;
+
+    /**
+     * @brief Query the control type for a heater from printer configuration
+     *
+     * Queries configfile.settings to determine if a heater uses PID or MPC control.
+     * Returns "pid" by default if the control key is missing.
+     *
+     * @param heater Heater name ("extruder", "heater_bed", etc.)
+     * @param on_complete Called with control type string ("pid", "mpc", etc.)
+     * @param on_error Called if the heater cannot be found in config
+     */
+    void get_heater_control_type(const std::string& heater, HeaterControlTypeCallback on_complete,
+                                 ErrorCallback on_error) override;
+
+    /**
+     * @brief Start PID calibration for a heater
+     *
+     * Executes PID_CALIBRATE HEATER={heater} TARGET={target_temp} command
+     * and collects results via gcode_response parsing.
+     *
+     * @param heater Heater name ("extruder" or "heater_bed")
+     * @param target_temp Target temperature for calibration
+     * @param on_complete Called with PID values on success
+     * @param on_error Called on failure
+     */
+    void start_pid_calibrate(const std::string& heater, int target_temp,
+                             PIDCalibrateCallback on_complete, ErrorCallback on_error,
+                             PIDProgressCallback on_progress = nullptr) override;
+
+    /**
+     * @brief Start MPC calibration for a heater (Kalico)
+     *
+     * Executes MPC_CALIBRATE HEATER={heater} TARGET={target_temp} command
+     * and collects multi-line results via gcode_response parsing.
+     *
+     * MPC calibration goes through multiple phases: ambient settling, heatup test,
+     * and fan breakpoint measurements before producing final calibration values.
+     *
+     * @param heater Heater name ("extruder", etc.)
+     * @param target_temp Target temperature for calibration
+     * @param fan_breakpoints Number of fan speed breakpoints to measure (0 = default)
+     * @param on_complete Called with MPCResult on success
+     * @param on_error Called on failure
+     * @param on_progress Called for each calibration phase (phase, total_phases, description)
+     */
+    void start_mpc_calibrate(const std::string& heater, int target_temp, int fan_breakpoints,
+                             MPCCalibrateCallback on_complete, ErrorCallback on_error,
+                             MPCProgressCallback on_progress = nullptr) override;
+
+    /**
+     * @brief Run one automatic pressure-advance calibration
+     *
+     * Sends `proc.start_gcode` and watches the console for `proc.result_pattern`,
+     * whose first capture is the measured K. Which firmware this is, what the
+     * command is called and what its output looks like are all decided by
+     * helix::pacal::procedure_for() - this method knows none of it.
+     *
+     * As with PID_CALIBRATE the console result line, not the RPC reply, is the
+     * authority for completion: a run that outlives its RPC timeout is still
+     * running, and the collector stays registered to catch the result.
+     *
+     * @param proc Resolved procedure from helix::pacal
+     * @param on_complete Called with the measured K on success
+     * @param on_error Called on refusal or failure
+     * @param on_progress Best-effort per-attempt progress; may never fire
+     */
+    helix::SharedCallback<void()>
+    start_pa_calibrate(const helix::pacal::Procedure& proc, PACalibrateCallback on_complete,
+                       ErrorCallback on_error, PAProgressCallback on_progress = nullptr) override;
+
+    // ========================================================================
+    // Machine Limits Operations
+    // ========================================================================
+
+    /**
+     * @brief Get current machine limits
+     *
+     * Queries toolhead object for velocity and acceleration limits.
+     *
+     * @param on_success Called with current limits
+     * @param on_error Called on failure
+     */
+    void get_machine_limits(helix::MachineLimitsCallback on_success,
+                            ErrorCallback on_error) override;
+
+    /**
+     * @brief Set machine limits (temporary, not saved to config)
+     *
+     * Uses SET_VELOCITY_LIMIT command. Changes are lost on Klipper restart.
+     *
+     * @param limits New limits to apply
+     * @param on_success Called when limits are applied
+     * @param on_error Called on failure
+     */
+    void set_machine_limits(const MachineLimits& limits, SuccessCallback on_success,
+                            ErrorCallback on_error) override;
+
+    /**
+     * @brief Save current configuration to printer.cfg
+     *
+     * Executes SAVE_CONFIG command. This will restart Klipper.
+     *
+     * @param on_success Called when save is initiated
+     * @param on_error Called on failure
+     */
+    void save_config(SuccessCallback on_success, ErrorCallback on_error) override;
+
+    // ========================================================================
+    // Macro Operations
+    // ========================================================================
+
+    /**
+     * @brief Execute a G-code macro with optional parameters
+     *
+     * @param name Macro name (e.g., "CLEAN_NOZZLE")
+     * @param params Parameter map (e.g., {"TEMP": "210"})
+     * @param on_success Called when macro execution starts
+     * @param on_error Called on failure
+     * @param suppress_auto_toast Maps to helix::rpc_error_policy::CallerIntent::silent
+     *        — opts out of the tracker's generic fallback toast, nothing more.
+     */
+    void execute_macro(const std::string& name, const std::map<std::string, std::string>& params,
+                       SuccessCallback on_success, ErrorCallback on_error, uint32_t timeout_ms = 0,
+                       bool suppress_auto_toast = false) override;
+
+    /**
+     * @brief Get list of user-visible macros
+     *
+     * Returns macros filtered by category, excluding system macros
+     * (those starting with _) unless explicitly requested.
+     *
+     * @param include_system Include _* system macros
+     * @return Vector of macro information
+     */
+    std::vector<MacroInfo> get_user_macros(bool include_system = false) const override;
+
+    // ========================================================================
+    // Belt Tension Operations
+    // ========================================================================
+
+    /// Mirrors IAdvancedAPI (contracts live there).
+    using BeltSweepProgressCallback = IAdvancedAPI::BeltSweepProgressCallback;
+    using BeltResponseCallback = IAdvancedAPI::BeltResponseCallback;
+    using BeltRunCancel = IAdvancedAPI::BeltRunCancel;
+
+    /// Callback for belt hardware detection
+    using BeltHardwareCallback =
+        std::function<void(const helix::calibration::BeltTensionHardware&)>;
+
+    /**
+     * @brief Detect printer hardware for belt tension calibration
+     *
+     * Two-phase detection: queries printer.objects.list (response unused -
+     * ADXL presence comes from AccelSensorManager), then printer.objects.query
+     * for kinematics type.
+     *
+     * @param on_complete Called with detected hardware capabilities
+     * @param on_error Called on failure
+     */
+    void detect_belt_hardware(BeltHardwareCallback on_complete, ErrorCallback on_error) override;
+
+    /**
+     * @brief Run TEST_RESONANCES for belt tension measurement
+     *
+     * Executes TEST_RESONANCES with OUTPUT=resonances and SWEEPING_PERIOD=0
+     * (pulse-only excitation) and collects the console sweep, then reads the
+     * CSV Klipper names in its "Resonances data written to" line and hands
+     * back the parsed curves.
+     *
+     * @param axis_param Axis parameter: "1,-1" for CoreXY Path A, "1,1" for Path B
+     * @param output_name Name for the CSV output file
+     * @param on_progress Called with progress percentage (0-100) and current frequency
+     * @param on_complete Called with the parsed curves (psd_xyz and psd_x + psd_y) on success
+     * @param on_error Called on failure
+     * @param window Optional frequency range to limit the sweep to
+     * @return Cancel handle; stops listening and suppresses every later callback
+     */
+    [[nodiscard]] BeltRunCancel test_belt_resonance(
+        const std::string& axis_param, const std::string& output_name,
+        BeltSweepProgressCallback on_progress, BeltResponseCallback on_complete,
+        ErrorCallback on_error,
+        std::optional<helix::calibration::BeltSweepWindow> window = std::nullopt) override;
+
+  protected:
+    helix::IMoonrakerClient& client_;
+    MoonrakerAPI& api_;
+
+  private:
+    // Bed mesh storage
+    BedMeshProfile active_bed_mesh_;
+    std::vector<std::string> bed_mesh_profiles_;
+    std::map<std::string, BedMeshProfile> stored_bed_mesh_profiles_;
+    mutable std::mutex bed_mesh_mutex_;
+};

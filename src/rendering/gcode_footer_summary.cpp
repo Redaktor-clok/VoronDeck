@@ -1,0 +1,183 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "gcode_footer_summary.h"
+
+#include "gcode_color_metadata.h"
+#include "operation_patterns.h"
+#include "text_io.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+
+namespace helix::gcode {
+
+namespace {
+
+// Anything below this counts as "did not print with this tool". Sits just
+// above float noise rather than at a physically meaningful weight: a tool the
+// file really uses must never be dropped (its filament check would be skipped
+// silently), while an extra chip for a tool that barely extrudes is harmless.
+constexpr double kUsedGramsEpsilon = 1e-9;
+
+// The key of a `; key = value` comment, lowercased, with the leading
+// semicolons and surrounding whitespace removed. Empty when the line has no
+// '=' (so it is not a key/value comment at all).
+std::string comment_key(std::string_view line, size_t eq) {
+    std::string_view key = line.substr(0, eq);
+    while (!key.empty() && (key.front() == ';' || key.front() == ' ' || key.front() == '\t')) {
+        key.remove_prefix(1);
+    }
+    return helix::text_io::to_lower(helix::text_io::trim(key));
+}
+
+bool is_colour_key(const std::string& key) {
+    return key == "filament_colour" || key == "filament_color" || key == "extruder_colour" ||
+           key == "extruder_color";
+}
+
+bool is_extruder_colour_key(const std::string& key) {
+    return key == "extruder_colour" || key == "extruder_color";
+}
+
+// Parse one comma-separated grams vector into the indices that printed.
+// Unparsable tokens count as zero but still consume their slot, so a garbled
+// entry never shifts the tools after it.
+std::vector<double> grams_from_line(std::string_view values) {
+    std::vector<double> grams;
+    while (true) {
+        const size_t comma = values.find(',');
+        std::string_view tok = helix::text_io::trim(
+            comma == std::string_view::npos ? values : values.substr(0, comma));
+        double value = 0.0;
+        if (!tok.empty()) {
+            const std::string owned(tok);
+            char* end = nullptr;
+            const double parsed = std::strtod(owned.c_str(), &end);
+            if (end != owned.c_str()) {
+                value = parsed;
+            }
+        }
+        grams.push_back(value);
+        if (comma == std::string_view::npos) {
+            break;
+        }
+        values.remove_prefix(comma + 1);
+    }
+    return grams;
+}
+
+std::set<int> used_indices_from_grams(const std::vector<double>& grams) {
+    std::set<int> used;
+    for (size_t i = 0; i < grams.size(); ++i) {
+        if (grams[i] > kUsedGramsEpsilon) {
+            used.insert(static_cast<int>(i));
+        }
+    }
+    return used;
+}
+
+} // namespace
+
+GcodeFooterSummary parse_gcode_footer_summary(std::string_view tail) {
+    GcodeFooterSummary summary;
+
+    // Palettes are collected separately so extruder_colour can take precedence
+    // over filament_colour regardless of which the slicer wrote first.
+    std::vector<std::string> extruder_palette;
+    std::vector<std::string> filament_palette;
+
+    while (!tail.empty()) {
+        const size_t nl = tail.find('\n');
+        std::string_view line = (nl == std::string_view::npos) ? tail : tail.substr(0, nl);
+        if (nl != std::string_view::npos) {
+            tail.remove_prefix(nl + 1);
+        } else {
+            tail = {};
+        }
+
+        // Only comments carry slicer metadata; skip the moves cheaply.
+        const std::string_view body = helix::text_io::trim(line);
+        if (body.empty() || body.front() != ';') {
+            continue;
+        }
+        const size_t eq = body.find('=');
+        if (eq == std::string_view::npos) {
+            continue;
+        }
+
+        const std::string key = comment_key(body, eq);
+        if (key == "filament used [g]") {
+            // Last occurrence wins: on a windowed read the earliest match may
+            // be from an older per-object block, and the file's final summary
+            // is the one that describes the whole print.
+            summary.has_usage_line = true;
+            summary.grams_per_tool = grams_from_line(body.substr(eq + 1));
+            summary.tools_used = used_indices_from_grams(summary.grams_per_tool);
+        } else if (is_colour_key(key)) {
+            std::vector<std::string> palette;
+            if (parse_filament_color_palette(body, palette)) {
+                if (is_extruder_colour_key(key)) {
+                    extruder_palette = std::move(palette);
+                } else {
+                    filament_palette = std::move(palette);
+                }
+            }
+        }
+    }
+
+    summary.colours =
+        extruder_palette.empty() ? std::move(filament_palette) : std::move(extruder_palette);
+    return summary;
+}
+
+size_t gcode_tail_window_bytes(uint64_t file_size, uint64_t gcode_end_byte) {
+    uint64_t window = kGcodeTailWindowDefault;
+
+    // A gcode_end_byte at or past EOF is nonsense (or a file with no footer at
+    // all) — fall back to the fixed window rather than asking for 0 bytes.
+    if (gcode_end_byte > 0 && gcode_end_byte < file_size) {
+        window = file_size - gcode_end_byte;
+    }
+
+    window = std::clamp<uint64_t>(window, kGcodeTailWindowMin, kGcodeTailWindowMax);
+    if (file_size > 0) {
+        window = std::min<uint64_t>(window, file_size);
+    }
+    return static_cast<size_t>(std::max<uint64_t>(window, 1));
+}
+
+std::string read_file_tail(const std::string& path, size_t window) {
+    if (path.empty() || window == 0) {
+        return {};
+    }
+
+    namespace tio = helix::text_io;
+    tio::File f = tio::open_file(path, "rb");
+    if (!f || !tio::seek(f.get(), 0, SEEK_END)) {
+        return {};
+    }
+    const std::int64_t end_pos = tio::tell(f.get()).value_or(0);
+    if (end_pos <= 0) {
+        return {};
+    }
+
+    const auto size = static_cast<uint64_t>(end_pos);
+    const auto want = static_cast<uint64_t>(window);
+    const uint64_t take = std::min(want, size);
+
+    if (!tio::seek(f.get(), static_cast<std::int64_t>(size - take), SEEK_SET)) {
+        return {};
+    }
+
+    std::string tail;
+    tail.resize(static_cast<size_t>(take));
+    // A short read is still usable — the footer parser scans whatever lines it
+    // is given — but a read that produced nothing is a failure, not an answer.
+    tail.resize(std::fread(tail.data(), 1, tail.size(), f.get()));
+    return tail;
+}
+
+} // namespace helix::gcode

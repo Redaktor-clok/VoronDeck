@@ -1,0 +1,246 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <!-- Reusable Header Bar Component - Improved Design v2 -->
+  <!-- Used in modal overlays, sub-screens, and detail views -->
+  <!-- Provides consistent back button + centered title + optional action button -->
+  <!-- Key improvements over v1:
+       - Flat 3-element layout (no nested containers) for true centering
+       - Symmetric padding (left + right) for visual balance
+       - Title uses flex_grow + text_align for perfect centering
+       - Uses text_heading/text_body components for theme consistency
+       - XML-controlled action button visibility via hide_action_button prop
+  -->
+  <consts>
+    <!-- Cap for the header's action buttons.
+         These must fit INSIDE header_height, not merely be a comfortable
+         standalone touch target. button_height's own ladder exceeds
+         header_height from the LARGE tier up (72>60, 80>68, 96>80), so a
+         header passing #button_height gets a button taller than its own bar;
+         style_flex_cross_place centers the overflow and the top half clips off
+         the screen.
+         Applied as style_max_height rather than height, because the
+         action_button_height default is `content` and those self-sized buttons
+         are already correct — a cap leaves them alone and clamps only the
+         oversized ones.
+         Roughly 80% of the corresponding header_height at each tier. -->
+    <px name="header_button_height_micro" value="22"/>
+    <px name="header_button_height_tiny" value="26"/>
+    <px name="header_button_height_small" value="38"/>
+    <px name="header_button_height_medium" value="44"/>
+    <px name="header_button_height_large" value="48"/>
+    <px name="header_button_height_xlarge" value="54"/>
+    <px name="header_button_height_xxlarge" value="64"/>
+  </consts>
+  <!-- API Properties -->
+  <api>
+    <prop name="title" type="string"/>
+    <prop name="title_tag" type="string" default=""/>
+    <!-- Optional live title. When a screen's header names something that changes
+         under it - the box a detail view is showing, say - it binds a string
+         subject here and leaves `title` as the value shown until the first
+         publish. An empty default resolves to no binding at all, so every header
+         that does not need one is untouched. `title` is still what a static
+         header uses, and stays the translated one: a bound title carries a name
+         the app composed, and is translated at the point it is composed. -->
+    <prop name="title_subject" type="string" default=""/>
+    <!-- Titles render in capitals; "none" keeps the title's own case (a name
+         whose case carries meaning, like "LEDs"). -->
+    <prop name="title_transform" type="string" default="uppercase"/>
+    <!-- Title font and line budget. The default is one heading-font line cut at the
+         slot edge; a screen whose titles run long (the shared numeric keypad) passes
+         a smaller font, long_mode "dots" and max_lines "2" so a long title wraps
+         inside the bar and dots only past its last line. -->
+    <prop name="title_font" type="string" default="#font_heading"/>
+    <prop name="title_long_mode" type="string" default="clip"/>
+    <prop name="title_max_lines" type="string" default="1"/>
+    <!-- Optional trailing badge: a small icon plus a short label, for a screen
+         that needs to show WHICH record it is editing. Both parts are empty by
+         default and the group stays hidden unless title_badge_subject resolves
+         to 1, so a header that asks for nothing renders nothing. The label text
+         is left to the owning screen — bind "header_title_badge_text" with
+         lv_label_bind_text rather than adding a bind_text here, which would warn
+         on every header that has no badge subject. -->
+    <prop name="title_badge_icon" type="string" default=""/>
+    <prop name="title_badge_subject" type="string" default=""/>
+    <!-- Back button callback - defaults to standard navigation go_back -->
+    <prop name="back_button_callback" type="string" default="on_header_back_clicked"/>
+    <!-- Text-based action button (use action_button_text) -->
+    <prop name="action_button_text" type="string" default=""/>
+    <prop name="action_button_text_tag" type="string" default=""/>
+    <!-- Icon-based action button (use action_button_icon instead of text) -->
+    <prop name="action_button_icon" type="string" default=""/>
+    <!-- Icon size for action_button: sm (default), md, lg. md/lg scale the -->
+    <!-- icon-only e-stop glyph up on micro/small displays. -->
+    <prop name="action_button_icon_size" type="string" default="sm"/>
+    <!-- Hide the icon in action button (for text-only buttons) -->
+    <prop name="hide_action_button_icon" type="string" default="false"/>
+    <!-- Hide the text label in action button (for icon-only circular buttons) -->
+    <prop name="hide_action_button_text" type="string" default="false"/>
+    <prop name="action_button_icon_color" type="string" default="#text"/>
+    <!-- Styling props for custom action buttons (e.g., E-stop) -->
+    <prop name="action_button_bg_color" type="string" default="#primary"/>
+    <prop name="action_button_radius" type="string" default="#border_radius"/>
+    <!-- Button dimensions - use same value for width/height + radius=9999 for circular buttons -->
+    <prop name="action_button_width" type="string" default="content"/>
+    <prop name="action_button_height" type="string" default="content"/>
+    <prop name="action_button_pad" type="string" default="#space_sm"/>
+    <!-- Use hide_action_button="false" to show the action button -->
+    <prop name="hide_action_button" type="string" default="true"/>
+    <prop name="action_button_callback" type="string" default=""/>
+    <!-- Subject name for reactive disabled state binding (empty = no binding) -->
+    <prop name="action_button_disabled_subject" type="string" default=""/>
+    <!-- Expression form of the above, for buttons whose disabled state depends on
+         more than one subject (e.g. "busy OR printer not reachable"). Use EITHER
+         this or action_button_disabled_subject, never both: two bindings on the
+         same LVGL state clobber each other, since each observer asserts both
+         polarities on every fire. Default "0" is a constant (no subjects), so it
+         fires once at bind and never again — which is why the binding below is
+         ordered BEFORE the subject binding, letting the subject form win. -->
+    <prop name="action_button_disabled_cond" type="string" default="0"/>
+    <!-- Optional int subject: 1 hides the action button entirely (per-view Save) -->
+    <prop name="action_button_hidden_subject" type="string" default=""/>
+    <!-- Second action button (appears to LEFT of primary action button) -->
+    <prop name="action_button_2_text" type="string" default=""/>
+    <prop name="action_button_2_text_tag" type="string" default=""/>
+    <prop name="action_button_2_icon" type="string" default=""/>
+    <prop name="action_button_2_icon_size" type="string" default="sm"/>
+    <prop name="action_button_2_bg_color" type="string" default="#secondary"/>
+    <!-- Floor for the labelled slot; a consumer whose label may hide passes a
+         smaller one. -->
+    <prop name="action_button_2_min_width" type="string" default="90"/>
+    <prop name="action_button_2_callback" type="string" default=""/>
+    <prop name="hide_action_button_2" type="string" default="true"/>
+    <prop name="action_button_2_hidden_subject" type="string" default=""/>
+    <!-- Expression form of the above, for a button hidden by a threshold or
+         compound condition on global subjects (e.g. "ui_breakpoint lt 2").
+         Empty default leaves the flag alone; unlike disabled_cond's "0" a
+         constant here would fire once at bind and un-hide the slot for every
+         consumer that never asked for the button. -->
+    <prop name="action_button_2_hidden_cond" type="string" default=""/>
+    <!-- A condition under which the secondary button drops its label and keeps its icon. -->
+    <prop name="action_button_2_label_hidden_cond" type="string" default=""/>
+    <prop name="action_button_2_disabled_subject" type="string" default=""/>
+    <!-- Icon-only action, left of the secondary button: a round button drawn
+         by styles.header_icon_button. A screen with a labelled second action
+         uses action_button_2; one with only a glyph uses this. -->
+    <prop name="action_icon" type="string" default=""/>
+    <prop name="action_icon_callback" type="string" default=""/>
+    <prop name="hide_action_icon" type="string" default="true"/>
+    <!-- Expression hiding it (e.g. "ui_breakpoint lt 2"); empty leaves the flag
+         alone, as action_button_2_hidden_cond does. -->
+    <prop name="action_icon_hidden_cond" type="string" default=""/>
+  </api>
+  <view extends="lv_obj"
+        width="100%" height="#header_height" style_pad_left="0" style_pad_right="#space_lg" style_pad_top="0"
+        style_pad_bottom="0" flex_flow="row" style_flex_main_place="space_between" style_flex_track_place="center"
+        style_flex_cross_place="center" scrollable="false">
+    <!-- Back button: flex_grow region covers arrow + title = huge touch target -->
+    <lv_obj name="back_button"
+            height="100%" flex_grow="1" style_pad_left="#space_sm" style_pad_right="0" style_pad_top="0"
+            style_pad_bottom="0" scrollable="false" clickable="true" style_flex_cross_place="center"
+            style_flex_track_place="center" flex_flow="row" style_pad_gap="#space_xs">
+      <event_cb trigger="clicked" callback="$back_button_callback"/>
+      <icon src="back" size="lg" variant="text" clickable="false" event_bubble="true"/>
+      <!-- bind_text is deliberately FIRST. An unsupplied title_subject resolves to the
+           empty name, which is a registered no-op INT subject, and binding to that
+           stamps "0" over the title. Applying text/translation_tag afterwards puts the
+           static title back, and the no-op subject never changes, so it never returns.
+           A header that does supply a subject still retitles on every publish. -->
+      <!-- clip by default, not dots: dots with a content height wraps a title too
+           long for its slot onto a second line mid-word. clip measures the text
+           unwrapped, so the title stays one line and is cut at the slot edge. -->
+      <text_heading name="header_title"
+                    long_mode="$title_long_mode" max_lines="$title_max_lines" bind_text="$title_subject" text="$title"
+                    translation_tag="$title_tag" text_transform="$title_transform" style_text_font="$title_font"
+                    flex_grow="1" style_text_align="left" clickable="false" event_bubble="true" scrollable="false"/>
+      <!-- Trailing badge (icon + label), see the props above. Sits after the
+           title so the two parts read together as one mark. -->
+      <lv_obj name="header_title_badge"
+              width="content" height="content" style_pad_all="0" flex_flow="row" style_flex_cross_place="center"
+              style_pad_gap="#space_xs" hidden="true" clickable="false" event_bubble="true" scrollable="false">
+        <bind_flag_if_eq subject="$title_badge_subject" flag="hidden" ref_value="0"/>
+        <icon name="header_title_badge_icon"
+              src="$title_badge_icon" size="sm" variant="muted" clickable="false" event_bubble="true"/>
+        <text_body name="header_title_badge_text" style_text_color="#text_muted" clickable="false" event_bubble="true"/>
+      </lv_obj>
+    </lv_obj>
+    <!-- Content slot: a screen injects its own widgets here by nesting a
+         <header_bar-header_content> tag inside its header_bar instantiation;
+         the engine re-parents that tag's children into this object. Sits
+         between the title region and the action buttons, so the growing
+         back_button keeps it clear of the title. Carries no padding of its
+         own: injected content brings its left margin with it (see
+         header_coords in motion_panel.xml), so an unfilled slot is zero
+         width and a header that asks for nothing renders exactly as if the
+         slot did not exist. Both flex placements centre: cross_place centres
+         items within their track, track_place centres the track itself, so
+         a child shorter than the header sits on the title's centre line. -->
+    <lv_obj name="header_content"
+            width="content" height="100%" style_pad_all="0" style_pad_left="0" style_pad_right="0" style_bg_opa="0"
+            style_border_width="0" scrollable="false" clickable="false" flex_flow="row" style_pad_gap="#space_sm"
+            style_flex_cross_place="center" style_flex_track_place="center"/>
+    <!-- Icon-only action (left of the secondary button, hidden by default). -->
+    <ui_button name="action_icon_button"
+               width="#button_height_sm" height="#button_height_sm" style_max_height="#header_button_height"
+               hidden="$hide_action_icon" icon="$action_icon" icon_size="sm">
+      <style name="styles.header_icon_button"/>
+      <bind_flag_if cond="$action_icon_hidden_cond" flag="hidden"/>
+      <event_cb trigger="clicked" callback="$action_icon_callback"/>
+    </ui_button>
+    <!-- Secondary action button (left of primary, hidden by default) -->
+    <ui_button name="action_button_2"
+               width="content" height="$action_button_height" style_min_width="$action_button_2_min_width"
+               style_max_height="#header_button_height" style_radius="#border_radius"
+               style_bg_color="$action_button_2_bg_color" hidden="$hide_action_button_2" icon="$action_button_2_icon"
+               icon_size="$action_button_2_icon_size" text="$action_button_2_text"
+               translation_tag="$action_button_2_text_tag" label_hidden_cond="$action_button_2_label_hidden_cond">
+      <bind_state_if_eq subject="$action_button_2_disabled_subject" state="disabled" ref_value="1"/>
+      <!-- Both bindings drive the same hidden flag, so order settles only the
+           value at bind time, where the subject form lands last. After that
+           whichever input changed most recently decides. Supply one form or
+           the other. -->
+      <bind_flag_if cond="$action_button_2_hidden_cond" flag="hidden"/>
+      <bind_flag_if_eq subject="$action_button_2_hidden_subject" flag="hidden" ref_value="1"/>
+      <event_cb trigger="clicked" callback="$action_button_2_callback"/>
+    </ui_button>
+    <!-- Primary action button (hidden by default, pass hide_action_button="false" to show) -->
+    <!-- Supports both text (action_button_text) and icon (action_button_icon) modes -->
+    <!-- For icon-only buttons like E-stop, use circular radius and custom bg_color -->
+    <ui_button name="action_button"
+               width="$action_button_width" height="$action_button_height" style_max_height="#header_button_height"
+               style_radius="$action_button_radius" style_bg_color="$action_button_bg_color"
+               hidden="$hide_action_button" icon="$action_button_icon" icon_size="$action_button_icon_size"
+               text="$action_button_text" translation_tag="$action_button_text_tag">
+      <!-- Expression-driven disabled binding. Must precede the subject binding below;
+           see the action_button_disabled_cond prop comment for why. -->
+      <bind_state_if cond="$action_button_disabled_cond" state="disabled"/>
+      <!-- Reactive disabled state binding (enabled when subject exists and is non-empty) -->
+      <bind_state_if_eq subject="$action_button_disabled_subject" state="disabled" ref_value="1"/>
+      <!-- Reactive hidden binding: 1 hides the action button entirely (per-view Save) -->
+      <bind_flag_if_eq subject="$action_button_hidden_subject" flag="hidden" ref_value="1"/>
+      <event_cb trigger="clicked" callback="$action_button_callback"/>
+    </ui_button>
+    <!-- Unsaved z-offset. Built into the header rather than driven through the
+         action_button props because those slots are already spoken for — 14
+         panels set action_button, 4 set action_button_2 — and this must be able
+         to appear on any of them.
+         Global on purpose: an unsaved offset is lost on the next Klipper
+         restart no matter which screen you are looking at, so the affordance
+         follows you. The Controls panel keeps its own full-width Save button
+         for the moment you close the tune overlay and land back on it.
+         z_offset_save_available is the whole rule - firmware does not auto-save
+         AND something is dirty, machine-wide or per-tool - published by
+         helix::zoffset so every save surface and the save path itself ask one
+         question and cannot disagree.
+         Icon-only: the micro header is 28px tall with 22px buttons and the
+         title already flex-grows, so a labelled button here eats the title. -->
+    <ui_button name="header_save_z_offset"
+               width="content" height="$action_button_height" style_max_height="#header_button_height"
+               style_bg_color="#success" icon="check" icon_size="sm" hidden="true" moves_machine="true">
+      <bind_flag_if_eq subject="z_offset_save_available" flag="hidden" ref_value="0"/>
+      <event_cb trigger="clicked" callback="on_header_save_z_offset"/>
+    </ui_button>
+  </view>
+</component>

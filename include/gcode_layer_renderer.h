@@ -1,0 +1,1030 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "gcode_color_palette.h"
+#include "gcode_crease_shading.h"
+#include "gcode_parser.h"
+#include "gcode_projection.h"
+#include "gcode_raster.h"
+#include "gcode_render_memory.h"
+#include "gcode_selection_state.h"
+#include "gcode_selection_style.h"
+#include "gcode_streaming_controller.h"
+
+#include <lvgl/lvgl.h>
+
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <glm/glm.hpp>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <string>
+#include <thread>
+#include <unordered_set>
+
+namespace helix {
+namespace gcode {
+
+/// Reveal gate for the 2D viewer, extracted as a pure rule so its truth table
+/// is testable without a draw harness. The ghost copy alone is enough to show
+/// the render — the solid build continues visibly on top of it — while a
+/// pending build with nothing copied to the canvas yet is not.
+///
+/// @param ghost_output     has_ghost_output(): ghost pixels are on the canvas
+/// @param solid_incomplete needs_more_frames(): progressive build still going
+/// @param ghost_running    is_ghost_build_running(): background thread active
+constexpr bool reveal_ready_2d(bool ghost_output, bool solid_incomplete, bool ghost_running) {
+    return ghost_output || (!solid_incomplete && !ghost_running);
+}
+
+/**
+ * @brief 2D software-rasterized G-code preview
+ *
+ * Draws every layer up to the current one in the orthographic FRONT corner
+ * view (see gcode_projection.h), into its own ARGB8888 buffers rather than
+ * through the LVGL draw API. Built for low-power hardware (AD5M) with no GPU.
+ *
+ * Features:
+ * - Progressive solid cache, painted in layer order with no depth buffer
+ * - Background-built ghost of the whole model under it
+ * - Auto-fit to canvas bounds
+ * - Toggle visibility of travels/supports
+ * - Print progress integration (auto-follow current layer)
+ *
+ * Usage:
+ * @code
+ *   GCodeLayerRenderer renderer;
+ *   renderer.set_gcode(&parsed_file);
+ *   renderer.set_canvas_size(400, 400);
+ *   renderer.auto_fit();
+ *   renderer.set_current_layer(42);
+ *   renderer.render(layer, clip_area);
+ * @endcode
+ */
+class GCodeLayerRenderer {
+  public:
+    GCodeLayerRenderer();
+    ~GCodeLayerRenderer();
+
+    // =========================================================================
+    // Data Source
+    // =========================================================================
+
+    /**
+     * @brief Set G-code data source (full file mode)
+     * @param gcode Pointer to parsed G-code file (not owned)
+     *
+     * Use this for files small enough to fit in memory. Clears any
+     * streaming controller set via set_streaming_controller().
+     */
+    void set_gcode(const ParsedGCodeFile* gcode);
+
+    /**
+     * @brief Set streaming controller as data source (streaming mode)
+     * @param controller Pointer to streaming controller (not owned)
+     *
+     * Use this for large files that should be streamed layer-by-layer.
+     * Clears any parsed file set via set_gcode().
+     *
+     * In streaming mode:
+     * - Layers are loaded on-demand via the controller
+     * - Prefetching happens automatically for nearby layers
+     * - Memory usage is bounded by the controller's cache budget
+     */
+    void set_streaming_controller(GCodeStreamingController* controller);
+
+    /**
+     * @brief Check if using streaming mode
+     * @return true if streaming controller is set, false if using parsed file
+     */
+    bool is_streaming() const {
+        return streaming_controller_ != nullptr;
+    }
+
+    /**
+     * @brief Get current G-code data source (full file mode only)
+     * @return Pointer to parsed G-code file, or nullptr if not set or in streaming mode
+     */
+    const ParsedGCodeFile* get_gcode() const {
+        return gcode_;
+    }
+
+    /**
+     * @brief Get streaming controller (streaming mode only)
+     * @return Pointer to streaming controller, or nullptr if not in streaming mode
+     */
+    GCodeStreamingController* get_streaming_controller() const {
+        return streaming_controller_;
+    }
+
+    // =========================================================================
+    // Layer Selection
+    // =========================================================================
+
+    /**
+     * @brief Set current layer to render
+     * @param layer Layer index (0-based)
+     */
+    void set_current_layer(int layer);
+
+    /**
+     * @brief Get current layer index
+     * @return Current layer (0-based)
+     */
+    int get_current_layer() const {
+        return current_layer_;
+    }
+
+    /**
+     * @brief Get total number of layers
+     * @return Layer count, or 0 if no G-code loaded
+     */
+    int get_layer_count() const;
+
+    // =========================================================================
+    // Rendering
+    // =========================================================================
+
+    /**
+     * @brief Render current layer to LVGL draw layer
+     * @param layer LVGL draw layer (from draw event callback)
+     * @param clip_area Clipping area for the render
+     */
+    void render(lv_layer_t* layer, const lv_area_t* clip_area);
+
+    /**
+     * @brief Check if renderer needs more frames to complete caching
+     *
+     * Progressive rendering renders N layers per frame to avoid UI blocking.
+     * After calling render(), check this method - if true, the caller should
+     * invalidate the widget to trigger another frame.
+     *
+     * @return true if more frames are needed to complete solid or ghost cache
+     */
+    bool needs_more_frames() const;
+
+    /**
+     * @brief Highest solid-cache layer rendered so far (-1 if cache empty)
+     *
+     * Diagnostic accessor for the renderer-stall watchdog in ui_gcode_viewer.
+     * Lets the watchdog detect when print_progress_layer_ is advancing but
+     * the cache is not catching up — which means a continuation invalidate
+     * was dropped (UpdateQueue back-pressure, etc.) and the renderer is
+     * stranded mid-print.
+     */
+    int get_cached_up_to_layer() const {
+        return cached_up_to_layer_;
+    }
+
+    /**
+     * @brief Set canvas dimensions
+     * @param width Canvas width in pixels
+     * @param height Canvas height in pixels
+     */
+    void set_canvas_size(int width, int height);
+
+    /**
+     * @brief Set vertical content offset (shifts render center up/down)
+     * @param offset_percent Offset as percentage of canvas height (-1.0 to 1.0)
+     *                       Negative = shift content up, Positive = shift down
+     *
+     * Use this to account for overlapping UI elements (e.g., metadata overlay at bottom).
+     * A value of -0.1 shifts the render center up by 10% of canvas height.
+     */
+    void set_content_offset_y(float offset_percent);
+
+    /// Tell the renderer how much of the canvas bottom the UI covers (0..1).
+    /// Both the fit and the vertical shift depend on it, so changing it
+    /// re-runs auto-fit rather than only nudging the existing framing.
+    /// THUMBNAIL_PARITY framing ignores it for the fit.
+    void set_bottom_occlusion(float occlusion);
+
+    /// Which framing auto_fit() uses (see FitFraming in gcode_projection.h).
+    /// Changing it re-fits and rebuilds the caches on the next render.
+    void set_framing(FitFraming framing);
+
+    // =========================================================================
+    // Display Options
+    // =========================================================================
+
+    /**
+     * @brief Show/hide travel moves (default: OFF)
+     * @param show true to show travel moves
+     */
+    void set_show_travels(bool show) {
+        show_travels_.store(show, std::memory_order_relaxed);
+    }
+
+    /**
+     * @brief Show/hide extrusion moves (default: ON)
+     * @param show true to show extrusion moves
+     */
+    void set_show_extrusions(bool show) {
+        show_extrusions_.store(show, std::memory_order_relaxed);
+    }
+
+    /**
+     * @brief Show/hide support structures (default: ON, if detectable)
+     * @param show true to show support structures
+     */
+    void set_show_supports(bool show) {
+        show_supports_.store(show, std::memory_order_relaxed);
+    }
+
+    /** @brief Check if travel moves are shown */
+    bool get_show_travels() const {
+        return show_travels_.load(std::memory_order_relaxed);
+    }
+
+    /** @brief Check if support structures are shown */
+    bool get_show_supports() const {
+        return show_supports_.load(std::memory_order_relaxed);
+    }
+
+    /**
+     * @brief Enable/disable depth shading for 3D-like appearance (default: ON)
+     *
+     * When enabled in FRONT view:
+     * - Lines are brighter at top, darker at bottom (simulates top-down lighting)
+     * - Older layers slightly fade (focus on current print progress)
+     *
+     * @param enable true to enable depth shading
+     */
+    void set_depth_shading(bool enable) {
+        depth_shading_.store(enable, std::memory_order_relaxed);
+    }
+
+    /** @brief Check if depth shading is enabled */
+    bool get_depth_shading() const {
+        return depth_shading_.load(std::memory_order_relaxed);
+    }
+
+    /// Darken outer walls where the surface creases (gcode_crease_shading.h).
+    /// Part of depth shading: it applies only where that does, and only with
+    /// the outline pass on. Invalidates the cache: the colours are baked in.
+    void set_crease_shading(bool enable) {
+        if (crease_shading_.load(std::memory_order_relaxed) == enable) {
+            return;
+        }
+        crease_shading_.store(enable, std::memory_order_relaxed);
+        invalidate_solid_cache();
+    }
+    bool get_crease_shading() const {
+        return crease_shading_.load(std::memory_order_relaxed);
+    }
+
+    /// Enable/disable antialiased strokes, independently of the outline pass.
+    /// Invalidates the cache: the geometry has to be redrawn to change.
+    void set_antialias_enabled(bool enable) {
+        if (antialias_enabled_.load(std::memory_order_relaxed) == enable) {
+            return;
+        }
+        antialias_enabled_.store(enable, std::memory_order_relaxed);
+        invalidate_solid_cache();
+    }
+
+    /// Whether strokes are antialiased.
+    bool get_antialias_enabled() const {
+        return antialias_enabled_.load(std::memory_order_relaxed);
+    }
+
+    /**
+     * @brief Enable/disable the silhouette outline pass (called SSAO in code)
+     *
+     * Once the solid cache is complete, darkens every filled pixel that borders
+     * an empty one. HELIX_SSAO and the device tier pick the default.
+     */
+    void set_ssao_enabled(bool enable) {
+        ssao_enabled_.store(enable, std::memory_order_relaxed);
+        // Undo the shading before dropping the record of it, or the darkened
+        // pixels stay dark forever with nothing left that knows how to restore
+        // them. Main-thread only, like every caller of this setter.
+        restore_ssao_shading();
+        ssao_cache_valid_ = false;
+    }
+
+    /** @brief Check if SSAO is enabled */
+    /**
+     * @brief Itemized heap this renderer holds, for A/B measurement.
+     *
+     * Four full-canvas buffers, which is one more than the count quoted in
+     * gcode_ssao_policy.h when it decided constrained devices could not afford
+     * enhanced shading. Sizes come from each buffer's real stride, not w*4:
+     * LV_STRIDE_AUTO aligns rows, so the naive product understates what was
+     * actually allocated.
+     */
+    helix::gcode::RenderMemoryReport memory_report() const;
+
+    /// Emit memory_report() at debug level, tagged with what just happened.
+    /// `when` is a short static label, e.g. "cache_created".
+    void log_memory_report(const char* when) const;
+
+    bool get_ssao_enabled() const {
+        return ssao_enabled_.load(std::memory_order_relaxed);
+    }
+
+    /**
+     * @brief Enable/disable ghost mode (shows faded preview of remaining layers)
+     * @param enable true to enable ghost mode (default: ON)
+     */
+    void set_ghost_mode(bool enable) {
+        ghost_mode_enabled_.store(enable, std::memory_order_relaxed);
+    }
+
+    /** @brief Check if ghost mode is enabled */
+    bool get_ghost_mode() const {
+        return ghost_mode_enabled_.load(std::memory_order_relaxed);
+    }
+
+    /**
+     * @brief Progress of the background ghost build
+     *
+     * @return Layers the worker has drawn over the layers its pass visits,
+     *         0.0 to 1.0; 1.0 when no build is running
+     */
+    float get_ghost_build_progress() const;
+
+    /**
+     * @brief Check if streaming ghost build is complete
+     * @return true if ghost is fully built (all layers rendered)
+     */
+    bool is_ghost_build_complete() const;
+
+    /**
+     * @brief Check if the ghost buffer has been copied into the LVGL canvas
+     * @return true once the first real content is on the canvas
+     *
+     * Not the same as is_ghost_build_complete(): that also reports true while
+     * the finished raw buffer is still waiting for its main-thread copy, which
+     * is a frame with nothing on the canvas yet.
+     */
+    bool has_ghost_output() const;
+
+    /**
+     * @brief Check if streaming ghost build is running
+     * @return true if background ghost build is in progress
+     */
+    bool is_ghost_build_running() const;
+
+    /**
+     * @brief Build the ghost now and return when it is finished.
+     *
+     * The same pass the UI runs on its background worker, waited for on the
+     * calling thread. For measurement (`helix-screen bench-gcode`); the UI never
+     * blocks on it. Main thread only, like everything that starts the worker.
+     * @return true when a ghost was built, false when there was nothing to build.
+     */
+    bool build_ghost_blocking();
+
+    /**
+     * @brief The ghost build_ghost_blocking() produced, copied out.
+     *
+     * Rows of ARGB8888 pixels (stride width * 4), before the translucent blit.
+     * Empty when no finished ghost is waiting. For measurement, like
+     * build_ghost_blocking().
+     */
+    std::vector<uint8_t> copy_ghost_pixels(int& width, int& height) const;
+
+    /**
+     * @brief The viewer's reveal gate: is there real content on the canvas?
+     *
+     * reveal_ready_2d() over this renderer's own state. True once the ghost
+     * has been copied in (the solid cache keeps building visibly after that),
+     * or — when no ghost is coming — once the progressive build has finished
+     * with nothing pending.
+     */
+    bool has_first_output() const;
+
+    /**
+     * @brief Advance a ghost build with no draw pass; true once it can be shown.
+     *
+     * render() starts the ghost worker and copies its result onto the canvas as
+     * a side effect of being drawn, which ties the build to visibility. A
+     * preview that stays hidden until it has real content would then never
+     * start: no draw, no worker, no output, no reveal. This performs the same
+     * three steps from a timer so the widget can stay hidden while it builds.
+     *
+     * Main thread only, like the render() path it mirrors. Safe to call after
+     * the reveal - it neither restarts the build nor drops the result.
+     *
+     * @return has_first_output(): there is content worth swapping in.
+     */
+    bool pump_offscreen_build(int width, int height);
+
+    /// View mode alias — uses shared enum from gcode_projection.h
+    using ViewMode = helix::gcode::ViewMode;
+
+    /** @brief Projection the renderer draws and picks in; FRONT outside tests */
+    ViewMode get_view_mode() const {
+        return static_cast<ViewMode>(view_mode_.load(std::memory_order_relaxed));
+    }
+
+    // =========================================================================
+    // Colors
+    // =========================================================================
+
+    /**
+     * @brief Set extrusion color (overrides theme)
+     * @param color Color for extrusion moves
+     */
+    void set_extrusion_color(lv_color_t color);
+
+    /**
+     * @brief Set tool color palette for multi-color prints
+     * @param hex_colors Vector of hex color strings (e.g., "#ED1C24")
+     */
+    void set_tool_color_palette(const std::vector<std::string>& hex_colors);
+
+    /**
+     * @brief Override per-tool colors with AMS slot colors
+     * @param ams_colors Vector of RGB colors indexed by tool (0xRRGGBB)
+     *
+     * Replaces tool_palette_ entries with real AMS filament colors.
+     * Colors resolve at render time per-segment — no rebuild needed.
+     */
+    void set_tool_color_overrides(const std::vector<uint32_t>& ams_colors);
+
+    /**
+     * @brief Reset all colors to theme defaults
+     */
+    void reset_colors();
+
+    /// The extrusion color a preview shows when the file names none and nothing
+    /// overrides it. Reads the theme, so main thread only. The 3D build bakes
+    /// the same color, so both renderers agree on an uncolored file.
+    static lv_color_t default_extrusion_color();
+
+    // =========================================================================
+    // Object Selection & Exclusion
+    // =========================================================================
+
+    /**
+     * @brief Set excluded objects (rendered with strikethrough style)
+     * @param names Set of object names that are excluded from print
+     */
+    void set_excluded_objects(const std::unordered_set<std::string>& names);
+
+    /**
+     * @brief Set highlighted objects (rendered with selection highlight)
+     * @param names Set of object names to highlight
+     */
+    void set_highlighted_objects(const std::unordered_set<std::string>& names);
+
+    /**
+     * @brief Pick the object under a screen coordinate
+     * @param screen_x X in widget-local coordinates
+     * @param screen_y Y in widget-local coordinates
+     * @return Object name if found within threshold, nullopt otherwise
+     */
+    std::optional<std::string> pick_object_at(int screen_x, int screen_y) const;
+
+    /// World point -> widget-local pixel, through the transform render() draws with.
+    glm::ivec2 project_to_screen(float x, float y, float z) const {
+        return world_to_screen_raw(capture_transform_params(), x, y, z);
+    }
+
+    /// Z height of the topmost layer drawn (current_layer), 0 with no data.
+    float current_layer_z() const;
+
+    // =========================================================================
+    // Viewport Control
+    // =========================================================================
+
+    /**
+     * @brief Auto-fit all layers to canvas
+     *
+     * Computes scale and offset to fit the entire model's bounding box
+     * within the canvas with 5% padding.
+     */
+    void auto_fit();
+
+    /**
+     * @brief Set zoom scale manually
+     * @param scale Pixels per mm
+     */
+    void set_scale(float scale);
+
+    /**
+     * @brief Set viewport offset manually
+     * @param x Center X in world coordinates
+     * @param y Center Y in world coordinates
+     */
+    void set_offset(float x, float y);
+
+    // =========================================================================
+    // Layer Information
+    // =========================================================================
+
+    /**
+     * @brief Information about the current layer
+     */
+    struct LayerInfo {
+        int layer_number;       ///< Layer index (0-based)
+        float z_height;         ///< Z-height in mm
+        size_t segment_count;   ///< Total segments in layer
+        size_t extrusion_count; ///< Number of extrusion segments
+        size_t travel_count;    ///< Number of travel segments
+        bool has_supports;      ///< True if layer contains support structures
+    };
+
+    /**
+     * @brief Get information about current layer
+     * @return LayerInfo struct with layer details
+     */
+    LayerInfo get_layer_info() const;
+
+    /**
+     * @brief Check if G-code has detectable support structures
+     * @return true if supports can be identified
+     */
+    bool has_support_detection() const;
+
+    /**
+     * @brief Colour one segment would draw in, given the current selection state.
+     *
+     * Public because it is the only observable that exercises the selection index
+     * map end to end: source swap -> rebuild_index_map -> classify. The setters
+     * alone can be asserted with REQUIRE_NOTHROW while the wiring is completely
+     * broken, which is exactly the failure this guards.
+     *
+     * Pure query; does not touch cache or draw state.
+     */
+    lv_color_t get_segment_color(const ToolpathSegment& seg) const;
+
+  private:
+    // =========================================================================
+    // Internal Rendering
+    // =========================================================================
+
+    /**
+     * @brief Render L-shaped corner brackets around highlighted objects' bounding boxes
+     * @param layer LVGL draw layer
+     *
+     * Draws wireframe corner brackets at all 8 projected corners of each
+     * highlighted object's AABB.
+     */
+    void render_selection_brackets(lv_layer_t* layer);
+
+    /**
+     * @brief Convert world coordinates to screen coordinates
+     * @param x World X coordinate (mm)
+     * @param y World Y coordinate (mm)
+     * @param z World Z coordinate (mm) - used for FRONT view
+     * @return Screen coordinates (pixels)
+     */
+    glm::ivec2 world_to_screen(float x, float y, float z = 0.0f) const;
+
+    // =========================================================================
+    // Transformation Parameters (for thread-safe coordinate conversion)
+    // =========================================================================
+
+    /// Transform params alias — uses shared struct from gcode_projection.h
+    using TransformParams = helix::gcode::ProjectionParams;
+
+    /**
+     * @brief Capture current transformation parameters as a thread-safe snapshot
+     *
+     * The background ghost render thread calls this ONCE at thread start to
+     * snapshot all transform state (scale, offset, canvas size, etc.). Each
+     * field is a plain float/int read, and the main thread only modifies these
+     * between render() calls, so no additional synchronization is needed.
+     *
+     * @return TransformParams struct with current values
+     */
+    TransformParams capture_transform_params() const;
+
+    /**
+     * @brief Convert world coordinates to screen using captured parameters
+     *
+     * Delegates to shared helix::gcode::project() — the single source of truth
+     * for coordinate conversion across all renderers.
+     *
+     * @param params Captured transformation parameters
+     * @param x World X coordinate (mm)
+     * @param y World Y coordinate (mm)
+     * @param z World Z coordinate (mm) - used for FRONT view
+     * @return Screen coordinates (pixels, no widget offset applied)
+     */
+    static glm::ivec2 world_to_screen_raw(const TransformParams& params, float x, float y,
+                                          float z = 0.0f) {
+        return helix::gcode::project(params, x, y, z);
+    }
+
+    /**
+     * @brief Check if a segment is a support structure
+     * @param seg Segment to check
+     * @return true if segment is part of support
+     */
+    bool is_support_segment(const ToolpathSegment& seg) const;
+
+    /**
+     * @brief Check if a segment should be rendered based on visibility settings
+     * @param seg Segment to check
+     * @return true if segment should be rendered
+     */
+    bool should_render_segment(const ToolpathSegment& seg) const;
+
+    /**
+     * @brief Get line color for a segment
+     * @param seg Segment to get color for
+     * @return LVGL color
+     */
+
+    /**
+     * @brief Resolve object name index to string via current data source
+     * @param index Object name index from ToolpathSegment
+     * @return Resolved object name, or empty string if invalid
+     */
+    std::string resolve_object_name(int16_t index) const;
+
+    /**
+     * @brief Re-snapshot the active data source's object-name table into selection_
+     *
+     * classify() answers nothing for an index the map has not seen, so this must
+     * run before any classify() call on freshly loaded geometry. Cheap when
+     * nothing changed: one size comparison (a mutex lock plus a size read in
+     * streaming mode). Main thread only — the background ghost worker gets its
+     * own by-value copy of the state.
+     *
+     * @param force Rebuild even when the table size is unchanged. Required when
+     *              the data source itself was swapped, since a different file
+     *              can have the same number of objects.
+     */
+    void refresh_selection_index_map(bool force = false);
+
+    // Data source (exactly one should be non-null)
+    const ParsedGCodeFile* gcode_ = nullptr;
+    GCodeStreamingController* streaming_controller_ = nullptr;
+    int current_layer_ = 0;
+
+    // Canvas dimensions
+    int canvas_width_ = 400;
+    int canvas_height_ = 400;
+    float content_offset_y_percent_ = 0.0f;     // Vertical content offset (-1.0 to 1.0)
+    float bottom_occlusion_ = 0.0f;             // Fraction of canvas height covered by UI
+    FitFraming framing_ = FitFraming::STANDARD; // Framing mode auto_fit() applies
+
+    // Viewport transform (world → screen)
+    float scale_ = 1.0f;
+    float offset_x_ = 0.0f; // World-space center X
+    float offset_y_ = 0.0f; // World-space center Y
+    float offset_z_ = 0.0f; // World-space center Z (for FRONT view)
+
+    // Display options (atomic: read by background ghost thread, written by main thread)
+    std::atomic<bool> show_travels_{false};
+    std::atomic<bool> show_extrusions_{true};
+    std::atomic<bool> show_supports_{true};
+    std::atomic<bool> depth_shading_{true}; // Enabled by default for 3D-like appearance
+    std::atomic<bool> crease_shading_{true};
+    /// The silhouette outline pass and the cheap normal-based shading that goes
+    /// with it. Measured at ~2ms per cache revalidation on an AD5M.
+    std::atomic<bool> ssao_enabled_{true};
+
+    /// Antialiased strokes. Separate from ssao_enabled_ because it is the
+    /// expensive half: ~6x the aliased rasterization cost, which is what makes a
+    /// preview take about 2.2x as long to appear. A constrained device can
+    /// afford the outline and not this.
+    std::atomic<bool> antialias_enabled_{true};
+    std::atomic<int> view_mode_{static_cast<int>(ViewMode::FRONT)}; // Default to front view
+
+    // Colors
+    lv_color_t color_extrusion_;
+    lv_color_t color_travel_;
+    lv_color_t color_support_;
+
+    /// Selection colors, resolved from ui_xml/gcode_tokens.xml in reset_colors().
+    /// Held rather than looked up per use: the values are read in rasterizer
+    /// inner loops and are copied into the ghost worker's snapshot, and reading a
+    /// token walks LVGL's const registry, which is main-thread only.
+    selection::Palette sel_palette_;
+    bool use_custom_extrusion_color_ = false;
+    GCodeColorPalette tool_palette_; ///< Per-tool colors for multi-color prints
+
+    // Object exclusion/highlight state, plus the interned-index map it classifies
+    // segments through. See gcode_selection_state.h.
+    SelectionState selection_;
+
+    /// Size of the name table the index map was last built from. Streaming mode
+    /// grows the merged table as layers load, so this is polled per frame /
+    /// per layer batch to decide whether a rebuild is due.
+    size_t selection_index_map_size_ = 0;
+
+    // Cached bounds
+    float bounds_min_x_ = 0.0f;
+    float bounds_max_x_ = 0.0f;
+    float bounds_min_y_ = 0.0f;
+    float bounds_max_y_ = 0.0f;
+    float bounds_min_z_ = 0.0f;
+    float bounds_max_z_ = 0.0f;
+    bool bounds_valid_ = false;
+
+    // Widget screen offset (set during render())
+    int widget_offset_x_ = 0;
+    int widget_offset_y_ = 0;
+
+    // Render statistics (for debugging)
+    int last_rendered_layer_ = -1;
+    uint32_t last_render_time_ms_ = 0;
+    size_t last_segment_count_ = 0;
+
+    // Incremental render cache - paint new layers on top of previous (SOLID)
+    // Note: We only use draw buffers (no canvas widgets) to avoid clip area
+    // contamination from overlays/toasts on lv_layer_top().
+    lv_draw_buf_t* cache_buf_ = nullptr;
+    int cached_up_to_layer_ = -1; // Highest layer rendered in cache
+    int cached_width_ = 0;        // Dimensions cache was built for
+    int cached_height_ = 0;
+
+    /// One pixel apply_ssao() darkened, and what it held first.
+    struct SsaoUndoEntry {
+        uint32_t offset_px; ///< index into cache_buf_, in pixels not bytes
+        uint32_t original;  ///< the ARGB word before darkening
+    };
+
+    /// What the SSAO pass changed, so it can be taken back.
+    ///
+    /// This replaced a full-canvas ARGB8888 second buffer whose only job was to
+    /// keep an untouched copy of the source. The pass darkens the silhouette
+    /// edge, and the edge is a perimeter: measured across a whole 218-layer
+    /// three-object print it peaked at 713 pixels, 4.3% of the filled pixels and
+    /// falling as the model densified. 713 entries is 6KB against the buffer's
+    /// 427KB.
+    ///
+    /// An undo log rather than simply running in place, because the darkening is
+    /// a MULTIPLY. Re-running it over its own output compounds (0.3 * 0.3), and
+    /// a progressive append leaves pixels darkened that are no longer edges. The
+    /// pass restores before it re-scans, which makes both cases exact.
+    std::vector<SsaoUndoEntry> ssao_undo_;
+    bool ssao_cache_valid_ = false;
+
+    /// Wall indexes of the layers around the one being drawn into the cache.
+    /// Layer L reads up to kNeighbourDepth layers each side, and the build
+    /// walks layers upward, so this many slots let each layer's index be built
+    /// once and reused by every layer that reads it.
+    struct CreaseSlot {
+        int layer = -1;
+        crease::WallGrid grid;
+    };
+    std::array<CreaseSlot, 2 * crease::kNeighbourDepth + 1> crease_slots_;
+    /// The layer that already waited one frame for a neighbour to stream in.
+    /// It loads synchronously on its retry, so a slow source delays a layer
+    /// by one frame at most and never stalls the build.
+    int crease_deferred_layer_ = -1;
+
+    /// A streamed layer whose read failed, and how many frames it has been
+    /// retried. A read error can be transient (a busy SD card, a network
+    /// mount), so the layer is retried a few frames before it is skipped; a
+    /// truly unreadable layer must not stall the build.
+    int unreadable_layer_ = -1;
+    int unreadable_retries_ = 0;
+    static constexpr int kMaxUnreadableRetries = 3;
+
+    /// Wall time the current progressive cache build started, and whether its
+    /// completion has been reported yet.
+    ///
+    /// The build is spread over frames by adapt_layers_per_frame(), so per-frame
+    /// timing says nothing about how long a preview takes to actually appear.
+    /// That total is the number that matters on a constrained device, and it is
+    /// what decides whether enabling enhanced shading there is affordable:
+    /// ssao_enabled_ also selects Aa::On for every stroke, and antialiased
+    /// rasterization measures about 6x the cost of aliased.
+    uint32_t cache_build_start_ms_ = 0;
+    bool cache_build_reported_ = false;
+
+    /// True once stroke_selection_rim() has written the white silhouette into
+    /// cache_buf_. The rim is pixels, not an overlay, so this is what stops a
+    /// progressive append from building on top of a boundary that has moved.
+    bool selection_rim_stamped_ = false;
+    /// The red stripes are in the cache; cleared whenever new layers land.
+    bool exclusion_hatch_stamped_ = false;
+
+    // Ghost cache - all layers rendered once at reduced opacity
+    // Note: We only use draw buffers (no canvas widgets) to avoid clip area
+    // contamination from overlays/toasts on lv_layer_top().
+    lv_draw_buf_t* ghost_buf_ = nullptr;
+    int ghost_cached_width_ = 0;
+    int ghost_cached_height_ = 0;
+    bool ghost_cache_valid_ = false;
+    std::atomic<bool> ghost_mode_enabled_{true}; // Enable ghost mode by default
+
+    // Progressive rendering - render N layers per frame to avoid blocking UI
+    // These are defaults; actual values come from config or adaptive adjustment
+    static constexpr int kDefaultLayersPerFrame = 15;
+    static constexpr int kMinLayersPerFrame = 1;
+    static constexpr int kMaxLayersPerFrame = 100;
+    static constexpr int kDefaultAdaptiveTargetMs = 16; // ~60 FPS
+    // Wall-clock cap on one render_layers_to_cache() batch. The layer count
+    // above is sized for cheap full-file lookups, but a streaming miss parses
+    // the layer on the calling thread, so a full batch can cost hundreds of
+    // milliseconds per frame on a slow board. steady_clock rather than
+    // lv_tick_get(): the box must measure real time, including under a test
+    // fixture whose lv_tick is virtual.
+    static constexpr int kSolidBatchBudgetMs = 8;
+    /// What the batch box reads the time from: steady_clock in the app, a
+    /// clock a test controls where a loaded host would otherwise decide how
+    /// many layers one batch reaches.
+    using BatchClock = std::chrono::steady_clock::time_point (*)();
+    static std::chrono::steady_clock::time_point steady_batch_clock() {
+        return std::chrono::steady_clock::now();
+    }
+    BatchClock batch_clock_{&steady_batch_clock};
+
+    // Constrained device limits (AD5M, low-RAM embedded < 256MB)
+    static constexpr int kConstrainedStartLpf = 5;
+    static constexpr int kConstrainedMaxLpf = 15;
+    static constexpr float kConstrainedGrowthCap = 1.3f; // vs 2.0f normal
+
+    int layers_per_frame_{kDefaultLayersPerFrame}; ///< Current layers per frame (may be adaptive)
+    int config_layers_per_frame_{0};               ///< Config value (0 = adaptive)
+    int adaptive_target_ms_{kDefaultAdaptiveTargetMs}; ///< Target render time for adaptive mode
+    uint32_t last_frame_render_ms_{0};                 ///< Render time of last frame (for adaptive)
+
+    // Device-aware limits
+    bool is_constrained_device_{false};            ///< True if device has < 256MB RAM
+    int max_layers_per_frame_{kMaxLayersPerFrame}; ///< Device-adjusted max (15 on constrained)
+
+    // Warm-up frames: skip heavy rendering for first N frames to let panel layout complete
+    static constexpr int kWarmupFrames = 2;
+    int warmup_frames_remaining_{kWarmupFrames}; ///< Countdown before heavy render starts
+
+    /// Load config values from settings.json
+    void load_config();
+
+    /// Adjust layers_per_frame based on last render time (when config_layers_per_frame_ == 0)
+    void adapt_layers_per_frame();
+
+    /// Clear the solid layer cache (and its SSAO derivative) only. Leaves the
+    /// ghost cache and the background ghost worker alone — the ghost pass does
+    /// not render highlight, so a highlight change must not restart it.
+    ///
+    /// This is also the reset render() uses in both scrub directions. Everything
+    /// stamped INTO the cache pixels — the SSAO shading and the selection rim —
+    /// has a flag saying it is already there, so a hand-rolled clear that forgets
+    /// one of them leaves a blank buffer marked as decorated.
+    void invalidate_solid_cache();
+    /// Act on the scope a SelectionState setter returned.
+    void apply_selection_scope(InvalidationScope scope);
+    /// Clear both caches and cancel the background ghost worker.
+    void invalidate_cache();
+    void ensure_cache(int width, int height);
+    /// Render [from_layer, to_layer] into cache_buf_. Returns the highest layer
+    /// successfully rendered. In streaming mode, a layer that returns null
+    /// segments (load failed or cache miss with failed I/O) stops the run so
+    /// the next frame retries from that layer — silently advancing past a
+    /// missing layer would leave a permanent gap in the printed render.
+    int render_layers_to_cache(int from_layer, int to_layer);
+    void blit_cache(lv_layer_t* target);
+    void destroy_cache();
+
+    // SSAO post-processing, applied to cache_buf_ in place.
+    void apply_ssao();
+
+    /// One layer's walk through crease lookups while it draws into the cache.
+    struct CreaseCursor {
+        explicit CreaseCursor(float spacing_mm) : spacer(spacing_mm) {}
+        crease::NeighbourSide below;
+        crease::NeighbourSide above;
+        crease::SampleSpacer spacer;
+        float factor = 1.0f;
+    };
+    /// Fill `cur` with the neighbouring layers' wall indexes for `layer_idx`.
+    /// Returns false when a neighbour is not resident and `allow_load` is
+    /// false: the layer should wait for the next frame.
+    bool prepare_crease_layer(int layer_idx, CreaseCursor& cur, bool allow_load);
+    /// Brightness multiplier for a crease wall drawn `screen_len` pixels long.
+    float crease_shade(const ToolpathSegment& seg, int screen_len, CreaseCursor& cur);
+
+    enum class CreaseFetch : uint8_t { Ready, NotResident, LoadFailed };
+    /// The wall index for `layer`, built on first use while drawing `drawing`.
+    /// Without `allow_load`, a streamed layer that is not resident is
+    /// requested from the prefetch worker and reported NotResident.
+    CreaseFetch crease_grid(int layer, int drawing, bool allow_load, const crease::WallGrid*& out);
+    /// Z of a layer, from the parsed file or the streaming index.
+    float layer_z(int layer) const;
+    /// True when a streamed load of `layer` returned no segments although the
+    /// index counted lines in it: the controller's form of a failed read.
+    bool streamed_read_failed(int layer, const std::vector<ToolpathSegment>* segments) const;
+    /// Forget every wall index: the layers they describe may have changed.
+    void reset_crease_grids();
+
+    /// Put every pixel apply_ssao() darkened back the way it was, and forget
+    /// them. Safe to call when nothing is recorded. Must run before anything
+    /// draws into cache_buf_ again, or the log points at pixels that have moved
+    /// on and restoring would paint stale colour over new geometry.
+    void restore_ssao_shading();
+
+    // Ghost cache methods (LVGL-based, for main thread progressive rendering)
+    void ensure_ghost_cache(int width, int height);
+    void blit_ghost_cache(lv_layer_t* target);
+    void destroy_ghost_cache();
+
+    // =========================================================================
+    // Background Thread Ghost Rendering
+    // =========================================================================
+    // LVGL is not thread-safe, so background thread renders to a raw pixel
+    // buffer using software Bresenham line drawing, then copies to LVGL buffer
+    // on main thread when complete.
+
+    /// Raw pixel buffer for background thread rendering (ARGB8888)
+    std::unique_ptr<uint8_t[]> ghost_raw_buffer_;
+    int ghost_raw_width_ = 0;
+    int ghost_raw_height_ = 0;
+    size_t ghost_raw_stride_ = 0; // Bytes per row
+
+    /// Background thread management (works for both streaming and non-streaming modes)
+    std::thread ghost_thread_;
+    std::atomic<bool> ghost_thread_cancel_{false};
+    std::atomic<bool> ghost_thread_running_{false};
+    std::atomic<bool> ghost_thread_ready_{false}; // True when raw buffer is complete
+    /// Written by the worker: layers drawn so far, and the layers its pass
+    /// visits (the sampled count when streaming). 0 total = not planned yet.
+    std::atomic<int> ghost_layers_done_{0};
+    std::atomic<int> ghost_layers_total_{0};
+
+    /// Start background ghost rendering (called when new gcode loaded)
+    void start_background_ghost_render();
+
+    /// Cancel any in-progress background ghost render
+    void cancel_background_ghost_render();
+
+    /**
+     * @brief Everything the ghost worker is allowed to read from the renderer.
+     *
+     * The worker runs on a background thread while the main thread keeps using
+     * the renderer, so every non-atomic member it touches has to be captured
+     * before it starts. The capture has to happen on the SPAWNING thread: once
+     * the worker is running, the main thread is free to write the colors, the
+     * transform (set_scale(), set_offset(), set_content_offset_y(),
+     * set_canvas_size()) and the selection, and a copy taken on the worker
+     * races those writes.
+     *
+     * Passed by value, so the worker body has nothing to read a member through
+     * even by accident.
+     */
+    struct GhostSnapshot {
+        TransformParams transform{};
+        SelectionState selection{};
+        GCodeColorPalette tool_palette{};
+        lv_color_t color_extrusion{};
+        bool use_custom_extrusion = false;
+        bool show_travels = false;
+        bool show_extrusions = true;
+        bool show_supports = true;
+        int line_width = 1;
+        int layer_count = 0;
+
+        /// Screen rows the model's Z extent spans in this transform
+        /// (front_view_z_rows()), or 0 when unknown or not a FRONT view. Sets the
+        /// streamed ghost's sampling budget.
+        float model_z_rows = 0.0f;
+
+        /// Ghost samples per row of that extent (ghost_samples_per_z_row()),
+        /// from how fast this board scanned the file's index.
+        int samples_per_z_row = 1;
+
+        /// Selection colors. Captured like everything else here because reading
+        /// the tokens walks LVGL's const registry, which the worker must not do.
+        selection::Palette palette{};
+
+        /// Data sources, captured so the body never reads the members. They are
+        /// only ever nulled after cancel_background_ghost_render() has joined.
+        const ParsedGCodeFile* gcode = nullptr;
+        GCodeStreamingController* streaming = nullptr;
+    };
+
+    /// Build the snapshot. MUST be called on the main thread, before the worker
+    /// is spawned.
+    GhostSnapshot capture_ghost_snapshot() const;
+
+    /// Background thread entry point (renders all layers to raw buffer).
+    /// Takes the snapshot BY VALUE: std::thread copies the argument on the
+    /// spawning (main) thread, so the worker never reads a renderer member that
+    /// the main thread might be writing.
+    void background_ghost_render_thread(GhostSnapshot snap);
+
+    /// Drives one complete ghost pass so a test can measure what it costs.
+    friend class GCodeLayerRendererTestAccess;
+
+    /// Copy completed raw buffer to LVGL ghost_buf_ (called on main thread)
+    void copy_raw_to_ghost_buf();
+
+    /// Rasterizer surface over the solid layer cache (main thread only —
+    /// cache_buf_ is reallocated there). Null-data when no cache is allocated,
+    /// which makes every write against it a no-op.
+    helix::gcode::RasterTarget cache_target() const;
+
+    /// Rasterizer surface over the raw ghost buffer. Reads only the ghost_raw_*
+    /// fields, which the background ghost render thread owns for the duration of
+    /// its run, so it is safe to call from there.
+    helix::gcode::RasterTarget ghost_target() const;
+
+    /// Compute line width in pixels from extrusion width metadata and current scale
+    int get_extrusion_pixel_width() const;
+};
+
+} // namespace gcode
+} // namespace helix

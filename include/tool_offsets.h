@@ -1,0 +1,158 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+// Per-tool offsets.
+//
+// On a single-toolhead printer there is one z-offset and it is Klipper's live
+// gcode_move offset, which helix::zoffset already owns. A tool changer adds a
+// SECOND, independent set of offsets per toolhead - X, Y and Z - and the two
+// never interact: a baby-step does not disturb a tool's offset and selecting a
+// tool does not disturb the baby-step. So the UI has to show and write them
+// separately.
+//
+// The firmwares disagree on almost everything below that: where the values
+// live, what writes them, whether persisting restarts Klipper, and even which
+// axes are editable at all. This module is the ONLY place that knows. Generic
+// code (ToolState, the tune panel, the save path) asks these functions and
+// never names a firmware.
+//
+// Every question takes an Axis. A firmware that only keeps Z answers "no" to
+// supports_axis() for X and Y and emits nothing for them, so a caller can loop
+// kAllAxes without special-casing anyone.
+//
+// Adding a firmware means adding one Provider to the table in
+// tool_offsets.cpp - no call site changes.
+
+#include "axis.h"
+
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "hv/json.hpp"
+
+namespace helix {
+class PrinterDiscovery;
+}
+
+namespace helix::tool_offsets {
+
+/// Whether this printer keeps an offset per toolhead that HelixScreen may
+/// write, separate from the live gcode_move offset. False on every
+/// single-toolhead printer, which is what gates the tune panel's tool
+/// selector, and false for a read-only model (one the printer measures and
+/// writes itself).
+bool supports_per_tool_offsets(const PrinterDiscovery& hw);
+
+/// Whether the matched firmware can read, set and save THIS axis. A firmware
+/// that keeps only Z answers false for X and Y; klipper-toolchanger answers
+/// true for all three. False on every printer without per-tool offsets, and
+/// for a read-only model: this is the "HelixScreen may edit it" question.
+bool supports_axis(const PrinterDiscovery& hw, Axis axis);
+
+/// Whether the matched model keeps THIS axis per tool, writable or not, so
+/// read_tool_offset_microns() can answer it.
+bool reads_axis(const PrinterDiscovery& hw, Axis axis);
+
+/// Extra Klipper status objects this printer needs subscribed for
+/// read_tool_offset_microns() to ever return a value. Empty when the offsets
+/// ride on the `tool T*` objects the tool-changer subscription already requests.
+std::vector<std::string> required_status_objects(const PrinterDiscovery& hw);
+
+struct Provider; // one firmware's offset model; the table lives in tool_offsets.cpp
+
+/// Which offset model this printer uses, resolved ONCE from discovery so the
+/// status path - which has no PrinterDiscovery to hand - reads by direct key
+/// lookup instead of probing every frame's schema per tool and per axis.
+/// Opaque to callers: ToolState keeps what resolve_reader() returned and
+/// passes it to read_tool_offset_microns(). Default-constructed, or resolved
+/// on a printer without per-tool offsets, it reads nothing.
+struct OffsetReader {
+    const Provider* provider = nullptr;
+    /// Status key of the one object a firmware keeps every tool's offset on,
+    /// spelled as Klipper publishes it (the config-case section name); empty
+    /// for a model that reads off each `tool T<n>` object.
+    std::string store_object;
+};
+
+OffsetReader resolve_reader(const PrinterDiscovery& hw);
+
+/// One axis of one tool's offset, in microns, read out of a Moonraker status
+/// frame by the model @p reader resolved.
+///
+/// Takes the whole frame rather than one tool's payload because the firmwares
+/// do not agree on where the value sits: klipper-toolchanger publishes it on
+/// each `tool T<n>` object, while a MedusaHC-style machine keeps all four in a
+/// single macro's variables. Only the resolved model's store is consulted, so
+/// on a MedusaHC the tool object's copy - not the authority there - is never
+/// read, whatever a delta frame happens to carry.
+///
+/// nullopt means "no news", never "reset to zero" - Moonraker republishes only
+/// the fields that CHANGED, so a frame carrying other tool state and not this
+/// is routine. It is also the answer for an axis the model does not keep, so
+/// a caller can loop kAllAxes blindly.
+///
+/// @param reader      what resolve_reader() returned for this printer
+/// @param status      full Moonraker status frame
+/// @param axis        which offset
+/// @param tool_index  tool number, as used in T<n>
+/// @param tool_name   Klipper's name for the tool ("T0"), for the firmwares
+///                    that key their status object off it
+std::optional<int> read_tool_offset_microns(const OffsetReader& reader,
+                                            const nlohmann::json& status, Axis axis, int tool_index,
+                                            const std::string& tool_name);
+
+/// The offset applied on top of every tool's own, in microns, for a model that
+/// keeps one. nullopt is no news, and the answer for a model without one.
+std::optional<int> read_global_z_offset_microns(const OffsetReader& reader,
+                                                const nlohmann::json& status);
+
+/// Gcode that sets tool @p tool_index's @p axis offset to @p microns, effective
+/// immediately and NOT persisted. Empty when the printer has no per-tool
+/// offset on that axis, the model is read-only, or @p tool_index is negative.
+///
+/// Any embedded value is emitted as a bare decimal on purpose: this reaches a
+/// firmware that parses it as a number (klipper-toolchanger runs VALUE= through
+/// Python's ast.literal_eval()), so a display string like "+0.050mm" raises
+/// rather than setting anything.
+std::string set_tool_offset_gcode(const PrinterDiscovery& hw, Axis axis, int tool_index,
+                                  int microns);
+
+/// Gcode that persists tool @p tool_index's @p axis offset as @p microns, so it
+/// survives a restart. Empty when the printer has no per-tool offset on that
+/// axis, the model is read-only, or @p tool_index is negative. May be more
+/// than one line.
+///
+/// Self-sufficient: it writes the durable store AND whatever runtime value the
+/// firmware actually prints with, so it is correct on its own and idempotent
+/// after a set_tool_offset_gcode() with the same value.
+///
+/// Whether this restarts Klipper depends on the firmware - ask
+/// persist_requires_save_config().
+std::string save_tool_offset_gcode(const PrinterDiscovery& hw, Axis axis, int tool_index,
+                                   int microns);
+
+/// Gcode that applies tool @p tool_index's stored offset to the head now, sent
+/// after a set or save of that tool's offset. Empty unless @p tool_index is the
+/// tool on the carriage (@p mounted_tool, -1 for none) and the model needs it:
+/// on most models a write takes effect on the next move, but a model that
+/// applies the offset only when the tool is picked up leaves a write to the
+/// mounted tool idle until the next swap. Applying an unmounted tool's offset
+/// would shift the head by the wrong tool's correction, hence the gate.
+std::string activate_mounted_offset_gcode(const PrinterDiscovery& hw, int tool_index,
+                                          int mounted_tool);
+
+/// Whether save_tool_offset_gcode() only stages the change and needs a
+/// SAVE_CONFIG to commit it - which restarts Klipper, so the caller must drive
+/// it through the same save-and-restart handling a probe calibration uses.
+///
+/// False means the save lands immediately and no restart follows. Getting this
+/// backwards either leaves the value uncommitted or makes the UI wait out a
+/// restart that never comes.
+bool persist_requires_save_config(const PrinterDiscovery& hw);
+
+/// Human-readable name of the matched offset model, for logging. Empty when
+/// none.
+std::string provider_name(const PrinterDiscovery& hw);
+
+} // namespace helix::tool_offsets

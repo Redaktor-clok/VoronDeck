@@ -1,0 +1,649 @@
+# Copyright (c) 2025 Preston Brown <pbrown@brown-house.net>
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# HelixScreen UI Prototype - Compilation Rules Module
+# Handles all compilation rules, linking, and main build targets
+
+# ============================================================================
+# UNLIMITED -j DETECTION AND AUTO-FIX
+# ============================================================================
+# Problem: 'make -j' (no number) means UNLIMITED parallelism in GNU Make.
+# This spawns hundreds of compiler processes, crushing the system (load 100+).
+#
+# Solution: We use a two-phase build. The default 'all' target checks for
+# unlimited -j and re-invokes make with bounded parallelism if needed.
+# The _PARALLEL_CHECKED variable prevents infinite recursion.
+#
+# MAKEFLAGS format: "j" = unlimited, " --jobserver-fds=X,Y -j" = bounded
+# ============================================================================
+
+# ============================================================================
+# TOOLCHAIN CHANGE DETECTION
+# ============================================================================
+# make compares timestamps, not toolchains, so one build dir survives both a
+# target switch and a compiler switch and ends up holding objects from each.
+#
+# Mixing architectures gives cryptic linker errors. Mixing compilers is quieter
+# and worse: GCC and clang mangle a function-local std::string static
+# differently, so the linker keeps BOTH copies of it. One translation unit's
+# write is then invisible to another and nothing reports a problem.
+#
+# .build-target records the target AND the compiler; either changing cleans.
+# ============================================================================
+TOOLCHAIN_MARKER := $(BUILD_DIR)/.build-target
+# Map pi-both → pi, pi32-both → pi32 so switching between single/dual-link
+# modes doesn't trigger an unnecessary clean (they share the same build dir)
+_RAW_TARGET := $(if $(PLATFORM_TARGET),$(PLATFORM_TARGET),native)
+CURRENT_TARGET := $(subst pi32-both,pi32,$(subst pi-both,pi,$(_RAW_TARGET)))
+# Whatever the compiler prints for itself. This covers a gcc/clang swap and a
+# version bump alike, and is stable across ccache being installed or not.
+CXX_IDENTITY := $(shell $(CXX) --version 2>/dev/null | head -1)
+CURRENT_TOOLCHAIN := $(CURRENT_TARGET) | $(CXX_IDENTITY)
+
+# Run this from a dependency-free phase-1 recipe only: once an object has
+# compiled it is already too late to tell which toolchain produced it.
+define check-toolchain-change
+	@mkdir -p $(BUILD_DIR)
+	@if [ -f "$(TOOLCHAIN_MARKER)" ]; then \
+		LAST_BUILD=$$(cat "$(TOOLCHAIN_MARKER)"); \
+		if [ "$$LAST_BUILD" != "$(CURRENT_TOOLCHAIN)" ]; then \
+			echo ""; \
+			echo "$(YELLOW)$(BOLD)⚠️  Build target or compiler changed$(RESET)"; \
+			echo "$(YELLOW)     was: $$LAST_BUILD$(RESET)"; \
+			echo "$(YELLOW)     now: $(CURRENT_TOOLCHAIN)$(RESET)"; \
+			echo "$(CYAN)Auto-cleaning so the build dir holds one toolchain...$(RESET)"; \
+			echo ""; \
+			$(MAKE) clean; \
+			mkdir -p $(BUILD_DIR); \
+		fi; \
+	fi
+	@# Rewritten only on a change, so its mtime marks the last toolchain switch.
+	@[ "$$(cat "$(TOOLCHAIN_MARKER)" 2>/dev/null)" = "$(CURRENT_TOOLCHAIN)" ] || echo "$(CURRENT_TOOLCHAIN)" > "$(TOOLCHAIN_MARKER)"
+endef
+
+# Dependency check stamp file - created by check-deps, prevents re-checking
+DEPS_CHECKED_MARKER := $(BUILD_DIR)/.deps-checked
+
+# Phase 1: Check for unlimited -j AND architecture changes, then re-invoke if needed
+# This target has NO dependencies, so it runs alone even with unlimited -j
+.PHONY: all
+all:
+ifndef _PARALLEL_CHECKED
+	@# Target and compiler BEFORE anything else compiles
+	$(check-toolchain-change)
+	@# Check dependencies BEFORE parallel build starts (prevents confusing errors)
+	@# Only run if marker is missing or older than check script.
+	@# SKIP_OPTIONAL_DEPS=1 passes --minimal for cross-compilation builds (Docker).
+	@# Yocto: bitbake already validates the toolchain + DEPENDS. check-deps.sh
+	@# invokes `command -v "$$CXX"` which fails when CXX has flags baked in,
+	@# and it probes host-tooling assumptions irrelevant to the target build.
+ifneq ($(YOCTO_BUILD),yes)
+	@if [ ! -f "$(DEPS_CHECKED_MARKER)" ] || [ "scripts/check-deps.sh" -nt "$(DEPS_CHECKED_MARKER)" ]; then \
+		CC="$(CC)" CXX="$(CXX)" ENABLE_SSL="$(ENABLE_SSL)" \
+			LVGL_DIR="$(LVGL_DIR)" SPDLOG_DIR="$(SPDLOG_DIR)" \
+			LIBHV_DIR="$(LIBHV_DIR)" WPA_DIR="$(WPA_DIR)" VENV="$(VENV)" \
+			./scripts/check-deps.sh $(if $(filter 1,$(SKIP_OPTIONAL_DEPS)),--minimal,) || exit 1; \
+		touch "$(DEPS_CHECKED_MARKER)"; \
+	fi
+endif
+	@# Auto-parallelize: add a -j unless bounded -jN already set
+	@if echo "$(MAKEFLAGS)" | grep -q 'jobserver'; then \
+		exec $(MAKE) _PARALLEL_CHECKED=1 $(MAKECMDGOALS); \
+	else \
+		j=$(JOBS_SH); \
+		if echo "$(MAKEFLAGS)" | grep -q 'j'; then \
+			echo ""; \
+			echo "$(YELLOW)$(BOLD)⚠️  'make -j' (unlimited) detected - auto-fixing to -j$$j$(RESET)"; \
+			echo ""; \
+		fi; \
+		exec $(MAKE) _PARALLEL_CHECKED=1 -j"$$j" $(MAKECMDGOALS); \
+	fi
+else
+# Phase 2: Actual build (only runs when _PARALLEL_CHECKED is set)
+ifeq ($(ENABLE_EGL_RUNG),yes)
+    EGL_RUNG_GOALS := verify-egl
+else
+    EGL_RUNG_GOALS :=
+endif
+ifdef PI_DUAL_LINK
+all: apply-patches generate-fonts $(TRANS_XML) splash watchdog $(TARGET) $(FBDEV_TARGET) verify-fbdev strip-both $(EGL_RUNG_GOALS) $(IMPLIB_GOALS) bluetooth-plugin
+else
+all: apply-patches generate-fonts $(TRANS_XML) splash watchdog $(TARGET) strip $(EGL_RUNG_GOALS) $(IMPLIB_GOALS) bluetooth-plugin
+endif
+	$(ECHO) "$(GREEN)$(BOLD)✓ Build complete!$(RESET)"
+	$(ECHO) "$(CYAN)Run with: $(YELLOW)./$(TARGET)$(RESET)"
+ifndef SKIP_COMPILE_COMMANDS
+	@# Auto-generate compile_commands.json from fragments (fast, <0.3s)
+	@# Skip with SKIP_COMPILE_COMMANDS=1 (used by pre-commit to avoid LSP churn)
+	@# stdout is captured into the summary line; stderr is where the merge says
+	@# why it refused, and it is the only account of a failure the recipe gives.
+	@$(MERGE_COMPILE_COMMANDS)
+endif
+endif
+
+# Shared by `all` and `test-build`: a test build writes fragments too, and a
+# database merged only after the app leaves every test file flagless in clangd.
+MERGE_COMPILE_COMMANDS = if [ -d "$(BUILD_DIR)" ] && [ -f scripts/merge_compile_commands.py ]; then \
+		SUMMARY=$$(python3 scripts/merge_compile_commands.py --build-dir $(BUILD_DIR)) && \
+			echo "$(CYAN)→ compile_commands.json ($$SUMMARY)$(RESET)"; \
+	fi
+
+# Build libhv if not present (dependency rule).
+# MUST depend on $(PATCHES_STAMP): libhv patches (e.g. the DNS resolver fallback
+# wiring in base/hsocket.c) are applied to the libhv source tree, but hsocket.o
+# lives only inside libhv.a. Without this prerequisite, libhv.a is built once and
+# never rebuilt when a patch is (re)applied or changed — leaving a stale,
+# pristine hsocket.o in the archive (resolver compiled into the app but never
+# CALLED → getaddrinfo() EAI_SYSTEM on static-glibc devices). A fresh CI build
+# hides this because libhv.a doesn't exist yet; it only bites incremental dev
+# trees. Re-applying patches now invalidates the archive so the wiring lands.
+#
+# $(LIBHV_PATCHED_SRCS) covers the case the stamp cannot see. lib/ is shared
+# between worktrees but build/ is not, so a tree that built its archive before
+# another tree re-applied the patches keeps that archive forever: its own stamp
+# never moved. Two libhv patches add members to hv::WebSocketClient and
+# hv::TcpClientEventLoopTmpl, so a stale archive constructs the object at
+# different member offsets than the headers our own objects compiled against —
+# ~MoonrakerClient then reads loop_ from the wrong offset and blocks forever on
+# a mutex made of unrelated bytes.
+$(LIBHV_LIB): $(PATCHES_STAMP) $(LIBHV_PATCHED_SRCS) | $(PATCH_MARKER_STAMP)
+	$(Q)$(MAKE) libhv-build
+
+ifneq ($(LIBHV_JSON_HEADER),)
+# Ensure generated libhv headers exist even if the archive is already present.
+$(LIBHV_JSON_HEADER): $(LIBHV_LIB)
+	$(Q)if [ ! -f "$@" ]; then \
+		echo "$(YELLOW)→ libhv generated headers missing; rebuilding libhv...$(RESET)"; \
+		$(MAKE) libhv-build; \
+	fi
+endif
+
+# Link binary (SDL2_LIB is empty if using system SDL2)
+# Keep broad filtering so non-object prerequisites can be added safely later.
+$(TARGET): $(SDL2_LIB) $(LIBHV_LIB) $(LIBHV_JSON_HEADER) $(CONTRIBUTORS_H) $(APP_C_OBJS) $(APP_OBJS) $(APP_MODULE_OBJS) $(REMOTE_LINENOISE_OBJ) $(OBJCPP_OBJS) $(LVGL_OBJS) $(HELIX_XML_OBJS) $(THORVG_OBJS) $(SPDLOG_OBJS) $(LVGL_OPENGLES_OBJS) $(LV_MARKDOWN_OBJS) $(QUIRC_OBJS) $(LUA_OBJS) $(FONT_OBJS) $(APP_DNS_RESOLV_OBJ) $(WPA_DEPS)
+	$(call check_abi_unchanged)
+	$(Q)mkdir -p $(BIN_DIR)
+	$(ECHO) "$(MAGENTA)$(BOLD)[LD]$(RESET) $@"
+	# Exclude header prerequisites (including .hpp generated deps like hv/json.hpp).
+	$(Q)$(CXX) $(CXXFLAGS) $(filter-out %.a %.h %.hh %.hpp %.hxx,$^) -o $@ $(LDFLAGS) || { \
+		echo "$(RED)$(BOLD)✗ Linking failed!$(RESET)"; \
+		echo "$(YELLOW)Command:$(RESET) $(CXX) $(CXXFLAGS) [objects] -o $@ $(LDFLAGS)"; \
+		exit 1; \
+	}
+	@# Record the optional subsystems this binary actually contains, beside it.
+	@# `make deploy-*` runs as a SEPARATE make invocation with no PLATFORM_TARGET,
+	@# so it re-derives ENABLE_REMOTE_CONTROL as the native default (yes) and
+	@# cannot see what the cross build chose. The stamp carries that across, and
+	@# the deploy targets use it to turn the matching runtime switch on.
+	$(Q)printf 'remote_control=%s\ndiag_uploads=%s\n' "$(ENABLE_REMOTE_CONTROL)" "$(ENABLE_DIAGNOSTIC_UPLOADS)" > $(BIN_DIR)/.build-features
+
+# Collect all .d dependency files for proper header tracking
+# These are generated during compilation with -MMD -MP flags
+DEPFILES := $(wildcard $(OBJ_DIR)/*.d $(OBJ_DIR)/**/*.d)
+
+# ============================================================================
+# COMPILE COMMANDS FRAGMENT GENERATION
+# ============================================================================
+# Each compilation emits a .ccj (compile command JSON) fragment alongside .o
+# Running 'make compile_commands' merges them instantly (no full rebuild needed)
+#
+# Usage: $(call emit-compile-command,command,source,output)
+# Example: $(call emit-compile-command,$(call APP_CXX_COMPILE),$<,$@)
+#
+# The command is one of the *_COMPILE functions below, called with no argument:
+# the same text the rule's recipe runs, without the arguments only the recipe
+# passes (DEPFLAGS, TEST_WARN_FLAGS). print-compile-command (Makefile) prints the
+# same function for a source, so a fragment, the recipe and that target cannot
+# describe one file three ways.
+#
+# The command must stay shell-ready: a consumer splits it back into argv, so a
+# define whose value has to reach the compiler WITH quotes (-DNAME="text") needs
+# those quotes to survive that split. Single-quoting the value is what carries
+# them through; escaping alone would hand the compiler a bare token and the
+# macro would expand to something that does not parse. Then the double quotes
+# are escaped again for JSON.
+# ============================================================================
+define emit-compile-command
+	@CMD="$(1) -c $(2) -o $(3)"; \
+	CMD_SH=$$(echo "$$CMD" | sed "s/\(-D[A-Za-z_][A-Za-z0-9_]*=\)\(\"[^\" ]*\"\)/\1'\2'/g"); \
+	CMD_ESC=$$(echo "$$CMD_SH" | sed 's/"/\\"/g'); \
+	printf '{"directory": "%s", "file": "%s", "command": "%s"}\n' \
+		"$(CURDIR)" \
+		"$(abspath $(2))" \
+		"$$CMD_ESC" \
+		> $(3:.o=.ccj)
+endef
+
+# The compiler and flags of each object rule, without -c and -o. $(1) is where a
+# recipe adds the arguments its fragment leaves out, so the recipe, its .ccj and
+# print-compile-command all expand one definition. The tests/ rules have theirs
+# in mk/tests.mk, the Bluetooth plugin's in mk/bluetooth.mk.
+APP_C_COMPILE = $(CC) $(CFLAGS) $(1) $(INCLUDES) $(LV_CONF)
+APP_CXX_COMPILE = $(CXX) $(CXXFLAGS) $(1) $(FORCED_INCLUDE) $(INCLUDES) $(LV_CONF)
+LVGL_C_COMPILE = $(CC) $(LVGL_C_CFLAGS) $(1) $(INCLUDES) $(LV_CONF)
+LVGL_CXX_COMPILE = $(CXX) $(SUBMODULE_CXXFLAGS) $(1) $(INCLUDES) $(LV_CONF)
+LVGL_GLES_COMPILE = $(CXX) $(SUBMODULE_CXXFLAGS) -fpermissive $(1) $(INCLUDES) $(LV_CONF)
+LVGL_DEMO_COMPILE = $(CC) $(1) $(LVGL_INC) $(SUBMODULE_CFLAGS)
+HELIX_XML_COMPILE = $(CC) $(SUBMODULE_CFLAGS) $(1) $(INCLUDES) $(LV_CONF)
+SPDLOG_COMPILE = $(CXX) $(SUBMODULE_CXXFLAGS) $(1) $(SPDLOG_DEFINES) $(SPDLOG_INC)
+LV_MARKDOWN_COMPILE = $(CC) $(SUBMODULE_CFLAGS) $(1) $(INCLUDES) $(LV_CONF)
+QUIRC_COMPILE = $(CC) $(SUBMODULE_CFLAGS) $(1) $(INCLUDES)
+LUA_COMPILE = $(CXX) -x c++ $(SUBMODULE_CXXFLAGS) $(1) $(INCLUDES)
+FONT_COMPILE = $(CC) $(SUBMODULE_CFLAGS) $(1) $(INCLUDES) $(LV_CONF)
+
+# Compile app C sources
+# Uses DEPFLAGS to generate .d files for header dependency tracking
+# Emits .ccj fragment for incremental compile_commands.json generation
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(LIBHV_LIB) $(LIBHV_JSON_HEADER) $(PATCHES_STAMP) $(ABI_STAMP) $(FLAGS_STAMP) | $(PATCH_MARKER_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(BLUE)[CC]$(RESET) $<"
+ifeq ($(V),1)
+	$(Q)echo "$(YELLOW)Command:$(RESET) $(call APP_C_COMPILE,$(DEPFLAGS)) -c $< -o $@"
+endif
+	$(Q)$(call APP_C_COMPILE,$(DEPFLAGS)) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		echo "$(YELLOW)Command:$(RESET) $(call APP_C_COMPILE,$(DEPFLAGS)) -c $< -o $@"; \
+		exit 1; \
+	}
+	$(call emit-compile-command,$(call APP_C_COMPILE),$<,$@)
+
+# dns_resolv.c is created by the libhv DNS resolver fallback patch, so make has
+# to know PATCHES_STAMP produces it, or a parallel build on a pristine tree fails
+# with "No rule to make target 'dns_resolv.c'". Unconditional: the native test
+# build compiles it too (DNS_RESOLV_OBJ in tests.mk).
+$(LIBHV_DIR)/base/dns_resolv.c: $(PATCHES_STAMP)
+
+# Compile libhv dns_resolv.c for safe_resolve.h (cross-compiled targets only)
+ifneq ($(APP_DNS_RESOLV_OBJ),)
+$(APP_DNS_RESOLV_OBJ): $(LIBHV_DIR)/base/dns_resolv.c $(LIBHV_LIB)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(BLUE)[CC]$(RESET) $<"
+	$(Q)$(CC) $(CFLAGS) -I$(LIBHV_DIR)/base $(LIBHV_INC) -c $< -o $@
+endif
+
+# ----------------------------------------------------------------------------
+# Feature-flag stamp
+# ----------------------------------------------------------------------------
+# Toggling ENABLE_SCREENSAVER over an existing tree leaves every object compiled
+# under the previous flags: no source changed, so make rebuilds nothing, the
+# callers stay #ifdef'd out, and LTO drops the feature the new sources added.
+# The link succeeds at an unchanged binary size, so exit 0 reports a feature the
+# binary does not contain. $(FLAGS_STAMP) is a prerequisite of every rule that
+# compiles into $(OBJ_DIR); rewriting it here bumps its mtime whenever the flag
+# text changes, which is what forces those objects to rebuild.
+#
+# Hashing the flag text rather than naming the ENABLE_* variables keeps this
+# correct as flags are added. INCLUDES and DEPFLAGS stay out: app and test
+# objects share these flags and differ only in include paths, so folding those in
+# would make `make` and `make test` invalidate each other on every alternation.
+#
+# Keyed on OBJ_DIR rather than BUILD_DIR, unlike $(ABI_STAMP): obj-asan, obj-tsan
+# and obj-cov share a BUILD_DIR while carrying different flags, and a single stamp
+# between them would ping-pong and rebuild everything on each alternation.
+#
+# A dry run (-n, -q) parses with whatever flags its caller passed and must not
+# write the stamp: a `make -n CROSS_COMPILE=...` would leave cross flags behind,
+# and the next real build writing native flags back bumps the mtime and
+# rebuilds every object over identical flags. Instead, a dry run whose flags
+# differ marks the stamp phony, so it still reports the objects that would
+# rebuild.
+FLAGS_STAMP_TEXT := $(CC) $(CFLAGS) $(CXX) $(CXXFLAGS) $(SUBMODULE_CXXFLAGS) $(SUBMODULE_CFLAGS) $(LVGL_C_CFLAGS)
+ifeq ($(findstring n,$(firstword -$(MAKEFLAGS)))$(findstring q,$(firstword -$(MAKEFLAGS))),)
+$(shell mkdir -p $(OBJ_DIR))
+$(file >$(FLAGS_STAMP).new,$(FLAGS_STAMP_TEXT))
+$(shell cmp -s $(FLAGS_STAMP).new $(FLAGS_STAMP) || mv -f $(FLAGS_STAMP).new $(FLAGS_STAMP); rm -f $(FLAGS_STAMP).new)
+else ifneq ($(file <$(FLAGS_STAMP)),$(FLAGS_STAMP_TEXT))
+.PHONY: $(FLAGS_STAMP)
+endif
+
+# Compile app C++ sources (depend on libhv and the LVGL patch stamp)
+# Uses DEPFLAGS to generate .d files for header dependency tracking
+# Emits .ccj fragment for incremental compile_commands.json generation
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp $(LIBHV_LIB) $(LIBHV_JSON_HEADER) $(PATCHES_STAMP) $(ABI_STAMP) $(FLAGS_STAMP) | $(PATCH_MARKER_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(BLUE)[CXX]$(RESET) $<"
+ifeq ($(V),1)
+	$(Q)echo "$(YELLOW)Command:$(RESET) $(call APP_CXX_COMPILE,$(DEPFLAGS)) -c $< -o $@"
+endif
+	$(Q)$(call APP_CXX_COMPILE,$(DEPFLAGS)) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		echo "$(YELLOW)Command:$(RESET) $(call APP_CXX_COMPILE,$(DEPFLAGS)) -c $< -o $@"; \
+		exit 1; \
+	}
+	$(call emit-compile-command,$(call APP_CXX_COMPILE),$<,$@)
+
+# Large-file support for the gcode reader. FileDataSource addresses gcode by
+# uint64_t but seeks with fseeko/ftello, whose off_t is 32-bit on our 32-bit
+# targets, so a file past 2 GB truncates. The define has to arrive on the command
+# line: $(FORCED_INCLUDE) force-includes lvgl_pch.h ahead of the source, so a #define
+# inside the .cpp is read after the system headers have already latched the value.
+# Scoped to this one object because it widens off_t for the whole translation
+# unit; off_t crosses no TU boundary here (see the comment in the source).
+#
+# `override` is load-bearing: the sanitizer targets re-invoke make with CXXFLAGS
+# on the command line, and a command-line variable discards every makefile
+# assignment to it - target-specific ones included - unless the assignment says
+# so. Nothing else supplies this define, so without the keyword the object
+# compiles with a 32-bit off_t wherever that route is taken.
+$(OBJ_DIR)/rendering/gcode_data_source.o: override CXXFLAGS += -D_FILE_OFFSET_BITS=64
+# text_io opens, stats and seeks every file the ESP32-cut code reads, G-code
+# included; its API carries int64_t offsets, never off_t.
+$(OBJ_DIR)/system/text_io.o: override CXXFLAGS += -D_FILE_OFFSET_BITS=64
+# helix_fs stats and lists the same files; a 32-bit stat fails a >2GB file with EOVERFLOW.
+$(OBJ_DIR)/system/helix_fs.o: override CXXFLAGS += -D_FILE_OFFSET_BITS=64
+
+# print-compile-command (Makefile) prints a source's command from outside its
+# object's context, where no target-specific variable reaches, so it adds these
+# from here. tests/shell/test_print_compile_command.bats fails when an object
+# carries a target-specific CXXFLAGS this list does not repeat.
+LFS_OBJS := $(OBJ_DIR)/rendering/gcode_data_source.o $(OBJ_DIR)/system/text_io.o $(OBJ_DIR)/system/helix_fs.o
+LFS_CXXFLAGS := -D_FILE_OFFSET_BITS=64
+
+# Compile app Objective-C++ sources (macOS .mm files)
+# Uses DEPFLAGS to generate .d files for header dependency tracking
+# Emits .ccj fragment for incremental compile_commands.json generation
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.mm $(LIBHV_LIB) $(LIBHV_JSON_HEADER) $(PATCHES_STAMP) $(ABI_STAMP) $(FLAGS_STAMP) | $(PATCH_MARKER_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(BLUE)[OBJCXX]$(RESET) $<"
+ifeq ($(V),1)
+	$(Q)echo "$(YELLOW)Command:$(RESET) $(call APP_CXX_COMPILE,$(DEPFLAGS)) -c $< -o $@"
+endif
+	$(Q)$(call APP_CXX_COMPILE,$(DEPFLAGS)) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		echo "$(YELLOW)Command:$(RESET) $(call APP_CXX_COMPILE,$(DEPFLAGS)) -c $< -o $@"; \
+		exit 1; \
+	}
+	$(call emit-compile-command,$(call APP_CXX_COMPILE),$<,$@)
+
+# Compile LVGL sources (use SUBMODULE_CFLAGS to suppress third-party warnings)
+# NOTE: No DEPFLAGS for internal LVGL headers - 600+ files whose deps bloat make startup.
+# However, lv_conf.h IS tracked as an explicit prerequisite since it controls feature flags
+# (e.g. LV_BIN_DECODER_RAM_LOAD) and missing rebuilds cause subtle runtime failures.
+# PATCHES_STAMP ensures patches are applied before compiling (race with -j on fresh checkout).
+# Emits .ccj fragment for incremental compile_commands.json generation
+# -fexceptions: emit cleanup actions in unwind tables so __attribute__((cleanup))
+# fires when a C++ exception unwinds through these C frames. Required for
+# lvgl_event_pop_unwind_safe.patch (L081 root cause fix). Code-size impact is
+# bounded — only functions with cleanups get extra unwind regions.
+LVGL_C_CFLAGS := $(SUBMODULE_CFLAGS) -fexceptions
+$(OBJ_DIR)/lvgl/%.o: $(LVGL_DIR)/%.c lv_conf.h $(PATCHES_STAMP) $(ABI_STAMP) $(FLAGS_STAMP) | $(PATCH_MARKER_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(CYAN)[CC]$(RESET) $<"
+ifeq ($(V),1)
+	$(Q)echo "$(YELLOW)Command:$(RESET) $(call LVGL_C_COMPILE) -c $< -o $@"
+endif
+	$(Q)$(call LVGL_C_COMPILE) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+	$(call emit-compile-command,$(call LVGL_C_COMPILE),$<,$@)
+
+# Compile Helix XML sources (our MIT fork of LVGL's XML engine)
+# lib/helix-xml is a submodule, but OURS (github.com/prestonbrown/helix-xml) -
+# unlike LVGL/lv_markdown/quirc it is edited in place and under active
+# development (see CLAUDE.md), so it gets
+# DEPFLAGS like app sources do - stale objects after a header-only edit here
+# caused a struct-size mismatch/stack-smash that required hand-deleting 168 .o files.
+$(OBJ_DIR)/helix-xml/%.o: $(HELIX_XML_DIR)/%.c lv_conf.h $(PATCHES_STAMP) $(ABI_STAMP) $(FLAGS_STAMP) | $(PATCH_MARKER_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(CYAN)[CC]$(RESET) $<"
+	$(Q)$(call HELIX_XML_COMPILE,$(DEPFLAGS)) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+	$(call emit-compile-command,$(call HELIX_XML_COMPILE),$<,$@)
+
+# Compile LVGL C++ sources (ThorVG) - use SUBMODULE_CXXFLAGS
+# No forced include: lv_conf.h compiles ThorVG out (LV_USE_THORVG_INTERNAL 0),
+# so these TUs are nearly empty and parsing lvgl_pch.h would be most of their cost.
+# NOTE: No DEPFLAGS for internal headers - see C rule above for rationale.
+# lv_conf.h tracked explicitly as it controls LVGL feature flags.
+# Emits .ccj fragment for incremental compile_commands.json generation
+$(OBJ_DIR)/lvgl/%.o: $(LVGL_DIR)/%.cpp lv_conf.h $(PATCHES_STAMP) $(ABI_STAMP) $(FLAGS_STAMP) | $(PATCH_MARKER_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(CYAN)[CXX]$(RESET) $<"
+ifeq ($(V),1)
+	$(Q)echo "$(YELLOW)Command:$(RESET) $(call LVGL_CXX_COMPILE) -c $< -o $@"
+endif
+	$(Q)$(call LVGL_CXX_COMPILE) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+	$(call emit-compile-command,$(call LVGL_CXX_COMPILE),$<,$@)
+
+# Compile spdlog's own sources (SPDLOG_COMPILED_LIB), once for every binary
+$(OBJ_DIR)/spdlog/%.o: $(SPDLOG_DIR)/src/%.cpp $(ABI_STAMP) $(FLAGS_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(CYAN)[CXX]$(RESET) $<"
+	$(Q)$(call SPDLOG_COMPILE) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+	$(call emit-compile-command,$(call SPDLOG_COMPILE),$<,$@)
+
+# Compile LVGL OpenGL ES shader assets as C++ (raw string literals require C++11)
+# Only the assets/ subdirectory needs C++ — the rest compiles fine as C.
+# -fpermissive allows void* implicit conversions from C-style LVGL allocations.
+# Only built when ENABLE_OPENGLES=yes (LVGL_OPENGLES_OBJS is empty otherwise).
+$(LVGL_OPENGLES_OBJS): $(OBJ_DIR)/lvgl/%.o: $(LVGL_DIR)/%.c lv_conf.h $(PATCHES_STAMP) $(ABI_STAMP) $(FLAGS_STAMP) | $(PATCH_MARKER_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(CYAN)[CXX/GLES]$(RESET) $<"
+	$(Q)$(call LVGL_GLES_COMPILE) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+	$(call emit-compile-command,$(call LVGL_GLES_COMPILE),$<,$@)
+
+# Compile lv_markdown sources (vendored C library - use SUBMODULE_CFLAGS)
+# Includes both src/*.c and deps/md4c/md4c.c
+$(OBJ_DIR)/lv_markdown/%.o: $(LV_MARKDOWN_DIR)/%.c $(PATCHES_STAMP) $(ABI_STAMP) $(FLAGS_STAMP) | $(PATCH_MARKER_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(CYAN)[CC]$(RESET) $<"
+ifeq ($(V),1)
+	$(Q)echo "$(YELLOW)Command:$(RESET) $(call LV_MARKDOWN_COMPILE) -c $< -o $@"
+endif
+	$(Q)$(call LV_MARKDOWN_COMPILE) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+	$(call emit-compile-command,$(call LV_MARKDOWN_COMPILE),$<,$@)
+
+# Compile quirc sources (vendored C library - use SUBMODULE_CFLAGS)
+$(OBJ_DIR)/quirc/%.o: $(QUIRC_DIR)/%.c
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(CYAN)[CC]$(RESET) $<"
+	$(Q)$(call QUIRC_COMPILE) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+	$(call emit-compile-command,$(call QUIRC_COMPILE),$<,$@)
+
+# Compile Lua sources (vendored C compiled as C++ so a Lua error unwinds as an exception)
+$(OBJ_DIR)/lua/%.o: $(LUA_DIR)/%.c $(PATCHES_STAMP) $(ABI_STAMP) $(FLAGS_STAMP) | $(PATCH_MARKER_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(CYAN)[CC]$(RESET) $<"
+	$(Q)$(call LUA_COMPILE) -c $< -o $@ || { \
+		echo "$(RED)$(BOLD)✗ Compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+	$(call emit-compile-command,$(call LUA_COMPILE),$<,$@)
+
+# Compile font sources (generated by lv_font_conv - use SUBMODULE flags)
+# Emits .ccj fragment for incremental compile_commands.json generation
+$(OBJ_DIR)/assets/fonts/%.o: assets/fonts/%.c $(PATCHES_STAMP) $(ABI_STAMP) $(FLAGS_STAMP) | $(PATCH_MARKER_STAMP)
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(GREEN)[FONT]$(RESET) $<"
+	$(Q)$(call FONT_COMPILE) -c $< -o $@ || { \
+		echo "$(RED)✗ Font compilation failed:$(RESET) $<"; \
+		exit 1; \
+	}
+	$(call emit-compile-command,$(call FONT_COMPILE),$<,$@)
+
+# Run the prototype
+run: $(TARGET)
+	$(ECHO) "$(CYAN)Running UI prototype...$(RESET)"
+	$(Q)$(TARGET)
+
+# Clean build artifacts
+# Note: Libraries are built in-tree (lib/*/), then copied to $(BUILD_DIR)/lib/
+# Clean removes both the output directory AND the in-tree build artifacts
+clean:
+	$(ECHO) "$(YELLOW)Cleaning build artifacts...$(RESET)"
+	$(Q)if [ -d "$(BUILD_DIR)" ]; then \
+		echo "$(YELLOW)→ Removing:$(RESET) $(BUILD_DIR)"; \
+		rm -rf $(BUILD_DIR); \
+		echo "$(GREEN)✓ Clean complete$(RESET)"; \
+	else \
+		echo "$(GREEN)✓ Already clean (no build directory)$(RESET)"; \
+	fi
+	$(Q)rm -f .fonts.stamp
+	$(Q)rm -f compile_commands.json
+	$(Q)if [ -d "$(SDL2_BUILD_DIR)" ]; then \
+		echo "$(YELLOW)→ Cleaning SDL2 build...$(RESET)"; \
+		rm -rf $(SDL2_BUILD_DIR); \
+	fi
+	$(Q)if [ -d "$(LIBHV_DIR)" ] && [ -n "$$(find $(LIBHV_DIR) -name '*.o' -o -name '*.a' -o -name '*.so' -o -name '*.dylib' 2>/dev/null)" ]; then \
+		echo "$(YELLOW)→ Cleaning libhv build artifacts...$(RESET)"; \
+		find $(LIBHV_DIR) -type f \( -name '*.o' -o -name '*.a' -o -name '*.so' -o -name '*.dylib' \) -delete; \
+	fi
+ifneq ($(UNAME_S),Darwin)
+	$(Q)if [ -d "$(WPA_DIR)/wpa_supplicant" ] && [ -f "$(WPA_DIR)/wpa_supplicant/libwpa_client.a" ]; then \
+		echo "$(YELLOW)→ Cleaning wpa_supplicant...$(RESET)"; \
+		$(MAKE) -C $(WPA_DIR)/wpa_supplicant clean; \
+	fi
+endif
+
+# Deep clean - reset to fresh checkout state
+# Removes everything including dependencies (node_modules, .venv, all library builds)
+# Use this when you want a completely fresh start
+distclean: clean
+	$(ECHO) "$(YELLOW)Deep cleaning (fresh checkout state)...$(RESET)"
+	@# Clean all submodule library builds
+	$(Q)if [ -d "$(LIBHV_DIR)" ]; then \
+		echo "$(YELLOW)→ Cleaning libhv...$(RESET)"; \
+		find $(LIBHV_DIR) -type f \( -name '*.o' -o -name '*.a' -o -name '*.so' -o -name '*.dylib' \) -delete 2>/dev/null || true; \
+		rm -rf $(LIBHV_DIR)/build 2>/dev/null || true; \
+	fi
+	$(Q)if [ -d "lib/libnl" ]; then \
+		echo "$(YELLOW)→ Cleaning libnl...$(RESET)"; \
+		if [ -f "lib/libnl/Makefile" ]; then $(MAKE) -C lib/libnl distclean 2>/dev/null || true; fi; \
+	fi
+	$(Q)if [ -d "lib/sdl2/build" ]; then \
+		echo "$(YELLOW)→ Cleaning SDL2 submodule build...$(RESET)"; \
+		rm -rf lib/sdl2/build; \
+	fi
+ifneq ($(UNAME_S),Darwin)
+	$(Q)if [ -d "$(WPA_DIR)/wpa_supplicant" ]; then \
+		echo "$(YELLOW)→ Cleaning wpa_supplicant...$(RESET)"; \
+		$(MAKE) -C $(WPA_DIR)/wpa_supplicant clean 2>/dev/null || true; \
+	fi
+endif
+	@# Clean installed dependencies
+	$(Q)if [ -d "node_modules" ]; then \
+		echo "$(YELLOW)→ Removing node_modules/...$(RESET)"; \
+		rm -rf node_modules; \
+	fi
+	$(Q)if [ -d ".venv" ]; then \
+		echo "$(YELLOW)→ Removing .venv/...$(RESET)"; \
+		rm -rf .venv; \
+	fi
+	$(Q)rm -f package-lock.json 2>/dev/null || true
+	$(ECHO) "$(GREEN)$(BOLD)✓ Deep clean complete (run 'make install-deps' to reinstall)$(RESET)"
+
+# Parallel build target with progress
+build:
+	$(ECHO) "$(CYAN)$(BOLD)Starting clean parallel build...$(RESET)"
+	$(ECHO) "$(CYAN)Platform:$(RESET) $(PLATFORM) | $(CYAN)Jobs:$(RESET) $(NPROC) | $(CYAN)Compiler:$(RESET) $(CXX)"
+	@$(MAKE) clean
+	@echo ""
+	@echo "$(CYAN)Building (use -j for parallel builds)...$(RESET)"
+	@START_TIME=$$(date +%s); \
+	$(MAKE) all && \
+	END_TIME=$$(date +%s); \
+	DURATION=$$((END_TIME - START_TIME)); \
+	echo ""; \
+	echo "$(GREEN)$(BOLD)✓ Build completed in $${DURATION}s$(RESET)"
+
+# Demo widgets target
+demo: $(LVGL_OBJS) $(THORVG_OBJS) $(LVGL_DEMO_OBJS)
+	$(ECHO) "$(MAGENTA)[LD]$(RESET) lvgl-demo"
+	$(Q)$(CXX) -o $(BIN_DIR)/lvgl-demo $(SRC_DIR)/lvgl-demo/main.cpp $(LVGL_OBJS) $(THORVG_OBJS) $(LVGL_DEMO_OBJS) \
+	  $(INCLUDES) $(CXXFLAGS) $(SDL2_LIBS)
+	$(ECHO) "$(GREEN)✓ Demo ready:$(RESET) ./build/bin/lvgl-demo"
+	$(ECHO) ""
+	$(ECHO) "$(CYAN)Run with:$(RESET) $(YELLOW)./build/bin/lvgl-demo$(RESET)"
+
+$(OBJ_DIR)/lvgl/demos/%.o: $(LVGL_DIR)/demos/%.c
+	$(Q)mkdir -p $(dir $@)
+	$(ECHO) "$(CYAN)[DEMO]$(RESET) $<"
+	$(Q)$(call LVGL_DEMO_COMPILE) -c $< -o $@
+
+# Generate compile_commands.json for IDE/LSP support
+# Fast incremental approach: merges .ccj fragments generated during compilation
+# First build creates fragments, subsequent 'make compile_commands' is instant
+# The merge itself lives in scripts/merge_compile_commands.py so this target and
+# the one that runs after every build cannot drift apart.
+compile_commands:
+	$(ECHO) "$(CYAN)Generating compile_commands.json from build fragments...$(RESET)"
+	@CCJ_FILES=$$(find $(BUILD_DIR) -name '*.ccj' 2>/dev/null | head -1); \
+	if [ -z "$$CCJ_FILES" ]; then \
+		echo "$(YELLOW)No .ccj fragments found. Running build first...$(RESET)"; \
+		$(MAKE) all test-build; \
+	fi
+	@SUMMARY=$$(python3 scripts/merge_compile_commands.py --build-dir $(BUILD_DIR)) && \
+		echo "$(GREEN)✓ compile_commands.json: $$SUMMARY$(RESET)"
+	$(ECHO) ""
+	$(ECHO) "$(CYAN)IDE/LSP integration ready. Restart your editor to pick up changes.$(RESET)"
+
+# Legacy full regeneration (slow) - use if fragments get out of sync
+compile_commands_full:
+	$(ECHO) "$(CYAN)Regenerating compile_commands.json (full rebuild)...$(RESET)"
+	$(Q)if command -v compiledb >/dev/null 2>&1; then \
+		echo "$(CYAN)Using compiledb...$(RESET)"; \
+		compiledb make -n -B all test-build; \
+	elif [ -f .venv/bin/compiledb ]; then \
+		echo "$(CYAN)Using .venv/bin/compiledb...$(RESET)"; \
+		.venv/bin/compiledb make -n -B all test-build; \
+	elif command -v bear >/dev/null 2>&1; then \
+		echo "$(CYAN)Using bear...$(RESET)"; \
+		bear -- $(MAKE) clean; \
+		bear -- $(MAKE) all; \
+		bear --append -- $(MAKE) test-build; \
+	else \
+		echo "$(RED)Error: Neither 'compiledb' nor 'bear' found$(RESET)"; \
+		echo "Install compiledb: $(YELLOW)pip install compiledb$(RESET)"; \
+		echo "Or install bear: $(YELLOW)brew install bear$(RESET)"; \
+		exit 1; \
+	fi
+	$(ECHO) "$(GREEN)✓ compile_commands.json generated$(RESET)"
+
+# ============================================================================
+# Automatic Header Dependency Tracking
+# ============================================================================
+# Include generated .d files for proper header dependency tracking.
+# The - prefix means don't error if files don't exist (first build).
+# Files are generated during compilation with -MMD -MP flags.
+#
+# Pattern explanation:
+#   $(OBJ_DIR)/*.d          - App sources in obj root
+#   $(OBJ_DIR)/*/*.d        - App sources in subdirs (e.g., obj/tools/)
+#   $(OBJ_DIR)/tests/*.d    - Unit test sources
+#   $(OBJ_DIR)/tests/*/*.d  - Mock sources and nested test dirs
+#   $(OBJ_DIR)/lvgl/*.d     - LVGL sources (shallow)
+#   $(OBJ_DIR)/lvgl/*/*.d   - LVGL sources (one level deep)
+#   $(OBJ_DIR)/lvgl/*/*/*.d - LVGL sources (two levels deep - libs/thorvg/*)
+#   $(OBJ_DIR)/lvgl/*/*/*/*.d - LVGL sources (three levels deep)
+-include $(wildcard $(OBJ_DIR)/*.d)
+-include $(wildcard $(OBJ_DIR)/*/*.d)
+-include $(wildcard $(OBJ_DIR)/*/*/*.d)
+-include $(wildcard $(OBJ_DIR)/tests/*.d)
+-include $(wildcard $(OBJ_DIR)/tests/*/*.d)
+# helix-xml is edited in place (our own submodule), so its .d files ARE
+# tracked, unlike LVGL/lv_markdown/quirc below. Paths are 3-4 levels deep:
+#   $(OBJ_DIR)/helix-xml/src/xml/*.d           - e.g. lv_xml.c, lv_xml_component.c
+#   $(OBJ_DIR)/helix-xml/src/xml/parsers/*.d   - per-widget XML parsers
+#   $(OBJ_DIR)/helix-xml/src/libs/expat/*.d    - vendored expat (same tree)
+-include $(wildcard $(OBJ_DIR)/helix-xml/*/*/*.d)
+-include $(wildcard $(OBJ_DIR)/helix-xml/*/*/*/*.d)
+# NOTE: LVGL .d files intentionally NOT included - they add 150k+ lines of deps
+# that slow make startup by 4+ seconds. LVGL rarely changes; do clean build if needed.

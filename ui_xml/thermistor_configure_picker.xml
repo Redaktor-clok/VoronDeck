@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <!-- Full-screen backdrop overlay - tap to dismiss -->
+  <view name="thermistor_configure_picker" extends="context_menu_backdrop">
+    <!-- Card positioned and height-capped by ContextMenu. The rows apply live,
+         so the header offers Done rather than an X. -->
+    <context_menu_card title="Select Sensors" close_icon="check" close_text="Done" scrollable="true">
+      <!-- One checkbox row per sensor, bound to the thermistor_cfg_<i>_* subjects -->
+      <lv_obj name="sensor_list"
+              width="100%" height="content" flex_flow="column" style_pad_all="#space_xs" style_pad_gap="0"
+              scrollable="true">
+        <repeat count="thermistor_cfg_rows">
+          <thermistor_picker_row prefix="thermistor_cfg" index="${i}" checkbox_hidden="false"/>
+        </repeat>
+      </lv_obj>
+      <!-- Separates the sensor list from the icon title and grid C++ appends below -->
+      <divider_horizontal color="#text_muted" opacity="38" clickable="false" event_bubble="true"/>
+    </context_menu_card>
+  </view>
+</component>

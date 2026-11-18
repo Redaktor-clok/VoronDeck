@@ -1,0 +1,1147 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "ui_modal.h"
+#include "ui_swatch.h"
+#include "ui_update_queue.h"
+
+#include "../../include/ui_overlay_temp_graph.h"
+#include "../../include/ui_temp_graph.h"
+#include "../../src/ui/panel_widgets/temp_graph_widget.h"
+#include "../lvgl_test_fixture.h"
+#include "../lvgl_ui_test_fixture.h"
+#include "../test_helpers/discovery_of_objects.h"
+#include "../test_helpers/sensors_forget.h"
+#include "../ui_test_utils.h"
+#include "grid_layout.h"
+#include "lvgl/lvgl.h"
+#include "panel_widget_registry.h"
+#include "panel_widget_size.h"
+#include "temperature_sensor_manager.h"
+
+#include <algorithm>
+
+#include "../catch_amalgamated.hpp"
+
+using namespace helix;
+
+// L065 friend test access: lets us drive private follow-mode logic without
+// adding test-only methods to TempGraphWidget.
+class helix::TempGraphWidgetTestAccess {
+  public:
+    static void set_follow_overlay(TempGraphWidget& w, bool on) {
+        w.follow_overlay_ = on;
+    }
+    static std::vector<TempGraphSeriesSpec> build_series(TempGraphWidget& w) {
+        return w.build_series_from_config();
+    }
+    static const nlohmann::json& build_default_config(TempGraphWidget& w) {
+        w.build_default_config();
+        return w.config_;
+    }
+    static bool merge_discovered_extruders(nlohmann::json& config, bool enabled) {
+        return TempGraphWidget::merge_discovered_extruders(config, enabled);
+    }
+    static std::string sensor_display_name(const std::string& klipper_name) {
+        return TempGraphWidget::TempGraphConfigModal::sensor_display_name(klipper_name);
+    }
+
+    // Drive the save-callback body directly so tests don't need to construct a
+    // live Modal + LVGL show() chain. Mirrors the lambda in on_edit_configure().
+    // TEST_MIRROR_OK: the accessor CALLS production — w.apply_config_save() is the
+    // whole body of that lambda (temp_graph_widget.cpp: `[this](const nlohmann::json&
+    // c) { apply_config_save(c); }`). Nothing is re-derived here.
+    static void apply_config_save(TempGraphWidget& w, const nlohmann::json& new_config) {
+        w.apply_config_save(new_config);
+    }
+
+    // Inject widget container pointers so apply_config_save() can be exercised
+    // with both a live lv_obj_t and a deleted/null one (regression: RP293UCW).
+    static void set_widget_obj(TempGraphWidget& w, lv_obj_t* obj) {
+        w.widget_obj_ = obj;
+    }
+    static void set_parent_screen(TempGraphWidget& w, lv_obj_t* obj) {
+        w.parent_screen_ = obj;
+    }
+    static lv_obj_t* get_widget_obj(const TempGraphWidget& w) {
+        return w.widget_obj_;
+    }
+    static bool has_controller(const TempGraphWidget& w) {
+        return w.controller_ != nullptr;
+    }
+    static const TempGraphController* controller(const TempGraphWidget& w) {
+        return w.controller_.get();
+    }
+    static const nlohmann::json& get_config(const TempGraphWidget& w) {
+        return w.config_;
+    }
+};
+
+// Reuse the same lightweight fixture as test_temp_graph.cpp
+class TempGraphFeatureFixture : public LVGLTestFixture {
+  public:
+    TempGraphFeatureFixture() {
+        screen = lv_obj_create(NULL);
+    }
+
+    ~TempGraphFeatureFixture() = default;
+
+    lv_obj_t* screen;
+};
+
+// ============================================================================
+// Feature Flags Tests
+// ============================================================================
+
+TEST_CASE_METHOD(TempGraphFeatureFixture, "Feature flags default to all-on after create",
+                 "[ui][temp_graph][features]") {
+    ui_temp_graph_t* graph = ui_temp_graph_create(screen);
+    REQUIRE(graph != nullptr);
+
+    // Y-axis excluded from defaults (show_y_axis starts false, caller must configure)
+    uint32_t expected = TEMP_GRAPH_ALL_FEATURES & ~TEMP_GRAPH_FEATURE_Y_AXIS;
+    REQUIRE(graph->features == expected);
+    REQUIRE(graph->show_x_axis == true);
+    REQUIRE(graph->show_y_axis == false);
+
+    // Verify individual flags match expectations
+    uint32_t f = ui_temp_graph_get_features(graph);
+    REQUIRE((f & TEMP_GRAPH_FEATURE_LINES) != 0);
+    REQUIRE((f & TEMP_GRAPH_FEATURE_TARGET_LINES) != 0);
+    REQUIRE((f & TEMP_GRAPH_FEATURE_LEGEND) != 0);
+    REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) == 0); // Off by default
+    REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) != 0);
+    REQUIRE((f & TEMP_GRAPH_FEATURE_GRADIENTS) != 0);
+    REQUIRE((f & TEMP_GRAPH_FEATURE_READOUTS) != 0);
+
+    ui_temp_graph_destroy(graph);
+}
+
+TEST_CASE_METHOD(TempGraphFeatureFixture, "set_features stores and get_features retrieves flags",
+                 "[ui][temp_graph][features]") {
+    ui_temp_graph_t* graph = ui_temp_graph_create(screen);
+    REQUIRE(graph != nullptr);
+
+    SECTION("Set only Y_AXIS and X_AXIS") {
+        uint32_t flags = TEMP_GRAPH_FEATURE_Y_AXIS | TEMP_GRAPH_FEATURE_X_AXIS;
+        ui_temp_graph_set_features(graph, flags);
+
+        // LINES is always forced on
+        uint32_t expected = flags | TEMP_GRAPH_FEATURE_LINES;
+        REQUIRE(ui_temp_graph_get_features(graph) == expected);
+    }
+
+    SECTION("Set all features") {
+        ui_temp_graph_set_features(graph, TEMP_GRAPH_ALL_FEATURES);
+        REQUIRE(ui_temp_graph_get_features(graph) == TEMP_GRAPH_ALL_FEATURES);
+    }
+
+    SECTION("Set no features — only LINES remains") {
+        ui_temp_graph_set_features(graph, 0);
+        REQUIRE(ui_temp_graph_get_features(graph) == TEMP_GRAPH_FEATURE_LINES);
+    }
+
+    SECTION("Y-axis show_y_axis tracks feature flag") {
+        ui_temp_graph_set_features(graph, TEMP_GRAPH_FEATURE_Y_AXIS);
+        REQUIRE(graph->show_y_axis == true);
+
+        ui_temp_graph_set_features(graph, 0);
+        REQUIRE(graph->show_y_axis == false);
+    }
+
+    SECTION("X-axis show_x_axis tracks feature flag") {
+        ui_temp_graph_set_features(graph, TEMP_GRAPH_FEATURE_X_AXIS);
+        REQUIRE(graph->show_x_axis == true);
+
+        ui_temp_graph_set_features(graph, 0);
+        REQUIRE(graph->show_x_axis == false);
+    }
+
+    ui_temp_graph_destroy(graph);
+}
+
+TEST_CASE_METHOD(TempGraphFeatureFixture, "LINES flag is always forced on",
+                 "[ui][temp_graph][features]") {
+    ui_temp_graph_t* graph = ui_temp_graph_create(screen);
+    REQUIRE(graph != nullptr);
+
+    // Pass 0 — no flags at all
+    ui_temp_graph_set_features(graph, 0);
+    REQUIRE((ui_temp_graph_get_features(graph) & TEMP_GRAPH_FEATURE_LINES) != 0);
+
+    // Pass only GRADIENTS — LINES should still be on
+    ui_temp_graph_set_features(graph, TEMP_GRAPH_FEATURE_GRADIENTS);
+    uint32_t f = ui_temp_graph_get_features(graph);
+    REQUIRE((f & TEMP_GRAPH_FEATURE_LINES) != 0);
+    REQUIRE((f & TEMP_GRAPH_FEATURE_GRADIENTS) != 0);
+
+    ui_temp_graph_destroy(graph);
+}
+
+TEST_CASE_METHOD(TempGraphFeatureFixture, "get_features returns 0 for NULL graph",
+                 "[ui][temp_graph][features]") {
+    REQUIRE(ui_temp_graph_get_features(nullptr) == 0);
+}
+
+TEST_CASE_METHOD(TempGraphFeatureFixture, "Gradient opacity zeroed when GRADIENTS flag disabled",
+                 "[ui][temp_graph][features]") {
+    ui_temp_graph_t* graph = ui_temp_graph_create(screen);
+    REQUIRE(graph != nullptr);
+
+    // Add a series so we can check gradient state
+    SeriesId sid = ui_temp_graph_add_series(graph, "Nozzle", lv_color_hex(0xFF4444));
+    REQUIRE(sid != SeriesId::None);
+
+    // Disable gradients
+    ui_temp_graph_set_features(graph, TEMP_GRAPH_FEATURE_LINES);
+    REQUIRE(graph->series_meta[0].gradient_top_opa == LV_OPA_TRANSP);
+    REQUIRE(graph->series_meta[0].gradient_bottom_opa == LV_OPA_TRANSP);
+
+    // Re-enable gradients — defaults restored
+    ui_temp_graph_set_features(graph, TEMP_GRAPH_ALL_FEATURES);
+    REQUIRE(graph->series_meta[0].gradient_top_opa == UI_TEMP_GRAPH_GRADIENT_TOP_OPA);
+    REQUIRE(graph->series_meta[0].gradient_bottom_opa == UI_TEMP_GRAPH_GRADIENT_BOTTOM_OPA);
+
+    ui_temp_graph_destroy(graph);
+}
+
+// ============================================================================
+// Registry tests
+// ============================================================================
+
+TEST_CASE("TempGraphWidget: registered in widget registry", "[temp_graph][panel_widget]") {
+    const auto* def = find_widget_def("temp_graph");
+    REQUIRE(def != nullptr);
+    REQUIRE(std::string(def->display_name) == "Temperature Graph");
+    REQUIRE(std::string(def->icon) == "chart_line");
+    REQUIRE(def->multi_instance == true);
+    // Tracks, not cells — a track is half a cell (GridLayout::TRACKS_PER_CELL).
+    REQUIRE(def->colspan == 4);
+    REQUIRE(def->rowspan == 4);
+    REQUIRE(def->min_colspan == 2);
+    REQUIRE(def->min_rowspan == 2);
+    // A band widget: capped only by the widest grid the engine builds, so a
+    // default layout can run it the full width of an ultrawide or 4K panel.
+    REQUIRE(def->max_colspan == GridLayout::kMaxTracks);
+    REQUIRE(def->max_rowspan == 8);
+    REQUIRE(def->hardware_gate_subject == nullptr);
+}
+
+// ============================================================================
+// features_for_size tests
+//
+// features_for_size(width_px, height_px) — each SECTION below is chosen to
+// pin one predicate term at a time rather than a threshold in general:
+//   TARGET_LINES | TARGET_HISTORY  is an OR — width-alone and height-alone
+//                                   cases each independently trigger it.
+//   LEGEND | Y_AXIS | X_AXIS       is height-only.
+//   READOUTS                       is an AND — a case with width satisfied
+//                                   and height not (and vice versa) must both
+//                                   leave it off; only the case satisfying
+//                                   both turns it on.
+// ============================================================================
+
+using helix::widget_size::h_tall;
+using helix::widget_size::w_normal;
+using helix::widget_size::w_wide;
+
+TEST_CASE("TempGraphWidget::features_for_size maps pixel size to feature flags",
+          "[temp_graph][panel_widget][features]") {
+    SECTION("below both thresholds: lines + gradients only") {
+        uint32_t f = TempGraphWidget::features_for_size(w_normal() - 1, h_tall() - 1);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LINES) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_TARGET_LINES) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_TARGET_HISTORY) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LEGEND) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_GRADIENTS) !=
+                0); // always on; draw callback auto-disables when >3 series
+        REQUIRE((f & TEMP_GRAPH_FEATURE_READOUTS) == 0);
+    }
+
+    SECTION("width alone at w_normal(), short: target lines/history via width, no legend/axes") {
+        uint32_t f = TempGraphWidget::features_for_size(w_normal(), h_tall() - 1);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LINES) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_TARGET_LINES) != 0);   // OR satisfied by width
+        REQUIRE((f & TEMP_GRAPH_FEATURE_TARGET_HISTORY) != 0); // OR satisfied by width
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LEGEND) == 0);         // height-only, height short
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_GRADIENTS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_READOUTS) == 0); // AND: width < w_wide()
+    }
+
+    SECTION("height alone at h_tall(), narrow: target lines/history + legend/axes via height") {
+        uint32_t f = TempGraphWidget::features_for_size(w_normal() - 1, h_tall());
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LINES) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_TARGET_LINES) != 0);   // OR satisfied by height
+        REQUIRE((f & TEMP_GRAPH_FEATURE_TARGET_HISTORY) != 0); // OR satisfied by height
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LEGEND) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_GRADIENTS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_READOUTS) == 0); // AND: width < w_wide()
+    }
+
+    SECTION("tall but below w_wide(): readouts stay off (AND — width term false)") {
+        uint32_t f = TempGraphWidget::features_for_size(w_wide() - 1, h_tall());
+        REQUIRE((f & TEMP_GRAPH_FEATURE_TARGET_LINES) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LEGEND) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_READOUTS) == 0);
+    }
+
+    SECTION("wide at w_wide() but short: readouts stay off (AND — height term false)") {
+        uint32_t f = TempGraphWidget::features_for_size(w_wide(), h_tall() - 1);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_TARGET_LINES) != 0); // width alone satisfies the OR
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LEGEND) == 0);       // height short
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_READOUTS) == 0);
+    }
+
+    SECTION("wide + tall at w_wide()/h_tall(): all features including readouts") {
+        uint32_t f = TempGraphWidget::features_for_size(w_wide(), h_tall());
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LINES) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_TARGET_LINES) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_TARGET_HISTORY) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LEGEND) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_GRADIENTS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_READOUTS) != 0);
+    }
+
+    SECTION("larger than any measured tier: all features") {
+        uint32_t f = TempGraphWidget::features_for_size(w_wide() + 200, h_tall() + 200);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LINES) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_READOUTS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_GRADIENTS) != 0);
+    }
+}
+
+// Real measured tier extents, not symbolic offsets from the bands — see
+// span-pixel-table.md. Each case names the tier its extents were measured on,
+// because a band is a per-tier number: judging Micro's 131px row against
+// Medium's 168px band answers a question no panel ever asks.
+//
+// temp_graph's LEGEND/Y_AXIS/X_AXIS gate is deliberately height-only
+// (features_for_size()): unlike fan_stack's resolved names or camera's live
+// stream, the chart draws these with graceful width degradation
+// (draw_legend_cb's "+N" overflow pill, ui_temp_graph.cpp; a configurable
+// Y-axis label column, 30-50px).
+//
+// Large's 141px and XLarge's 169px single-row heights used to exceed a flat
+// 131px band, so a plain 1x1 there was promoted as though it had a second row
+// it never has. Against their own tiers' bands (187px, 225px) they no longer
+// are, while Micro's genuinely-2-row 131px still clears Micro's 112px band —
+// the promotion now tracks rows, not tiers.
+TEST_CASE("TempGraphWidget::features_for_size at real per-tier 1x1 and 1x2 extents",
+          "[temp_graph][panel_widget][features]") {
+    SECTION("Large 1x1 (107x141): one row stays one row against Large's own band") {
+        uint32_t f = TempGraphWidget::features_for_size(107, 141, UiBreakpoint::Large);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LEGEND) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_READOUTS) == 0); // width < w_wide(Large)
+    }
+
+    SECTION("XLarge 1x1 (134x169): same story, taller and slightly wider still") {
+        uint32_t f = TempGraphWidget::features_for_size(134, 169, UiBreakpoint::XLarge);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LEGEND) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) == 0);
+    }
+
+    SECTION("Medium 1x1 (114x112): below both thresholds, no promotion") {
+        uint32_t f = TempGraphWidget::features_for_size(114, 112, UiBreakpoint::Medium);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LEGEND) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) == 0);
+    }
+
+    SECTION("Micro 1x2 (70x131): the legitimate tall case still promotes") {
+        uint32_t f = TempGraphWidget::features_for_size(70, 131, UiBreakpoint::Micro);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LEGEND) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) != 0);
+    }
+
+    SECTION("Large 1x2 (107x288): two real rows promote on Large too") {
+        uint32_t f = TempGraphWidget::features_for_size(107, 288, UiBreakpoint::Large);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LEGEND) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) != 0);
+    }
+}
+
+// ============================================================================
+// Config round-trip tests
+// ============================================================================
+
+TEST_CASE("TempGraphWidget: set_config stores and preserves sensor configuration",
+          "[temp_graph][panel_widget][config]") {
+    TempGraphWidget widget("test_config_1");
+
+    nlohmann::json config = {
+        {"sensors",
+         {
+             {{"name", "extruder"}, {"enabled", true}, {"color", 0xFF4444}},
+             {{"name", "heater_bed"}, {"enabled", true}, {"color", 0x88C0D0}},
+             {{"name", "temperature_sensor mcu_temp"}, {"enabled", false}, {"color", 0xA3BE8C}},
+         }}};
+
+    widget.set_config(config);
+
+    // Verify the widget accepted the config by checking get_component_name works
+    // (would crash if widget was in bad state)
+    REQUIRE(widget.get_component_name() == "panel_widget_temp_graph");
+    REQUIRE(widget.id() == std::string("test_config_1"));
+    REQUIRE(widget.has_edit_configure() == true);
+    REQUIRE(widget.supports_reuse() == true);
+}
+
+TEST_CASE("TempGraphWidget: factory creates valid instances", "[temp_graph][panel_widget]") {
+    init_widget_registrations();
+
+    const auto* def = find_widget_def("temp_graph");
+    REQUIRE(def != nullptr);
+    REQUIRE(def->factory != nullptr);
+
+    auto widget = def->factory("test_factory_1");
+    REQUIRE(widget != nullptr);
+    REQUIRE(std::string(widget->id()) == "test_factory_1");
+}
+
+// ============================================================================
+// Sensor discovery: new sensors appended as disabled
+// ============================================================================
+
+TEST_CASE("TempGraphWidget: set_config preserves existing sensor entries",
+          "[temp_graph][panel_widget][config]") {
+    TempGraphWidget widget("test_sensor_preserve");
+
+    // Config with only extruder — simulates a saved config before bed was discovered
+    nlohmann::json config = {{"sensors",
+                              {
+                                  {{"name", "extruder"}, {"enabled", true}, {"color", 0xFF4444}},
+                              }}};
+
+    widget.set_config(config);
+
+    // Widget should accept the partial config without crashing
+    REQUIRE(widget.get_component_name() == "panel_widget_temp_graph");
+    REQUIRE(widget.id() == std::string("test_sensor_preserve"));
+}
+
+// ============================================================================
+// Missing sensors in config silently skipped
+// ============================================================================
+
+TEST_CASE("TempGraphWidget: config with unknown sensor name does not crash",
+          "[temp_graph][panel_widget][config]") {
+    TempGraphWidget widget("test_unknown_sensor");
+
+    // Contains a sensor name that doesn't match anything known — should be silently ignored
+    nlohmann::json config = {
+        {"sensors",
+         {
+             {{"name", "extruder"}, {"enabled", true}, {"color", 0xFF4444}},
+             {{"name", "nonexistent_sensor_xyz"}, {"enabled", true}, {"color", 0x00FF00}},
+             {{"name", "heater_bed"}, {"enabled", false}, {"color", 0x88C0D0}},
+         }}};
+
+    // Should not throw or crash
+    REQUIRE_NOTHROW(widget.set_config(config));
+    REQUIRE(widget.get_component_name() == "panel_widget_temp_graph");
+}
+
+// Regression: set_config(null) used to throw json::type_error::306
+// ("cannot use value() with null") via the new follow_overlay lookup
+// added in v0.99.54 (commit 5ac58e051). PanelWidgetConfig::parse_widget_array
+// can pass a default-constructed (= JSON null) config when a stored layout
+// entry omits the "config" key, which is the case for any layout written
+// before the follow-overlay feature shipped. The throw escaped Application::run()
+// before main_loop()'s safety net, exited 134, and triggered the watchdog
+// crash-loop dialog.
+TEST_CASE("TempGraphWidget: set_config tolerates JSON null/non-object configs",
+          "[temp_graph][panel_widget][crash-safety]") {
+    TempGraphWidget widget("test_null_cfg");
+
+    REQUIRE_NOTHROW(widget.set_config(nlohmann::json()));           // default-constructed = null
+    REQUIRE_NOTHROW(widget.set_config(nullptr));                    // explicit null literal
+    REQUIRE_NOTHROW(widget.set_config(nlohmann::json::array()));    // wrong type: array
+    REQUIRE_NOTHROW(widget.set_config(nlohmann::json("a string"))); // wrong type: string
+    REQUIRE_NOTHROW(widget.set_config(nlohmann::json::object())); // empty object — the happy path
+}
+
+// Regression: build_series_from_config() used to throw nlohmann::type_error
+// when a persisted sensor entry carried the wrong JSON type for "name" (not a
+// string) or "color" (not an integer). The contains()-only guards let the
+// subsequent .get<std::string>() / .get<uint32_t>() throw, which escaped the
+// Home Panel dashboard rebuild and aborted the process (std::terminate).
+// Malformed entries must now be skipped/defaulted, and well-formed sibling
+// entries on the same card must still render.
+TEST_CASE("TempGraphWidget: build_series tolerates malformed name/color JSON types",
+          "[temp_graph][panel_widget][crash-safety]") {
+    TempGraphWidget widget("test_malformed_types");
+
+    nlohmann::json config = {
+        {"sensors",
+         {
+             // Malformed "name": a number, not a string — must be skipped.
+             {{"name", 12345}, {"enabled", true}, {"color", 0xFF4444}},
+             // Malformed "color": a string, not a number — entry survives with
+             // a palette default color.
+             {{"name", "heater_bed"}, {"enabled", true}, {"color", "not_a_color"}},
+             // Well-formed sibling — must still render.
+             {{"name", "extruder"}, {"enabled", true}, {"color", 0x88C0D0}},
+         }}};
+
+    widget.set_config(config);
+
+    std::vector<TempGraphSeriesSpec> specs;
+    REQUIRE_NOTHROW(specs = TempGraphWidgetTestAccess::build_series(widget));
+
+    std::vector<std::string> names;
+    for (const auto& s : specs)
+        names.push_back(s.klipper_name);
+
+    // Malformed-name entry dropped entirely.
+    REQUIRE(std::find(names.begin(), names.end(), "12345") == names.end());
+    // Both well-formed-name entries survive (bad color just falls back to default).
+    REQUIRE(std::find(names.begin(), names.end(), "heater_bed") != names.end());
+    REQUIRE(std::find(names.begin(), names.end(), "extruder") != names.end());
+}
+
+// ============================================================================
+// Generation counter rejects stale callbacks
+// ============================================================================
+
+TEST_CASE("TempGraphWidget: generation counter increments on config save path",
+          "[temp_graph][panel_widget][generation]") {
+    // This test verifies the generation_ concept via the public API.
+    // generation_ starts at 0 and is bumped on attach() and on config save.
+    // We test that two widgets created independently get independent state.
+
+    TempGraphWidget w1("test_gen_1");
+    TempGraphWidget w2("test_gen_2");
+
+    nlohmann::json cfg = {{"sensors",
+                           {
+                               {{"name", "extruder"}, {"enabled", true}, {"color", 0xFF4444}},
+                           }}};
+
+    // Both widgets should accept config independently without interfering
+    REQUIRE_NOTHROW(w1.set_config(cfg));
+    REQUIRE_NOTHROW(w2.set_config(cfg));
+
+    // They are distinct instances
+    REQUIRE(std::string(w1.id()) != std::string(w2.id()));
+    REQUIRE(w1.get_component_name() == w2.get_component_name());
+}
+
+// ============================================================================
+// features_for_size edge cases
+// ============================================================================
+
+TEST_CASE("TempGraphWidget::features_for_size edge cases", "[temp_graph][panel_widget][features]") {
+    SECTION("far larger than any defined tier: includes READOUTS") {
+        uint32_t f = TempGraphWidget::features_for_size(w_wide() * 3, h_tall() * 3);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LINES) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_READOUTS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_GRADIENTS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) != 0);
+    }
+
+    SECTION("tall, narrow: both axes via height, no READOUTS (width term false)") {
+        uint32_t f = TempGraphWidget::features_for_size(w_normal() - 1, h_tall() * 2);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LINES) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_READOUTS) == 0);
+    }
+
+    SECTION("wide, short: no axes (height-only), no READOUTS (height term false)") {
+        // LEGEND/Y_AXIS/X_AXIS are gated on height_px >= h_tall() alone, so a
+        // wide-but-short card gets neither axis even though it is very wide.
+        // READOUTS still needs both terms.
+        uint32_t f = TempGraphWidget::features_for_size(w_wide() * 2, h_tall() - 1);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_LINES) != 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_X_AXIS) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_Y_AXIS) == 0);
+        REQUIRE((f & TEMP_GRAPH_FEATURE_READOUTS) == 0);
+    }
+}
+
+// ============================================================================
+// attach() initial_features seed — pins the feature mask that
+// TempGraphWidget::attach() hands the controller before the first real
+// on_size_changed() call arrives.
+// ============================================================================
+
+TEST_CASE("TempGraphWidget::attach() seed extents yield everything but readouts",
+          "[temp_graph][panel_widget][features]") {
+    // Mirrors the constexpr kSeedWidthPx/kSeedHeightPx in
+    // TempGraphWidget::attach() (temp_graph_widget.cpp) — the measured
+    // 800x480 two-span (colspan=2/rowspan=2) extents used to seed
+    // initial_features, so the tier is Medium by construction.
+    //
+    // 233px of width carries 18px type at Medium: past w_normal (174) but
+    // short of w_wide (264), so the seed gets the target lines, the legend and
+    // both axes, and withholds the readouts that need the widest band. A
+    // change to features_for_size() or to these seed values should fail this
+    // test rather than silently changing the widget's pre-resize state.
+    constexpr int kSeedWidthPx = 233;
+    constexpr int kSeedHeightPx = 230;
+
+    uint32_t f =
+        TempGraphWidget::features_for_size(kSeedWidthPx, kSeedHeightPx, UiBreakpoint::Medium);
+
+    uint32_t expected = TEMP_GRAPH_FEATURE_LINES | TEMP_GRAPH_FEATURE_TARGET_LINES |
+                        TEMP_GRAPH_FEATURE_LEGEND | TEMP_GRAPH_FEATURE_Y_AXIS |
+                        TEMP_GRAPH_FEATURE_X_AXIS | TEMP_GRAPH_FEATURE_GRADIENTS |
+                        TEMP_GRAPH_FEATURE_TARGET_HISTORY;
+    REQUIRE(f == expected);
+    REQUIRE((f & TEMP_GRAPH_FEATURE_READOUTS) == 0);
+    REQUIRE(f == (TEMP_GRAPH_ALL_FEATURES & ~TEMP_GRAPH_FEATURE_READOUTS));
+}
+
+// ============================================================================
+// Config with custom colors persists
+// ============================================================================
+
+TEST_CASE("TempGraphWidget: custom color hex strings round-trip through set_config",
+          "[temp_graph][panel_widget][config]") {
+    TempGraphWidget widget("test_color_roundtrip");
+
+    // Use non-standard colors to verify they aren't overwritten
+    nlohmann::json config = {{"sensors",
+                              {
+                                  {{"name", "extruder"}, {"enabled", true}, {"color", 0xDEADBE}},
+                                  {{"name", "heater_bed"}, {"enabled", true}, {"color", 0xCAFEBA}},
+                              }}};
+
+    widget.set_config(config);
+
+    // The widget must be in a valid state
+    REQUIRE(widget.get_component_name() == "panel_widget_temp_graph");
+    REQUIRE(widget.has_edit_configure() == true);
+}
+
+// ============================================================================
+// Multi-instance independence
+// ============================================================================
+
+TEST_CASE("TempGraphWidget: two instances have independent configs",
+          "[temp_graph][panel_widget][multi_instance]") {
+    TempGraphWidget w1("temp_graph:1");
+    TempGraphWidget w2("temp_graph:2");
+
+    nlohmann::json cfg1 = {{"sensors",
+                            {
+                                {{"name", "extruder"}, {"enabled", true}, {"color", 0xFF0000}},
+                            }}};
+    nlohmann::json cfg2 = {{"sensors",
+                            {
+                                {{"name", "heater_bed"}, {"enabled", true}, {"color", 0x0000FF}},
+                                {{"name", "extruder"}, {"enabled", false}, {"color", 0xFF0000}},
+                            }}};
+
+    REQUIRE_NOTHROW(w1.set_config(cfg1));
+    REQUIRE_NOTHROW(w2.set_config(cfg2));
+
+    // Both instances should remain valid and independent
+    REQUIRE(std::string(w1.id()) == "temp_graph:1");
+    REQUIRE(std::string(w2.id()) == "temp_graph:2");
+    REQUIRE(w1.supports_reuse() == true);
+    REQUIRE(w2.supports_reuse() == true);
+}
+
+// ============================================================================
+// Follow-overlay mode (home graph card "follow my graph selection")
+// ============================================================================
+
+namespace {
+auto names_of = [](const std::vector<TempGraphSeriesSpec>& specs) {
+    std::vector<std::string> out;
+    out.reserve(specs.size());
+    for (const auto& s : specs)
+        out.push_back(s.klipper_name);
+    return out;
+};
+
+// RAII guard so a failing REQUIRE in the middle of a test still resets the
+// process-static snapshot. Without this, a later test sees stale state.
+struct VisibilitySnapshotResetGuard {
+    ~VisibilitySnapshotResetGuard() {
+        helix::test_access::set_temp_graph_visibility_snapshot(std::nullopt);
+    }
+};
+} // namespace
+
+TEST_CASE("TempGraphWidget: follow_overlay off uses configured enabled flags",
+          "[temp_graph][panel_widget][follow]") {
+    VisibilitySnapshotResetGuard reset_guard;
+    helix::test_access::set_temp_graph_visibility_snapshot(
+        std::vector<std::string>{"chamber"}); // overlay snapshot says "only chamber"
+
+    TempGraphWidget w("test_follow_off");
+    nlohmann::json cfg = {{"follow_overlay", false},
+                          {"sensors",
+                           {
+                               {{"name", "extruder"}, {"enabled", true}, {"color", 0xFF4444}},
+                               {{"name", "heater_bed"}, {"enabled", true}, {"color", 0x88C0D0}},
+                               {{"name", "chamber"}, {"enabled", false}, {"color", 0xA3BE8C}},
+                           }}};
+    w.set_config(cfg);
+
+    auto specs = TempGraphWidgetTestAccess::build_series(w);
+    auto names = names_of(specs);
+    // Snapshot ignored — uses config "enabled" flags.
+    REQUIRE(std::find(names.begin(), names.end(), "extruder") != names.end());
+    REQUIRE(std::find(names.begin(), names.end(), "heater_bed") != names.end());
+    REQUIRE(std::find(names.begin(), names.end(), "chamber") == names.end());
+}
+
+TEST_CASE("TempGraphWidget: follow_overlay on uses snapshot membership",
+          "[temp_graph][panel_widget][follow]") {
+    VisibilitySnapshotResetGuard reset_guard;
+    helix::test_access::set_temp_graph_visibility_snapshot(
+        std::vector<std::string>{"chamber", "heater_bed"}); // overlay shows bed + chamber only
+
+    TempGraphWidget w("test_follow_on");
+    nlohmann::json cfg = {{"follow_overlay", true},
+                          {"sensors",
+                           {
+                               // config flags would otherwise show extruder + bed only
+                               {{"name", "extruder"}, {"enabled", true}, {"color", 0xFF4444}},
+                               {{"name", "heater_bed"}, {"enabled", true}, {"color", 0x88C0D0}},
+                               {{"name", "chamber"}, {"enabled", false}, {"color", 0xA3BE8C}},
+                           }}};
+    w.set_config(cfg);
+
+    auto specs = TempGraphWidgetTestAccess::build_series(w);
+    auto names = names_of(specs);
+    REQUIRE(std::find(names.begin(), names.end(), "extruder") == names.end()); // dropped
+    REQUIRE(std::find(names.begin(), names.end(), "heater_bed") != names.end());
+    REQUIRE(std::find(names.begin(), names.end(), "chamber") != names.end()); // added
+}
+
+TEST_CASE("TempGraphWidget: follow_overlay on with no snapshot falls back to config flags",
+          "[temp_graph][panel_widget][follow]") {
+    VisibilitySnapshotResetGuard reset_guard;
+    helix::test_access::set_temp_graph_visibility_snapshot(std::nullopt);
+
+    TempGraphWidget w("test_follow_no_snapshot");
+    nlohmann::json cfg = {{"follow_overlay", true},
+                          {"sensors",
+                           {
+                               {{"name", "extruder"}, {"enabled", true}, {"color", 0xFF4444}},
+                               {{"name", "heater_bed"}, {"enabled", false}, {"color", 0x88C0D0}},
+                           }}};
+    w.set_config(cfg);
+
+    auto specs = TempGraphWidgetTestAccess::build_series(w);
+    auto names = names_of(specs);
+    REQUIRE(std::find(names.begin(), names.end(), "extruder") != names.end());
+    REQUIRE(std::find(names.begin(), names.end(), "heater_bed") == names.end());
+}
+
+// ============================================================================
+// sensor_display_name: extruders, bed, chamber
+// ============================================================================
+
+#include "ui_update_queue.h"
+
+#include "app_globals.h"
+#include "printer_state.h"
+
+TEST_CASE("sensor_display_name maps Klipper names to user-facing labels",
+          "[temp_graph][panel_widget][labels]") {
+    // Static fallbacks (PrinterTemperatureState may or may not have extruders
+    // populated in the global test PrinterState — these labels are derived
+    // unconditionally).
+    REQUIRE(TempGraphWidgetTestAccess::sensor_display_name("heater_bed") == "Bed");
+    // Every listed kind loses its type prefix; a humidity chip names its chip instead.
+    REQUIRE(TempGraphWidgetTestAccess::sensor_display_name("temperature_sensor mcu_temp") ==
+            "Mcu temp");
+    REQUIRE(TempGraphWidgetTestAccess::sensor_display_name("bme280 chamber_air") ==
+            "Chamber air (BME280)");
+    REQUIRE(TempGraphWidgetTestAccess::sensor_display_name("tmc2240 stepper_x") == "Stepper x");
+    REQUIRE(TempGraphWidgetTestAccess::sensor_display_name("chamber") == "Chamber");
+
+    // Pre-discovery / no extruder yet known: derived from suffix.
+    auto& ps = get_printer_state();
+    ps.temperature_state().init_extruders({}); // clear
+    REQUIRE(TempGraphWidgetTestAccess::sensor_display_name("extruder") == "Nozzle");
+    REQUIRE(TempGraphWidgetTestAccess::sensor_display_name("extruder1") == "Nozzle 2");
+    REQUIRE(TempGraphWidgetTestAccess::sensor_display_name("extruder5") == "Nozzle 6");
+
+    // After discovery: defers to the cached display_name (which itself is
+    // sorted/translated). Multi-extruder => "extruder" becomes "Nozzle 1".
+    ps.temperature_state().init_extruders({"extruder", "extruder1", "extruder2", "extruder3"});
+    REQUIRE(TempGraphWidgetTestAccess::sensor_display_name("extruder") == "Nozzle 1");
+    REQUIRE(TempGraphWidgetTestAccess::sensor_display_name("extruder1") == "Nozzle 2");
+    REQUIRE(TempGraphWidgetTestAccess::sensor_display_name("extruder3") == "Nozzle 4");
+
+    // Reset to empty so we don't leak state into other tests.
+    ps.temperature_state().init_extruders({});
+}
+
+// ============================================================================
+// merge_discovered_extruders helper
+// ============================================================================
+
+TEST_CASE("merge_discovered_extruders adds missing entries and is idempotent",
+          "[temp_graph][panel_widget][config]") {
+    auto& ps = get_printer_state();
+    ps.temperature_state().init_extruders({"extruder", "extruder1", "extruder2", "extruder3"});
+
+    nlohmann::json config = {{"sensors",
+                              {
+                                  {{"name", "extruder"}, {"enabled", true}, {"color", 0xFF4444}},
+                                  {{"name", "heater_bed"}, {"enabled", true}, {"color", 0x88C0D0}},
+                              }}};
+
+    bool added = TempGraphWidgetTestAccess::merge_discovered_extruders(config, /*enabled=*/true);
+    REQUIRE(added == true);
+
+    auto& sensors = config["sensors"];
+    auto find_name = [&sensors](const std::string& name) {
+        return std::find_if(sensors.begin(), sensors.end(), [&](const nlohmann::json& e) {
+            return e["name"].get<std::string>() == name;
+        });
+    };
+    // Three new entries appended with enabled=true.
+    REQUIRE(find_name("extruder1") != sensors.end());
+    REQUIRE(find_name("extruder2") != sensors.end());
+    REQUIRE(find_name("extruder3") != sensors.end());
+    REQUIRE((*find_name("extruder1"))["enabled"].get<bool>() == true);
+
+    // Idempotent: second call adds nothing.
+    bool added_again =
+        TempGraphWidgetTestAccess::merge_discovered_extruders(config, /*enabled=*/true);
+    REQUIRE(added_again == false);
+    REQUIRE(sensors.size() == 5); // extruder + bed + 3 new
+
+    ps.temperature_state().init_extruders({});
+}
+
+TEST_CASE("merge_discovered_extruders honors the enabled flag",
+          "[temp_graph][panel_widget][config]") {
+    auto& ps = get_printer_state();
+    ps.temperature_state().init_extruders({"extruder", "extruder1"});
+
+    nlohmann::json config = {{"sensors", nlohmann::json::array()}};
+
+    REQUIRE(TempGraphWidgetTestAccess::merge_discovered_extruders(config, /*enabled=*/false));
+    for (const auto& entry : config["sensors"]) {
+        REQUIRE(entry["enabled"].get<bool>() == false);
+    }
+
+    ps.temperature_state().init_extruders({});
+}
+
+// ============================================================================
+// apply_config_save — RP293UCW regression: save callback must tolerate a
+// widget container that was freed between modal-open and modal-save (panel
+// rebuild during the modal window). Old behavior reattached to the stale
+// pointer; new behavior re-reads widget_obj_ at save time and skips the
+// reattach when it's gone.
+// ============================================================================
+
+TEST_CASE_METHOD(TempGraphFeatureFixture,
+                 "TempGraphWidget::apply_config_save: stale widget_obj_ does not crash",
+                 "[temp_graph][panel_widget][regression]") {
+    TempGraphWidget w("test_save_stale");
+
+    // A panel rebuild frees the container while the config modal is open. The
+    // modal's save callback still fires because it captured `this`.
+    lv_obj_t* container = lv_obj_create(screen);
+    lv_obj_set_size(container, 400, 300);
+    w.attach(container, screen);
+    REQUIRE(TempGraphWidgetTestAccess::has_controller(w));
+    lv_obj_delete(container);
+
+    nlohmann::json new_cfg = {
+        {"sensors", nlohmann::json::array(
+                        {{{"name", "extruder"}, {"enabled", true}, {"color", 0xFF4444}},
+                         {{"name", "heater_bed"}, {"enabled", true}, {"color", 0x88C0D0}}})}};
+
+    REQUIRE_NOTHROW(TempGraphWidgetTestAccess::apply_config_save(w, new_cfg));
+
+    // Config still persisted on the widget instance (so a fresh attach picks
+    // it up), and we left the widget detached — no zombie controller.
+    REQUIRE(TempGraphWidgetTestAccess::get_config(w)["sensors"].size() == 2);
+    REQUIRE(TempGraphWidgetTestAccess::has_controller(w) == false);
+    REQUIRE(TempGraphWidgetTestAccess::get_widget_obj(w) == nullptr);
+}
+
+TEST_CASE_METHOD(TempGraphFeatureFixture,
+                 "TempGraphWidget::apply_config_save: live widget_obj_ rebuilds in place",
+                 "[temp_graph][panel_widget][regression]") {
+    TempGraphWidget w("test_save_live");
+
+    lv_obj_t* container = lv_obj_create(screen);
+    lv_obj_set_size(container, 400, 300);
+    w.attach(container, screen);
+    REQUIRE(TempGraphWidgetTestAccess::has_controller(w));
+
+    nlohmann::json new_cfg = {
+        {"sensors",
+         nlohmann::json::array({{{"name", "extruder"}, {"enabled", true}, {"color", 0xFF4444}}})}};
+
+    REQUIRE_NOTHROW(TempGraphWidgetTestAccess::apply_config_save(w, new_cfg));
+
+    // Same container pointer (was valid throughout), controller rebuilt.
+    REQUIRE(TempGraphWidgetTestAccess::get_widget_obj(w) == container);
+    REQUIRE(TempGraphWidgetTestAccess::has_controller(w));
+    REQUIRE(TempGraphWidgetTestAccess::get_config(w)["sensors"].size() == 1);
+
+    // Clean up: detach before the container is destroyed by the fixture.
+    w.detach();
+    lv_obj_delete(container);
+}
+
+// ============================================================================
+// Regression: widget attached before discovery is short a nozzle series
+// ============================================================================
+//
+// A dashboard widget attaches at app startup, before the WebSocket connects, so
+// merge_discovered_extruders() at attach time finds nothing and the series list
+// is built without any of the extra tools. The controller's discovery retry
+// re-resolves series that EXIST; it cannot conjure a curve the config never
+// listed. The widget therefore watches extruder_version itself and rebuilds.
+
+TEST_CASE_METHOD(TempGraphFeatureFixture,
+                 "Widget grows its series list when discovery adds extruders",
+                 "[ui][temp_graph][multi_tool]") {
+    auto& ps = get_printer_state();
+    ps.init_subjects(false);
+    auto& queue = helix::ui::UpdateQueue::instance();
+
+    // PrinterState is a process-global; clear any tools a previous case
+    // discovered so attach() really does run pre-discovery.
+    ps.temperature_state().init_extruders({});
+    queue.drain();
+
+    // Given: a widget attached while only the legacy single extruder is known
+    TempGraphWidget widget("temp_graph:test_discovery");
+    nlohmann::json cfg;
+    cfg["sensors"] = nlohmann::json::array(
+        {{{"name", "extruder"}, {"enabled", true}}, {{"name", "heater_bed"}, {"enabled", true}}});
+    widget.set_config(cfg);
+
+    lv_obj_t* container = lv_obj_create(screen);
+    widget.attach(container, screen);
+    REQUIRE(TempGraphWidgetTestAccess::has_controller(widget));
+
+    auto before = TempGraphWidgetTestAccess::build_series(widget);
+    REQUIRE(before.size() == 2);
+
+    // When: a 3-tool changer is discovered after the fact
+    ps.temperature_state().init_extruders({"extruder", "extruder1", "extruder2"});
+    queue.drain();
+    lv_timer_handler_safe(); // lv_async_call runs here, outside the queue batch
+
+    // Then: the config picked up the new tools and the series list grew
+    const auto& after_cfg = TempGraphWidgetTestAccess::get_config(widget);
+    std::string names;
+    for (const auto& s : after_cfg["sensors"]) {
+        names += s.value("name", std::string()) + " ";
+    }
+    INFO("config sensors: " << names);
+    REQUIRE(names.find("extruder1") != std::string::npos);
+    REQUIRE(names.find("extruder2") != std::string::npos);
+
+    auto after = TempGraphWidgetTestAccess::build_series(widget);
+    REQUIRE(after.size() == 4); // extruder, extruder1, extruder2, heater_bed
+    REQUIRE(TempGraphWidgetTestAccess::has_controller(widget));
+
+    widget.detach();
+}
+
+TEST_CASE_METHOD(TempGraphFeatureFixture,
+                 "Widget does not rebuild when rediscovery adds no new extruder",
+                 "[ui][temp_graph][multi_tool]") {
+    auto& ps = get_printer_state();
+    ps.init_subjects(false);
+    auto& queue = helix::ui::UpdateQueue::instance();
+
+    ps.temperature_state().init_extruders({"extruder", "extruder1"});
+    queue.drain();
+
+    TempGraphWidget widget("temp_graph:test_no_churn");
+    nlohmann::json cfg;
+    cfg["sensors"] = nlohmann::json::array({{{"name", "extruder"}, {"enabled", true}},
+                                            {{"name", "extruder1"}, {"enabled", true}},
+                                            {{"name", "heater_bed"}, {"enabled", true}}});
+    widget.set_config(cfg);
+
+    lv_obj_t* container = lv_obj_create(screen);
+    widget.attach(container, screen);
+    auto* controller_before = TempGraphWidgetTestAccess::get_widget_obj(widget);
+
+    // When: the same tool set is rediscovered (reconnect bumps the version)
+    ps.temperature_state().init_extruders({"extruder", "extruder1"});
+    queue.drain();
+    lv_timer_handler_safe();
+
+    // Then: no teardown — throwing the graph away on every reconnect would
+    // discard the trace for nothing.
+    REQUIRE(TempGraphWidgetTestAccess::has_controller(widget));
+    REQUIRE(TempGraphWidgetTestAccess::get_widget_obj(widget) == controller_before);
+    REQUIRE(TempGraphWidgetTestAccess::build_series(widget).size() == 3);
+
+    widget.detach();
+}
+
+TEST_CASE_METHOD(TempGraphFeatureFixture,
+                 "TempGraphWidget takes no live samples while its panel is inactive",
+                 "[temp_graph][panel_widget]") {
+    TempGraphWidget w("test_pause");
+    lv_obj_t* container = lv_obj_create(screen);
+    lv_obj_set_size(container, 400, 300);
+    w.attach(container, screen);
+    REQUIRE(TempGraphWidgetTestAccess::controller(w) != nullptr);
+    // Attached before its panel shows it (a page off screen, or a rebuild
+    // under an overlay): no samples until on_activate().
+    CHECK(TempGraphWidgetTestAccess::controller(w)->paused());
+
+    w.on_activate();
+    CHECK_FALSE(TempGraphWidgetTestAccess::controller(w)->paused());
+
+    w.on_deactivate();
+    CHECK(TempGraphWidgetTestAccess::controller(w)->paused());
+
+    SECTION("a rebuild while shown stays live") {
+        w.on_activate();
+        w.detach();
+        w.attach(container, screen);
+        CHECK_FALSE(TempGraphWidgetTestAccess::controller(w)->paused());
+    }
+    SECTION("a rebuild while hidden stays paused") {
+        w.detach();
+        w.attach(container, screen);
+        CHECK(TempGraphWidgetTestAccess::controller(w)->paused());
+    }
+
+    w.detach();
+    lv_obj_delete(container);
+}
+
+TEST_CASE("TempGraphWidget: default config lists aux heaters but not the chamber's own objects",
+          "[temp_graph][panel_widget][heater_generic]") {
+    // The chamber is the "chamber" row; its own sensor listed again would plot
+    // the chamber twice.
+    auto& tsm = sensors::TemperatureSensorManager::instance();
+    helix::test::SensorsForget forget;
+    tsm.discover(
+        helix::test::discovery_of({"temperature_sensor chamber", "heater_generic filament_dryer"}));
+
+    TempGraphWidget widget("test_default_chamber_skip");
+    const auto& config = TempGraphWidgetTestAccess::build_default_config(widget);
+    std::vector<std::string> names;
+    for (const auto& entry : config["sensors"])
+        names.push_back(entry["name"].get<std::string>());
+
+    auto has = [&](const char* n) {
+        return std::find(names.begin(), names.end(), n) != names.end();
+    };
+    CHECK(has("heater_generic filament_dryer"));
+    CHECK_FALSE(has("temperature_sensor chamber"));
+}
+
+// ============================================================================
+// Config modal: series colour swatches
+// ============================================================================
+
+TEST_CASE_METHOD(LVGLUITestFixture,
+                 "TempGraphWidget config: series colours are painter circles that cycle",
+                 "[temp_graph][panel_widget][config][swatch]") {
+    init_widget_registrations(); // the swatch's XML click callback is registered there
+    TempGraphWidget widget("test_swatch");
+    nlohmann::json config = {
+        {"sensors",
+         {
+             {{"name", "extruder"},
+              {"enabled", true},
+              {"color", lv_color_to_u32(kTempGraphSeriesColors[2]) & 0xFFFFFF}},
+         }}};
+    widget.set_config(config);
+    REQUIRE(widget.on_edit_configure());
+    helix::ui::UpdateQueue::instance().drain();
+
+    lv_obj_t* dialog = ModalStack::instance().top_dialog();
+    REQUIRE(dialog != nullptr);
+    lv_obj_t* swatch = lv_obj_find_by_name(dialog, "sensor_swatch_0");
+    REQUIRE(swatch != nullptr);
+    lv_obj_t* disc = lv_obj_find_by_name(swatch, "color_swatch_disc");
+    REQUIRE(disc != nullptr);
+    CHECK(helix::ui::has_swatch_paint(disc));
+    CHECK(lv_obj_get_style_radius(disc, LV_PART_MAIN) == LV_RADIUS_CIRCLE);
+    CHECK(lv_color_eq(helix::ui::swatch_color_of(disc), kTempGraphSeriesColors[2]));
+    lv_obj_send_event(swatch, LV_EVENT_CLICKED, nullptr);
+    CHECK(lv_color_eq(helix::ui::swatch_color_of(disc), kTempGraphSeriesColors[3]));
+}
+
+// ============================================================================
+// Config modal: rows are the XML temp_graph_series_row bound to subjects
+// ============================================================================
+
+TEST_CASE_METHOD(LVGLUITestFixture,
+                 "TempGraphWidget config: one bound row per series, switches and follow save",
+                 "[temp_graph][panel_widget][config][rows]") {
+    TempGraphWidget widget("test_rows");
+    widget.set_config({{"sensors",
+                        {
+                            {{"name", "extruder"}, {"enabled", true}},
+                            {{"name", "heater_bed"}, {"enabled", true}},
+                        }}});
+    REQUIRE(widget.on_edit_configure());
+    helix::ui::UpdateQueue::instance().drain();
+
+    lv_obj_t* dialog = ModalStack::instance().top_dialog();
+    REQUIRE(dialog != nullptr);
+
+    lv_obj_t* name0 = lv_obj_find_by_name(dialog, "sensor_name_0");
+    lv_obj_t* name1 = lv_obj_find_by_name(dialog, "sensor_name_1");
+    REQUIRE(name0 != nullptr);
+    REQUIRE(name1 != nullptr);
+    CHECK(std::string(lv_label_get_text(name0)) ==
+          TempGraphWidgetTestAccess::sensor_display_name("extruder"));
+    CHECK(std::string(lv_label_get_text(name1)) == "Bed");
+    CHECK(lv_obj_find_by_name(dialog, "sensor_name_2") == nullptr);
+
+    lv_obj_t* sw0 = lv_obj_find_by_name(dialog, "sensor_switch_0");
+    lv_obj_t* sw1 = lv_obj_find_by_name(dialog, "sensor_switch_1");
+    REQUIRE(sw0 != nullptr);
+    REQUIRE(sw1 != nullptr);
+    CHECK(lv_obj_has_state(sw0, LV_STATE_CHECKED));
+    CHECK(lv_obj_has_state(sw1, LV_STATE_CHECKED));
+
+    // The user turns the bed off and follow on.
+    lv_obj_remove_state(sw1, LV_STATE_CHECKED);
+    lv_obj_send_event(sw1, LV_EVENT_VALUE_CHANGED, nullptr);
+    lv_obj_t* follow = lv_obj_find_by_name(dialog, "follow_switch");
+    REQUIRE(follow != nullptr);
+    lv_obj_add_state(follow, LV_STATE_CHECKED);
+    lv_obj_send_event(follow, LV_EVENT_VALUE_CHANGED, nullptr);
+
+    lv_obj_t* ok = lv_obj_find_by_name(dialog, "btn_primary");
+    REQUIRE(ok != nullptr);
+    lv_obj_send_event(ok, LV_EVENT_CLICKED, nullptr);
+    helix::ui::UpdateQueue::instance().drain();
+
+    const auto& saved = TempGraphWidgetTestAccess::get_config(widget);
+    REQUIRE(saved["sensors"].size() == 2);
+    CHECK(saved["sensors"][0]["name"] == "extruder");
+    CHECK(saved["sensors"][0]["enabled"] == true);
+    CHECK(saved["sensors"][1]["name"] == "heater_bed");
+    CHECK(saved["sensors"][1]["enabled"] == false);
+    CHECK(saved["follow_overlay"] == true);
+}

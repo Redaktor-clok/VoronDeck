@@ -1,0 +1,145 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Printing Settings Overlay Panel -->
+<!-- Machine limits/motion/retraction/enclosure, multi-filament system management, -->
+<!-- filament temperature and cooldown behaviour, and print extras (timelapse, macro buttons) -->
+<!-- Uses setting_* components for consistency with main settings panel -->
+<component>
+  <view name="settings_printing_overlay" extends="overlay_panel" title="Printing" bg_color="#screen_bg">
+    <!-- Content Area - no padding, rows handle their own -->
+    <lv_obj name="overlay_content"
+            width="100%" flex_grow="1" style_pad_top="0" style_pad_left="0" style_pad_right="0"
+            style_pad_bottom="#space_lg" scrollable="true" flex_flow="column">
+      <!-- ================================================================== -->
+      <!-- MACHINE -->
+      <!-- ================================================================== -->
+      <setting_group name="group_machine">
+        <setting_group_header title="MACHINE"/>
+        <setting_action_row name="row_machine_limits"
+                            label="Machine Limits" icon="dashboard" description="Velocity and acceleration limits"
+                            callback="on_machine_limits_clicked"/>
+        <setting_action_row name="row_motion"
+                            label="Motion" icon="axis_arrow" description="Jog layout, speeds and step distances"
+                            callback="on_motion_settings_clicked"/>
+        <!-- RETRACTION SETTINGS (conditional) -->
+        <lv_obj name="container_firmware_retraction" width="100%" style_pad_all="0" scrollable="false">
+          <bind_flag_if_eq subject="printer_has_firmware_retraction" flag="hidden" ref_value="0"/>
+          <setting_action_row name="row_firmware_retraction"
+                              label="Retraction Settings" icon="arrow_up_right"
+                              description="Configure G10/G11 firmware retraction" callback="on_retraction_row_clicked"/>
+        </lv_obj>
+        <!-- ENCLOSURE (drying on the heated bed needs one) -->
+        <setting_dropdown_row name="row_enclosure_style"
+                              label="Enclosure" icon="heat_wave" description="Mark a printer you enclosed yourself"
+                              options="Auto&#10;Enclosed&#10;Open frame" options_tag="Auto&#10;Enclosed&#10;Open frame"
+                              bind_selected="settings_enclosure_style" callback="on_enclosure_style_changed"/>
+      </setting_group>
+      <!-- ================================================================== -->
+      <!-- FILAMENT -->
+      <!-- ================================================================== -->
+      <setting_group name="group_filament">
+        <setting_group_header title="FILAMENT"/>
+        <!-- MULTI-FILAMENT MANAGEMENT: same gate as the AMS sidebar's Settings button -->
+        <lv_obj name="container_ams_settings" width="100%" style_pad_all="0" scrollable="false">
+          <bind_flag_if_eq subject="ams_has_device_ops" flag="hidden" ref_value="0"/>
+          <setting_action_row name="row_ams_settings"
+                              label="Multi-Filament System Management" icon="filament"
+                              description="Quick actions, calibration, speed" callback="on_ams_settings_clicked"/>
+        </lv_obj>
+        <setting_action_row name="row_material_temps"
+                            label="Material Temperatures" icon="thermometer" description="Customize preset temperatures"
+                            callback="on_material_temps_clicked"/>
+        <setting_toggle_row name="row_allow_cold_extrude"
+                            label="Allow cold load/unload" icon="cooldown"
+                            description="Run filament load/unload even when the nozzle is cold (for macros that heat the nozzle themselves)"
+                            subject="settings_allow_cold_extrude" callback="on_allow_cold_extrude_changed"/>
+        <setting_toggle_row name="row_filament_auto_cooldown"
+                            label="Cool nozzle after filament ops" icon="cooldown"
+                            description="Turn the extruder heater off after a load or unload finishes"
+                            subject="filament_auto_cooldown" callback="on_filament_auto_cooldown_changed"/>
+        <setting_toggle_row name="row_filament_auto_open_editor"
+                            label="Edit filament on insert" icon="filament"
+                            description="Open the slot editor when you load a new spool"
+                            subject="filament_auto_open_editor" callback="on_filament_auto_open_editor_changed"/>
+        <setting_toggle_row name="row_tool_change_confirm"
+                            label="Confirm tool changes" icon="swap_horizontal"
+                            description="Ask before switching to another tool" subject="settings_tool_change_confirm"
+                            callback="on_tool_change_confirm_changed">
+          <bind_flag_if_lt subject="tool_count" flag="hidden" ref_value="2"/>
+        </setting_toggle_row>
+      </setting_group>
+      <!-- ================================================================== -->
+      <!-- EXTRAS -->
+      <!-- ================================================================== -->
+      <setting_group name="group_extras">
+        <setting_group_header title="EXTRAS"/>
+        <!-- TIMELAPSE (conditional) -->
+        <lv_obj name="container_timelapse_settings" width="100%" style_pad_all="0" scrollable="false">
+          <bind_flag_if_eq subject="printer_has_timelapse" flag="hidden" ref_value="0"/>
+          <setting_action_row name="row_timelapse_settings"
+                              label="Timelapse" icon="camera_timer" description="Configure timelapse recording"
+                              callback="on_timelapse_settings_clicked"/>
+        </lv_obj>
+        <lv_obj name="container_macro_recovery" width="100%" height="content" flex_flow="column" style_pad_all="0" style_pad_gap="0" scrollable="false">
+          <bind_flag_if_eq subject="printer_has_recovery_macros" flag="hidden" ref_value="0"/>
+          <setting_toggle_row name="row_macro_recovery" label="Power-loss recovery" icon="power_plug"
+                              description="Save recovery checkpoints at layer changes. Turning this off discards the saved checkpoint."
+                              subject="macro_recovery_enabled" disabled="macro_recovery_disabled"
+                              callback="on_macro_recovery_changed"/>
+          <text_small name="macro_recovery_status" width="100%" height="content" long_mode="wrap"
+                      style_pad_left="#space_lg" style_pad_right="#space_lg" bind_text="macro_recovery_status"/>
+          <setting_action_row name="row_recovery_check" label="Check recovery updates" icon="refresh"
+                              callback="on_recovery_check_updates"/>
+          <setting_action_row name="row_recovery_components" label="Component updates" icon="download"
+                              callback="on_recovery_component_updates"/>
+        </lv_obj>
+        <setting_action_row name="row_recovery_missing" label="Power-loss recovery" icon="power_plug"
+                            description="Recovery macros are not detected. Check the printer connection and recovery configuration."
+                            description_min_bp="0" chevron="false" clickable="false">
+          <bind_flag_if cond="printer_has_recovery_macros eq 0 and plr_feature_state eq 0" flag="hidden" invert="true"/>
+        </setting_action_row>
+        <!-- POWER-LOSS RECOVERY: the plugin's plr feature, which owns its switch -->
+        <lv_obj name="container_plugin_recovery" width="100%" height="content" style_pad_all="0" scrollable="false">
+          <bind_flag_if cond="printer_has_recovery_macros eq 0 and plr_feature_state gt 0" flag="hidden" invert="true"/>
+        <plugin_feature_toggle_row name="row_power_loss_recovery"
+                                   feature="plr" label="Power-loss recovery" icon="power_plug"
+                                   install_hint="Requires the VoronDeck recovery plugin"
+                                   update_hint="Update the VoronDeck recovery plugin"
+                                   description="Saves the print position about once a second so a print can resume after a power cut. On an SD card this adds wear."
+                                   subject="plr_saving_enabled" callback="on_power_loss_recovery_changed"/>
+        </lv_obj>
+        <!-- RESUME MESH CARRY-OVER: the plugin's plr feature, at the version that
+             carries server.helix.plr.mesh_include. Which row shows follows the
+             plr_mesh_include subject: 0 the include is missing, 1 it is there;
+             -1 (not asked yet, or the ask failed) shows neither. -->
+        <lv_obj name="container_plr_mesh_include" width="100%" style_pad_all="0" scrollable="false">
+          <bind_flag_if cond="printer_has_recovery_macros eq 0 and plr_feature_state gt 0" flag="hidden" invert="true"/>
+          <setting_action_row name="row_plr_mesh_include_add"
+                              label="Resume reloads the saved bed mesh" icon="grid_view"
+                              description="Add [include helix-plr/*.cfg] to printer.cfg, so a resume reloads the mesh the print started with"
+                              value="Not added" callback="on_plr_mesh_include_add_clicked">
+            <bind_flag_if_not_eq subject="plr_mesh_include" flag="hidden" ref_value="0"/>
+          </setting_action_row>
+          <setting_action_row name="row_plr_mesh_include_remove"
+                              label="Resume reloads the saved bed mesh" icon="grid_view"
+                              description="Remove VoronDeck's include lines from printer.cfg; a resume then uses the printer's default mesh profile"
+                              value="Added" callback="on_plr_mesh_include_remove_clicked">
+            <bind_flag_if_not_eq subject="plr_mesh_include" flag="hidden" ref_value="1"/>
+          </setting_action_row>
+        </lv_obj>
+        <!-- START OPTIONS FOR PRINTS FROM OTHER APPS: the plugin's print_hooks feature -->
+        <setting_toggle_row name="plugin_feature_row_print_hooks"
+                            label="Apply start options to prints from other apps" icon="play_circle"
+                            description="Sends your standing print options, such as unload at end, when a print starts from another app or the job queue."
+                            subject="plugin_feature_on_print_hooks" callback="on_plugin_feature_switch_changed">
+          <bind_flag_if cond="plugin_feature_mode_print_hooks eq 0 or plugin_feature_mode_print_hooks eq 2 or plugin_feature_mode_print_hooks eq 3" flag="hidden"/>
+        </setting_toggle_row>
+        <setting_action_row name="row_macro_buttons"
+                            label="Macro Buttons" icon="script_text"
+                            description="Configure quick buttons and standard macros"
+                            callback="on_macro_buttons_clicked"/>
+      </setting_group>
+    </lv_obj>
+  </view>
+</component>

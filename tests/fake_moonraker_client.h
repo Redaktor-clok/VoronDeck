@@ -1,0 +1,345 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include "helix_shared_callback.h"
+
+/**
+ * @file fake_moonraker_client.h
+ * @brief Recording stand-in for helix::IMoonrakerClient.
+ *
+ * The interface is 39 pure virtuals, so anything that wants to test a consumer
+ * of the transport has had to hand-write the whole no-op set inline (see the
+ * ReconnectCountingClient in tests/unit/test_connection_failed_change_address.cpp,
+ * which predates this file). This is that set, once, with the three things a
+ * consumer test actually needs to observe kept as public records:
+ *
+ *   - notification subscriptions, so a test can FIRE one (fire_notification)
+ *   - unregistrations, so a test can prove a destructor cleaned up
+ *   - JSON-RPC sends, with both continuations kept so a test can invoke them
+ *
+ * Every override is virtual, so a test that needs one method to do something
+ * real subclasses this and overrides just that one.
+ *
+ * Nothing here touches a thread: a fired notification runs on the caller's
+ * thread. Consumers that wrap their handler in AsyncLifetimeGuard::bg_cb will
+ * therefore only enqueue work — the test still has to pump the UpdateQueue
+ * before asserting.
+ */
+
+#include "i_moonraker_client.h"
+#include "moonraker_error.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <memory>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "hv/json.hpp"
+
+namespace helix::test {
+
+class FakeMoonrakerClient : public helix::IMoonrakerClient {
+  public:
+    /// One live notification subscription.
+    struct MethodCallback {
+        std::string handler_name;
+        helix::SharedCallback<void(const nlohmann::json&)> callback;
+    };
+
+    /// One unregister_method_callback() call.
+    struct Unregistration {
+        std::string method;
+        std::string handler_name;
+    };
+
+    /// One send_jsonrpc() call. The continuations are empty for the overloads
+    /// that take none; the four-argument form keeps both so a test can drive
+    /// the reply path.
+    struct RpcCall {
+        std::string method;
+        nlohmann::json params;
+        helix::SharedCallback<void(const nlohmann::json&)> success_cb;
+        helix::SharedCallback<void(const MoonrakerError&)> error_cb;
+        /// The four-argument form's timeout; 0 for the others
+        uint32_t timeout_ms = 0;
+    };
+
+    /// Live subscriptions keyed by notification method, mirroring the real
+    /// client: several handlers may share a method and unregistering drops
+    /// only the matching one.
+    std::map<std::string, std::vector<MethodCallback>> method_callbacks;
+
+    /// Every unregister_method_callback() call, in order, whether or not it
+    /// matched anything.
+    std::vector<Unregistration> unregistrations;
+
+    /// Every send_jsonrpc() call, in order.
+    std::vector<RpcCall> rpc_calls;
+
+    /// What get_connection_state() reports. Settable so a subclass-free test
+    /// can present a client that is up or down.
+    helix::ConnectionState connection_state = helix::ConnectionState::CONNECTED;
+
+    /// What connect() returns; nonzero is a transport that could not start.
+    int connect_result = 0;
+
+    /// What last_connect_failure() reports after fire_disconnected().
+    helix::ConnectFailureKind connect_failure = helix::ConnectFailureKind::Unknown;
+
+    /// Deliver the last connect()'s on_disconnected, as a failed attempt would.
+    /// @return false when connect() was never called.
+    bool fire_disconnected() {
+        if (!on_disconnected_) {
+            return false;
+        }
+        auto cb = on_disconnected_;
+        cb();
+        return true;
+    }
+
+    /// Deliver the last connect()'s on_connected, as an attempt that opened would.
+    /// @return false when connect() was never called.
+    bool fire_connected() {
+        if (!on_connected_) {
+            return false;
+        }
+        auto cb = on_connected_;
+        cb();
+        return true;
+    }
+
+    /// Every URL connect() was handed, oldest first.
+    std::vector<std::string> connect_urls;
+
+    /// How many times disconnect() was called.
+    int disconnect_calls = 0;
+
+    /// Deliver @p msg to every handler registered for @p method.
+    /// @return false when nothing is subscribed — which is itself the
+    ///         assertion for "the consumer never registered".
+    bool fire_notification(const std::string& method, const nlohmann::json& msg) {
+        auto it = method_callbacks.find(method);
+        if (it == method_callbacks.end() || it->second.empty()) {
+            return false;
+        }
+        // Copy first: a handler is allowed to register or unregister from
+        // inside its own delivery, which would invalidate the vector.
+        std::vector<MethodCallback> handlers = it->second;
+        for (const MethodCallback& handler : handlers) {
+            if (handler.callback) {
+                handler.callback(msg);
+            }
+        }
+        return true;
+    }
+
+    /// The callbacks a consumer installed through set_on_hardware_discovered() and
+    /// set_on_discovery_complete(). Empty until installed.
+    std::function<void(const helix::PrinterDiscovery&)> on_hardware_discovered;
+    std::function<void(const helix::PrinterDiscovery&, const nlohmann::json&)>
+        on_discovery_complete;
+
+    /// Every (method, handler) subscription still live, sorted. Take one before
+    /// attaching a feature and compare after detaching it: equal means the feature
+    /// left nothing registered behind.
+    std::vector<std::pair<std::string, std::string>> live_handlers() const {
+        std::vector<std::pair<std::string, std::string>> out;
+        for (const auto& [method, handlers] : method_callbacks) {
+            for (const MethodCallback& h : handlers) {
+                out.emplace_back(method, h.handler_name);
+            }
+        }
+        std::sort(out.begin(), out.end());
+        return out;
+    }
+
+    /// Number of live handlers named @p handler_name under @p method.
+    size_t handler_count(const std::string& method, const std::string& handler_name) const {
+        auto it = method_callbacks.find(method);
+        if (it == method_callbacks.end()) {
+            return 0;
+        }
+        return static_cast<size_t>(
+            std::count_if(it->second.begin(), it->second.end(),
+                          [&](const MethodCallback& h) { return h.handler_name == handler_name; }));
+    }
+
+    /// The most recent recorded RPC, or nullptr if nothing was sent.
+    const RpcCall* last_rpc() const {
+        return rpc_calls.empty() ? nullptr : &rpc_calls.back();
+    }
+
+    /// Number of recorded sends of @p method.
+    size_t rpc_count(const std::string& method) const {
+        return static_cast<size_t>(
+            std::count_if(rpc_calls.begin(), rpc_calls.end(),
+                          [&method](const RpcCall& call) { return call.method == method; }));
+    }
+
+    /// True if @p handler_name was unregistered from @p method.
+    bool was_unregistered(const std::string& method, const std::string& handler_name) const {
+        return std::any_of(unregistrations.begin(), unregistrations.end(),
+                           [&](const Unregistration& u) {
+                               return u.method == method && u.handler_name == handler_name;
+                           });
+    }
+
+    // ========================================================================
+    // Subscriptions & method callbacks — recorded
+    // ========================================================================
+
+    void register_method_callback(const std::string& method, const std::string& handler_name,
+                                  helix::SharedCallback<void(const nlohmann::json&)> cb) override {
+        method_callbacks[method].push_back({handler_name, std::move(cb)});
+    }
+
+    bool unregister_method_callback(const std::string& method,
+                                    const std::string& handler_name) override {
+        unregistrations.push_back({method, handler_name});
+        auto it = method_callbacks.find(method);
+        if (it == method_callbacks.end()) {
+            return false;
+        }
+        std::vector<MethodCallback>& handlers = it->second;
+        const size_t before = handlers.size();
+        handlers.erase(std::remove_if(handlers.begin(), handlers.end(),
+                                      [&handler_name](const MethodCallback& h) {
+                                          return h.handler_name == handler_name;
+                                      }),
+                       handlers.end());
+        return handlers.size() != before;
+    }
+
+    // ========================================================================
+    // JSON-RPC — recorded
+    // ========================================================================
+
+    int send_jsonrpc(const std::string& method) override {
+        rpc_calls.push_back({method, nlohmann::json::object(), {}, {}});
+        return 0;
+    }
+
+    int send_jsonrpc(const std::string& method, const nlohmann::json& params) override {
+        rpc_calls.push_back({method, params, {}, {}});
+        return 0;
+    }
+
+    helix::RequestId send_jsonrpc(const std::string& method, const nlohmann::json& params,
+                                  helix::SharedCallback<void(const nlohmann::json&)> cb) override {
+        rpc_calls.push_back({method, params, std::move(cb), {}});
+        return ++next_request_id_;
+    }
+
+    helix::RequestId
+    send_jsonrpc(const std::string& method, const nlohmann::json& params,
+                 helix::SharedCallback<void(const nlohmann::json&)> success_cb,
+                 helix::SharedCallback<void(const MoonrakerError&)> error_cb, uint32_t timeout_ms,
+                 bool /*silent*/,
+                 std::optional<helix::rpc_error_policy::CallerIntent> /*intent*/) override {
+        rpc_calls.push_back(
+            {method, params, std::move(success_cb), std::move(error_cb), timeout_ms});
+        return ++next_request_id_;
+    }
+
+    // ========================================================================
+    // Everything else — inert
+    // ========================================================================
+
+    int connect(const char* url, helix::SharedCallback<void()> on_connected,
+                helix::SharedCallback<void()> on_disconnected) override {
+        last_url_ = url ? url : "";
+        connect_urls.push_back(last_url_);
+        on_connected_ = std::move(on_connected);
+        on_disconnected_ = std::move(on_disconnected);
+        return connect_result;
+    }
+    helix::ConnectFailureKind last_connect_failure() const override {
+        return connect_failure;
+    }
+    void disconnect() override {
+        ++disconnect_calls;
+    }
+    const std::string& get_last_url() const override {
+        return last_url_;
+    }
+    void set_auto_reconnect(bool) override {}
+    int gcode_script(const std::string&) override {
+        return 0;
+    }
+    void get_gcode_store(int, std::function<void(const std::vector<GcodeStoreEntry>&)>,
+                         helix::SharedCallback<void(const MoonrakerError&)>) override {}
+    void get_temperature_store(std::function<void(const TemperatureStore&)>,
+                               helix::SharedCallback<void(const MoonrakerError&)>) override {}
+    void discover_printer(helix::SharedCallback<void()>,
+                          helix::SharedCallback<void(const std::string&)>) override {}
+    helix::PrinterDiscovery hardware() const override {
+        return {};
+    }
+    void parse_objects(const nlohmann::json&) override {}
+    void clear_discovery_cache() override {}
+    void
+    set_on_hardware_discovered(std::function<void(const helix::PrinterDiscovery&)> cb) override {
+        on_hardware_discovered = std::move(cb);
+    }
+    void set_on_discovery_complete(
+        std::function<void(const helix::PrinterDiscovery&, const nlohmann::json&)> cb) override {
+        on_discovery_complete = std::move(cb);
+    }
+    void set_bed_mesh_callback(helix::SharedCallback<void(const nlohmann::json&)>) override {}
+    helix::SubscriptionId
+    register_notify_update(helix::SharedCallback<void(const nlohmann::json&)>) override {
+        return helix::kInvalidSubscriptionId;
+    }
+    bool unsubscribe_notify_update(helix::SubscriptionId) override {
+        return false;
+    }
+    void dispatch_status_update(const nlohmann::json&, bool, bool) override {}
+    void set_subscription_extras_provider(std::function<nlohmann::json()>) override {}
+    void refresh_subscription() override {}
+    helix::ConnectionState get_connection_state() const override {
+        return connection_state;
+    }
+    void add_connected_observer(const std::string&, helix::SharedCallback<void()>) override {}
+    bool remove_connected_observer(const std::string&) override {
+        return false;
+    }
+    void force_reconnect() override {}
+    void register_event_handler(helix::MoonrakerEventCallback) override {}
+    void suppress_disconnect_modal(uint32_t) override {}
+    bool is_disconnect_modal_suppressed() const override {
+        return false;
+    }
+    bool cancel_request(helix::RequestId) override {
+        return false;
+    }
+    void set_state_change_callback(
+        std::function<void(helix::ConnectionState, helix::ConnectionState)>) override {}
+    void set_connection_timeout(uint32_t) override {}
+    void set_default_request_timeout(uint32_t) override {}
+    void configure_timeouts(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) override {}
+    void process_timeouts() override {}
+    void toggle_filament_runout_simulation() override {}
+    std::weak_ptr<bool> lifetime_weak() const override {
+        return alive_;
+    }
+    uint64_t connection_generation() const override {
+        return 0;
+    }
+
+  protected:
+    std::string last_url_;
+    helix::SharedCallback<void()> on_connected_;
+    helix::SharedCallback<void()> on_disconnected_;
+    helix::RequestId next_request_id_ = 0;
+    /// Held, not a temporary: a weak_ptr to a just-destroyed shared_ptr is
+    /// born expired, which silently disarms every SubscriptionGuard built
+    /// from it.
+    std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
+};
+
+} // namespace helix::test

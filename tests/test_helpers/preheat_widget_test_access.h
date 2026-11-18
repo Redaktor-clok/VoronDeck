@@ -1,0 +1,66 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include "preheat_widget.h"
+
+#include <string>
+
+namespace helix {
+
+// Friend access to PreheatWidget internals that production code reaches only
+// through the tool-target button's click callback. The header declares this
+// class inside namespace helix, so the definition must live in the same
+// namespace - and in ONE place: two test translation units each defining their
+// own version of the class would be an ODR violation.
+//
+//  - cycle(): the real cycle_tool_target(). Production calls it from
+//    tool_target_cb(), which needs an attached widget tree, a live split
+//    button and s_active_instance set. The function itself reads nothing but
+//    ToolState, so a test that calls it directly still exercises every branch.
+//  - tool_target() / set_tool_target(): the value the cycle walks. It is also
+//    what handle_apply() hands collect_preheat_heaters() and what
+//    update_tool_target_label() renders, so it is the whole observable result.
+//  - set_temperatures_multi(): the real send path, including the "Preheat: ..."
+//    confirmation toast. Reads ToolState + the globally-registered
+//    TemperatureController, same as production; no attached widget tree needed.
+//
+// Follows the tests/test_helpers/ TestAccess pattern ([L088]) rather than
+// adding _for_testing() accessors to the production API.
+class PreheatWidgetTestAccess {
+  public:
+    static void cycle(PreheatWidget& widget) {
+        widget.cycle_tool_target();
+    }
+
+    static int tool_target(const PreheatWidget& widget) {
+        return widget.tool_target_;
+    }
+
+    static void set_tool_target(PreheatWidget& widget, int target) {
+        widget.tool_target_ = target;
+    }
+
+    static void set_temperatures_multi(PreheatWidget& widget, int nozzle, int bed) {
+        widget.set_temperatures_multi(nozzle, bed);
+    }
+
+    static void handle_cooldown(PreheatWidget& widget) {
+        widget.handle_cooldown();
+    }
+
+    static void handle_apply(PreheatWidget& widget) {
+        widget.handle_apply();
+    }
+
+    /// The tool-target caption update_tool_target_label() writes into @p label,
+    /// standing in for the attached tile's own label.
+    static std::string tool_target_caption(PreheatWidget& widget, lv_obj_t* label) {
+        widget.tool_target_label_ = label;
+        widget.update_tool_target_label();
+        widget.tool_target_label_ = nullptr;
+        return lv_label_get_text(label);
+    }
+};
+
+} // namespace helix

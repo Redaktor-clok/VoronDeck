@@ -1,0 +1,252 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <styles>
+    <!-- Page dots: every dot the foreground color, the current page's the accent.
+         The color lives in the bound styles, never inline, or it would override them. -->
+    <style name="page_dot_idle" bg_color="#text"/>
+    <style name="page_dot_current" bg_color="#primary"/>
+    <style name="unit_tab_idle" border_color="#text_muted"/>
+    <style name="unit_tab_current" border_color="#primary"/>
+    <!-- One tree, restyled for portrait (ui_is_portrait), as ams_panel.xml: the
+         content full width on top with its path canvases capped
+         (ams_portrait_path_h), the right column's sidebar filling the rest below. -->
+    <style name="panel_row" layout="flex" flex_flow="row"/>
+    <style name="panel_column" layout="flex" flex_flow="column"/>
+    <style name="content_landscape" height="100%" flex_grow="3"/>
+    <style name="content_portrait" width="100%" height="0" flex_grow="1"/>
+    <style name="fill_landscape" flex_grow="1"/>
+    <style name="fill_portrait" height="content" flex_grow="0"/>
+    <style name="left_portrait" height="0" flex_grow="1"/>
+    <style name="path_landscape" flex_grow="1"/>
+    <style name="path_portrait" height="#ams_portrait_path_h" flex_grow="0"/>
+    <style name="detail_path_landscape" flex_grow="1" margin_top="-8"/>
+    <style name="detail_path_portrait" height="#ams_portrait_path_h" flex_grow="0" margin_top="-12"/>
+    <!-- The unit view's header names the unit: the logo and the name centred on one
+         axis in the header's height. -->
+    <style name="name_centered" height="#ams_header_name_line_h"/>
+    <style name="suffix_centered" flex_track_place="center"/>
+    <!-- The unit view in portrait: a tighter gap, and the page dots float over the
+         canvas's empty bottom-left corner instead of taking a row of height. -->
+    <style name="unit_gap_landscape" pad_row="#space_xs"/>
+    <style name="unit_gap_portrait" pad_row="#space_xxs"/>
+    <style name="dots_landscape" width="100%" flex_main_place="center"/>
+    <style name="dots_portrait" width="50%" flex_main_place="start" align="bottom_left"/>
+    <style name="right_landscape" width="#ams_right_col_w" height="100%" flex_grow="0" pad_all="#space_sm"/>
+    <style name="right_portrait"
+           width="100%" height="content" flex_grow="0" pad_left="#space_sm" pad_right="#space_sm" pad_top="0" pad_bottom="#ams_actions_bottom_gap"/>
+  </styles>
+  <!-- Right sidebar width comes from `#ams_right_col_w` (defined in
+       ams_panel.xml). theme_manager scans every ui_xml file for responsive
+       px tokens and registers the bare base name in the globals scope, so
+       both panels resolve to the SAME breakpoint-aware value — single
+       source of truth, can't drift. -->
+  <!-- Overlay panel - right-aligned, row layout so right column spans full height -->
+  <view name="ams_overview_panel"
+        extends="lv_obj" width="#overlay_width_transient" height="100%" align="right_mid" style_pad_all="0"
+        style_border_width="0" style_bg_opa="255" style_bg_color="#card_bg" scrollable="false" style_pad_gap="0">
+    <bind_style_if_eq name="panel_row" subject="ui_is_portrait" ref_value="0"/>
+    <bind_style_if_eq name="panel_column" subject="ui_is_portrait" ref_value="1"/>
+    <!-- Left section: header + content (column) -->
+    <lv_obj name="overview_content" style_pad_all="0" style_pad_gap="0" flex_flow="column" scrollable="false">
+      <bind_style_if_eq name="content_landscape" subject="ui_is_portrait" ref_value="0"/>
+      <bind_style_if_eq name="content_portrait" subject="ui_is_portrait" ref_value="1"/>
+      <!-- Header Bar - left-column width only. The overview titles it; the unit view names the
+           unit on its page. -->
+      <lv_obj name="overlay_header"
+              width="100%" height="#header_height" style_pad_left="#space_xs" style_pad_right="#space_sm"
+              style_pad_top="0" style_pad_bottom="0" flex_flow="row" style_flex_main_place="start"
+              style_flex_cross_place="center" style_flex_track_place="center" scrollable="false">
+        <!-- Back button: flex_grow region covers arrow + title = large touch target -->
+        <lv_obj name="back_button"
+                height="100%" flex_grow="1" style_pad_left="0" style_pad_right="0" style_pad_top="0"
+                style_pad_bottom="0" scrollable="false" clickable="true" style_flex_cross_place="center"
+                style_flex_track_place="center" flex_flow="row" style_pad_gap="#space_xs">
+          <event_cb trigger="clicked" callback="on_ams_overview_back_clicked"/>
+          <icon src="back" size="lg" variant="text" clickable="false" event_bubble="true"/>
+          <!-- Overview title (hidden in the unit view) -->
+          <text_heading name="header_title"
+                        width="1" flex_grow="1" text="Multi-Filament Overview" text_transform="uppercase"
+                        long_mode="dots" style_text_align="left" clickable="false" event_bubble="true"
+                        scrollable="false">
+            <bind_flag_if_eq subject="ams_unit_view_active" flag="hidden" ref_value="1"/>
+          </text_heading>
+          <!-- The unit view's title is the unit on this page: logo + name. width="1"+flex_grow:
+               it takes what the chip leaves, and the name ellipsizes inside that. -->
+          <lv_obj name="header_backend_suffix"
+                  width="1" height="100%" flex_grow="1" style_pad_all="0" flex_flow="row"
+                  style_flex_cross_place="center" style_pad_gap="#space_xs" scrollable="false" clickable="false"
+                  event_bubble="true">
+            <bind_flag_if_eq subject="ams_unit_view_active" flag="hidden" ref_value="0"/>
+            <style name="suffix_centered"/>
+            <lv_image name="detail_logo"
+                      width="#ams_header_logo_size" height="#ams_header_logo_size" bind_src="ams_page_unit_logo"
+                      inner_align="contain" clickable="false" event_bubble="true">
+              <bind_flag_if_eq subject="ams_page_has_logo" flag="hidden" ref_value="0"/>
+              <bind_style_if_eq name="styles.ams_logo_mono" subject="ams_page_unit_logo_color" ref_value="0"/>
+            </lv_image>
+            <text_heading name="detail_unit_name"
+                          width="1" flex_grow="1" bind_text="ams_page_unit_name" text_transform="uppercase"
+                          long_mode="dots" clickable="false" event_bubble="true" scrollable="false">
+              <style name="name_centered"/>
+            </text_heading>
+          </lv_obj>
+        </lv_obj>
+        <!-- Outside the back button so a long unit name cannot push it off the header -->
+        <ams_disconnected_chip name="detail_disconnected_chip" disconnected="ams_viewed_unit_disconnected"/>
+      </lv_obj>
+      <!-- Portrait: the loaded strip and the status line stand here, above the diagram.
+           AmsOperationSidebar moves them in from the sidebar and back on rotation. -->
+      <lv_obj name="portrait_summary_slot"
+              width="100%" height="content" style_pad_left="#space_sm" style_pad_right="#space_sm" style_pad_top="0"
+              style_pad_bottom="#space_xxs" style_pad_row="#space_xxs" flex_flow="column"
+              style_flex_cross_place="center" scrollable="false">
+        <bind_flag_if_eq subject="ui_is_portrait" flag="hidden" ref_value="0"/>
+      </lv_obj>
+      <!-- Left column content (cards + canvas OR the unit view) -->
+      <lv_obj name="left_column"
+              width="100%" style_pad_all="#space_sm" style_pad_top="0" style_pad_gap="#space_sm" flex_flow="column"
+              style_flex_main_place="start" style_flex_cross_place="center" scrollable="false" scroll_dir="ver" scrollbar_mode="auto">
+        <bind_style_if_eq name="fill_landscape" subject="ui_is_portrait" ref_value="0"/>
+        <bind_style_if_eq name="left_portrait" subject="ui_is_portrait" ref_value="1"/>
+        <bind_flag_if_eq subject="ui_is_portrait" flag="scrollable" ref_value="1"/>
+        <!-- Disable content when printer not connected or klippy not ready -->
+        <bind_state_if_not_eq subject="nav_buttons_enabled" state="disabled" ref_value="1"/>
+        <!-- === Overview Mode (visible by default, hidden in the unit view) === -->
+        <!-- Unit Cards Row - horizontal layout for unit summary cards -->
+        <!-- style_pad_bottom reserves a lane for the active scrollbar; without it
+             the bar is drawn straight through each card's "N slots" line while
+             dragging. This row scrolls independently of the path canvas below,
+             which is why the canvas positions its own entry stems rather than
+             tracking these cards. -->
+        <lv_obj name="unit_cards_row"
+                width="100%" height="content" style_pad_all="0" style_pad_bottom="#space_xs" style_pad_gap="#space_md"
+                flex_flow="row" style_flex_main_place="start" style_flex_cross_place="start" scrollable="true"
+                scrollbar_mode="active">
+          <bind_flag_if_eq subject="ams_unit_view_active" flag="hidden" ref_value="1"/>
+          <!-- Unit cards created dynamically by AmsOverviewPanel::create_unit_cards() -->
+        </lv_obj>
+        <!-- System Path Area - shows unit outputs → hub → toolhead + bypass path -->
+        <lv_obj name="system_path_area" width="100%" style_pad_all="0" scrollable="false">
+          <bind_style_if_eq name="path_landscape" subject="ui_is_portrait" ref_value="0"/>
+          <bind_style_if_eq name="path_portrait" subject="ui_is_portrait" ref_value="1"/>
+          <bind_flag_if_eq subject="ams_unit_view_active" flag="hidden" ref_value="1"/>
+          <!-- Path canvas created programmatically with status text drawn to left of nozzle -->
+        </lv_obj>
+        <!-- === Unit view: the unit on one page, its path to the toolhead, the page dots ===
+             Shown when a unit card is tapped. It takes the swipe that pages: every child
+             passes its gestures up, and this one is where they stop (a gesture goes to the
+             first ancestor that does not bubble), so a swipe over the overview pages nothing. -->
+        <lv_obj name="unit_detail_container"
+                width="100%" style_pad_all="0" style_pad_column="#space_xs" flex_flow="column"
+                style_flex_main_place="start" style_flex_cross_place="center" scrollable="false" gesture_bubble="false">
+          <bind_style_if_eq name="fill_landscape" subject="ui_is_portrait" ref_value="0"/>
+          <bind_style_if_eq name="fill_portrait" subject="ui_is_portrait" ref_value="1"/>
+          <bind_style_if_eq name="unit_gap_landscape" subject="ui_is_portrait" ref_value="0"/>
+          <bind_style_if_eq name="unit_gap_portrait" subject="ui_is_portrait" ref_value="1"/>
+          <bind_flag_if_eq subject="ams_unit_view_active" flag="hidden" ref_value="0"/>
+          <lv_obj name="unit_tabs" width="100%" height="#ams_unit_tabs_height" style_pad_all="0"
+                  flex_flow="row" style_pad_column="#space_xs" scrollable="true"
+                  scroll_dir="hor" scrollbar_mode="off" gesture_bubble="false">
+            <bind_flag_if_lt subject="ams_page_count" flag="hidden" ref_value="2"/>
+            <repeat count="ams_page_count">
+              <lv_obj name="unit_tab" width="#ams_unit_tab_width" height="#ams_unit_tab_height" style_pad_all="0"
+                      style_radius="#border_radius" style_border_width="2" style_bg_color="#card_bg"
+                      style_bg_opa="255" scrollable="false" clickable="true">
+                <bind_style_if_not_eq name="unit_tab_idle" subject="ams_page_current" ref_value="$i"/>
+                <bind_style_if_eq name="unit_tab_current" subject="ams_page_current" ref_value="$i"/>
+                <event_cb trigger="clicked" callback="on_ams_unit_tab_clicked"/>
+                <text_small name="unit_tab_label" bind_text="ams_unit_tab_${i}" align="center" style_text_align="center"
+                            clickable="false" event_bubble="true"/>
+              </lv_obj>
+            </repeat>
+          </lv_obj>
+          <!-- Spool box (populated dynamically with ams_slot widgets) -->
+          <ui_card name="detail_unit_card"
+                   width="100%" height="content" style_radius="4" style_pad_all="#space_sm" style_border_width="0"
+                   scrollable="false">
+            <lv_obj name="detail_slot_area" width="100%" height="content" style_pad_all="0" scrollable="false">
+              <!-- Shared spool grid + tray + labels component -->
+              <ams_unit_detail name="detail_unit_detail" detail_flow="column_reverse" slot_width="100%"
+                               slot_grow="0" env_flow="row_wrap" env_gap="#space_md"
+                               env_font="#font_heading" env_icon="md" env_min_height="48"/>
+            </lv_obj>
+          </ui_card>
+          <!-- Path canvas: filament routing from the unit's slots through the hub to the nozzle.
+               The paging arrows float over its left and right edges; C++ places them level with
+               the hub box, which the canvas measures.
+               The detail_path_* styles tuck the canvas under the spool box's front edge, where
+               the lanes enter it; the same pull ams_panel.xml's path_container makes. -->
+          <lv_obj name="detail_path_container"
+                  width="100%" style_pad_all="0" flex_flow="column" overflow_visible="true"
+                  style_flex_main_place="start" style_flex_cross_place="center" scrollable="false">
+            <bind_style_if_eq name="detail_path_landscape" subject="ui_is_portrait" ref_value="0"/>
+            <bind_style_if_eq name="detail_path_portrait" subject="ui_is_portrait" ref_value="1"/>
+            <filament_path_canvas name="detail_path_canvas" width="100%" flex_grow="1"/>
+            <lv_obj name="page_prev_button"
+                    width="#ams_page_arrow_hit" height="#ams_page_arrow_hit" floating="true" clickable="true"
+                    scrollable="false" style_pad_all="0" style_bg_opa="0" style_border_width="0" style_radius="9999">
+              <bind_flag_if_eq subject="ams_page_has_prev" flag="hidden" ref_value="0"/>
+              <event_cb trigger="clicked" callback="on_ams_page_prev_clicked"/>
+              <style name="styles.press_wash" selector="pressed"/>
+              <lv_obj name="page_prev_disc"
+                      width="#ams_page_arrow_size" height="#ams_page_arrow_size" align="center" style_radius="9999"
+                      style_bg_color="#elevated_bg" style_bg_opa="255" style_border_width="0" style_pad_all="0"
+                      flex_flow="row" style_flex_main_place="center" style_flex_cross_place="center" scrollable="false"
+                      clickable="false" event_bubble="true">
+                <icon src="chevron_left" size="md" variant="text" clickable="false" event_bubble="true"/>
+              </lv_obj>
+            </lv_obj>
+            <lv_obj name="page_next_button"
+                    width="#ams_page_arrow_hit" height="#ams_page_arrow_hit" floating="true" clickable="true"
+                    scrollable="false" style_pad_all="0" style_bg_opa="0" style_border_width="0" style_radius="9999">
+              <bind_flag_if_eq subject="ams_page_has_next" flag="hidden" ref_value="0"/>
+              <event_cb trigger="clicked" callback="on_ams_page_next_clicked"/>
+              <style name="styles.press_wash" selector="pressed"/>
+              <lv_obj name="page_next_disc"
+                      width="#ams_page_arrow_size" height="#ams_page_arrow_size" align="center" style_radius="9999"
+                      style_bg_color="#elevated_bg" style_bg_opa="255" style_border_width="0" style_pad_all="0"
+                      flex_flow="row" style_flex_main_place="center" style_flex_cross_place="center" scrollable="false"
+                      clickable="false" event_bubble="true">
+                <icon src="chevron_right" size="md" variant="text" clickable="false" event_bubble="true"/>
+              </lv_obj>
+            </lv_obj>
+          </lv_obj>
+          <!-- Page dots: one per page, centered; hidden with a single page. The repeat is
+               the only child of its container, as a subject-bound repeat must be. -->
+          <lv_obj name="page_dots"
+                  height="content" style_pad_all="0" flex_flow="row" style_flex_cross_place="center"
+                  style_pad_column="#space_sm" scrollable="true" scroll_dir="hor" scrollbar_mode="off" clickable="false">
+            <bind_flag_if_lt subject="ams_page_count" flag="hidden" ref_value="2"/>
+            <bind_style_if_eq name="dots_landscape" subject="ui_is_portrait" ref_value="0"/>
+            <bind_style_if_eq name="dots_portrait" subject="ui_is_portrait" ref_value="1"/>
+            <bind_flag_if_eq subject="ui_is_portrait" flag="floating" ref_value="1"/>
+            <repeat count="ams_page_count">
+              <lv_obj width="#ams_page_dot_size"
+                      height="#ams_page_dot_size" style_radius="9999" style_bg_opa="255" style_border_width="0"
+                      style_pad_all="0" scrollable="false" clickable="false">
+                <bind_style_if_not_eq name="page_dot_idle" subject="ams_page_current" ref_value="$i"/>
+                <bind_style_if_eq name="page_dot_current" subject="ams_page_current" ref_value="$i"/>
+              </lv_obj>
+            </repeat>
+          </lv_obj>
+        </lv_obj>
+      </lv_obj>
+    </lv_obj>
+    <!-- Right column (loaded info + action buttons): full panel height beside the
+         content in landscape, the full-width bottom section in portrait -->
+    <lv_obj name="right_column"
+            style_pad_gap="#space_sm" flex_flow="column" style_flex_main_place="start" style_flex_cross_place="start"
+            scrollable="false">
+      <bind_state_if_not_eq subject="nav_buttons_enabled" state="disabled" ref_value="1"/>
+      <bind_style_if_eq name="right_landscape" subject="ui_is_portrait" ref_value="0"/>
+      <bind_style_if_eq name="right_portrait" subject="ui_is_portrait" ref_value="1"/>
+      <lv_obj name="ams_detail_climate_slot" width="100%" height="content" style_pad_all="0"
+              flex_flow="column" style_flex_cross_place="center" scrollable="false">
+        <bind_flag_if cond="ams_unit_view_active eq 0 or ui_is_portrait eq 1" flag="hidden"/>
+      </lv_obj>
+      <ams_sidebar name="ams_operation_sidebar"/>
+    </lv_obj>
+  </view>
+</component>

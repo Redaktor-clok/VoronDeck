@@ -1,0 +1,81 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "async_lifetime_guard.h"
+#include "src/ui/panel_widgets/tiled_panel_widget.h"
+
+#include <memory>
+
+class EthernetManager;
+
+#include "network_type.h"
+#include "wifi_backend.h"
+
+namespace helix {
+class WiFiManager;
+
+class NetworkWidget : public TiledPanelWidget {
+  public:
+    NetworkWidget();
+    ~NetworkWidget() override;
+
+    void attach(lv_obj_t* widget_obj, lv_obj_t* parent_screen) override;
+    void detach() override;
+    const char* id() const override {
+        return "network";
+    }
+
+    /// Called when panel activates — re-detects network and starts polling
+    void on_activate() override;
+    /// Called when panel deactivates — stops polling
+    void on_deactivate() override;
+
+    // XML event callback (public for early registration in register_network_widget)
+    static void network_clicked_cb(lv_event_t* e);
+
+  protected:
+    /// Drop the cached tile pointers, stop the poll timer and expire the guard
+    /// when the tile tree dies without a detach() — screen teardown.
+    void on_hooked_root_deleted() override;
+
+  private:
+    friend class NetworkWidgetTestAccess;
+
+    lv_obj_t* widget_obj_ = nullptr;
+    lv_obj_t* parent_screen_ = nullptr;
+
+    // Module-level subjects owned by network_widget.cpp
+    // (initialized via register_widget_subjects → PanelWidgetManager::init_widget_subjects)
+    lv_subject_t* network_icon_state_ = nullptr;
+
+    NetworkType current_network_ = NetworkType::Unknown;
+    int last_wifi_signal_ = 0;   // Last signal strength a status read returned
+    bool backend_ready_ = false; // True after WiFi backend fires READY event
+    bool active_ = false;        // Home is showing: between attach/on_activate and on_deactivate
+    lv_timer_t* signal_poll_timer_ = nullptr;
+    std::shared_ptr<WiFiManager> wifi_manager_;
+    std::unique_ptr<EthernetManager> ethernet_manager_;
+
+    // Async callback safety — expired on detach()/destruction so pending
+    // ethernet probes can't touch freed subjects.
+    helix::AsyncLifetimeGuard lifetime_;
+
+    void detect_network_type(bool force = false);
+    void apply_wifi_status(const WifiBackend::ConnectionStatus& status);
+    void poll_wifi_signal();
+    void ensure_signal_poll_timer();
+    int compute_network_icon_state() const;
+    void update_network_icon_state();
+    void set_network(NetworkType type);
+    void handle_network_clicked();
+    /// Shared by detach(), on_deactivate() and the ethernet probe's defer body,
+    /// so no path can leave the timer armed on a freed `this` and none of them
+    /// unlinks a timer LVGL is currently walking.
+    void cancel_signal_poll_timer();
+
+    static void signal_poll_timer_cb(lv_timer_t* timer);
+};
+
+} // namespace helix

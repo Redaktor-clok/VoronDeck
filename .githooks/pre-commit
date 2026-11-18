@@ -1,0 +1,41 @@
+#!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Git pre-commit hook for HelixScreen
+#
+# This hook runs quality checks before each commit using scripts/quality-checks.sh
+# Files with formatting issues are auto-fixed and staged.
+#
+# --staged-only skips any gate that inspects nothing you staged, so a docs-only
+# commit costs about a second instead of ~17s. The gates it skipped are not
+# dropped: .githooks/pre-push runs the whole sweep, ungated, before anything
+# leaves the machine.
+#
+# Setup (one-time):
+#   git config core.hooksPath .githooks
+#
+# Bypass for one commit:
+#   git commit --no-verify
+
+set -e
+
+# Change to repo root
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$REPO_ROOT"
+
+# ---- helix-claim: announce a merge so peers need not guess (advisory) -------
+# Silent unless another session holds this tree. $PPID is the git process
+# itself, so the claim dies with the merge and a crash needs no cleanup.
+# A merge that STOPPED to be resolved lands here; a clean one runs
+# pre-merge-commit instead, which takes the same claim.
+if [ -f "$(git rev-parse --git-dir)/MERGE_HEAD" ]; then
+    _lib="$(dirname "$0")/lib/claim-tree.sh"
+    if [ -r "$_lib" ]; then
+        # shellcheck source=lib/claim-tree.sh
+        . "$_lib"
+        claim_tree "merge $(git name-rev --name-only MERGE_HEAD 2>/dev/null || echo '?')" || exit 1
+    fi
+fi
+# ---------------------------------------------------------------------------
+
+# Run quality checks with staged-only mode and auto-fix
+exec ./scripts/quality-checks.sh --staged-only --auto-fix

@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Pre-push: the full, ungated quality sweep - run against THE COMMITS BEING
+# PUSHED, not against whatever happens to be sitting in the working tree.
+#
+# pre-commit runs --staged-only, which skips any gate that inspects nothing you
+# staged (see qc_trigger_re in scripts/quality-checks.sh). That keeps a one-file
+# commit near a second, but it means a commit can pass locally while a repo-wide
+# invariant it never ran is broken. This hook is where that gets caught, before
+# anything leaves the machine.
+#
+# Why it does not just sweep the working tree: quality-checks.sh reads file
+# CONTENT off disk (CI mode walks src/ and include/ with find). A dirty tree
+# therefore makes the answer wrong in both directions - in-flight edits fail a
+# push whose commits are fine, and an uncommitted fix turns the sweep green over
+# committed code that CI will reject. Parallel sessions and worktrees sharing one
+# checkout make a dirty tree the normal case, not the exception. Gating the
+# publishable commit is the only reading that matches this hook's promise: a
+# green push should mean a green Code Quality job.
+#
+# Fast path: when the tree already matches the commit being pushed there is
+# nothing to isolate, so the sweep runs in place. Otherwise the commit is
+# checked out into a throwaway worktree, with the heavy build inputs shared by
+# symlink rather than rebuilt.
+#
+# Patch drift is asked in the tree that owns lib/, on both paths. A landing that
+# adds or edits a patch is pushed from a tree that has not built it yet; drift
+# confined to patches the pushed commits changed is reported, not rejected
+# (lib/push-range.sh).
+#
+# One push, one gated ref: when several refs go up together, the last one read
+# is the commit swept and the range drift is measured over. A push that would
+# leave a main, release/* or tag commit unswept that way is refused; push the
+# protected ref alone, or last.
+#
+# A tip `make land-gate` passed skips the quality sweep and its clang/GCC
+# divergence gate: the gate ran quality-checks.sh on exactly that commit
+# (.githooks/lib/land-gate-stamp.sh). The pass counts from this clone, from
+# another clone on this host, or from a gate host named in HELIX_LAND_GATE_HOSTS
+# (build-hosts.env), asked over ssh when nothing here matches. A stamp names a
+# commit, not a tree, so it counts the same from a dirty tree, whose push is
+# swept in a throwaway checkout of that commit. The ESP32 syntax check and
+# patch drift still run; the gate has no ESP32 check, and drift describes this
+# tree's lib/, not the commit.
+#
+# Doc anchors are not checked here: `make check-doc-anchors` is advisory, takes
+# over a minute, and blocks nothing, so a push would wait on a report it ignores.
+#
+# A push that only updates work branches runs the commit-level gates and leaves
+# the push-only ones (QC_PUSH_ONLY in scripts/quality-checks.sh) and the clang
+# divergence gate to make land-gate and CI: nothing reaches main without both.
+# A push that touches main, release/* or a tag, or any ref this hook cannot
+# read, runs the full sweep as before.
+#
+# Escape hatches: HELIX_PREPUSH_IN_PLACE=1 forces the old in-place behaviour,
+# HELIX_PREPUSH_FULL=1 sweeps a gated tip anyway, and `git push --no-verify`
+# skips the hook entirely. Expect CI to find whatever you skipped.
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+[ -x ./scripts/quality-checks.sh ] || exit 0
+
+# stdin is "<local ref> <local sha> <remote ref> <remote sha>" per ref. An
+# all-zero local sha is a branch deletion, which publishes no content to gate.
+TARGET=""
+REMOTE_SHA=""
+WORK_BRANCHES_ONLY=1
+PROTECTED_SHAS=""
+while read -r _local_ref local_sha remote_ref remote_sha; do
+    # All zeros is a branch deletion: it publishes no content to gate.
+    case "$local_sha" in
+        "" | *[!0]*) TARGET="$local_sha" REMOTE_SHA="$remote_sha" ;;
+        *) continue ;;
+    esac
+    case "$remote_ref" in
+        refs/heads/main | refs/heads/release/* | refs/tags/*)
+            WORK_BRANCHES_ONLY=""
+            PROTECTED_SHAS="$PROTECTED_SHAS $local_sha"
+            ;;
+        refs/heads/?*) ;;
+        *) WORK_BRANCHES_ONLY="" ;;
+    esac
+done
+[ -n "$TARGET" ] || exit 0
+for protected_sha in $PROTECTED_SHAS; do
+    [ "$protected_sha" = "$TARGET" ] && continue
+    echo "❌ pre-push: this push sweeps only ${TARGET:0:9}, its last ref, and would leave"
+    echo "   ${protected_sha:0:9} (main, release/* or a tag) unswept. Push that ref alone, or last."
+    exit 1
+done
+[ -z "${HELIX_PREPUSH_FULL:-}" ] || WORK_BRANCHES_ONLY=""
+# Set both ways, so a value the caller exported never reaches a full sweep.
+SWEEP_ENV="HELIX_QC_SKIP_PUSH_ONLY=0 HELIX_QC_LOG_DIR=$REPO_ROOT/build/qc-logs"
+SWEEP_NOTE="full quality sweep (pre-commit only checked what you staged)"
+if [ -n "$WORK_BRANCHES_ONLY" ]; then
+    SWEEP_ENV="HELIX_QC_SKIP_PUSH_ONLY=1 HELIX_QC_LOG_DIR=$REPO_ROOT/build/qc-logs"
+    SWEEP_NOTE="work-branch sweep: the commit-level gates; make land-gate and CI run the rest before main (HELIX_PREPUSH_FULL=1 runs everything)"
+fi
+
+# shellcheck source=lib/push-range.sh
+. "$(dirname "$0")/lib/push-range.sh"
+BASE="$(push_base "$REMOTE_SHA" "$TARGET")" || BASE=""
+
+# shellcheck source=lib/land-gate-stamp.sh
+. "$(dirname "$0")/lib/land-gate-stamp.sh"
+GATE_PASSED=""
+GATE_HOST=""
+if [ -z "${HELIX_PREPUSH_FULL:-}" ]; then
+    if land_gate_passed "$TARGET"; then
+        GATE_PASSED=1
+    elif GATE_HOST=$(land_gate_ask_hosts "$TARGET"); then
+        GATE_PASSED=1
+    fi
+fi
+gate_passed_note() {
+    echo "⏭️  pre-push: make land-gate passed ${TARGET:0:9}${GATE_HOST:+ on $GATE_HOST}; skipping the quality sweep it ran (HELIX_PREPUSH_FULL=1 runs it)"
+}
+
+# Code that compiles on the host can still fail on the ESP32 image: int32_t is
+# long on Xtensa and the image builds -fno-exceptions. This syntax-checks the
+# firmware units the pushed commits reach, measured from what the remote has;
+# a new branch measures from its merge-base with origin/main.
+esp32_syntax_check() {
+    local tree="$1"
+    [ -f "$tree/scripts/esp32_syntax_check.py" ] || return 0
+    [ -n "$BASE" ] || return 0
+    echo ""
+    python3 "$tree/scripts/esp32_syntax_check.py" --tree "$tree" --base "$BASE" --head "$TARGET"
+}
+
+TREE_DIFFERS="$(git diff --name-only "$TARGET" -- . | head -1)"
+
+if [ -n "${HELIX_PREPUSH_IN_PLACE:-}" ] || [ -z "$TREE_DIFFERS" ]; then
+    STATUS=0
+    if [ -n "$GATE_PASSED" ]; then
+        gate_passed_note
+    else
+        echo "🚦 pre-push: $SWEEP_NOTE"
+        # Drift is asked once, below, where patches the push ships can be told
+        # apart from drift the push does not explain.
+        env $SWEEP_ENV HELIX_QC_SKIP_PATCH_DRIFT=1 ./scripts/quality-checks.sh || STATUS=$?
+    fi
+    prepush_patch_drift "$REPO_ROOT" "$BASE" "$TARGET" || STATUS=1
+    esp32_syntax_check "$REPO_ROOT" || STATUS=1
+    exit "$STATUS"
+fi
+
+echo "🚦 pre-push: working tree differs from the commit being pushed"
+echo "   Sweeping ${TARGET:0:9} in a throwaway checkout so in-flight work neither"
+echo "   blocks this push nor hides a problem in it."
+
+ISOLATED="$(mktemp -d "${TMPDIR:-/tmp}/helix-prepush-XXXXXX")"
+# shellcheck disable=SC2317  # invoked via trap, not inline
+cleanup() {
+    git worktree remove --force "$ISOLATED/tree" >/dev/null 2>&1 || true
+    rm -rf "$ISOLATED"
+}
+trap cleanup EXIT
+
+git worktree add --detach "$ISOLATED/tree" "$TARGET" >/dev/null
+
+# Share what is expensive and not part of what we are gating. Both are
+# git-ignored, so the fresh checkout has no entry to collide with.
+for shared in .venv node_modules; do
+    [ -e "$REPO_ROOT/$shared" ] || continue
+    ln -s "$REPO_ROOT/$shared" "$ISOLATED/tree/$shared"
+done
+
+# build/bin only, never build/ wholesale. The XML validators there are executed
+# read-only, but build/helix-xml-tests holds a cmake cache that records its
+# source directory as an absolute path: sweeping with all of build/ shared bakes
+# THIS throwaway path into the real tree's cache, and every later run then fails
+# against a directory that no longer exists. Consequence of the narrower link is
+# that the helix-xml submodule-test gate finds no configured build tree and skips
+# itself - which is its designed behaviour, and deliberate here, because its
+# first configure clones LVGL over the network and is far too slow for a hook.
+#
+# The binaries were built from THIS tree, so they only describe a pushed commit
+# that descends from it. Pushing another line from here (release/1.0 from main)
+# would validate that line with this branch's tools; without build/bin the
+# binary-backed gates report "not built - skipping" instead of false errors.
+if [ -d "$REPO_ROOT/build/bin" ] && git merge-base --is-ancestor HEAD "$TARGET" 2>/dev/null; then
+    mkdir -p "$ISOLATED/tree/build"
+    ln -s "$REPO_ROOT/build/bin" "$ISOLATED/tree/build/bin"
+fi
+
+# Submodules come out of `worktree add` as empty gitlink directories. Point each
+# at the primary checkout: patch-drift and the doc-reference gate resolve against
+# the filesystem, and an empty lib/ reads to them as mass breakage.
+for submodule_path in "$REPO_ROOT"/lib/*/; do
+    [ -d "$submodule_path" ] || continue
+    submodule_name="$(basename "$submodule_path")"
+    rmdir "$ISOLATED/tree/lib/$submodule_name" 2>/dev/null || true
+    [ -e "$ISOLATED/tree/lib/$submodule_name" ] && continue
+    ln -s "${submodule_path%/}" "$ISOLATED/tree/lib/$submodule_name"
+done
+
+# Patch drift describes a working tree, not a commit. The throwaway checkout
+# borrows lib/ from the primary tree above, so its submodules carry whatever
+# patches the primary tree's branch applied; measured against a different
+# branch's patches/ that reads as drift neither tree is guilty of, and the push
+# is rejected for a mismatch the pusher cannot fix from here. Ask it below,
+# where lib/ is owned rather than borrowed.
+# The clang gate is deferred for the same reason: it derives its repo root from
+# its own path and needs a compile database there, and the isolated checkout is
+# never built. Reporting green off an unbuilt tree would be a vacuous pass, so
+# the gate declines - correctly - and the question moves below with patch drift.
+STATUS=0
+if [ -n "$GATE_PASSED" ]; then
+    gate_passed_note
+else
+    echo "🚦 pre-push: $SWEEP_NOTE"
+    ( cd "$ISOLATED/tree" \
+        && env $SWEEP_ENV HELIX_QC_SKIP_PATCH_DRIFT=1 HELIX_QC_SKIP_CLANG_DIVERGENCE=1 \
+           ./scripts/quality-checks.sh ) || STATUS=$?
+fi
+
+esp32_syntax_check "$ISOLATED/tree" || STATUS=1
+
+if [ "$STATUS" -ne 0 ]; then
+    echo ""
+    echo "❌ The sweep failed against the commit you are pushing, not against your"
+    echo "   working tree - so this is a real finding in ${TARGET:0:9}."
+fi
+
+prepush_patch_drift "$REPO_ROOT" "$BASE" "$TARGET" || STATUS=1
+
+if [ -z "$GATE_PASSED" ] && [ -z "$WORK_BRANCHES_ONLY" ] &&
+    [ -f "$REPO_ROOT/scripts/check_clang_diagnostics.py" ]; then
+    echo ""
+    echo "🐉 Checking clang/GCC divergence in your working tree (it has the compile database)..."
+    if ! ( cd "$REPO_ROOT" && python3 scripts/check_clang_diagnostics.py ); then
+        echo ""
+        echo "❌ clang/GCC divergence was found in YOUR WORKING TREE. It is the same"
+        echo "   code you are pushing unless you have edits in flight, so treat it as"
+        echo "   a real finding; CI's Ubuntu job compiles this with clang and -Werror."
+        echo "   A tree that was never built cannot answer:  make -j"
+        STATUS=1
+    fi
+fi
+
+exit "$STATUS"

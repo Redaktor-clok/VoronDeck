@@ -1,0 +1,21 @@
+VoronDeck Orbit Regular 400 / SemiBold 600
+
+Derived from Orbitron, licensed under the SIL Open Font License 1.1.
+See Orbitron-OFL.txt for the complete original copyright and license notice.
+
+Original: https://github.com/google/fonts/tree/main/ofl/orbitron
+Copyright 2018 The Orbitron Project Authors
+(https://github.com/theleagueof/orbitron), with Reserved Font Name: "Orbitron".
+
+Modifications for VoronDeck, 2026:
+- Renamed family and PostScript names to VoronDeck Orbit / VoronDeckOrbit-*.
+- Added 66 Russian Cyrillic mappings: 47 explicitly drawn letter outlines,
+  19 equivalent Latin forms copied into separate Cyrillic glyph records.
+- Added drawn UI symbols middot, numero and approximately-equal.
+- Added separate Cyrillic GPOS kerning, preserving the original Latin tables.
+- Instantiated the original variable face at static weights 400 and 600.
+
+Generator: design/fonts/vorondeck-orbit/build_font.py in the workspace.
+No Noto or other font supplies the Russian Cyrillic outlines.
+The historic orbitron_* bitmap filenames and C symbols are internal identifiers,
+not the family name of the modified fonts. Modified font software remains OFL-1.1.

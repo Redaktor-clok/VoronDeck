@@ -1,0 +1,2837 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "filament_database.h"
+#include "filament_variants.h"
+#include "klipper_extruder_naming.h"
+#include "translation_loader.h"
+
+#include <algorithm>
+#include <any>
+#include <cctype>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <utility>
+#include <vector>
+
+/**
+ * @file ams_types.h
+ * @brief Data structures for multi-filament/AMS system support
+ *
+ * Supports both Happy Hare (MMU) and AFC-Klipper-Add-On systems.
+ * These structures are platform-agnostic - backends translate from
+ * their specific APIs to these common types.
+ *
+ * @note Thread Safety: These structures are NOT thread-safe. The AmsState
+ * class provides thread-safe access through LVGL subjects. Direct mutation
+ * of these structures should only occur in the backend layer.
+ */
+
+namespace helix {
+
+/// Default color for slots without filament info (medium gray)
+constexpr uint32_t kAmsDefaultSlotColor = 0x808080;
+
+/// Units the AMS UI addresses. The overview's path canvas draws this many and
+/// AmsState allocates this many sets of per-unit subjects, so a unit the path
+/// shows always has a badge to bind; both caps derive from this one constant.
+constexpr int kAmsMaxUnits = 16;
+
+/// Slots the AMS UI binds per backend: AmsState's per-slot subjects, the path
+/// canvas, the endless-spool arrows and the slot grids all derive their caps
+/// from this one constant. AFC and Happy Hare report every lane they find, so
+/// a many-unit rig is ordinary hardware; 64 is sixteen four-lane units. A slot
+/// past it keeps working in the backend and shows unbound in the UI.
+constexpr int kAmsMaxSlots = 64;
+
+/// unload_filament() slot meaning "clear the toolhead and retract no lane":
+/// cut and withdraw what the extruder holds, for filament no lane can be named
+/// for. Only a backend that asks an UnloadLaneQuestion accepts it.
+inline constexpr int kClearToolheadSlot = -3;
+
+/**
+ * @brief What the user must answer before a slotless toolhead unload, when the
+ *        backend cannot name the lane in the toolhead itself.
+ */
+struct UnloadLaneQuestion {
+    /// 0-based lanes to offer, alongside an extruder-only clear
+    /// (kClearToolheadSlot) and a cancel.
+    std::vector<int> lanes;
+    /// No lane to offer: ask to confirm the extruder-only clear.
+    bool confirm_clear_toolhead = false;
+    /// Why the clear is the only answer, shown in its confirmation in place
+    /// of the default explanation; empty for the default.
+    std::string reason;
+
+    [[nodiscard]] bool asks() const {
+        return !lanes.empty() || confirm_clear_toolhead;
+    }
+};
+
+/**
+ * @brief Type of AMS system detected
+ *
+ * Supports both filament-switching systems (MMU/AMS) and physical tool changers.
+ * Tool changers differ in that each "slot" is a complete toolhead with its own
+ * extruder, rather than a filament path to a shared toolhead.
+ */
+enum class AmsType {
+    NONE = 0,         ///< No AMS detected
+    HAPPY_HARE = 1,   ///< Happy Hare MMU (mmu object in Moonraker)
+    AFC = 2,          ///< AFC-Klipper-Add-On (afc object, lane_data database)
+    ACE = 3,          ///< AnyCubic ACE Pro (ValgACE/BunnyACE/DuckACE Klipper drivers)
+    TOOL_CHANGER = 4, ///< Physical tool changer (viesturz/klipper-toolchanger)
+    AD5X_IFS = 5,     ///< FlashForge AD5X IFS (Intelligent Filament Switching)
+    CFS = 6,          ///< Creality Filament System (K2 series, RS-485)
+    SNAPMAKER = 7,    ///< Snapmaker U1 SnapSwap toolchanger
+    QIDI_BOX =
+        8, ///< QIDI Box filament changer (PLUS4, Q2, MAX4 — hub AMS, 4 slots chainable to 16)
+    OPENAMS = 9, ///< klipper_openams through its own versioned oams_manager API
+    INDX = 10    ///< Bondtech INDX: docked passive nozzles, one extruder and heater
+};
+
+/// Which rows of its own a filament system adds to the buffer status modal,
+/// beside the generic reading (BufferReading) every buffer has.
+enum class AmsBufferRows : int {
+    None = 0,       ///< No rows of its own
+    SyncDrive = 1,  ///< System level: spool motor, gear sync, flow rate
+    UnitBuffer = 2, ///< Per unit: what the buffer is doing, distance to fault
+};
+
+/**
+ * @brief What generic code needs to know about one AmsType, without naming it
+ *
+ * One row per type in kAmsTypeTraits. A new filament system adds its row and
+ * every name, persisted key and capability below follows from it.
+ */
+struct AmsTypeTraits {
+    AmsType type;
+    /// Short display name: "AFC", "Happy Hare".
+    const char* name;
+    /// Full product wording, for the setup wizard: "AFC (Armored Turtle)".
+    const char* product_name;
+    /// The type's name in the telemetry hardware profile (`ams.type`). A
+    /// published schema the telemetry dashboard groups by: never rename one.
+    const char* telemetry_slug;
+    /// The entry setup records in hardware/expected so the hardware validator
+    /// can warn when the system disappears. Persisted in users' settings:
+    /// never rename one. Empty for no entry.
+    const char* expected_hardware;
+    AmsBufferRows buffer_rows;
+    /// The clog meter's name for this system's buffer fault counter; nullptr
+    /// for the generic wording. Translated at the point of use.
+    const char* buffer_fault_label;
+};
+
+// i18n: do not translate - the names below are product names
+inline constexpr AmsTypeTraits kAmsTypeTraits[] = {
+    {AmsType::NONE, "None", "", "unknown", "", AmsBufferRows::None, nullptr},
+    {AmsType::HAPPY_HARE, "Happy Hare", "Happy Hare MMU", "happy_hare", "mmu",
+     AmsBufferRows::SyncDrive, nullptr},
+    {AmsType::AFC, "AFC", "AFC (Armored Turtle)", "afc", "AFC", AmsBufferRows::UnitBuffer,
+     TR_NOOP("AFC buffer")},
+    {AmsType::ACE, "ACE", "ACE", "ace", "ace", AmsBufferRows::None, nullptr},
+    {AmsType::TOOL_CHANGER, "Tool Changer", "Tool Changer", "tool_changer", "toolchanger",
+     AmsBufferRows::None, nullptr},
+    {AmsType::AD5X_IFS, "AD5X IFS", "FlashForge IFS", "ifs", "ifs", AmsBufferRows::None, nullptr},
+    {AmsType::CFS, "CFS", "Creality CFS", "cfs", "cfs", AmsBufferRows::None, nullptr},
+    {AmsType::SNAPMAKER, "Snapmaker", "Snapmaker SnapSwap", "snapmaker", "snapmaker",
+     AmsBufferRows::None, nullptr},
+    {AmsType::QIDI_BOX, "QIDI Box", "QIDI Box", "qidi_box", "qidi_box", AmsBufferRows::None,
+     nullptr},
+    {AmsType::OPENAMS, "OpenAMS", "OpenAMS", "openams", "openams", AmsBufferRows::None, nullptr},
+    {AmsType::INDX, "INDX", "INDX", "indx", "indx", AmsBufferRows::None, nullptr},
+};
+
+/// The row for @p type; the NONE row for a value with none.
+inline const AmsTypeTraits& ams_type_traits(AmsType type) {
+    for (const auto& row : kAmsTypeTraits) {
+        if (row.type == type) {
+            return row;
+        }
+    }
+    return kAmsTypeTraits[0];
+}
+
+/**
+ * @brief Get string name for AMS type
+ * @param type The AMS type enum value
+ * @return Human-readable string for the type; "None" for no system
+ */
+inline const char* ams_type_to_string(AmsType type) {
+    return ams_type_traits(type).name;
+}
+
+/**
+ * @brief The type's name in the telemetry hardware profile (`ams.type`)
+ *
+ * "unknown" when there is no filament system.
+ */
+inline const char* ams_type_telemetry_slug(AmsType type) {
+    return ams_type_traits(type).telemetry_slug;
+}
+
+/**
+ * @brief The filament system a hardware/expected entry stands for
+ *
+ * Expected-hardware entries naming a filament system are must-be-present: the
+ * validator warns when that system is not detected, and a preset merge must
+ * never add one.
+ *
+ * @return The type whose expected_hardware is @p name exactly, else NONE
+ */
+inline AmsType ams_type_for_expected_hardware(std::string_view name) {
+    if (name.empty()) {
+        return AmsType::NONE;
+    }
+    for (const auto& row : kAmsTypeTraits) {
+        if (name == row.expected_hardware) {
+            return row.type;
+        }
+    }
+    return AmsType::NONE;
+}
+
+/**
+ * @brief Parse AMS type from string (for Moonraker responses)
+ * @param str String to parse (case-insensitive)
+ * @return Matching AmsType or NONE if not recognized
+ */
+inline AmsType ams_type_from_string(std::string_view str) {
+    // Simple comparison - backends will use their own detection
+    if (str == "mmu" || str == "happy_hare" || str == "Happy Hare") {
+        return AmsType::HAPPY_HARE;
+    }
+    if (str == "afc" || str == "AFC") {
+        return AmsType::AFC;
+    }
+    if (str == "valgace" || str == "ValgACE" || str == "bunnyace" || str == "BunnyACE" ||
+        str == "duckace" || str == "DuckACE" || str == "ace" || str == "ACE Pro") {
+        return AmsType::ACE;
+    }
+    if (str == "toolchanger" || str == "tool_changer" || str == "Tool Changer") {
+        return AmsType::TOOL_CHANGER;
+    }
+    if (str == "ad5x_ifs" || str == "ad5x ifs" || str == "ad5x" || str == "ifs") {
+        return AmsType::AD5X_IFS;
+    }
+    if (str == "cfs" || str == "CFS" || str == "box") {
+        return AmsType::CFS;
+    }
+    if (str == "snapmaker" || str == "Snapmaker" || str == "snapswap" || str == "SnapSwap") {
+        return AmsType::SNAPMAKER;
+    }
+    // QIDI Box: QIDI's 4-slot hub-style filament changer (PLUS4 / Q2 / MAX4).
+    // Note: the bare "box" alias is already claimed by CFS above, so QIDI Box
+    // requires the explicit "qidi_box" / "QIDI Box" spelling.
+    if (str == "qidi_box" || str == "QIDI Box" || str == "qidibox") {
+        return AmsType::QIDI_BOX;
+    }
+    if (str == "openams" || str == "OpenAMS" || str == "oams_manager") {
+        return AmsType::OPENAMS;
+    }
+    if (str == "indx" || str == "INDX") {
+        return AmsType::INDX;
+    }
+    return AmsType::NONE;
+}
+
+/**
+ * @brief Check if AMS type is a physical tool changer
+ *
+ * Tool changers have fundamentally different behavior than filament systems:
+ * - Each "slot" is a tool with its own nozzle and filament (its own extruder,
+ *   except on INDX, where every docked nozzle shares the head's one extruder)
+ * - Path topology is PARALLEL (not converging to a single nozzle)
+ * - "Loading" means mounting the tool, not feeding filament
+ *
+ * @param type The AMS type to check
+ * @return true if this is a physical tool changer
+ */
+inline bool is_tool_changer(AmsType type) {
+    return type == AmsType::TOOL_CHANGER || type == AmsType::SNAPMAKER || type == AmsType::INDX;
+}
+
+/**
+ * @brief Check if AMS type is a filament-switching system
+ *
+ * Filament systems route multiple filaments to a single toolhead:
+ * - Happy Hare, AFC, ACE all fall into this category
+ * - Path topology is LINEAR or HUB (converging to single nozzle)
+ *
+ * @param type The AMS type to check
+ * @return true if this is a filament-switching system
+ */
+inline bool is_filament_system(AmsType type) {
+    return type == AmsType::HAPPY_HARE || type == AmsType::AFC || type == AmsType::ACE ||
+           type == AmsType::AD5X_IFS || type == AmsType::CFS || type == AmsType::SNAPMAKER ||
+           type == AmsType::QIDI_BOX || type == AmsType::OPENAMS;
+}
+
+/**
+ * @brief Slot/Lane status
+ *
+ * Our internal status representation. Use conversion functions to
+ * translate from Happy Hare's gate_status values (-1, 0, 1, 2).
+ */
+enum class SlotStatus {
+    UNKNOWN = 0,     ///< Status not known
+    EMPTY = 1,       ///< No filament in slot
+    AVAILABLE = 2,   ///< Filament available, not loaded
+    LOADED = 3,      ///< Filament loaded to extruder
+    FROM_BUFFER = 4, ///< Filament available from buffer
+    BLOCKED = 5      ///< Slot blocked/jammed
+};
+
+/**
+ * @brief Get string name for slot status
+ * @param status The slot status enum value
+ * @return Human-readable string for the status
+ */
+inline const char* slot_status_to_string(SlotStatus status) {
+    switch (status) {
+    case SlotStatus::EMPTY:
+        return "Empty";
+    case SlotStatus::AVAILABLE:
+        return "Available";
+    case SlotStatus::LOADED:
+        return "Loaded";
+    case SlotStatus::FROM_BUFFER:
+        return "From Buffer";
+    case SlotStatus::BLOCKED:
+        return "Blocked";
+    default:
+        return "Unknown";
+    }
+}
+
+/**
+ * @brief What a slot status STATES about filament being in the bay
+ *
+ * Three answers, not two, and that is the whole reason this sits beside
+ * SlotInfo::is_present() rather than replacing it. They answer different
+ * questions and agree on every status but one:
+ *
+ *   - is_present() asks "should this lane behave and draw as occupied". A
+ *     caller lighting a button or painting a cell has to decide, so UNKNOWN
+ *     folds into "not present" - there is no third thing to draw.
+ *     helix::ui::classify_lane() (ams_lane_state.h) makes the same fold for
+ *     the same reason.
+ *   - this asks "did the machine state occupancy at all", which a lane
+ *     observation must be able to answer with "it did not". An unset result is
+ *     no reading, and under the lane store's whole-record replacement that is
+ *     what RETRACTS a stale reading instead of asserting an empty bay.
+ *
+ * UNKNOWN is the one divergence, and it is the point: a backend saying it does
+ * not know is not the backend reporting an empty bay.
+ *
+ * BLOCKED is filament. A jam is filament stuck in the path, which is why both
+ * rules above count it present, and retracting a reading the moment a lane
+ * jams would be the stale assertion this model exists to remove.
+ *
+ * @param status The slot status enum value
+ * @return true/false when the status states occupancy, nullopt when it does not
+ */
+[[nodiscard]] inline std::optional<bool> slot_status_reports_filament(SlotStatus status) {
+    switch (status) {
+    case SlotStatus::EMPTY:
+        return false;
+    case SlotStatus::AVAILABLE:
+    case SlotStatus::LOADED:
+    case SlotStatus::FROM_BUFFER:
+    case SlotStatus::BLOCKED:
+        return true;
+    case SlotStatus::UNKNOWN:
+        break;
+    }
+    return std::nullopt;
+}
+
+/**
+ * @brief Convert Happy Hare gate_status integer to SlotStatus enum
+ *
+ * Happy Hare uses: -1 = unknown, 0 = empty, 1 = available, 2 = from buffer
+ * The "loaded" state is determined by comparing with current_slot, not from
+ * gate_status directly.
+ *
+ * @param hh_status Happy Hare gate_status value (-1, 0, 1, or 2)
+ * @return Corresponding SlotStatus enum value
+ */
+inline SlotStatus slot_status_from_happy_hare(int hh_status) {
+    switch (hh_status) {
+    case -1:
+        return SlotStatus::UNKNOWN;
+    case 0:
+        return SlotStatus::EMPTY;
+    case 1:
+        return SlotStatus::AVAILABLE;
+    case 2:
+        return SlotStatus::FROM_BUFFER;
+    default:
+        return SlotStatus::UNKNOWN;
+    }
+}
+
+/**
+ * @brief Convert SlotStatus enum to Happy Hare gate_status integer
+ * @param status Our SlotStatus enum value
+ * @return Happy Hare gate_status value (-1, 0, 1, or 2)
+ */
+inline int slot_status_to_happy_hare(SlotStatus status) {
+    switch (status) {
+    case SlotStatus::UNKNOWN:
+        return -1;
+    case SlotStatus::EMPTY:
+        return 0;
+    case SlotStatus::AVAILABLE:
+        return 1;
+    case SlotStatus::FROM_BUFFER:
+        return 2;
+    // LOADED and BLOCKED don't have direct HH equivalents
+    case SlotStatus::LOADED:
+        return 1; // Treat as available
+    case SlotStatus::BLOCKED:
+        return -1; // Treat as unknown
+    default:
+        return -1;
+    }
+}
+
+/**
+ * @brief Current AMS action/operation
+ *
+ * Maps to Happy Hare's action strings:
+ * "Idle", "Loading", "Unloading", "Forming Tip", "Cutting", "Heating", etc.
+ */
+enum class AmsAction {
+    IDLE = 0,        ///< No operation in progress
+    LOADING = 1,     ///< Loading filament to extruder
+    UNLOADING = 2,   ///< Unloading filament from extruder
+    SELECTING = 3,   ///< Selecting tool/slot
+    RESETTING = 4,   ///< Resetting system (MMU_HOME for HH, AFC_RESET for AFC)
+    FORMING_TIP = 5, ///< Forming filament tip (legacy, some systems still use)
+    HEATING = 6,     ///< Heating for operation
+    CHECKING = 7,    ///< Internal sensor verification (not shown in UI)
+    PAUSED = 8,      ///< Operation paused (requires attention)
+    ERROR = 9,       ///< Error state
+    CUTTING = 10,    ///< Cutting filament before retraction (modern AMS)
+    PURGING = 11     ///< Purging old filament color after load
+};
+
+/**
+ * @brief Does @p action keep the system from taking a new operation?
+ *
+ * Everything but IDLE and ERROR: an operation in flight, a sensor check, or a
+ * pause waiting on the user.
+ */
+inline bool ams_action_holds_system(AmsAction action) {
+    return action != AmsAction::IDLE && action != AmsAction::ERROR;
+}
+
+/**
+ * @brief Is the system doing anything at all right now?
+ *
+ * The "something is happening to this slot" question - the slot pulse asks it,
+ * and it is deliberately backend-independent: every backend reports these the
+ * same way, and a pulse on a slot that turns out not to move is harmless.
+ *
+ * NOT the same question as AmsBackend::action_tracks_step_operation(), which
+ * asks what the STEP BAR should follow and genuinely differs per backend. This
+ * one is the superset.
+ */
+inline bool ams_action_is_busy(AmsAction action) {
+    switch (action) {
+    case AmsAction::HEATING:
+    case AmsAction::LOADING:
+    case AmsAction::UNLOADING:
+    case AmsAction::CUTTING:
+    case AmsAction::FORMING_TIP:
+    case AmsAction::PURGING:
+    case AmsAction::SELECTING:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/**
+ * @brief The filament-system step vocabulary: heat, feed, purge, cut, tip, retract.
+ *
+ * The default answer to AmsBackend::action_tracks_step_operation(). Lives here
+ * so the one caller that has no backend to ask still gets the same rule rather
+ * than a fourth copy of the list.
+ *
+ * SELECTING is deliberately absent: a filament system passes through it on the
+ * way to a slot, and the step bar is already tracking the load that follows.
+ * PURGING is deliberately present: a purge moves filament, so an operation that
+ * starts outside the UI with a purge shows the step bar like any other.
+ */
+inline bool ams_action_is_filament_operation(AmsAction action) {
+    switch (action) {
+    case AmsAction::HEATING:
+    case AmsAction::LOADING:
+    case AmsAction::UNLOADING:
+    case AmsAction::CUTTING:
+    case AmsAction::FORMING_TIP:
+    case AmsAction::PURGING:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/**
+ * @brief Get string name for AMS action
+ * @param action The action enum value
+ * @return Human-readable string for the action
+ */
+inline const char* ams_action_to_string(AmsAction action) {
+    switch (action) {
+    case AmsAction::IDLE:
+        return "Idle";
+    case AmsAction::LOADING:
+        return "Loading";
+    case AmsAction::UNLOADING:
+        return "Unloading";
+    case AmsAction::SELECTING:
+        return "Selecting";
+    case AmsAction::RESETTING:
+        return "Resetting";
+    case AmsAction::FORMING_TIP:
+        return "Forming Tip";
+    case AmsAction::CUTTING:
+        return "Cutting";
+    case AmsAction::HEATING:
+        return "Heating";
+    case AmsAction::CHECKING:
+        return "Checking";
+    case AmsAction::PAUSED:
+        return "Paused";
+    case AmsAction::ERROR:
+        return "Error";
+    case AmsAction::PURGING:
+        return "Purging";
+    default:
+        return "Unknown";
+    }
+}
+
+/**
+ * @brief Normalize a firmware state string to a comparison token
+ *
+ * Lowercases and drops every non-alphanumeric character, so "Tool swap",
+ * "ToolSwap", "TOOL_SWAP" and "tool-swap" all collapse to "toolswap".
+ *
+ * Firmware state vocabularies get reworded without notice — AFC renamed its
+ * TOOL_SWAP value from "Tool swap" to "ToolSwap" in v1.2.0. Comparing
+ * normalized tokens makes that entire class of rename a non-event instead of a
+ * silent fall-through to IDLE.
+ */
+inline std::string ams_normalize_state_token(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (unsigned char c : s) {
+        if (std::isalnum(c) != 0) {
+            out.push_back(static_cast<char>(std::tolower(c)));
+        }
+    }
+    return out;
+}
+
+/**
+ * @brief Parse AMS action from a firmware action/state string
+ *
+ * Handles both Happy Hare (`printer.mmu.action`) and AFC
+ * (`printer.AFC.current_state`) vocabularies. Matching is done on the
+ * normalized token (see ams_normalize_state_token), then falls back to ordered
+ * substring matching so a reworded or previously-unseen state still resolves to
+ * a sensible action rather than silently reading as IDLE.
+ *
+ * @param action_str    Raw state string from the firmware
+ * @param out_recognized Optional; set true when the exact token is in our known
+ *                       vocabulary, false when the result came from the fuzzy
+ *                       fallback or no rule matched. Callers use this to log
+ *                       schema drift once per unseen string. An empty input
+ *                       reports true — "no state" is normal, not drift.
+ * @return Corresponding AmsAction enum value
+ */
+inline AmsAction ams_action_from_string(std::string_view action_str,
+                                        bool* out_recognized = nullptr) {
+    auto recognize = [&](bool ok) {
+        if (out_recognized != nullptr)
+            *out_recognized = ok;
+    };
+
+    const std::string t = ams_normalize_state_token(action_str);
+    if (t.empty()) {
+        recognize(true);
+        return AmsAction::IDLE;
+    }
+
+    struct Entry {
+        const char* token;
+        AmsAction action;
+    };
+    // Known vocabulary, normalized. Happy Hare and AFC share this table; a
+    // token appearing in only one firmware is harmless to the other.
+    static constexpr Entry EXACT[] = {
+        {"idle", AmsAction::IDLE},
+        {"initialized", AmsAction::IDLE},
+        {"loading", AmsAction::LOADING},
+        {"loadingext", AmsAction::LOADING},
+        {"unloading", AmsAction::UNLOADING},
+        {"exitingext", AmsAction::UNLOADING},
+        {"ejecting", AmsAction::UNLOADING},
+        {"selecting", AmsAction::SELECTING},
+        // AFC toolchanger states (v1.2.0 #768). "Tool swap" was the pre-1.2.0
+        // spelling; both normalize to "toolswap".
+        {"toolswap", AmsAction::SELECTING},
+        {"tooldock", AmsAction::SELECTING},
+        {"toolpickup", AmsAction::SELECTING},
+        {"moving", AmsAction::SELECTING},
+        {"restoring", AmsAction::SELECTING},
+        {"homing", AmsAction::RESETTING},
+        {"resetting", AmsAction::RESETTING},
+        {"formingtip", AmsAction::FORMING_TIP},
+        {"cutting", AmsAction::CUTTING},
+        {"cuttingtip", AmsAction::CUTTING},
+        {"cuttingfilament", AmsAction::CUTTING},
+        {"heating", AmsAction::HEATING},
+        {"checking", AmsAction::CHECKING},
+        {"purging", AmsAction::PURGING},
+        {"paused", AmsAction::PAUSED},
+        {"error", AmsAction::ERROR},
+    };
+    for (const auto& e : EXACT) {
+        if (t == e.token) {
+            recognize(true);
+            return e.action;
+        }
+    }
+
+    // Fuzzy fallback. Reaching here means the exact string is new to us, so
+    // report it as unrecognized even when a rule below matches — the caller
+    // logs it once and we still behave sensibly in the meantime.
+    recognize(false);
+    auto has = [&](const char* needle) { return t.find(needle) != std::string::npos; };
+
+    // Order is load-bearing: "unloading" contains "loading", so unload-ish
+    // words must be tested first. Error and pause outrank motion words because
+    // an errored move is an error, not a move.
+    if (has("error"))
+        return AmsAction::ERROR;
+    if (has("pause"))
+        return AmsAction::PAUSED;
+    if (has("unload") || has("eject") || has("exiting"))
+        return AmsAction::UNLOADING;
+    if (has("toolswap") || has("tooldock") || has("toolpickup") || has("toolchange") || has("swap"))
+        return AmsAction::SELECTING;
+    if (has("load"))
+        return AmsAction::LOADING;
+    if (has("select"))
+        return AmsAction::SELECTING;
+    if (has("purg"))
+        return AmsAction::PURGING;
+    if (has("cut"))
+        return AmsAction::CUTTING;
+    if (has("heat"))
+        return AmsAction::HEATING;
+    if (has("tip"))
+        return AmsAction::FORMING_TIP;
+    if (has("home") || has("reset"))
+        return AmsAction::RESETTING;
+    if (has("restor") || has("moving"))
+        return AmsAction::SELECTING;
+    if (has("check"))
+        return AmsAction::CHECKING;
+    if (has("idle") || has("initial"))
+        return AmsAction::IDLE;
+    return AmsAction::IDLE;
+}
+
+// ============================================================================
+// Tip Handling Method
+// ============================================================================
+
+/**
+ * @brief How the AMS handles filament tip during unload
+ *
+ * Different systems use different methods to prepare filament for retraction:
+ * - CUT: Physical cutter severs filament cleanly (Happy Hare with cutter, AFC)
+ * - TIP_FORM: Heat+retract sequence forms a tapered tip (Bambu AMS, some HH configs)
+ * - NONE: System doesn't actively manage tip (manual, or no retraction support)
+ */
+enum class TipMethod {
+    NONE = 0,    ///< No active tip handling
+    CUT = 1,     ///< Physical filament cutter
+    TIP_FORM = 2 ///< Heat and retract to form tapered tip
+};
+
+/**
+ * @brief Get string name for tip method
+ * @param method The tip method enum value
+ * @return Human-readable string for the method
+ */
+inline const char* tip_method_to_string(TipMethod method) {
+    switch (method) {
+    case TipMethod::NONE:
+        return "None";
+    case TipMethod::CUT:
+        return "Cutter";
+    case TipMethod::TIP_FORM:
+        return "Tip Forming";
+    }
+    return "Unknown";
+}
+
+/**
+ * @brief Get user-friendly step label for tip handling
+ * @param method The tip method enum value
+ * @return Untranslated English key; the display site passes it through lv_tr()
+ */
+inline const char* tip_method_step_label(TipMethod method) {
+    switch (method) {
+    case TipMethod::CUT:
+        return TR_NOOP("Cut & retract");
+    case TipMethod::TIP_FORM:
+        return TR_NOOP("Form tip & retract");
+    case TipMethod::NONE:
+    default:
+        return TR_NOOP("Retract");
+    }
+}
+
+// ============================================================================
+// Filament Path Visualization Types
+// ============================================================================
+
+/**
+ * @brief Path topology - affects visual rendering of the filament path
+ *
+ * Different multi-material systems have different physical topologies:
+ * - LINEAR: Selector picks one input from multiple gates (Happy Hare ERCF)
+ * - HUB: Multiple lanes merge into a common hub/merger (AFC Box Turtle)
+ * - PARALLEL: Each input has its own independent path to a separate toolhead
+ *             (physical tool changers like StealthChanger/TapChanger)
+ */
+enum class PathTopology {
+    LINEAR = 0,   ///< Happy Hare: selector picks one input
+    HUB = 1,      ///< AFC: merger combines inputs through hub
+    PARALLEL = 2, ///< Tool Changer: each slot is a separate toolhead
+    MIXED = 3     ///< Direct + Hub: some lanes direct, some through hub to shared extruder
+};
+
+/**
+ * @brief Whether a toolhead is currently on the carriage.
+ *
+ * Distinct from "is any filament loaded". On a toolchanger every parked toolhead
+ * may hold filament while the shuttle carries none — a state `current_slot = -1`
+ * ("nothing loaded anywhere") cannot express. Without it, something is always
+ * elected current, and on #1229's machine the election latched onto a parked
+ * lane and never moved again.
+ *
+ * Only meaningful for backends that actually have a carriage. Single-extruder
+ * systems leave this UNKNOWN and are unaffected.
+ */
+enum class MountState {
+    UNKNOWN = 0,  ///< No carriage, or no signal yet — do not draw conclusions
+    NONE = 1,     ///< Carriage is empty. Parked filament does not make a slot current
+    CHANGING = 2, ///< Mid-toolchange; sources legitimately disagree, elect nothing
+    MOUNTED = 3   ///< A tool is on the carriage; see AmsSystemInfo::mounted_tool
+};
+
+/// Human-readable name for a MountState, for logs and diagnostics.
+inline const char* mount_state_to_string(MountState state) {
+    switch (state) {
+    case MountState::NONE:
+        return "none";
+    case MountState::CHANGING:
+        return "changing";
+    case MountState::MOUNTED:
+        return "mounted";
+    case MountState::UNKNOWN:
+    default:
+        return "unknown";
+    }
+}
+
+/**
+ * @brief Get string name for path topology
+ * @param topology The topology enum value
+ * @return Human-readable string for the topology
+ */
+inline const char* path_topology_to_string(PathTopology topology) {
+    switch (topology) {
+    case PathTopology::LINEAR:
+        return "Linear (Selector)";
+    case PathTopology::HUB:
+        return "Hub (Merger)";
+    case PathTopology::PARALLEL:
+        return "Parallel (Tool Changer)";
+    case PathTopology::MIXED:
+        return "Mixed (Direct + Hub)";
+    default:
+        return "Unknown";
+    }
+}
+
+/**
+ * @brief How the spool last inserted in a lane was identified, on a lane whose
+ *        tag reader answers a moment after presence rises.
+ */
+enum class InsertIdentity : uint8_t {
+    NotRead, ///< No insert under judgement: no reader, or the insert was dropped
+    Pending, ///< Presence rose; the reader has not answered yet
+    FromTag, ///< The reader named the spool
+    NoTag,   ///< The reader found no tag, or never answered in time
+};
+
+/**
+ * @brief Unified path segments (AFC-inspired naming)
+ *
+ * Both Happy Hare and AFC map to these same logical segments. The path
+ * canvas widget draws them differently based on PathTopology.
+ *
+ * Physical filament path (top to bottom in UI):
+ *   SPOOL → PREP → LANE → HUB → OUTPUT → TOOLHEAD → NOZZLE
+ *
+ * Happy Hare mapping:
+ *   SPOOL=Gate storage, PREP=Gate sensor, LANE=Gate-to-selector,
+ *   HUB=Selector, OUTPUT=Bowden tube, TOOLHEAD=Extruder sensor, NOZZLE=Loaded
+ *
+ * AFC mapping:
+ *   SPOOL=Lane spool, PREP=Prep sensor, LANE=Lane tube,
+ *   HUB=Hub/Merger, OUTPUT=Output tube, TOOLHEAD=Toolhead sensor, NOZZLE=Loaded
+ */
+enum class PathSegment {
+    NONE = 0,     ///< No segment / idle / filament not present
+    SPOOL = 1,    ///< At spool (filament storage area)
+    PREP = 2,     ///< At entry sensor (prep/gate sensor)
+    LANE = 3,     ///< In lane/gate-to-router segment
+    HUB = 4,      ///< At router (selector or hub/merger)
+    OUTPUT = 5,   ///< In output tube (bowden or hub output)
+    TOOLHEAD = 6, ///< At toolhead sensor
+    NOZZLE = 7    ///< Fully loaded in nozzle
+};
+
+/// Number of path segments for iteration (NONE through NOZZLE)
+constexpr int kPathSegmentCount = 8;
+
+/**
+ * @brief Get string name for path segment
+ * @param segment The segment enum value
+ * @return Human-readable string for the segment
+ */
+inline const char* path_segment_to_string(PathSegment segment) {
+    switch (segment) {
+    case PathSegment::NONE:
+        return "None";
+    case PathSegment::SPOOL:
+        return "Spool";
+    case PathSegment::PREP:
+        return "Prep Sensor";
+    case PathSegment::LANE:
+        return "Lane";
+    case PathSegment::HUB:
+        return "Hub/Selector";
+    case PathSegment::OUTPUT:
+        return "Output Tube";
+    case PathSegment::TOOLHEAD:
+        return "Toolhead";
+    case PathSegment::NOZZLE:
+        return "Nozzle";
+    default:
+        return "Unknown";
+    }
+}
+
+/**
+ * @brief Convert Happy Hare filament_pos to unified PathSegment
+ *
+ * Happy Hare filament_pos values:
+ *   0 = unloaded (at spool)
+ *   1 = homed at gate
+ *   2 = in gate
+ *   3 = in bowden
+ *   4 = end of bowden
+ *   5 = homed at extruder
+ *   6 = extruder entry
+ *   7 = in extruder
+ *   8 = fully loaded
+ *
+ * @param filament_pos Happy Hare filament_pos value
+ * @return Corresponding PathSegment
+ */
+inline PathSegment path_segment_from_happy_hare_pos(int filament_pos) {
+    switch (filament_pos) {
+    case 0:
+        return PathSegment::SPOOL;
+    case 1:
+    case 2:
+        return PathSegment::PREP; // Gate area
+    case 3:
+        return PathSegment::LANE; // Moving through
+    case 4:
+        return PathSegment::HUB; // At selector
+    case 5:
+        return PathSegment::OUTPUT; // In bowden
+    case 6:
+        return PathSegment::TOOLHEAD; // At extruder
+    case 7:
+    case 8:
+    case 9: // v4: in-nozzle positions
+    case 10:
+        return PathSegment::NOZZLE; // Loaded
+    default:
+        return PathSegment::NONE;
+    }
+}
+
+/**
+ * @brief Infer PathSegment from AFC sensor states
+ *
+ * AFC uses binary sensor states to determine filament position.
+ * Logic: filament is at or past the last sensor that detects it.
+ *
+ * @param prep_sensor Prep sensor triggered (filament at lane entry)
+ * @param hub_sensor Hub sensor triggered (filament in hub)
+ * @param toolhead_sensor Toolhead sensor triggered (filament at extruder)
+ * @return Inferred PathSegment based on sensor states
+ */
+inline PathSegment path_segment_from_afc_sensors(bool prep_sensor, bool hub_sensor,
+                                                 bool toolhead_sensor) {
+    if (toolhead_sensor)
+        return PathSegment::NOZZLE;
+    if (hub_sensor)
+        return PathSegment::TOOLHEAD; // Past hub, approaching toolhead
+    if (prep_sensor)
+        return PathSegment::HUB; // Past prep, approaching hub
+    return PathSegment::SPOOL;   // Not yet at prep
+}
+
+/**
+ * @brief Per-slot error state
+ *
+ * Populated by backends when a slot/lane enters an error condition.
+ * AFC populates from per-lane status; Happy Hare maps system-level
+ * errors to the active gate.
+ */
+struct SlotError {
+    std::string message;                                     ///< Human-readable error description
+    enum Severity { INFO, WARNING, ERROR } severity = ERROR; ///< Error severity level
+};
+
+/**
+ * @brief Environmental sensor data (temperature + humidity)
+ *
+ * Used on AmsUnit and SlotInfo as std::optional<EnvironmentData>.
+ * CFS provides per-unit environment; future backends may provide per-slot.
+ */
+struct EnvironmentData {
+    float temperature_c = 0.0f; ///< Temperature in Celsius
+    float humidity_pct = 0.0f;  ///< Relative humidity percentage (0-100)
+    bool has_humidity = false;  ///< true when backend provides humidity sensor
+
+    /// A reading with no temperature source carries 0 (humidity-only sensors).
+    [[nodiscard]] bool has_temperature() const {
+        return temperature_c > 0.0f;
+    }
+};
+
+/// Error targeting level for multi-level error reporting
+enum class AmsAlertLevel { SLOT, UNIT, SYSTEM };
+
+/**
+ * @brief Active error/warning with human-readable message and troubleshooting hint
+ *
+ * Different from AmsError (in ams_error.h, operation result type) — this represents
+ * a persistent alert condition reported by the backend hardware.
+ */
+struct AmsAlert {
+    std::string message;    ///< Human-readable error message
+    std::string hint;       ///< Actionable troubleshooting text
+    std::string error_code; ///< Backend-specific code: "CFS-843", "AFC-LANE_ERROR"
+    AmsAlertLevel level = AmsAlertLevel::SYSTEM;
+    SlotError::Severity severity = SlotError::Severity::ERROR;
+    int unit_index = -1; ///< For UNIT/SLOT level (-1 = N/A)
+    int slot_index = -1; ///< For SLOT level (-1 = N/A)
+};
+
+/// Which way a filament buffer is driving filament, translated by the backend
+/// from its firmware's own vocabulary.
+enum class BufferMotion : int {
+    Unknown = 0,   ///< Not reported, or a state with no direction (idle, neutral)
+    Advancing = 1, ///< Feeding filament forward: the buffer is compressed
+    Trailing = 2,  ///< Pulling filament back: the buffer is in tension
+};
+
+/// What a spool motor (Happy Hare's eSpooler) is doing, translated by the
+/// backend from its firmware's own vocabulary.
+enum class SpoolMotorAction : int {
+    None = 0,      ///< Not reported, or idle
+    Rewinding = 1, ///< Winding filament back onto the spool
+    Assisting = 2, ///< Turning the spool to ease the feed
+    Other = 3,     ///< A state with no wording of its own: AmsSystemInfo::espooler_state
+};
+
+/**
+ * @brief Buffer health data for AFC buffer fault detection
+ *
+ * Populated from AFC_buffer status objects. Only applicable to AFC
+ * systems with TurtleNeck buffer hardware. Other backends leave
+ * buffer_health as nullopt on SlotInfo.
+ */
+struct BufferHealth {
+    bool fault_detection_enabled = false; ///< Whether buffer fault detection is active
+    float distance_to_fault = -1.0f;      ///< Distance to fault in mm (-1 = not tracking/null)
+    float error_sensitivity = 0.0f;       ///< AFC sensitivity (1-10), 0 = not reported
+    /// The firmware's own word for the buffer's state, shown verbatim when
+    /// motion has no meaning for it.
+    std::string state;
+    BufferMotion motion = BufferMotion::Unknown; ///< state, translated by the backend
+
+    /// Lane the buffer is currently regulating. AFC only names one while the
+    /// buffer is enabled AND a lane is loaded; empty otherwise (AFC v1.2.0+).
+    std::string active_lane;
+
+    /// Rotation-distance trim the buffer is driving on the active lane's stepper.
+    /// AFC reports this only while enabled with a lane loaded; -1 = not reported.
+    float rotation_distance = -1.0f;
+
+    /// Rotation-distance multiplier the buffer last applied, and the configured
+    /// bounds it swings between (`multiplier_high`/`multiplier_low` in the AFC
+    /// buffer config). -1 = not reported. multiplier is AFC v1.2.0+; on older
+    /// firmware all three stay at -1.
+    float multiplier = -1.0f;
+    float multiplier_high = -1.0f;
+    float multiplier_low = -1.0f;
+
+    /// Seconds AFC waits after a buffer switch before declaring a fault.
+    /// -1 = not reported (fault detection off, or older firmware).
+    float fault_timer = -1.0f;
+
+    /// Filament pressure sensor: an `AFC_buffer` configured `type: FPS_PSF`
+    /// (AFCFPSBuffer, AFC v1.2.0+), or an OpenAMS lane's `pressure` and
+    /// `set_point`. A TurtleNeck buffer is `type: switched` and reports none of
+    /// these; -1 = not reported.
+    ///
+    /// `smoothed_fps` is the one to read: AFC's own advance/trailing triggers
+    /// compare it, not the raw `fps_value`, so it is what the firmware means by
+    /// the buffer's position (`AFC_buffer.py`, AFCFPSEndstop docstring).
+    ///
+    /// Note what is NOT here. `low_point` / `high_point` / `deadband` are
+    /// config-only — AFCFPSBuffer::get_status publishes `fps_value`,
+    /// `smoothed_fps` and `set_point` and nothing else — so the tuning range
+    /// cannot be read at runtime. fps_to_bias() normalizes against the
+    /// sensor's own 0..1 rail instead.
+    float fps_value = -1.0f;
+    float smoothed_fps = -1.0f;
+    float fps_set_point = -1.0f;
+
+    /// Set when a frame actually carried `smoothed_fps`.
+    ///
+    /// Presence cannot be inferred from the value: the ADC is nominally 0..1
+    /// but it is a voltage divider on real hardware, so a reading can land
+    /// slightly below zero — and that is max tension, the single most
+    /// interesting reading there is. A value-based sentinel would blank the
+    /// meter exactly then.
+    bool fps_reported = false;
+
+    /// The sensor has one spring and measures compression only: 0 is no
+    /// pressure, 1 is fully compressed, and a reading below the set point is
+    /// less compression rather than tension. Such a sensor is shown as a
+    /// one-sided gauge, never through fps_to_bias()'s two-ended scale.
+    bool compression_only = false;
+
+    /// Filament is loaded on the lane this sensor serves. A compression-only
+    /// sensor near zero only means the feed is not engaging while there is
+    /// filament to feed.
+    bool filament_loaded = false;
+
+    /// Whether this buffer publishes a proportional pressure reading at all.
+    /// False for the switched TurtleNeck every BoxTurtle ships with.
+    [[nodiscard]] bool has_fps() const {
+        return fps_reported && fps_set_point > 0.0f;
+    }
+
+    /// Map a two-ended filament-pressure reading onto the -1..+1 sync-feedback bias
+    /// Happy Hare publishes directly, so one bias feeds every buffer surface.
+    ///
+    /// Sign follows the existing convention: negative is tension (filament
+    /// pulling tight), positive is compression (filament loose). Below
+    /// `set_point` the extruder is pulling harder than the feeder pushes; above
+    /// it the feeder is overfeeding. AFC's `low_point` is max tension and
+    /// `high_point` max compression.
+    ///
+    /// Neither point is published, so each side is normalized against the
+    /// distance from `set_point` to the sensor's own rail (0.0 and 1.0). With
+    /// the default set_point of 0.5 the two agree; with an off-centre one this
+    /// reads slightly conservative, which is the right direction to be wrong in
+    /// for a fault indicator.
+    ///
+    /// Returns -1.5 (the "no data" sentinel the rest of the UI gates on) when
+    /// the buffer is not an FPS one or its set_point is unknown.
+    [[nodiscard]] float fps_to_bias() const {
+        if (!has_fps()) {
+            return -1.5f;
+        }
+        const float sp = std::clamp(fps_set_point, 0.01f, 0.99f);
+        const float v = std::clamp(smoothed_fps, 0.0f, 1.0f);
+        const float span = (v >= sp) ? (1.0f - sp) : sp;
+        if (span <= 0.0f) {
+            return 0.0f;
+        }
+        return std::clamp((v - sp) / span, -1.0f, 1.0f);
+    }
+
+    /// Compute fault threshold from error_sensitivity: (11 - sensitivity) * 10 mm
+    /// Returns 60mm fallback when sensitivity is 0 (not reported)
+    /// Clamps sensitivity to 10 max to ensure threshold >= 10mm
+    float fault_threshold() const {
+        if (error_sensitivity <= 0.0f)
+            return 60.0f;
+        float clamped = std::min(error_sensitivity, 10.0f);
+        return (11.0f - clamped) * 10.0f;
+    }
+
+    /// Map distance_to_fault to danger percentage (0=safe, 100=fault imminent)
+    /// Negative or above-threshold distances are treated as safe (0)
+    int danger_value() const {
+        float max_dist = fault_threshold();
+        if (distance_to_fault < 0 || distance_to_fault > max_dist)
+            return 0;
+        int v = 100 - static_cast<int>((distance_to_fault / max_dist) * 100.0f);
+        return std::clamp(v, 0, 100);
+    }
+
+    /// danger_value() from which the fault is close enough to warn about.
+    static constexpr int kWarningDangerPct = 75;
+
+    /// Whether the danger level warrants a warning indicator
+    bool is_warning() const {
+        return danger_value() > kWarningDangerPct;
+    }
+
+    /// Whether distance_to_fault is a live countdown. Negative means the fault
+    /// timer is stopped; above the threshold it has just reset.
+    bool is_tracking() const {
+        return distance_to_fault >= 0 && distance_to_fault <= fault_threshold();
+    }
+};
+
+namespace printer {
+
+/**
+ * @brief What a zone or a slot is doing, from the firmware's per-gate drying states.
+ *
+ * `Queued` is its own answer rather than a shade of `Active`: a backend that caps
+ * simultaneous heaters leaves later zones waiting, and a waiting zone shown as idle reads
+ * as a control that did nothing. `Cancelled` and `Complete` likewise differ - one answers
+ * "someone stopped it", the other "it finished".
+ */
+enum class ZoneDryingState : int {
+    Idle = 0,     ///< Not part of any cycle
+    Queued = 1,   ///< In the cycle, waiting for a concurrency slot
+    Active = 2,   ///< Heater on now
+    Complete = 3, ///< Ran to the end
+    Cancelled = 4 ///< Stopped before finishing
+};
+
+} // namespace printer
+
+/**
+ * @brief Information about a single slot/lane
+ *
+ * This represents one filament slot in an AMS unit.
+ * Happy Hare calls these "gates" internally, AFC calls them "lanes".
+ */
+struct SlotInfo {
+    int slot_index = -1;   ///< Slot/lane number (0-based within unit)
+    int global_index = -1; ///< Global index across all units
+    SlotStatus status = SlotStatus::UNKNOWN;
+
+    // Filament information
+    std::string color_name;                    ///< Named color (e.g., "Red", "Blue")
+    uint32_t color_rgb = kAmsDefaultSlotColor; ///< RGB color for UI (0xRRGGBB)
+    std::string multi_color_hexes;             ///< Comma-separated hex codes for multi-color
+                                               ///< (e.g., "#D4AF37,#C0C0C0,#B87333")
+    std::string material;                      ///< Material type (e.g., "PLA", "PETG", "ABS")
+    std::string brand;                         ///< Brand name (e.g., "Polymaker", "eSUN")
+
+    // Catalog product identity — WHICH branded product, not just its material.
+    //
+    // `material` collapses every PLA product a vendor sells into one string, so
+    // brand + material cannot distinguish SUNLU "PLA+ 2.0" from SUNLU "PLA
+    // Marble". Both are stored because they answer different questions and can
+    // outlive each other:
+    //   - catalog_id resolves through FilamentCatalog::resolve_id() to seed the
+    //     editor's product list back to the exact row the user picked.
+    //   - product_name is the display string, and survives a catalog_id that no
+    //     longer resolves (a custom overlay product the user deleted, a bundled
+    //     id retired by an app update). Without it a dead id would leave the
+    //     lane with no record of what was chosen at all.
+    // Both empty = no catalog pick; the editor falls back to preselect-first.
+    //
+    // Deliberately NOT folded into spool_name: that carries a Spoolman /
+    // firmware-label meaning, is written behind our back by AFC/CFS/Snapmaker,
+    // is wiped by clear_spoolman_link(), and Snapmaker round-trips it to
+    // firmware as SUB_TYPE.
+    std::string catalog_id;   ///< assets/filaments.json product id ("sunlu-pla-plus-2-0")
+    std::string product_name; ///< Catalog display name ("PLA+ 2.0")
+
+    // Temperature recommendations (from Spoolman or manual entry)
+    int nozzle_temp_min = 0; ///< Minimum nozzle temp (°C)
+    int nozzle_temp_max = 0; ///< Maximum nozzle temp (°C)
+    int bed_temp = 0;        ///< Recommended bed temp (°C)
+    /// The printer refuses to print from this slot until a material is set for
+    /// it: the firmware's own record names none, and it stops the job rather
+    /// than guess. A slot whose material is merely unreported stays false.
+    bool material_required = false;
+
+    // Tool mapping
+    int mapped_tool = -1;               ///< Which tool this slot maps to (-1=none)
+    bool tool_mapping_override = false; ///< True if user manually remapped this slot's tool
+    std::string
+        extruder_name; ///< Physical extruder name (e.g., "extruder2") for shared-extruder dedup
+
+    // Spoolman integration
+    int spoolman_id = 0;           ///< Spoolman spool ID (0=not tracked)
+    int spoolman_filament_id = 0;  ///< Spoolman filament definition ID (0=unknown)
+    int spoolman_vendor_id = 0;    ///< Spoolman vendor ID (0=unknown)
+    std::string spool_name;        ///< Spool name from Spoolman
+    float remaining_weight_g = -1; ///< Remaining filament weight in grams (-1=unknown)
+    float total_weight_g = -1;     ///< Total spool weight in grams (-1=unknown)
+
+    // Endless spool support (Happy Hare)
+    int endless_spool_group = -1; ///< Endless spool group (-1=not grouped)
+
+    // Error state
+    std::optional<SlotError> error; ///< Per-slot error state (nullopt = no error)
+
+    /// Whether the lane needs attention: a carried error, or a lane its unit
+    /// reports jammed (BLOCKED) without one.
+    [[nodiscard]] bool has_fault() const {
+        return status == SlotStatus::BLOCKED || error.has_value();
+    }
+
+    /// Severity to draw has_fault() in. A jam stops the lane, so it is an error
+    /// whatever the carried error says.
+    [[nodiscard]] SlotError::Severity fault_severity() const {
+        if (status == SlotStatus::BLOCKED) {
+            return SlotError::ERROR;
+        }
+        return error.has_value() ? error->severity : SlotError::INFO;
+    }
+
+    // Length-based remaining filament (CFS measuring wheel, etc.)
+    float remaining_length_m = 0.0f; ///< Remaining filament in meters (0 = unknown)
+
+    // Inline filament scanner reading (e.g. a TD-1). Advisory only: nothing
+    // writes it into color_rgb on its own.
+    std::optional<uint32_t> scanned_color_rgb; ///< Measured colour (0xRRGGBB), nullopt = no scan
+    float scanned_td = -1.0f;                  ///< Measured transmission distance (<0 = unknown)
+    std::string scanned_time;                  ///< Scan timestamp as the producer states it
+
+    [[nodiscard]] bool has_scan() const {
+        return scanned_color_rgb.has_value();
+    }
+
+    // Per-slot environment sensors (optional — most backends don't have these)
+    std::optional<EnvironmentData> environment; ///< nullopt = no per-slot sensors
+
+    /// This slot's part in a drying cycle, for a dryer that drives its gates one by one
+    /// (DryerInfo::supports_gate_selection). Idle everywhere else.
+    printer::ZoneDryingState drying_state = printer::ZoneDryingState::Idle;
+
+    /**
+     * @brief Get remaining percentage
+     * @return 0-100 or -1 if unknown
+     */
+    [[nodiscard]] float get_remaining_percent() const {
+        if (remaining_weight_g < 0 || total_weight_g <= 0)
+            return -1;
+        return (remaining_weight_g / total_weight_g) * 100.0f;
+    }
+
+    /**
+     * @brief Check if this slot has filament data configured
+     * @return true if material or custom color is set
+     *
+     * catalog_id / product_name are deliberately NOT tested here. A catalog
+     * pick always writes `material` alongside them (the product's type is the
+     * material), so an extra clause could never change the answer — it would
+     * only imply a state that cannot occur. Same reasoning applies to the two
+     * ghost-slot predicates that mirror this one (ui_ams_slot.cpp,
+     * ui_ams_mini_status.cpp); keep all three in agreement.
+     */
+    [[nodiscard]] bool has_filament_info() const {
+        return !material.empty() || color_rgb != kAmsDefaultSlotColor;
+    }
+
+    /**
+     * @brief Check if this is a multi-color filament
+     * @return true if multi_color_hexes contains color data
+     */
+    [[nodiscard]] bool is_multi_color() const {
+        return !multi_color_hexes.empty();
+    }
+
+    /**
+     * @brief A key for how a swatch paints this slot beyond its colour: its
+     *        multi-colour list and finish. Equal keys paint alike.
+     */
+    [[nodiscard]] int paint_key() const {
+        uint32_t h = 2166136261u ^ static_cast<uint32_t>(finish());
+        for (char c : multi_color_hexes) {
+            h = (h ^ static_cast<unsigned char>(c)) * 16777619u;
+        }
+        return static_cast<int>(h & 0x7FFFFFFF);
+    }
+
+    /**
+     * @brief The surface finish the filament's names announce (silk, matte, ...)
+     *
+     * The first of material, product name and spool name that names one wins.
+     * Never the colour name: "Stone Grey" is a plain grey, not a marble.
+     * Swatches paint it; see helix::filament_finish_of().
+     */
+    [[nodiscard]] FilamentFinish finish() const {
+        for (const std::string* name : {&material, &product_name, &spool_name}) {
+            const FilamentFinish f = filament_finish_of(*name);
+            if (f != FilamentFinish::None) {
+                return f;
+            }
+        }
+        return FilamentFinish::None;
+    }
+
+    /**
+     * @brief Check if filament is present in this slot
+     *
+     * Two-valued on purpose: a caller drawing a cell or gating an affordance
+     * has to decide, so UNKNOWN reads as not present. A caller recording what
+     * the machine STATED wants slot_status_reports_filament() instead, which
+     * can answer "no reading" and so can retract one.
+     *
+     * @return true for AVAILABLE, LOADED, FROM_BUFFER, BLOCKED; false for EMPTY, UNKNOWN
+     */
+    [[nodiscard]] bool is_present() const {
+        return status != SlotStatus::EMPTY && status != SlotStatus::UNKNOWN;
+    }
+
+    /**
+     * @brief The identity fields: colour, material, brand, catalog pick,
+     * Spoolman link and weights, as a tuple of references into @p s
+     */
+    template <class S> static auto identity_fields(S& s) {
+        return std::tie(s.color_rgb, s.color_name, s.material, s.brand, s.catalog_id,
+                        s.product_name, s.spool_name, s.spoolman_id, s.spoolman_filament_id,
+                        s.spoolman_vendor_id, s.remaining_weight_g, s.total_weight_g);
+    }
+
+    /**
+     * @brief Copy the filament fields an edit or an identity sync carries
+     *
+     * Colour (multi-colour included), material, brand, catalog pick, Spoolman
+     * link, weights and temperatures. Tool mapping, status and indices are the
+     * caller's.
+     *
+     * @return Whether any of them changed
+     */
+    bool assign_filament_fields(const SlotInfo& other) {
+        auto fields = [](auto& s) {
+            return std::tuple_cat(
+                identity_fields(s),
+                std::tie(s.multi_color_hexes, s.nozzle_temp_min, s.nozzle_temp_max, s.bed_temp));
+        };
+        const bool changed = fields(*this) != fields(other);
+        fields(*this) = fields(other);
+        return changed;
+    }
+
+    /**
+     * @brief Drop every Spoolman handle from this slot
+     *
+     * Unlink used to zero only spoolman_id, leaving spoolman_filament_id and
+     * spoolman_vendor_id behind. Those stale handles then fed
+     * SpoolmanSlotSaver's repoint comparison against a filament belonging to a
+     * spool this lane is no longer linked to.
+     *
+     * Locally-editable identity (brand / material / colour / weights) is
+     * deliberately KEPT: unlinking means "stop tracking this in Spoolman", not
+     * "forget what is in the lane". catalog_id / product_name fall on the KEPT
+     * side for the same reason and one stronger: the catalog pick comes from
+     * assets/filaments.json, which has no Spoolman record behind it at all —
+     * there is no handle here to go stale. Clearing it would drop the user back
+     * to the alphabetically-first variant of their material on the next open,
+     * which is precisely the failure these fields exist to prevent.
+     */
+    void clear_spoolman_link() {
+        spoolman_id = 0;
+        spoolman_filament_id = 0;
+        spoolman_vendor_id = 0;
+        spool_name.clear();
+    }
+
+    /**
+     * @brief Unlink after the user re-described the slot as a different filament.
+     *
+     * The weights tracked for the linked spool describe the filament the user
+     * just said is not loaded, so each one they did not edit relative to
+     * @p before goes to unknown. An unknown weight declares nothing, so a lane's
+     * own meter reading still shows through.
+     */
+    void unlink_as_different_filament(const SlotInfo& before) {
+        clear_spoolman_link();
+        constexpr float kEditedEpsilonG = 0.1f;
+        if (std::abs(remaining_weight_g - before.remaining_weight_g) <= kEditedEpsilonG) {
+            remaining_weight_g = -1.0f;
+        }
+        if (std::abs(total_weight_g - before.total_weight_g) <= kEditedEpsilonG) {
+            total_weight_g = -1.0f;
+        }
+    }
+
+    /**
+     * @brief Fill-bar level for the slot UI, or nullopt to leave the bar as-is.
+     *
+     * EMPTY lanes render empty (0.0) — even when a Spoolman link and material
+     * were deliberately RETAINED across an eject (#1071), so a ghost lane
+     * never shows a phantom fill (#1071 BUG-1). UNKNOWN carries no presence
+     * signal (a backend that publishes none, or the startup skeleton before
+     * the first status parse lands), so it falls through to the same logic as
+     * a present lane: the real remaining/total ratio when both weights are
+     * known, else full when any filament metadata is present (some backends,
+     * e.g. Snapmaker RFID, report a total but never a remaining, and a lane
+     * outside Spoolman has no weights at all). Full is what every other
+     * printer UI shows for an unweighed spool, and matching them beats a
+     * half-bar nobody reads as "unknown". Else nullopt (leave unchanged).
+     */
+    [[nodiscard]] std::optional<float> display_fill_level() const {
+        // A real weight wins over presence. The spool graphic answers "how much
+        // is on this spool"; whether the lane is in the machine is carried by
+        // the ghost and the placeholder. Draining a spool that has a recorded
+        // weight asserts a second, different thing - that the spool itself is
+        // empty - which is wrong for a tool changer, where an absent tool took
+        // its filament with it.
+        if (total_weight_g > 0.0f && remaining_weight_g >= 0.0f) {
+            return remaining_weight_g / total_weight_g;
+        }
+        // No weight to go on: an absent lane reads empty rather than falling
+        // through to the metadata fallback below, which would render an ejected
+        // lane as a full spool.
+        if (status == SlotStatus::EMPTY) {
+            return 0.0f;
+        }
+        if (has_filament_info()) {
+            return 1.0f;
+        }
+        return std::nullopt;
+    }
+
+    /**
+     * @brief Canonical fill-level as an integer percent for subject transport.
+     *
+     * Encodes display_fill_level() into the 0-100 int convention used by the
+     * per-slot fill subjects (AmsState::get_slot_fill_subject): -1 when
+     * display_fill_level() is nullopt (no data — leave the render untouched),
+     * otherwise the ratio rounded to 0-100 (empty lane -> 0, metadata-only
+     * fallback -> 100, real ratio -> lround(ratio*100)). Implemented in terms of
+     * display_fill_level() so the two never drift.
+     */
+    [[nodiscard]] int display_fill_pct() const {
+        auto lvl = display_fill_level();
+        if (!lvl) {
+            return -1;
+        }
+        return static_cast<int>(std::lround(*lvl * 100.0f));
+    }
+
+    /**
+     * @brief Remaining-length display string, or "" when it is not a
+     *        measurement.
+     *
+     * The CFS box reports two sentinel lengths that must never render as
+     * measurements: 100 is the "never measured" default the bay carries until
+     * the BOX_INFO_REFRESH probe sequence runs (see the probe notes in
+     * ams_backend_cfs.cpp), and 255 is what a probe against a busy box leaves
+     * behind (#1387). Anything <= 0 is equally not a measurement. Callers fall
+     * back to remaining_weight_g when this is empty.
+     *
+     * The sentinels are box dialect values; a genuine reading on another
+     * backend that happens to land exactly on 100.0 falls to the weight, the
+     * lesser mistake next to presenting a sentinel as a measurement.
+     */
+    [[nodiscard]] std::string remaining_length_display() const {
+        if (remaining_length_m <= 0.0f || remaining_length_m == 100.0f ||
+            remaining_length_m == 255.0f) {
+            return {};
+        }
+        return std::to_string(static_cast<int>(remaining_length_m)) + "m";
+    }
+
+    /**
+     * @brief Everything known about what is left on the spool: weight when a
+     *        total is known, then measured length ("750g · 212m"), "" when
+     *        neither.
+     */
+    [[nodiscard]] std::string remaining_summary() const {
+        std::string weight;
+        if (total_weight_g > 0.0f && remaining_weight_g >= 0.0f) {
+            char buf[24];
+            snprintf(buf, sizeof(buf), "%.0fg", remaining_weight_g);
+            weight = buf;
+        }
+        const std::string length = remaining_length_display();
+        if (weight.empty() || length.empty()) {
+            return weight.empty() ? length : weight;
+        }
+        return weight + " \xC2\xB7 " + length;
+    }
+};
+
+/// A logo image and how the UI draws it.
+struct LogoArt {
+    const char* path = nullptr; ///< Asset path; null when the type has no logo
+    /// True for full-color art, drawn as is. False for a white mono mark, which the
+    /// UI tints to the text color.
+    bool color = false;
+};
+
+/**
+ * @brief Information about an AMS unit
+ *
+ * Supports multi-unit configurations (e.g., 2x Box Turtles = 16 slots).
+ * Most setups have a single unit with 4-8 slots.
+ */
+struct AmsUnit {
+    int unit_index = 0;              ///< Unit number (0-based)
+    std::string name;                ///< Internal name for matching (e.g., "Box_Turtle Turtle_1")
+    std::string display_name;        ///< Pretty name for UI (e.g., "Turtle 1") — empty = use name
+    int slot_count = 0;              ///< Number of slots on this unit
+    int first_slot_global_index = 0; ///< Global index of first slot
+
+    std::vector<SlotInfo> slots; ///< Slot information
+
+    // Unit-level status
+    /// False only when the backend reports the unit offline or switched off.
+    /// A backend that publishes no connection state leaves it true, so a unit
+    /// never reads disconnected before its first report.
+    bool connected = true;
+    /// An address no unit answers from, below one that does. Firmware that
+    /// numbers bays by box address keeps the gap's indices reserved, so this
+    /// stands in for the missing box: its bays are EMPTY, nothing may be sent
+    /// to them, and they are not counted or offered as bays that exist.
+    bool absent = false;
+    std::string firmware_version;               ///< Firmware version if available
+    std::string serial_number;                  ///< Hardware serial number
+    std::optional<EnvironmentData> environment; ///< Per-unit temp/humidity (nullopt = no sensors)
+
+    // Sensors (Happy Hare)
+    bool has_encoder = false;         ///< Has filament encoder
+    bool has_toolhead_sensor = false; ///< Has toolhead filament sensor
+    bool has_slot_sensors = false;    ///< Has per-slot sensors
+
+    // Hub/combiner sensor (AFC Box Turtle, Night Owl, etc.)
+    bool has_hub_sensor = false;       ///< Unit has a hub/combiner sensor
+    bool hub_sensor_triggered = false; ///< Filament detected at this unit's hub
+
+    // Buffer health (AFC TurtleNeck — one buffer per unit, sits between hub and toolhead)
+    std::optional<BufferHealth> buffer_health; ///< Buffer fault state (nullopt = no buffer data)
+
+    // Per-unit topology (for mixed-topology setups like Box Turtle + OpenAMS)
+    PathTopology topology = PathTopology::HUB; ///< Filament path topology for this unit
+
+    /// Physical tool label for HUB units (e.g., 4 for extruder4/T4, 5 for extruder5/T5).
+    /// -1 means "use min(mapped_tool) from lanes" (the default/PARALLEL behavior).
+    int hub_tool_label = -1;
+
+    /// Identity of the hub (and so the filament lane and nozzle) this unit
+    /// feeds, when the backend knows it. Units that name the same non-empty
+    /// hub converge into ONE hub and feed ONE toolhead; empty means the unit's
+    /// hub is its own as far as the backend can tell.
+    std::string hub_id;
+
+    /// Per-lane hub routing flag. true = lane routes through hub, false = direct to extruder.
+    /// Empty vector means routing info unavailable (treat as uniform topology).
+    std::vector<bool> lane_is_hub_routed;
+
+    /**
+     * @brief Check if any slot in this unit has an error
+     * @return true if at least one slot has error.has_value()
+     */
+    [[nodiscard]] bool has_any_error() const {
+        return std::any_of(slots.begin(), slots.end(),
+                           [](const SlotInfo& s) { return s.has_fault(); });
+    }
+
+    /**
+     * @brief Get slot by local index (within this unit)
+     * @param local_index Index within this unit (0 to slot_count-1)
+     * @return Pointer to slot info or nullptr if out of range
+     */
+    [[nodiscard]] const SlotInfo* get_slot(int local_index) const {
+        if (local_index < 0 || local_index >= static_cast<int>(slots.size())) {
+            return nullptr;
+        }
+        return &slots[local_index];
+    }
+
+    /**
+     * @brief Get mutable slot by local index (within this unit)
+     * @param local_index Index within this unit (0 to slot_count-1)
+     * @return Pointer to slot info or nullptr if out of range
+     */
+    [[nodiscard]] SlotInfo* get_slot(int local_index) {
+        if (local_index < 0 || local_index >= static_cast<int>(slots.size())) {
+            return nullptr;
+        }
+        return &slots[local_index];
+    }
+};
+
+// ============================================================================
+// Spoolman Integration Mode (Happy Hare v4)
+// ============================================================================
+
+/**
+ * @brief Spoolman integration mode for Happy Hare v4
+ *
+ * Happy Hare v4 supports 4 Spoolman integration modes:
+ * - OFF: No Spoolman integration
+ * - READONLY: Reads spool data but doesn't update
+ * - PUSH: Pushes gate changes to Spoolman (sets active spool)
+ * - PULL: Pulls spool assignments from Spoolman (Spoolman is source of truth)
+ */
+enum class SpoolmanMode { OFF = 0, READONLY = 1, PUSH = 2, PULL = 3 };
+
+/**
+ * @brief Convert SpoolmanMode to display string
+ */
+inline const char* spoolman_mode_to_string(SpoolmanMode mode) {
+    switch (mode) {
+    case SpoolmanMode::OFF:
+        return "Off";
+    case SpoolmanMode::READONLY:
+        return "Read Only";
+    case SpoolmanMode::PUSH:
+        return "Push";
+    case SpoolmanMode::PULL:
+        return "Pull";
+    default:
+        return "Unknown";
+    }
+}
+
+/**
+ * @brief Parse SpoolmanMode from Happy Hare string value
+ * @param str String from printer.mmu.spoolman_support
+ * @return Corresponding SpoolmanMode
+ */
+inline SpoolmanMode spoolman_mode_from_string(std::string_view str) {
+    if (str == "off" || str == "Off")
+        return SpoolmanMode::OFF;
+    if (str == "readonly" || str == "Read Only")
+        return SpoolmanMode::READONLY;
+    if (str == "push" || str == "Push")
+        return SpoolmanMode::PUSH;
+    if (str == "pull" || str == "Pull")
+        return SpoolmanMode::PULL;
+    return SpoolmanMode::OFF;
+}
+
+/// Encoder-based clog detection (Happy Hare mmu.encoder.*)
+struct EncoderClogInfo {
+    bool enabled = false;
+    int flow_rate = -1;         // 0-100% (-1=unavailable)
+    int detection_mode = 0;     // 0=unknown, 1=manual, 2=auto
+    float desired_headroom = 0; // target headroom (mm)
+    float detection_length = 0; // total detection distance (mm)
+    float headroom = 0;         // current headroom (mm)
+    float min_headroom = 0;     // minimum headroom reached (mm)
+
+    /// Get clog percentage: 0=full headroom, 100=clogged
+    [[nodiscard]] int get_clog_pct() const {
+        if (detection_length <= 0)
+            return 0;
+        float used = detection_length - headroom;
+        int pct = static_cast<int>((used / detection_length) * 100.0f + 0.5f);
+        return std::clamp(pct, 0, 100);
+    }
+
+    /// Warning: min_headroom has dipped below desired_headroom
+    [[nodiscard]] bool is_warning() const {
+        return desired_headroom > 0 && min_headroom < desired_headroom;
+    }
+};
+
+/// Flowguard clog/tangle detection (Happy Hare mmu.flowguard.*)
+struct FlowguardInfo {
+    bool enabled = false;
+    bool active = false;
+    std::string trigger; // "CLOG", "TANGLE", or ""
+    float level = 0;     // -1.0 (tangle) to +1.0 (clog)
+    float max_clog = 0;
+    float max_tangle = 0; // negative value
+    std::string reason;   ///< Why the last trip fired (v4 `flowguard.reason`); "" when none
+};
+
+/// Tangle prevention: the proportional buffer sensor boosts the gate stepper
+/// to untangle before the flow detector trips.
+struct TanglePreventionInfo {
+    bool present = false; ///< The selected unit published the object (it has a buffer)
+    bool enabled = false;
+    bool active = false;  ///< Armed: filament monitoring is on
+    bool boosted = false; ///< The gate stepper is currently boosted
+    float threshold = 0;
+    float release = 0;
+};
+
+/**
+ * @brief The state a user tells the filament system it is really in
+ *
+ * AmsBackend::recover_with_state() re-syncs the firmware's tracking to this.
+ * Anything left unset is not asserted, so the firmware keeps (or detects)
+ * its own answer for it.
+ */
+struct RecoverStateRequest {
+    int slot = -1;              ///< 0-based slot, -1 = keep the firmware's current one
+    bool bypass = false;        ///< Bypass is selected; slot is then ignored
+    std::optional<bool> loaded; ///< Filament at the extruder; nullopt = let firmware detect
+};
+
+/**
+ * @brief Complete AMS system state
+ *
+ * This is the top-level structure containing all AMS information.
+ */
+struct AmsSystemInfo {
+    AmsType type = AmsType::NONE;
+    std::string type_name; ///< "Happy Hare", "AFC", etc.
+    std::string version;   ///< System version string
+
+    // Current state
+    int current_tool = -1; ///< Active tool (-1=none, -2=bypass for HH)
+    int current_slot = -1; ///< Active slot (-1=none, -2=bypass for HH)
+
+    /// The head a load/unload operation is working on right now: the batch
+    /// cursor while a batch runs, else the head whose channel is mid-op, else
+    /// -1. current_slot stays the carriage answer ("tool on the carriage"),
+    /// which is what its other consumers read; only the loaded card's position
+    /// header follows the work through this field.
+    int operation_working_slot = -1;
+
+    /// Whether a toolhead is on the carriage. UNKNOWN on machines without one,
+    /// which is every backend except the toolchanger-capable ones — they are
+    /// unaffected by this field. See MountState (#1229).
+    MountState mount_state = MountState::UNKNOWN;
+    /// Tool number on the carriage when mount_state == MOUNTED, else -1.
+    int mounted_tool = -1;
+
+    int pending_target_slot = -1; ///< Target slot during tool change (-1=none)
+    /// Current tool change number: 0-based index, -1 = none yet. Backends
+    /// normalize their firmware's own counter into this form (AFC publishes a
+    /// 1-based "changes started" count; Happy Hare a completed-change count);
+    /// the UI adds one back when it formats "N / total".
+    ///
+    /// The arithmetic is unified; the MEANING is not. Index 0 is "the first
+    /// change is under way" on AFC and "the first change has finished" on Happy
+    /// Hare, so identical rendered text describes states half a toolchange
+    /// apart. Do not build logic that treats this as a completion count without
+    /// checking which backend produced it.
+    int current_toolchange = -1;
+    int number_of_toolchanges = 0; ///< Total expected tool changes this print
+    bool filament_loaded = false;  ///< Filament at extruder
+
+    /// Slot the firmware has pre-staged for the NEXT toolchange (-1 = none).
+    /// AFC publishes this as `AFC.next_lane` during a multicolor print; resolved
+    /// to a slot index here. Distinct from pending_target_slot, which is the
+    /// destination of the toolchange already under way.
+    int next_slot = -1;
+    bool filament_runout =
+        false; ///< CFS: active path empty (box.filament_useup); UI gates display on paused state
+    AmsAction action = AmsAction::IDLE; ///< Current operation
+    std::string operation_detail;       ///< Detailed operation string
+
+    /// Granular firmware sub-phase of the active load/unload, for backends that
+    /// expose one. Used to drive a multi-step progress bar that mirrors the real
+    /// firmware sequence instead of the coarse AmsAction. -1 = none /
+    /// not-applicable. The index meaning is backend-specific and matches that
+    /// backend's get_operation_step_model() phase_id values:
+    ///   - Snapmaker U1 (4 steps): 0 = Home, 1 = Select, 2 = Heat,
+    ///     3 = Move (Retract on unload / Feed on load).
+    ///   - AD5X IFS (3 synthesized steps): 0 = Heat,
+    ///     1 = Cut (unload) / Feed (load), 2 = Retract (unload) / Purge (load).
+    /// Default -1.
+    int operation_phase = -1;
+
+    /// True when an operation is active but no phase-progress signal (temp-value
+    /// change, head transition, motion, or phase change) has arrived within the
+    /// backend's indeterminate threshold (~8s). On constrained backends (AD5X
+    /// IFS) the shared main-thread status feed can starve while klippy runs a
+    /// blocking load/unload macro, freezing the live "Heat 225/230" number so it
+    /// reads as a hang. The UI swaps the frozen number for an indeterminate
+    /// "Working…" busy state while this is true (#1065 row 14). Default false.
+    bool operation_indeterminate = false;
+
+    // Units
+    std::vector<AmsUnit> units; ///< All AMS units
+    int total_slots = 0;        ///< Sum of all slots across units
+
+    // Capability flags
+    /// Is endless spool switched ON? The ENABLE axis only - it says nothing
+    /// about whether the printer HAS the feature.
+    ///
+    /// This is the transport-parsed carrier for the enable bit (CFS
+    /// `auto_refill` / `runout_swap_enabled`, Happy Hare `endless_spool_enabled`,
+    /// AD5X `variable_backup`): the WebSocket parse builds an AmsSystemInfo off
+    /// the main thread and commits it under the backend mutex, so the bit needs
+    /// a home in this struct. It replaced `supports_endless_spool`, which
+    /// answered the *availability* question a second time and provably disagreed
+    /// with get_endless_spool_capabilities() (CFS whenever auto-refill was off).
+    ///
+    /// **`AmsBackend::get_endless_spool_capabilities()` is the single source of
+    /// truth for every axis, and it DERIVES `EndlessSpoolCapabilities::enabled`
+    /// from this field** rather than answering independently, so the two cannot
+    /// diverge. Read the capabilities, not this.
+    bool endless_spool_enabled = false;
+
+    /// Auto-refill equivalence groups as the firmware reported them:
+    /// endless_spool_group_ids[global_slot] = group ordinal, -1 = ungrouped.
+    /// Same transport story as endless_spool_enabled - the WebSocket parse
+    /// builds it off the main thread and commits it under the backend mutex.
+    /// One entry per addressable bay (CFS T1A..T4D), so the index is the TNN
+    /// address space, not the count of connected units. get_endless_spool_
+    /// capabilities() is the reader that matters; it only asks whether any
+    /// group pairs two or more lanes.
+    std::vector<int> endless_spool_group_ids;
+
+    /// True when the parsed frame actually carried grouping data (CFS
+    /// `same_material`, present as an array even when no two lanes match).
+    /// Without it, "no data" (the flat dialect never sends the field) and
+    /// "parsed and nothing groups" would be indistinguishable, and the
+    /// capability answer would claim a negative it never read.
+    bool endless_spool_groups_reported = false;
+
+    bool supports_bypass = false; ///< Has bypass selector position
+    /// The hardware is there in firmware but nothing feeds through it, so the
+    /// printer runs one external spool (a CFS-ready printer with no box on the
+    /// bus, #1904). The backend still owns load and unload; the UI presents no
+    /// filament system.
+    bool external_spool_only = false;
+    bool has_hardware_bypass_sensor = false; ///< true=auto-detect sensor, false=virtual/manual
+    TipMethod tip_method = TipMethod::CUT;   ///< How filament tip is handled during unload
+    bool supports_purge = false;             ///< Has purge capability after load
+
+    // Active alerts (persistent error conditions from hardware)
+    std::vector<AmsAlert> alerts; ///< Current system/unit/slot alerts
+
+    // Happy Hare v4 extended status fields
+    SpoolmanMode spoolman_mode = SpoolmanMode::OFF; ///< Spoolman integration mode
+    int pending_spool_id = -1;                      ///< Pending spool assignment (v4)
+
+    /// Spoolman base URL the firmware itself is configured against, when it
+    /// publishes one (AFC `AFC.spoolman`). Empty = not reported / not configured.
+    /// Informational: HelixScreen resolves Spoolman through Moonraker, not this.
+    std::string spoolman_url;
+
+    /// Firmware has a saved toolhead position it can restore (AFC
+    /// `AFC.position_saved`). Set while an error interrupted a print mid-move.
+    bool position_saved = false;
+
+    std::string espooler_state;      ///< eSpooler state: "rewind"/"assist"/""
+    std::string sync_feedback_state; ///< Sync feedback: "compressed"/"tension"/"neutral"/"disabled"
+    /// espooler_state, translated by the backend.
+    SpoolMotorAction spool_motor = SpoolMotorAction::None;
+    /// A buffer serving the whole system (Happy Hare's sync feedback),
+    /// translated by the backend; nullopt when there is none or it is disabled.
+    std::optional<BufferMotion> system_buffer_motion;
+    bool sync_drive = false;      ///< Gear synced to extruder motor
+    int clog_detection = 0;       ///< Clog detection: 0=off, 1=manual, 2=auto
+    int encoder_flow_rate = -1;   ///< Encoder flow rate (-1=unavailable)
+    EncoderClogInfo encoder_info; ///< Encoder-based clog detection state
+    TanglePreventionInfo tangle_prevention;
+    FlowguardInfo flowguard_info;       ///< Flowguard clog/tangle detection state
+    float sync_feedback_flow_rate = -1; ///< Sync feedback flow rate
+    float sync_feedback_bias = -2;      ///< Modelled bias [-1.0,1.0], -2=unavailable
+    float sync_feedback_bias_raw = -2;  ///< Raw sensor bias [-1.0,1.0], -2=unavailable
+    float toolchange_purge_volume = 0;  ///< Slicer purge volume for toolchanges
+
+    // Tool-to-slot mapping (Happy Hare uses "gate" internally)
+    std::vector<int> tool_to_slot_map; ///< tool_to_slot_map[tool] = slot
+
+    /**
+     * @brief Get slot by global index (across all units)
+     * @param global_index Global slot index (0 to total_slots-1)
+     * @return Pointer to slot info or nullptr if out of range
+     */
+    [[nodiscard]] const SlotInfo* get_slot_global(int global_index) const {
+        for (const auto& unit : units) {
+            if (global_index >= unit.first_slot_global_index &&
+                global_index < unit.first_slot_global_index + unit.slot_count) {
+                int local_idx = global_index - unit.first_slot_global_index;
+                return unit.get_slot(local_idx);
+            }
+        }
+        return nullptr;
+    }
+
+    /**
+     * @brief Get mutable slot by global index (across all units)
+     * @param global_index Global slot index (0 to total_slots-1)
+     * @return Pointer to slot info or nullptr if out of range
+     */
+    [[nodiscard]] SlotInfo* get_slot_global(int global_index) {
+        for (auto& unit : units) {
+            if (global_index >= unit.first_slot_global_index &&
+                global_index < unit.first_slot_global_index + unit.slot_count) {
+                int local_idx = global_index - unit.first_slot_global_index;
+                return unit.get_slot(local_idx);
+            }
+        }
+        return nullptr;
+    }
+
+    /**
+     * @brief Get the currently active slot info
+     * @return Pointer to active slot or nullptr if none selected
+     */
+    /**
+     * @brief Whether @p global_index is a bay some unit actually reported
+     *
+     * False for an index no unit covers and for one inside an absent unit.
+     */
+    [[nodiscard]] bool slot_exists(int global_index) const {
+        const AmsUnit* unit = unit_for_slot(global_index);
+        return unit != nullptr && !unit->absent;
+    }
+
+    /// True when @p global_index sits inside an absent unit's reserved range.
+    [[nodiscard]] bool slot_absent(int global_index) const {
+        const AmsUnit* unit = unit_for_slot(global_index);
+        return unit != nullptr && unit->absent;
+    }
+
+    /**
+     * @brief The number of bays that exist, for anything shown to the user
+     *
+     * total_slots is the index span and counts an absent unit's reserved
+     * bays; this does not.
+     */
+    [[nodiscard]] int present_slot_count() const {
+        int count = 0;
+        for (const auto& unit : units) {
+            if (!unit.absent) {
+                count += unit.slot_count;
+            }
+        }
+        return count;
+    }
+
+    /// The global indices of every bay that exists, ascending: what a list of
+    /// bays offered to the user walks.
+    [[nodiscard]] std::vector<int> present_slots() const {
+        std::vector<int> slots;
+        for (int i = 0; i < total_slots; ++i) {
+            if (slot_exists(i)) {
+                slots.push_back(i);
+            }
+        }
+        return slots;
+    }
+
+    [[nodiscard]] const AmsUnit* unit_for_slot(int global_index) const {
+        for (const auto& unit : units) {
+            if (global_index >= unit.first_slot_global_index &&
+                global_index < unit.first_slot_global_index + unit.slot_count) {
+                return &unit;
+            }
+        }
+        return nullptr;
+    }
+
+    [[nodiscard]] const SlotInfo* get_active_slot() const {
+        if (current_slot < 0)
+            return nullptr;
+        return get_slot_global(current_slot);
+    }
+
+    /**
+     * @brief The lane the filament path draws as active
+     *
+     * The destination of a toolchange under way, else the seated slot. An
+     * unload is still retracting the seated strand, so it keeps the seated
+     * lane even while the toolchange already names its target.
+     */
+    [[nodiscard]] int path_active_slot() const {
+        if (pending_target_slot >= 0 && action != AmsAction::UNLOADING) {
+            return pending_target_slot;
+        }
+        return current_slot;
+    }
+
+    /**
+     * @brief Check if system is available and connected
+     * @return true if AMS type is detected and has at least one unit
+     */
+    [[nodiscard]] bool is_available() const {
+        return type != AmsType::NONE && !units.empty();
+    }
+
+    /// Whether the UI shows a filament system for this backend at all.
+    [[nodiscard]] bool presents_filament_system() const {
+        return type != AmsType::NONE && !external_spool_only;
+    }
+
+    /**
+     * @brief Check if an operation is in progress
+     * @return true if actively loading, unloading, etc.
+     */
+    [[nodiscard]] bool is_busy() const {
+        return ams_action_holds_system(action);
+    }
+
+    // === Multi-unit helpers ===
+
+    /**
+     * @brief Check if this is a multi-unit setup (2+ physical units)
+     * @return true if more than one AmsUnit exists
+     */
+    [[nodiscard]] bool is_multi_unit() const {
+        return units.size() > 1;
+    }
+
+    /**
+     * @brief Get number of physical units
+     * @return Number of AmsUnit entries
+     */
+    [[nodiscard]] int unit_count() const {
+        return static_cast<int>(units.size());
+    }
+
+    /**
+     * @brief Position in `units` of the unit that contains a global slot index
+     *
+     * Deliberately the POSITION, not AmsUnit::unit_index. Backends index
+     * get_unit_topology() by position — AFC sorts `units` alphabetically and
+     * matches by name inside that accessor — and several backends never assign
+     * unit_index at all, leaving it at its 0 default. Every existing caller
+     * (ams_drawing_utils, ui_panel_ams_overview) already passes a loop position.
+     *
+     * @param global_index Global slot index (0 to total_slots-1)
+     * @return Index into `units`, or -1 if no unit covers the slot
+     */
+    [[nodiscard]] int get_unit_position_for_slot(int global_index) const {
+        for (size_t i = 0; i < units.size(); ++i) {
+            const AmsUnit& unit = units[i];
+            if (global_index >= unit.first_slot_global_index &&
+                global_index < unit.first_slot_global_index + unit.slot_count) {
+                return static_cast<int>(i);
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * @brief Get the unit that contains a given global slot index
+     * @param global_index Global slot index (0 to total_slots-1)
+     * @return Pointer to containing AmsUnit or nullptr if out of range
+     */
+    [[nodiscard]] const AmsUnit* get_unit_for_slot(int global_index) const {
+        const int pos = get_unit_position_for_slot(global_index);
+        return pos < 0 ? nullptr : &units[static_cast<size_t>(pos)];
+    }
+
+    /**
+     * @brief Get mutable unit that contains a given global slot index
+     * @param global_index Global slot index (0 to total_slots-1)
+     * @return Pointer to containing AmsUnit or nullptr if out of range
+     */
+    [[nodiscard]] AmsUnit* get_unit_for_slot(int global_index) {
+        const int pos = get_unit_position_for_slot(global_index);
+        return pos < 0 ? nullptr : &units[static_cast<size_t>(pos)];
+    }
+
+    /**
+     * @brief Get unit by index
+     * @param unit_index Unit index (0 to unit_count()-1)
+     * @return Pointer to AmsUnit or nullptr if out of range
+     */
+    [[nodiscard]] const AmsUnit* get_unit(int unit_index) const {
+        if (unit_index < 0 || unit_index >= static_cast<int>(units.size())) {
+            return nullptr;
+        }
+        return &units[unit_index];
+    }
+
+    /**
+     * @brief Get the unit index that contains the currently active slot
+     * @return Unit index (0-based) or -1 if no active slot
+     */
+    [[nodiscard]] int get_active_unit_index() const {
+        if (current_slot < 0)
+            return -1;
+        const auto* unit = get_unit_for_slot(current_slot);
+        if (!unit)
+            return -1;
+        return unit->unit_index;
+    }
+
+    /// Index of the unit whose filament pressure sensor feeds the toolhead: the
+    /// current slot's unit, else the first unit that reports pressure (with
+    /// several lanes loaded there is no current slot). -1 when none does. A
+    /// sensor without a set point counts: it has a reading, just nothing to
+    /// centre it on.
+    [[nodiscard]] int feeding_pressure_unit() const {
+        auto reports = [this](int pos) {
+            const auto& health = units[static_cast<size_t>(pos)].buffer_health;
+            return health && health->fps_reported;
+        };
+        const int active = get_unit_position_for_slot(current_slot);
+        if (active >= 0 && reports(active)) {
+            return active;
+        }
+        for (int pos = 0; pos < static_cast<int>(units.size()); ++pos) {
+            if (reports(pos)) {
+                return pos;
+            }
+        }
+        return -1;
+    }
+
+    /// System-level bias from feeding_pressure_unit(): -1.5 when that sensor has no set
+    /// point, measures compression only, or when no unit reports pressure.
+    [[nodiscard]] float pressure_sensor_bias() const {
+        const int pos = feeding_pressure_unit();
+        if (pos < 0 || units[static_cast<size_t>(pos)].buffer_health->compression_only) {
+            return -1.5f; // a one-sided gauge has no place on the two-ended scale
+        }
+        return units[static_cast<size_t>(pos)].buffer_health->fps_to_bias();
+    }
+
+    /// Which clog-meter sources this snapshot can feed. The meter's source
+    /// picker offers exactly these, and AmsState picks among them.
+    struct ClogSources {
+        bool flowguard = false;
+        bool encoder = false;
+        bool buffer_fault = false; ///< A unit's buffer counts down to a fault
+    };
+    [[nodiscard]] ClogSources clog_sources() const {
+        ClogSources s;
+        s.flowguard = flowguard_info.enabled;
+        s.encoder = encoder_info.enabled;
+        for (const auto& unit : units) {
+            if (unit.buffer_health && unit.buffer_health->fault_detection_enabled) {
+                s.buffer_fault = true;
+                break;
+            }
+        }
+        return s;
+    }
+};
+
+/**
+ * @brief Decide whether enabling bypass must be preceded by an implicit unload.
+ *
+ * The AMS sidebar's bypass toggle used to unload whenever a slot was loaded,
+ * then enable bypass once the unload finished. On backends whose users have a
+ * console (AFC, Happy Hare) that ejects filament the user never asked to eject,
+ * so those backends report @p allows_implicit_chaining false and the UI sends
+ * only the bypass command, letting the firmware refuse it if it wants to
+ * (prestonbrown/helixscreen#1229). Backends with no console fallback keep the
+ * chaining.
+ *
+ * Pure so the policy is testable without LVGL; the sidebar calls this rather
+ * than restating the condition.
+ *
+ * @param info Current AMS system state
+ * @param allows_implicit_chaining AmsBackend::allows_implicit_chaining() for the active backend
+ * @return true if the UI should unload the active slot before enabling bypass
+ */
+[[nodiscard]] inline bool should_unload_before_bypass(const AmsSystemInfo& info,
+                                                      bool allows_implicit_chaining) {
+    return allows_implicit_chaining && info.current_slot >= 0 && info.filament_loaded;
+}
+
+/**
+ * @brief Filament requirement from G-code analysis
+ *
+ * Used for print preview to show which colors are needed.
+ */
+struct FilamentRequirement {
+    int tool_index = -1;                       ///< Tool number from G-code (T0, T1, etc.)
+    uint32_t color_rgb = kAmsDefaultSlotColor; ///< Color hint from slicer
+    std::string material;                      ///< Material hint from slicer (if available)
+    int mapped_slot = -1;                      ///< Which slot is mapped to this tool
+
+    /**
+     * @brief Check if this requirement is satisfied by a slot
+     * @return true if a slot is mapped to this tool
+     */
+    [[nodiscard]] bool is_satisfied() const {
+        return mapped_slot >= 0;
+    }
+};
+
+/**
+ * @brief Print color requirements summary
+ */
+struct PrintColorInfo {
+    std::vector<FilamentRequirement> requirements;
+    int initial_tool = 0;       ///< First tool used in print
+    bool all_satisfied = false; ///< All requirements have mapped slots
+};
+
+// ============================================================================
+// Dryer Types (for AMS systems with integrated drying)
+// ============================================================================
+
+/**
+ * @brief Preset drying profile
+ *
+ * Standard drying profiles for common filament materials.
+ * Can be overridden via settings.json "dryer_presets" array.
+ */
+struct DryingPreset {
+    std::string name;       ///< Preset name (e.g., "PLA", "PETG", "ABS")
+    float temp_c = 45.0f;   ///< Target temperature in Celsius
+    int duration_min = 240; ///< Drying duration in minutes
+    int fan_pct = 50;       ///< Fan speed percentage (0-100)
+
+    /**
+     * @brief Create a drying preset
+     * @param n Preset name
+     * @param t Temperature in Celsius
+     * @param d Duration in minutes
+     * @param f Fan speed percentage
+     */
+    DryingPreset(std::string n, float t, int d, int f = 50)
+        : name(std::move(n)), temp_c(t), duration_min(d), fan_pct(f) {}
+    DryingPreset() = default;
+};
+
+/**
+ * @brief Dryer capability and state information
+ *
+ * Not all AMS systems have integrated dryers. Currently only ACE Pro
+ * has dryer support. This struct provides a generic interface that other
+ * backends can implement when dryer hardware becomes available.
+ */
+struct DryerInfo {
+    bool supported = false;           ///< Does this AMS have a dryer?
+    bool active = false;              ///< Currently drying?
+    bool allows_during_print = false; ///< Can run while printing? (backend capability)
+
+    // Current state
+    float current_temp_c = 0.0f; ///< Current chamber temperature
+    float target_temp_c = 0.0f;  ///< Target temperature (0 = off)
+    int duration_min = 0;        ///< Total drying duration set
+    int remaining_min = 0;       ///< Minutes remaining
+    int fan_pct = 0;             ///< Current fan speed (0-100)
+
+    // Hardware capabilities
+    float min_temp_c = 35.0f;          ///< Minimum settable temperature
+    float max_temp_c = 70.0f;          ///< Maximum settable temperature
+    int max_duration_min = 720;        ///< Maximum drying time (12h default)
+    int duration_step_min = 1;         ///< Granularity the firmware takes a duration in
+    bool supports_fan_control = false; ///< Can fan speed be set independently?
+
+    /**
+     * Can a running cycle be retargeted without stopping it?
+     *
+     * Two flags because the hardware splits the same way. A backend can retarget the
+     * heater mid-run and still have no way to move the clock: the temperature is a
+     * setpoint it can re-send, while the duration is owned by a firmware timer that
+     * only accepts a fresh cycle. Where a flag is false the caller must stop and
+     * restart, which is a visible interruption and worth warning about, so the two
+     * cases cannot be collapsed into one "adjustable" bool.
+     *
+     * Both default false: a backend that has not been checked against real hardware
+     * should force the stop-and-restart path rather than silently drop an adjustment.
+     */
+    bool supports_live_temp = false;     ///< Target temp re-sends without stopping
+    bool supports_live_duration = false; ///< Remaining time changes without stopping
+
+    /// Can a cycle also end early once the box reads at or below a target relative
+    /// humidity? The duration still bounds the cycle; the target only shortens it.
+    bool supports_humidity_target = false;
+
+    /// The target, in %RH, a start with none applies, when the backend knows it.
+    /// Unset means the dryer either applies no target or does not say which.
+    std::optional<float> default_humidity_target;
+
+    /// Can a cycle be started and stopped on a chosen subset of this dryer's gates? True
+    /// only where each gate has its own heater, so the subset is what actually heats.
+    bool supports_gate_selection = false;
+
+    /// Can a cycle turn the selected spools while it dries? Needs a motor that drives
+    /// the spool itself, and an explicit gate selection to say which ones.
+    bool supports_rotation = false;
+
+    /// Highest humidity target, in %RH, a surface offers.
+    static constexpr float kMaxHumidityTargetPct = 99.0f;
+
+    /// @p pct as a humidity target this dryer takes, or nullopt for none: the dryer
+    /// cannot take one, or @p pct is unset (0 or below). Above the ceiling clamps to it.
+    [[nodiscard]] std::optional<float> humidity_target(float pct) const {
+        if (!supports_humidity_target || !(pct > 0.0f)) {
+            return std::nullopt;
+        }
+        return std::min(pct, kMaxHumidityTargetPct);
+    }
+
+    /// @p temp_c inside this dryer's settable range. A bound of 0 is unset and
+    /// clamps nothing on its side. Every surface offering a preset clamps
+    /// through here, so the value it shows is the value it sends.
+    [[nodiscard]] float clamp_temp(float temp_c) const {
+        if (max_temp_c > 0.0f && temp_c > max_temp_c) {
+            temp_c = max_temp_c;
+        }
+        if (min_temp_c > 0.0f && temp_c < min_temp_c) {
+            temp_c = min_temp_c;
+        }
+        return temp_c;
+    }
+
+    /// @p minutes rounded UP to whole duration steps, at least one step and at
+    /// most max_duration_min. Rounding up keeps a preset from drying for less
+    /// time than it names.
+    [[nodiscard]] int clamp_duration(int minutes) const {
+        const int step = duration_step_min > 0 ? duration_step_min : 1;
+        int steps = (std::max(minutes, 0) + step - 1) / step;
+        steps = std::max(steps, 1);
+        int clamped = steps * step;
+        if (max_duration_min > 0 && clamped > max_duration_min) {
+            clamped = (max_duration_min / step) * step;
+        }
+        return clamped;
+    }
+
+    /**
+     * @brief Get progress as percentage
+     * @return 0-100 percentage, or -1 if not drying
+     */
+    [[nodiscard]] int get_progress_pct() const {
+        if (!active || duration_min <= 0)
+            return -1;
+        int elapsed = duration_min - remaining_min;
+        // Clamp to valid range (handles firmware reporting remaining > duration)
+        if (elapsed < 0)
+            elapsed = 0;
+        if (elapsed > duration_min)
+            elapsed = duration_min;
+        return (elapsed * 100) / duration_min;
+    }
+
+    /**
+     * @brief Check if dryer is at target temperature
+     * @param tolerance_c Temperature tolerance in Celsius (default 2°C)
+     * @return true if within tolerance of target
+     */
+    [[nodiscard]] bool is_at_temp(float tolerance_c = 2.0f) const {
+        if (target_temp_c <= 0)
+            return false;
+        return std::abs(current_temp_c - target_temp_c) <= tolerance_c;
+    }
+};
+
+/**
+ * @brief Everything a drying start asks of a backend.
+ *
+ * Empty @p gates leaves the choice to the dryer, which is the whole unit or whatever
+ * the firmware defaults to: exactly the start a backend sends with no selection at all.
+ */
+struct DryingRequest {
+    float temp_c = 0.0f;
+    int duration_min = 0;
+    std::optional<float> humidity_pct; ///< Unset leaves the dryer's own target
+    int fan_pct = -1;                  ///< -1 = backend default
+    int unit = 0;
+    std::vector<int> gates; ///< Global gate indices; needs DryerInfo::supports_gate_selection
+    bool rotate = false;    ///< Needs DryerInfo::supports_rotation
+};
+
+/**
+ * @brief Get default drying presets
+ *
+ * Returns presets derived from the filament database, one per compatibility group.
+ * Uses filament::get_drying_presets_by_group() as the single source of truth.
+ * These can be overridden via settings.json "dryer_presets" array.
+ *
+ * @return Vector of default DryingPreset structs
+ */
+inline std::vector<DryingPreset> get_default_drying_presets() {
+    constexpr int kDefaultFanPct = 50;
+
+    std::vector<DryingPreset> result;
+    for (const auto& fp : filament::get_drying_presets_by_group()) {
+        result.emplace_back(fp.name, static_cast<float>(fp.temp_c), fp.time_min, kDefaultFanPct);
+    }
+    return result;
+}
+
+// ============================================================================
+// Endless Spool Types
+// ============================================================================
+
+namespace printer {
+
+/**
+ * @brief Does the endless-spool mechanism exist on this printer at all?
+ *
+ * Three states rather than a bool because "the printer could do this but the
+ * optional package that exposes the live toggle is not installed" is a real
+ * answer on plugin-gated backends. No backend currently uses `RequiresPlugin`
+ * (AD5X stock zMod's `ANALOG_PRUTOK` switchover is always-on, reported as
+ * `Available`/`FirmwareManaged`); the value is retained for a future backend
+ * whose package genuinely can be missing.
+ */
+enum class EndlessSpoolAvailability : int {
+    Unsupported = 0,    ///< No such feature. Offer nothing.
+    RequiresPlugin = 1, ///< Mechanism exists; its optional package is absent.
+    Available = 2       ///< Present and usable.
+};
+
+/**
+ * @brief May this lane stand in for another when that one runs out?
+ *
+ * Tri-state because the honest answer has three cases, and flattening the
+ * middle one loses either safety or the feature itself:
+ *
+ *  - `Eligible` - same polymer, same grade. Nothing to say.
+ *  - `GradeDiffers` - same polymer, different filler (PLA-CF behind PLA). The
+ *    swap WILL work, so refusing it would let a print die at a runout with a
+ *    usable spool one lane over. But filled filament is abrasive and runs at a
+ *    lower flow rate, and an endless-spool swap happens mid-print with nobody
+ *    watching, so the user is told before choosing it.
+ *  - `Incompatible` - a different polymer, or a backend-specific rule the
+ *    firmware enforces. Tagged and refused.
+ *
+ * Backends own the verdict. Only the base rule ever answers `GradeDiffers`: a
+ * backend whose firmware matches the type string exactly (AD5X IFS) has no soft
+ * case to express, because a lane its firmware will not select is not a choice
+ * worth offering.
+ */
+enum class BackupEligibility : int { Eligible = 0, GradeDiffers = 1, Incompatible = 2 };
+
+/**
+ * @brief Is endless spool switched on right now?
+ *
+ * Tri-state on purpose: "we could not read it" is a different answer from "it
+ * is off", and only the latter justifies telling the user that no automatic
+ * switchover will happen. AD5X genuinely needs Unknown - the plugin's
+ * `variable_backup` reaches us only through a macro `get_status()` dict that
+ * older plugin versions do not declare, and the `_IFS_VARS` unknown-command
+ * latch can leave us with no reading at all.
+ */
+enum class EndlessSpoolEnabled : int {
+    Unknown = -1, ///< Not readable from this backend / not read yet.
+    Off = 0,
+    On = 1,
+    /// Switched on, but the grouping data says nothing would switch: no two
+    /// lanes currently stand in for each other, so a runout will stop the
+    /// print despite the setting being on. CFS derives this from its
+    /// `same_material` groups (#1391); an enable axis value rather than a
+    /// bool beside it because EndlessSpoolCapabilities holds enums only, and
+    /// a separate flag could contradict `enabled`.
+    OnWithoutBackup = 2
+};
+
+/**
+ * @brief What the UI may change, and in what shape.
+ *
+ * The shape matters to the UI, not just the yes/no: a PerSlot write touches one
+ * slot, a Group write can move other slots' relations as a side effect because
+ * the transport rewrites the whole partition (Happy Hare `GROUPS=<csv>`).
+ */
+enum class EndlessSpoolEditability : int {
+    ReadOnly = 0, ///< Display only.
+    PerSlot = 1,  ///< One named successor per slot (AFC `SET_RUNOUT`).
+    Group = 2     ///< Membership of an undirected group (Happy Hare `GROUPS=`).
+};
+
+/**
+ * @brief Why editing is restricted.
+ *
+ * An enum, not prose. The old `description` field carried load-bearing state as
+ * untranslated English ("Auto-refill enabled", "...read-only on multi-unit"),
+ * which no UI could safely display in any language but ours. Display text comes
+ * from endless_spool_restriction_text(), which is where lv_tr() lives.
+ */
+enum class EndlessSpoolRestriction : int {
+    None = 0,
+    /// The write command cannot target a unit (Happy Hare's
+    /// `MMU_ENDLESS_SPOOL` has no `UNIT=` and acts on the selected unit), so it
+    /// is unsafe on a multi-unit rig.
+    MultiUnit,
+    /// The firmware chooses the backup itself and exposes nothing to configure
+    /// (Creality CFS auto-refill; stock zMod's `ANALOG_PRUTOK`; the AD5X
+    /// plugin's type+colour match when backup is on).
+    FirmwareManaged,
+    /// The backend has not received enough state to answer yet.
+    NotReady,
+    /// No auto-switchover package is installed.
+    PluginMissing,
+    /// A package is installed but exposes no write path we can drive.
+    PluginReadOnly
+};
+
+/**
+ * @brief The restriction reason as display text, translated.
+ *
+ * Returns an empty string for EndlessSpoolRestriction::None. Defined in
+ * src/printer/ams_endless_spool.cpp so ams_types.h stays free of lv_tr().
+ */
+[[nodiscard]] std::string endless_spool_restriction_text(EndlessSpoolRestriction restriction);
+
+/**
+ * @brief What a backend can do about endless spool, on three independent axes.
+ *
+ * Availability, enablement and editability are genuinely orthogonal and the old
+ * two-bool struct could not hold them: CFS is available-and-read-only whether
+ * auto-refill is on or off, so `supported=true` rendered both states
+ * identically. Every field is either an enum or a proper noun - nothing here is
+ * translatable prose, so nothing here can leak English into the UI.
+ */
+struct EndlessSpoolCapabilities {
+    EndlessSpoolAvailability availability = EndlessSpoolAvailability::Unsupported;
+    EndlessSpoolEnabled enabled = EndlessSpoolEnabled::Unknown;
+    EndlessSpoolEditability editability = EndlessSpoolEditability::ReadOnly;
+    EndlessSpoolRestriction restriction = EndlessSpoolRestriction::None;
+
+    /// The UI may switch the feature on and off (AmsBackend::set_endless_spool_enabled).
+    /// Independent of editability: a box whose firmware picks the backup itself
+    /// can still take an on/off command.
+    bool switchable = false;
+
+    /// Proper noun of the package implementing the feature ("lessWaste",
+    /// "bambufy"); empty when the backend or firmware implements it natively.
+    /// A product name is never translated, which is why this is the one
+    /// free-text field left on the struct.
+    std::string provider;
+
+    /// The feature exists and is usable. Replaces the old `supported` bool.
+    [[nodiscard]] bool available() const {
+        return availability == EndlessSpoolAvailability::Available;
+    }
+
+    /// The UI may write. Replaces the old `editable` bool.
+    [[nodiscard]] bool editable() const {
+        return available() && editability != EndlessSpoolEditability::ReadOnly;
+    }
+};
+
+/**
+ * @brief One endless-spool group: slots that stand in for each other.
+ *
+ * @see EndlessSpoolConfig for why the shared model is groups and not edges.
+ */
+struct EndlessSpoolGroup {
+    /// The backend's own group id when it has one (a Happy Hare group number),
+    /// otherwise -1 for a group we synthesised from directed edges.
+    int id = -1;
+
+    /// Global slot indices. For an `ordered` group this IS the succession
+    /// order; otherwise it is ascending and carries no order.
+    std::vector<int> members;
+
+    /// true  - members[i] hands off to members[i+1]; the last member has no
+    ///         successor. AFC's `SET_RUNOUT` edge and the AD5X firmware match
+    ///         are directed, and become two-member ordered groups.
+    /// false - any member substitutes for any other. Happy Hare's gate group is
+    ///         an undirected clique of arbitrary size.
+    bool ordered = false;
+};
+
+/**
+ * @brief The whole system's endless-spool relation.
+ *
+ * Membership, not a single successor. A Happy Hare 4-gate group is ONE entry
+ * here rather than four arbitrary arrows. Projection down to
+ * one-successor-per-slot, for consumers that can show only one backup per
+ * slot, lives in exactly one place - endless_spool_backup_edges() /
+ * endless_spool_backup_for(). The slot-row drawing takes the groups themselves
+ * (helix::ui::endless_spool_marks()).
+ *
+ * Overlapping groups are legal when `ordered`: AFC permits 0->2 and 1->2, which
+ * is two ordered pairs sharing slot 2. An unordered relation is a partition.
+ */
+struct EndlessSpoolConfig {
+    std::vector<EndlessSpoolGroup> groups;
+
+    [[nodiscard]] bool empty() const {
+        return groups.empty();
+    }
+};
+
+/**
+ * @brief Build a config from per-slot directed backup edges.
+ *
+ * @param edges edges[slot] = backup slot, or -1 for none.
+ * @return One two-member ordered group per non-empty edge.
+ */
+[[nodiscard]] EndlessSpoolConfig endless_spool_config_from_edges(const std::vector<int>& edges);
+
+/**
+ * @brief Build a config from per-slot group ids (Happy Hare's shape).
+ *
+ * @param group_ids group_ids[slot] = group number, or negative for ungrouped.
+ * @return One unordered group per id that has at least two members. A lone
+ *         member is dropped: a group of one backs nothing up, and emitting it
+ *         would make "grouped" and "has a backup" disagree.
+ */
+[[nodiscard]] EndlessSpoolConfig
+endless_spool_config_from_groups(const std::vector<int>& group_ids);
+
+/**
+ * @brief Project a group relation onto one successor per slot.
+ *
+ * The single group-to-edge projection in the codebase. Used by the
+ * single-successor dropdown; never re-derive it.
+ *
+ * Ordered group:   members[i] -> members[i+1]; the last member gets nothing.
+ * Unordered group: a ring - members[i] -> members[i+1], last -> first. Every
+ *                  member gets exactly one successor and following the arrows
+ *                  visits the whole group, which is the closest a
+ *                  one-target-per-source edge view can get to "any member
+ *                  substitutes for any other". Pointing every member at the
+ *                  first other member instead (the pre-Phase-2 shape) drew an
+ *                  N-gate Happy Hare group as "slot 1 backs up everything",
+ *                  which a clique does not say.
+ *
+ * @param cfg        The relation.
+ * @param slot_count Length of the returned vector.
+ * @return edges[slot] = successor slot, or -1. Out-of-range members ignored.
+ */
+[[nodiscard]] std::vector<int> endless_spool_backup_edges(const EndlessSpoolConfig& cfg,
+                                                          int slot_count);
+
+/**
+ * @brief The single successor of one slot under the same projection.
+ * @return Backup slot index, or -1 when the slot has none.
+ */
+[[nodiscard]] int endless_spool_backup_for(const EndlessSpoolConfig& cfg, int slot);
+
+/**
+ * @brief What the endless-spool status line says, as a code the UI can bind to.
+ *
+ * Published on the `ams_endless_state` XML subject, so the numeric values are a
+ * UI contract - append, never renumber. `Hidden` is 0 so a single
+ * `bind_flag_if_eq ref_value="0"` hides the whole row, which is the only state
+ * where there is nothing truthful to say.
+ *
+ * The distinction that matters is Off vs Unknown: only Off justifies telling the
+ * user that nothing will switch. Unknown means we could not read the setting,
+ * and saying "off" there is a promise we cannot keep.
+ */
+enum class EndlessSpoolStatusKind : int {
+    Hidden = 0,      ///< Unsupported - render nothing.
+    On = 1,          ///< A runout will switch to a backup spool.
+    Off = 2,         ///< A runout will NOT switch. The print stops.
+    Unknown = 3,     ///< The backend could not tell us. Not the same as Off.
+    NeedsPlugin = 4, ///< The mechanism exists; its package is not installed.
+    /// Switched on but nothing would switch: no two lanes currently group, so
+    /// a runout will stop the print anyway (CFS same_material, #1391). MUST
+    /// NOT be On: the AMS panel hides kind On when healthy
+    /// (hide_when_healthy), and this state is exactly the sentence that panel
+    /// exists to surface.
+    OnWithoutBackup = 5
+};
+
+/**
+ * @brief The endless-spool state as one bindable code plus one display string.
+ *
+ * Deliberately two fields and not four subjects: on a 480x272 panel there is
+ * one line of room, so the reason is folded into `text` behind a newline and the
+ * label wraps. `kind` exists separately because visibility (and any future icon
+ * or colour choice) must be expressible as an XML binding rather than a C++
+ * observer.
+ */
+struct EndlessSpoolStatus {
+    EndlessSpoolStatusKind kind = EndlessSpoolStatusKind::Hidden;
+    std::string text; ///< Empty iff kind == Hidden.
+};
+
+/**
+ * @brief Turn a backend's capabilities into the user-facing status line.
+ *
+ * The one place capability enums become a sentence. Pure: no backend, no mutex,
+ * no widgets - only `lv_tr()` and `provider`, so it is directly unit-testable
+ * against every corner of the capability struct.
+ *
+ * Wording rules this encodes:
+ *  - `Unsupported` says nothing at all rather than "off": a printer with no such
+ *    mechanism is not a printer with the mechanism switched off.
+ *  - `RequiresPlugin` names `provider` when the backend knows which package to
+ *    install, and otherwise falls back to the restriction text.
+ *  - A non-`None` restriction is appended on its own line, because "it will not
+ *    switch" and "and here is why you cannot change that from here" are two
+ *    different facts and the user needs both.
+ *  - A non-empty `provider` is appended parenthetically. A proper noun needs no
+ *    translation, so this costs no string.
+ */
+[[nodiscard]] EndlessSpoolStatus endless_spool_status(const EndlessSpoolCapabilities& caps);
+
+/**
+ * @brief Action type for dynamic device controls
+ */
+enum class ActionType {
+    BUTTON,   ///< Simple action button
+    TOGGLE,   ///< On/off toggle switch
+    SLIDER,   ///< Value slider with min/max
+    DROPDOWN, ///< Selection from options list
+    INFO      ///< Read-only information display
+};
+
+/**
+ * @brief Convert ActionType to string for display/debug
+ */
+inline const char* action_type_to_string(ActionType type) {
+    switch (type) {
+    case ActionType::BUTTON:
+        return "Button";
+    case ActionType::TOGGLE:
+        return "Toggle";
+    case ActionType::SLIDER:
+        return "Slider";
+    case ActionType::DROPDOWN:
+        return "Dropdown";
+    case ActionType::INFO:
+        return "Info";
+    default:
+        return "Unknown";
+    }
+}
+
+/**
+ * @brief Section metadata for UI rendering
+ *
+ * Groups related device actions together in the UI.
+ */
+struct DeviceSection {
+    std::string id;          ///< Section identifier (e.g., "calibration")
+    std::string label;       ///< Display label (e.g., "Calibration")
+    int display_order;       ///< Sort order (0 = first)
+    std::string description; ///< Short description for settings row
+    std::string icon;        ///< Icon name; device_section() fills it from the shared table
+};
+
+/**
+ * @brief Represents a single device-specific action
+ *
+ * Backends populate these to expose unique features without hardcoding in UI.
+ */
+struct DeviceAction {
+    std::string id;                   ///< Unique action ID (e.g., "afc_calibration")
+    std::string label;                ///< Display label
+    std::string icon;                 ///< Icon name
+    std::string section;              ///< Section ID this action belongs to
+    std::string description;          ///< Optional tooltip/hint text
+    ActionType type;                  ///< Control type
+    std::any current_value;           ///< Current value (for toggles/sliders/dropdowns)
+    std::vector<std::string> options; ///< Options for dropdown type
+    float min_value = 0;              ///< Min value for slider type
+    float max_value = 100;            ///< Max value for slider type
+    float step = 1;                   ///< Slider resolution: 1, 0.1 or 0.01
+    std::string unit;                 ///< Display unit (e.g., "mm", "%")
+    int slot_index = -1;              ///< If action is per-slot (-1 = system-wide)
+    /// The tool this action applies to (0-based G-code number), or -1. The UI names
+    /// the tool after the label, in the app's one tool-label form.
+    int tool_index = -1;
+    bool enabled = true; ///< Whether action is currently available
+    /// Running it moves the printer (toolhead, homing, a purge or wipe): the UI greys it
+    /// while anything forbids motion and the backend refuses it during a print.
+    bool moves_machine = false;
+    /// A moves_machine action that stays available while the print is paused, the way a
+    /// paused print recovers (filament ops' rule: AmsSubscriptionBackend::refuse_if_printing).
+    bool allowed_while_paused = false;
+    std::string disable_reason; ///< Why disabled (if applicable)
+    /// Id of a registered guided flow (ui_guided_device_flow.h) the UI starts instead of
+    /// executing the action directly. Empty for an ordinary action.
+    std::string guided_flow;
+
+    // Factories for the five control types. Argument order is fixed: id, label, section, the
+    // type-specific fields, then optional icon and description. scripts/translations/
+    // cpp_tables.py reads the label and description positions of each call, so keep them literal.
+
+    static DeviceAction button(std::string id, std::string label, std::string section,
+                               std::string icon = {}, std::string description = {}) {
+        DeviceAction a;
+        a.id = std::move(id);
+        a.label = std::move(label);
+        a.section = std::move(section);
+        a.icon = std::move(icon);
+        a.description = std::move(description);
+        a.type = ActionType::BUTTON;
+        return a;
+    }
+
+    /// @p value is stored as given; its type (bool, float, ...) is what the UI casts back.
+    static DeviceAction toggle(std::string id, std::string label, std::string section,
+                               std::any value = {}, std::string icon = {},
+                               std::string description = {}) {
+        DeviceAction a = button(std::move(id), std::move(label), std::move(section),
+                                std::move(icon), std::move(description));
+        a.type = ActionType::TOGGLE;
+        a.current_value = std::move(value);
+        return a;
+    }
+
+    static DeviceAction slider(std::string id, std::string label, std::string section,
+                               std::any value, float min_value, float max_value, std::string unit,
+                               std::string icon = {}, std::string description = {}) {
+        DeviceAction a = toggle(std::move(id), std::move(label), std::move(section),
+                                std::move(value), std::move(icon), std::move(description));
+        a.type = ActionType::SLIDER;
+        a.min_value = min_value;
+        a.max_value = max_value;
+        a.unit = std::move(unit);
+        return a;
+    }
+
+    static DeviceAction dropdown(std::string id, std::string label, std::string section,
+                                 std::vector<std::string> options, std::any value,
+                                 std::string icon = {}, std::string description = {}) {
+        DeviceAction a = toggle(std::move(id), std::move(label), std::move(section),
+                                std::move(value), std::move(icon), std::move(description));
+        a.type = ActionType::DROPDOWN;
+        a.options = std::move(options);
+        return a;
+    }
+
+    /// A read-only row showing @p value as text.
+    static DeviceAction info(std::string id, std::string label, std::string section,
+                             std::string value, std::string icon = {},
+                             std::string description = {}) {
+        DeviceAction a =
+            toggle(std::move(id), std::move(label), std::move(section), std::any(std::move(value)),
+                   std::move(icon), std::move(description));
+        a.type = ActionType::INFO;
+        return a;
+    }
+
+    /// This action, marked as one that moves the printer. @p while_paused leaves it
+    /// available on a paused print, where a filament op is how the print recovers.
+    [[nodiscard]] DeviceAction with_machine_motion(bool while_paused = false) && {
+        moves_machine = true;
+        allowed_while_paused = while_paused;
+        return std::move(*this);
+    }
+
+    /// This slider, moving in steps of @p resolution instead of whole units.
+    [[nodiscard]] DeviceAction with_step(float resolution) && {
+        step = resolution;
+        return std::move(*this);
+    }
+};
+
+} // namespace printer
+
+} // namespace helix

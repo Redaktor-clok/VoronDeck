@@ -1,0 +1,1124 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Module: uninstall
+# Uninstall and clean installation functions
+#
+# Reads: All paths, INIT_SYSTEM, SUDO, AD5M_FIRMWARE, SERVICE_NAME, INSTALL_DIR
+# Writes: (none)
+
+# Source guard
+[ -n "${_HELIX_UNINSTALL_SOURCED:-}" ] && return 0
+_HELIX_UNINSTALL_SOURCED=1
+
+# Every polkit rule file HelixScreen has installed, any version, either format.
+HELIX_POLKIT_RULE_FILES="/etc/polkit-1/localauthority/50-local.d/helixscreen-network.pkla
+/etc/polkit-1/localauthority/50-local.d/helixscreen-power.pkla
+/etc/polkit-1/rules.d/49-helixscreen-network.rules
+/etc/polkit-1/rules.d/50-helixscreen-network.rules
+/etc/polkit-1/rules.d/49-helixscreen-power.rules"
+
+# Remove the udev and polkit rules that permissions.sh and
+# config/ensure-polkit-rule.sh install.
+remove_permission_rules() {
+    local f
+    $SUDO rm -f /etc/udev/rules.d/99-helixscreen-backlight.rules
+    for f in $HELIX_POLKIT_RULE_FILES; do
+        $SUDO rm -f "$f"
+    done
+}
+
+# Sentinel paths checked by helixscreen-update.service so it refuses to fire
+# while an uninstall is in progress (closes a race where the update path unit
+# could trigger a restart between stop_service and rm -rf $INSTALL_DIR).
+# Two locations cover both systemd-with-StateDirectory and the bare fallback;
+# both live outside $INSTALL_DIR so they survive its removal.  Both are swept
+# by clean_helix_state_dirs at the end of uninstall and by the EXIT/INT/TERM
+# trap if an uninstall aborts before reaching the sweep (otherwise a stuck
+# sentinel silently blocks every future update.service firing).
+#
+# Honors $HELIX_STATE_VAR_LIB so this stays consistent with the env-override
+# the BATS suite uses to redirect clean_helix_state_dirs away from real
+# /var/lib.  Production callers leave it unset; the systemd unit hardcodes
+# /var/lib/helixscreen/.uninstalling because @@HELIX_STATE_VAR_LIB@@ isn't a
+# template var.
+_uninstalling_sentinel_paths() {
+    echo "${HELIX_STATE_VAR_LIB:-/var/lib/helixscreen}/.uninstalling"
+    if [ -n "${INSTALL_DIR:-}" ]; then
+        local _parent
+        _parent=$(dirname "$INSTALL_DIR" 2>/dev/null || true)
+        case "$_parent" in
+            /|.|"") : ;;
+            *) echo "${_parent}/.helixscreen/.uninstalling" ;;
+        esac
+    fi
+}
+
+_drop_uninstalling_sentinel() {
+    local _p _dir
+    _uninstalling_sentinel_paths | while IFS= read -r _p; do
+        [ -z "$_p" ] && continue
+        _dir=$(dirname "$_p")
+        $SUDO mkdir -p "$_dir" 2>/dev/null || true
+        $SUDO touch "$_p" 2>/dev/null || true
+    done
+}
+
+# Sweep sentinel files.  Wired to EXIT/INT/TERM in uninstall() so an aborted
+# run doesn't leave a stuck sentinel blocking helixscreen-update.service.
+# On a successful uninstall this is a no-op — clean_helix_state_dirs already
+# removed them — but the trap fires either way.
+_sweep_uninstalling_sentinel() {
+    local _p
+    _uninstalling_sentinel_paths 2>/dev/null | while IFS= read -r _p; do
+        [ -z "$_p" ] && continue
+        $SUDO rm -f "$_p" 2>/dev/null || true
+    done
+}
+
+# The newest ${INSTALL_DIR}.old.<timestamp> directory, or nothing if none
+# exist. backup_install_dir_for_update() falls back to this name (over the
+# plain ${INSTALL_DIR}.old) only when a stale .old is root-owned and cannot
+# be removed under NoNewPrivileges; the timestamp itself is not recorded
+# anywhere else, so the newest one is the best guess. date +%s produces a
+# fixed-width decimal count for as long as this code will run, so sorting the
+# names lexicographically sorts them chronologically too.
+_newest_timestamped_install_backup() {
+    local _cand
+    for _cand in "${INSTALL_DIR}".old.*; do
+        [ -d "$_cand" ] && printf '%s\n' "$_cand"
+    done | sort | tail -1
+}
+
+# Every place a copy of the disabled-services ledger can end up, in the order
+# they are trusted. An interrupted install or --clean can strand the only
+# copy outside ${INSTALL_DIR}/config (prestonbrown/helixscreen#1618):
+#
+#   1. ${INSTALL_DIR}/config/.disabled_services   the live per-install path -
+#      a symlink into printer_data on a completed install (setup_config_symlink
+#      has run), a real file before that.
+#   2. $(klipper_config_dir)/helixscreen/.disabled_services   the same file
+#      reached directly, for when $INSTALL_DIR itself is gone (an interrupted
+#      extract_release swap moved it to one of the backup forms below).
+#   3. $(klipper_config_dir)/.disabled_services.clean-keep   the carry
+#      clean_old_installation stages before wiping printer_data/config/helixscreen;
+#      an interruption between that move and the move back strands it here.
+#   4. Every shape release.sh's extract_release can leave $INSTALL_BACKUP
+#      pointing at, checked in the same order that code tries them:
+#      ${INSTALL_DIR}.old (the plain roomy-partition case), the newest
+#      ${INSTALL_DIR}.old.<timestamp> (the NoNewPrivileges fallback used when
+#      a stale .old is root-owned), and, under every mount in
+#      HELIX_ROLLBACK_CANDIDATES, its helixscreen-rollback/helixscreen
+#      subtree (the off-partition case used when the install filesystem is
+#      too tight to hold the old and new tree at once). This module has no
+#      access to release.sh's $INSTALL_BACKUP itself - it is local to that
+#      file, and this run may not even be an install - so these are the same
+#      three shapes derived from their fixed naming, not a read of that
+#      variable. A run where HELIX_ROLLBACK_CANDIDATES was overridden at
+#      install time to a mount outside this default list is the one form
+#      this cannot find.
+#
+# A location this run cannot resolve (no Klipper config dir known) is omitted
+# rather than probed with an empty prefix.
+_disabled_services_ledger_candidates() {
+    _ledger_candidates .disabled_services wide
+}
+
+# Enable a unit for the next boot. A failure is reported with the command that
+# fixes it by hand, and does not stop the uninstall: what follows still has to run.
+enable_unit_or_warn() {
+    if ! $SUDO systemctl enable "$1" 2>/dev/null; then
+        log_warn "Could not re-enable $1. Run: sudo systemctl enable --now $1"
+    fi
+}
+
+# Remove the QIDI .3mf thumbnail helper units (prestonbrown/helixscreen#1713).
+# The helper script itself ships in $INSTALL_DIR/config/ and rides the install
+# dir's removal out; the generated PNGs under gcodes/.thumbs stay. No-op when
+# the units are absent (they are only installed on QIDI-class systemd hosts).
+uninstall_qidi_3mf_thumbs() {
+    $SUDO systemctl stop helixscreen-3mf-thumbs.path 2>/dev/null || true
+    $SUDO systemctl disable helixscreen-3mf-thumbs.path 2>/dev/null || true
+    $SUDO systemctl disable helixscreen-3mf-thumbs.service 2>/dev/null || true
+    $SUDO rm -f /etc/systemd/system/helixscreen-3mf-thumbs.path
+    $SUDO rm -f /etc/systemd/system/helixscreen-3mf-thumbs.service
+    return 0
+}
+
+# Re-enable services that were disabled during installation
+# Reads the state file and reverses each recorded disable action
+#
+# Publishes what it found, because $INSTALL_DIR (and the state file with it) is
+# gone by the time the standalone uninstaller restores the previous screen UI:
+#
+#   HELIX_DISABLED_RECORD_FOUND  1 when a ledger existed at any candidate
+#                                location. A run that finds one knows exactly
+#                                what this install displaced, and must not go
+#                                looking for more.
+#   HELIX_REENABLED_UNITS        recorded systemd unit names, space separated
+#   HELIX_REENABLED_SCRIPTS      recorded sysv-chmod targets, space separated
+reenable_disabled_services() {
+    local state_file="" _candidate
+    for _candidate in $(_disabled_services_ledger_candidates); do
+        if [ -f "$_candidate" ]; then
+            state_file="$_candidate"
+            break
+        fi
+    done
+
+    # shellcheck disable=SC2034  # consumed by reenable_previous_ui (bundle-uninstaller.sh)
+    HELIX_DISABLED_RECORD_FOUND=0
+    HELIX_REENABLED_UNITS=""
+    HELIX_REENABLED_SCRIPTS=""
+    [ -n "$state_file" ] || return 0
+    # shellcheck disable=SC2034  # consumed by reenable_previous_ui (bundle-uninstaller.sh)
+    HELIX_DISABLED_RECORD_FOUND=1
+
+    log_info "Re-enabling previously disabled services (ledger: $state_file)..."
+    while IFS= read -r entry; do
+        # Skip empty lines and comments
+        case "$entry" in ""|\#*) continue ;; esac
+
+        local type="${entry%%:*}"
+        local target="${entry#*:}"
+
+        case "$type" in
+            systemd|systemd-dropin)
+                if [ "$type" = "systemd-dropin" ]; then
+                    local dropin
+                    dropin=$(competing_ui_dropin "$target")
+                    $SUDO rm -f "$dropin"
+                    $SUDO rmdir "$(dirname "$dropin")" 2>/dev/null || true
+                    $SUDO systemctl daemon-reload 2>/dev/null || true
+                fi
+                log_info "Re-enabling systemd service: $target"
+                enable_unit_or_warn "$target"
+                HELIX_REENABLED_UNITS="${HELIX_REENABLED_UNITS} ${target}"
+                ;;
+            sysv-chmod)
+                if [ -f "$target" ]; then
+                    log_info "Re-enabling init script: $target"
+                    $SUDO chmod +x "$target" 2>/dev/null || true
+                    HELIX_REENABLED_SCRIPTS="${HELIX_REENABLED_SCRIPTS} ${target}"
+                fi
+                ;;
+            sysv-created)
+                # An init script HelixScreen itself wrote (the K1 Creality
+                # backend, prestonbrown/helixscreen#1468; the K2 web-server
+                # carve-out, prestonbrown/helixscreen#1617). Stopping and
+                # removing it is the only correct reversal: chmod +x would
+                # leave our script competing with the restored stock one.
+                # An rc.common script must also be disabled, or its rc.d
+                # boot symlinks outlive the script they point at.
+                if [ -f "$target" ]; then
+                    log_info "Removing HelixScreen init script: $target"
+                    if [ -x /etc/rc.common ] && is_rc_common_script "$target"; then
+                        $SUDO "$target" disable 2>/dev/null || true
+                    fi
+                    $SUDO "$target" stop 2>/dev/null || true
+                    $SUDO rm -f "$target"
+                fi
+                ;;
+        esac
+    done < "$state_file"
+}
+
+# Undo per-printer Klipper includes recorded at install time (#986).
+# Reverses each entry in ${INSTALL_DIR}/config/.klipper_includes:
+#   cfg:<path>                      → remove the copied snippet
+#   include:<printer.cfg>:<relpath> → strip the [include <relpath>] line (and
+#                                     the installer's marker comment above it)
+# Must run BEFORE $INSTALL_DIR is removed (the state file lives in it) and
+# touches printer_data files that live outside $INSTALL_DIR.
+undo_klipper_includes() {
+    local state_file
+    state_file="$(_ledger_path .klipper_includes)"
+    [ -f "$state_file" ] || return 0
+
+    log_info "Reverting HelixScreen Klipper config includes..."
+    while IFS= read -r entry; do
+        case "$entry" in ""|\#*) continue ;; esac
+
+        local type="${entry%%:*}"
+        local rest="${entry#*:}"
+
+        case "$type" in
+            cfg)
+                if [ -f "$rest" ]; then
+                    log_info "Removing Klipper snippet: $rest"
+                    $(path_sudo "$rest") rm -f "$rest" 2>/dev/null || true
+                fi
+                ;;
+            include)
+                # rest = "<printer.cfg path>:<relpath>"
+                local pcfg="${rest%%:*}"
+                local relpath="${rest#*:}"
+                if [ -f "$pcfg" ]; then
+                    log_info "Removing [include $relpath] from $pcfg"
+                    local include_line="[include ${relpath}]"
+                    local marker="# Added by HelixScreen installer (#986) -- ${relpath}"
+                    local tmp="${pcfg}.helix-uninstall.$$"
+                    # Drop the marker comment line and the include line. Anchored
+                    # full-line matches via awk for portability (no sed -i).
+                    if awk -v inc="$include_line" -v mark="$marker" \
+                        '$0 == inc { next } $0 == mark { next } { print }' \
+                        "$pcfg" > "$tmp" 2>/dev/null; then
+                        $(file_sudo "$pcfg") mv "$tmp" "$pcfg" 2>/dev/null \
+                            || rm -f "$tmp" 2>/dev/null || true
+                    else
+                        rm -f "$tmp" 2>/dev/null || true
+                    fi
+                fi
+                ;;
+        esac
+    done < "$state_file"
+    remove_state_file "$state_file"
+}
+
+# Undo per-printer settings seeding recorded at install time (#986).
+# Reads ${INSTALL_DIR}/config/.seeded_settings (written by
+# _record_seeded_settings() in printer_seed.sh as "settings:<printer_id>" lines)
+# and logs which printer's defaults were seeded. We deliberately do NOT attempt
+# to un-merge those values out of settings.json: the seed was deep-merged into
+# whatever the user already had, so seeded keys can't be safely separated from
+# the user's own choices (the user may have since edited them, too). The seeded
+# defaults therefore REMAIN in settings.json; we only remove the marker file.
+# Must run BEFORE $INSTALL_DIR is removed (the state file lives in it).
+undo_seeded_settings() {
+    local state_file
+    state_file="$(_ledger_path .seeded_settings)"
+    [ -f "$state_file" ] || return 0
+
+    log_info "Reviewing HelixScreen settings seeds..."
+    while IFS= read -r entry; do
+        case "$entry" in ""|\#*) continue ;; esac
+
+        local type="${entry%%:*}"
+        local printer_id="${entry#*:}"
+
+        case "$type" in
+            settings)
+                log_info "Seeded defaults for ${printer_id} remain in settings.json (not un-merged: seeded and user values can't be safely separated)"
+                ;;
+        esac
+    done < "$state_file"
+
+    # Remove only the marker; settings.json is left untouched on purpose.
+    remove_state_file "$state_file"
+}
+
+# Restore whatever screen UI HelixScreen displaced at install time, for the
+# platform passed in $1. Split out of uninstall() so BOTH removal doors reach
+# it: `install.sh --uninstall` calls uninstall(), while bundle-uninstaller.sh
+# builds its own main() around reenable_previous_ui() and never calls
+# uninstall() at all. Every platform branch below — COSMOS, Snapmaker U1, AD5M
+# zmod, Creality app — must stay reachable from both, or the standalone
+# uninstaller leaves that platform with no bootable stock UI (on a U1: a
+# non-executable /usr/bin/gui and /oem/.debug still set).
+#
+# Communicates results through HELIX_RESTORED_UI / HELIX_RESTORED_XORG rather
+# than a return value, because callers need both. HELIX_RESTORE_WARNED is
+# non-empty when a restore this function attempted is incomplete, and holds
+# what the user has to do about it: a caller's closing summary prints it in
+# place of "no previous UI found", which would contradict the warning.
+restore_previous_ui_platform() {
+    local platform="${1:-}"
+    local restored_ui=""
+    local restored_xorg=""
+    local restore_warned=""
+
+    if [ "$AD5M_FIRMWARE" = "klipper_mod" ] || [ -f "/etc/init.d/S80klipperscreen" ]; then
+        # Klipper Mod - restore Xorg and KlipperScreen
+        if [ -f "/etc/init.d/S40xorg" ]; then
+            $SUDO chmod +x "/etc/init.d/S40xorg" 2>/dev/null || true
+            restored_xorg="Xorg (/etc/init.d/S40xorg)"
+        fi
+        if [ -f "/etc/init.d/S80klipperscreen" ]; then
+            $SUDO chmod +x "/etc/init.d/S80klipperscreen" 2>/dev/null || true
+            restored_ui="KlipperScreen (/etc/init.d/S80klipperscreen)"
+        fi
+    fi
+
+    # ZMOD - no UI restore needed; S80guppyscreen is managed by ZMOD
+    if [ "$AD5M_FIRMWARE" = "zmod" ]; then
+        log_info "ZMOD firmware: no previous UI to restore (managed by ZMOD)"
+    fi
+
+    # K2 series (Creality K2 Plus / K2 Pro): re-enable the stock procd-managed UI.
+    # hooks-k2.sh runs `/etc/init.d/app disable` on every launch (which removes
+    # the procd rc.d symlink), so without this step the device boots into the
+    # Creality logo with no UI after uninstall.
+    if [ -z "$restored_ui" ] && [ -f /etc/init.d/app ] && \
+       { [ "$platform" = "k2" ] || [ -f /mnt/UDISK/printer_data/config/printer.cfg ]; }; then
+        log_info "Re-enabling Creality stock UI (/etc/init.d/app)..."
+        # Drop any web-server the carve-out left running so the stock
+        # instance app start is about to spawn can bind its port.
+        kill_process_by_name web-server || true
+        # enable_and_verify_rcd drops any rc.d entry an older install left
+        # and verifies the fresh pair by target against the script's own
+        # START/STOP slots — `enable` exits 0 even having made no (or only
+        # half the) links, which would otherwise read as a restored boot
+        # entry.
+        local app_link app_target="" start_fix
+        if enable_and_verify_rcd /etc/init.d/app; then
+            # The helper dropped every other slot before enabling, so the
+            # first S??app link names exactly the entry it verified.
+            for app_link in /etc/rc.d/S??app; do
+                [ -L "$app_link" ] && { app_target="$app_link"; break; }
+            done
+            restored_ui="Creality stock UI (/etc/init.d/app, boot via $app_target)"
+        else
+            log_warn "Stock UI boot symlink missing or wrong (no /etc/rc.d/S<nn>app -> ../init.d/app); run: /etc/init.d/app enable"
+            restore_warned="Creality stock UI will not start at boot; run: /etc/init.d/app enable"
+        fi
+        # Start runs in both branches: the kill above already took the
+        # carve-out's web-server down, so a missing boot symlink must leave
+        # the session's UI restored, not just warned about. A failed start
+        # leaves nothing serving port 80 until app next starts.
+        if ! $SUDO /etc/init.d/app start 2>/dev/null; then
+            # A reboot starts the stock UI only through a verified S link.
+            start_fix="run: /etc/init.d/app start"
+            if [ -n "$app_target" ]; then
+                start_fix="$start_fix, or reboot"
+            fi
+            log_warn "Creality stock UI failed to start: the stock screen, Creality Cloud and web-server (port 80) stay down until it starts; $start_fix"
+            restore_warned="${restore_warned:+$restore_warned; }Creality stock UI failed to start, so the stock screen, Creality Cloud and web-server (port 80) are down; $start_fix"
+        fi
+    fi
+
+    # Check for K1/Simple AF GuppyScreen
+    if [ -z "$restored_ui" ] && [ "$AD5M_FIRMWARE" != "zmod" ] && [ -f "/etc/init.d/S99guppyscreen" ]; then
+        $SUDO chmod +x "/etc/init.d/S99guppyscreen" 2>/dev/null || true
+        restored_ui="GuppyScreen (/etc/init.d/S99guppyscreen)"
+    fi
+
+    # ForgeX - restore GuppyScreen and stock UI settings
+    if [ -z "$restored_ui" ] && [ "$AD5M_FIRMWARE" = "forge_x" ]; then
+        uninstall_forgex
+    fi
+
+    # COSMOS (Centauri Carbon): restore the sibling gui-switcher UIs from the
+    # backups the installer made when it substituted in helixscreen-wrapper init
+    # scripts (see competing_uis.sh stop_cc1_competing_uis). We wrap ALL THREE
+    # siblings (grumpyscreen/guppyscreen/atomscreen), so restore each one — but
+    # ONLY when the live file is actually our wrapper (carries the
+    # HELIXSCREEN_WRAPPER marker) AND a .helix-bak backup exists. This guards
+    # against clobbering a stock file that was restored by a COSMOS upgrade, and
+    # against restoring a wrapper-over-wrapper. Also revert cosmos.conf in case
+    # the upstream config-manager allowlist fix lands — we want to be a clean
+    # citizen on uninstall regardless.
+    if [ -z "$restored_ui" ] && [ -x "/usr/bin/update-cosmos" ]; then
+        for _sib in grumpyscreen guppyscreen atomscreen; do
+            _target="/etc/init.d/${_sib}"
+            _backup="/etc/init.d/${_sib}.helix-bak"
+            if [ -f "$_backup" ] && \
+               grep -q "HELIXSCREEN_WRAPPER" "$_target" 2>/dev/null; then
+                log_info "Restoring original /etc/init.d/${_sib}"
+                $SUDO mv "$_backup" "$_target" \
+                    || log_warn "Could not restore /etc/init.d/${_sib} — gui-switcher may not launch a UI on next boot"
+            elif [ -f "$_backup" ]; then
+                # Backup exists but the live file is no longer our wrapper (e.g. a
+                # COSMOS upgrade already restored the stock file). Drop the now-
+                # redundant backup so it doesn't masquerade as a future original.
+                $SUDO rm -f "$_backup" 2>/dev/null || true
+            fi
+        done
+        unset _sib _target _backup
+        # Revert screen_ui ONLY if it holds the legacy invalid 'helixscreen'
+        # value (written by pre-3-sibling installs). We no longer write that —
+        # we point screen_ui at a real sibling — and after this uninstall all
+        # three siblings are restored to stock, so any sibling value is valid
+        # and we must respect the operator's choice rather than clobber it.
+        if [ -f /etc/klipper/config/cosmos.conf ] && \
+           grep -q "^screen_ui[[:space:]]*=[[:space:]]*helixscreen" \
+               /etc/klipper/config/cosmos.conf 2>/dev/null; then
+            log_info "Reverting cosmos.conf screen_ui to grumpyscreen"
+            $SUDO sed -i "s|^screen_ui[[:space:]]*=.*|screen_ui = grumpyscreen|" \
+                /etc/klipper/config/cosmos.conf 2>/dev/null || true
+        fi
+        if [ -x /etc/init.d/grumpyscreen ]; then
+            log_info "Starting grumpyscreen"
+            $SUDO /etc/init.d/grumpyscreen start 2>/dev/null || true
+            restored_ui="grumpyscreen (COSMOS stock UI)"
+        fi
+    fi
+
+    # Snapmaker U1: re-enable the stock UI we neutralized at install time.
+    # snapmaker-u1-setup-autostart.sh disables the stock UI binary
+    # (chmod a-x /usr/bin/gui) so no launcher (PAXX's S99screen / 1.4's relocated
+    # launcher, or stock's supervisor) can start it; it also patches the boot
+    # launchers to start HelixScreen. Reverse all of it:
+    #   1. Re-enable /usr/bin/gui (chmod +x) so a stock launcher can exec it.
+    #   2. Restore the launcher(s) — from S99screen.stock on PAXX 1.3, by
+    #      removing our HelixScreen-marked S99screen on PAXX 1.4, from
+    #      S99fb-http.stock on PAXX 1.4, and from S99input-event-daemon.stock on
+    #      stock firmware (the stock-safe boot hook).
+    if [ -z "$restored_ui" ] && [ "$platform" = "snapmaker-u1" ]; then
+        if [ -f /usr/bin/gui ] && [ ! -x /usr/bin/gui ]; then
+            log_info "Re-enabling stock UI binary (/usr/bin/gui)"
+            $SUDO chmod +x /usr/bin/gui 2>/dev/null \
+                || log_warn "Could not re-enable /usr/bin/gui — stock UI may not start on next boot"
+        fi
+        if [ -f /etc/init.d/S99screen.stock ]; then
+            log_info "Restoring stock /etc/init.d/S99screen (firmware 1.3)"
+            $SUDO mv /etc/init.d/S99screen.stock /etc/init.d/S99screen \
+                || log_warn "Could not restore /etc/init.d/S99screen — stock UI launcher may be missing"
+        elif [ -f /etc/init.d/S99screen ] && \
+             grep -q HelixScreen /etc/init.d/S99screen 2>/dev/null; then
+            log_info "Removing HelixScreen-created /etc/init.d/S99screen (firmware 1.4)"
+            $SUDO rm -f /etc/init.d/S99screen 2>/dev/null || true
+        fi
+        # Firmware 1.4: restore the stock framebuffer-HTTP screen launcher we
+        # took over for boot-time autostart (1.2/1.3 have no .stock — no-op).
+        if [ -f /etc/init.d/S99fb-http.stock ]; then
+            log_info "Restoring stock /etc/init.d/S99fb-http (firmware 1.4)"
+            $SUDO mv /etc/init.d/S99fb-http.stock /etc/init.d/S99fb-http \
+                || log_warn "Could not restore /etc/init.d/S99fb-http — stock screen launcher may be missing"
+        fi
+        # Stock firmware: restore the input-event-daemon launcher we took over for
+        # boot-time autostart. .stock is present only if we patched it, so this is
+        # a no-op where it was never hooked.
+        if [ -f /etc/init.d/S99input-event-daemon.stock ]; then
+            log_info "Restoring stock /etc/init.d/S99input-event-daemon"
+            $SUDO mv /etc/init.d/S99input-event-daemon.stock /etc/init.d/S99input-event-daemon \
+                || log_warn "Could not restore /etc/init.d/S99input-event-daemon"
+        fi
+        restored_ui="Snapmaker stock UI (/usr/bin/gui re-enabled)"
+        # Final step: drop the /oem/.debug firmware debug-mode flag the installer
+        # created (snapmaker-u1-setup-autostart.sh step 1) to stop
+        # /etc/init.d/S01aoverlayfs from wiping /oem/overlay/* on boot. Removing it
+        # restores stock overlay-wipe-on-boot behavior: on the next boot the
+        # overlay-upper (our patched init scripts) is discarded and the pristine
+        # squashfs-lower stock rootfs is what runs — the cleanest possible
+        # uninstall, leaving no HelixScreen state change behind. No-op if the flag
+        # was never created (guarded by -f).
+        if [ -f /oem/.debug ]; then
+            log_info "Removing /oem/.debug (restores stock overlay-wipe-on-boot)"
+            $SUDO rm -f /oem/.debug 2>/dev/null || true
+        fi
+    fi
+
+    HELIX_RESTORED_UI="$restored_ui"
+    HELIX_RESTORED_XORG="$restored_xorg"
+    HELIX_RESTORE_WARNED="$restore_warned"
+}
+
+# Whether $1, the run's own install root, may join the uninstall sweep, which
+# rm -rf's every entry. The sweeps iterate the list unquoted, so whitespace or a
+# glob character would split one entry into several paths. All must hold: no
+# whitespace or glob characters, an absolute path, not a firmware-mod
+# host (an unarmed run leaves the mod's payload root alone), not a symlink and
+# reached through none (its resolved path is the path as given), named exactly
+# "helixscreen", neither "/", $HOME nor $KLIPPER_HOME, and our binary inside.
+_uninstall_own_root_ok() {
+    _uor="$1"
+    while [ "${_uor%/}" != "$_uor" ]; do
+        _uor="${_uor%/}"
+    done
+    case "$_uor" in
+        /*) ;;
+        *) return 1 ;;
+    esac
+    case "$_uor" in
+        *..*) return 1 ;;
+        *[[:space:]]* | *[*?[]*) return 1 ;;
+    esac
+    [ -z "${HOST_MOD_ROOT:-}" ] && [ -z "${HOST_MOD_CHROOT:-}" ] || return 1
+    [ -d "$_uor" ] && [ ! -L "$_uor" ] || return 1
+    _uor_real=$(host_canonical_path "$_uor") || return 1
+    [ "$_uor_real" = "$_uor" ] || return 1
+    [ "${_uor_real##*/}" = "helixscreen" ] || return 1
+    for _uor_home in / "${HOME:-}" "${KLIPPER_HOME:-}"; do
+        [ -n "$_uor_home" ] || continue
+        [ "$_uor_real" != "$(host_canonical_path "$_uor_home")" ] || return 1
+    done
+    [ -e "$_uor_real/bin/helix-screen" ]
+}
+
+# Emit HELIX_INSTALL_DIRS (common.sh) widened to whatever THIS run may sweep.
+# In --mod-payload mode the run's ACTUAL payload root joins the list via
+# resolve_payload_root (flag > the root the install recorded > INSTALL_DIR) -
+# the sweep must remove what THIS run targeted, not whatever the probe last
+# found, or a custom-root payload survives a "successful" uninstall while a
+# stale in-tree root is removed instead. The sweeps' mod-owned skip (host_mod_destruct_blocked)
+# exempts exactly the flag-armed run, so a plain uninstall still leaves the
+# mod's tree alone.
+#
+# Lives here rather than beside HELIX_INSTALL_DIRS: it asks the payload-root
+# resolver (host_profile.sh, bundle position 2) and common.sh is position 1 -
+# the foundation module must not depend on a later one, so the list-for-run
+# stays with its only consumers, the two sweeps below.
+helix_install_dirs_for_run() {
+    if [ "${HELIX_MOD_PAYLOAD:-}" = "1" ] && [ -n "${INSTALL_DIR:-}" ]; then
+        # Same resolver the standalone arm uses. A root that fails the
+        # resolver's name gate never enters this list: the uninstall entry
+        # points resolve fatally BEFORE sweeping (see uninstall() and
+        # clean_old_installation below), so a refusal surfacing here means a
+        # caller skipped that - drop the entry rather than rm -rf an ungated
+        # path.
+        hpr=$(resolve_payload_root 2>/dev/null || true)
+        if [ -n "$hpr" ]; then
+            echo "$HELIX_INSTALL_DIRS $hpr"
+            return 0
+        fi
+    fi
+    # The run's own install root. Pi and x86 installs live in
+    # $KLIPPER_HOME/helixscreen, which no fixed entry names.
+    if _uninstall_own_root_ok "${INSTALL_DIR:-}"; then
+        _hid_root=$(host_canonical_path "${INSTALL_DIR%/}")
+        _hid_dup=0
+        for _hid_d in $HELIX_INSTALL_DIRS; do
+            if [ "$_hid_d" = "$_hid_root" ] ||
+                [ "$(host_canonical_path "$_hid_d")" = "$_hid_root" ]; then
+                _hid_dup=1
+            fi
+        done
+        if [ "$_hid_dup" = 0 ]; then
+            echo "$HELIX_INSTALL_DIRS $_hid_root"
+            return 0
+        fi
+    fi
+    echo "$HELIX_INSTALL_DIRS"
+}
+
+# Undo a payload-contract install — the STANDALONE uninstaller's --mod-payload
+# arm. The generic sweeps refuse mod-owned paths by design, so this arm is the
+# only route past the mod-owned gate: the payload subtree, the display takeover
+# and the optional user.moonraker.conf stanza are reachable nowhere else.
+#
+# Only a run that armed the payload contract may remove the mod's tree:
+# HELIX_MOD_PAYLOAD — the same single switch install.sh's destruct exemption
+# keys on. The two doors arm it differently, on purpose: install.sh --uninstall
+# AUTO-ARMS (the payload contract's bare-run behavior is symmetrical in both
+# directions on a verified mod host), while THIS standalone uninstaller only
+# arms via its explicit --mod-payload flag — run bare, it must refuse rather
+# than make removal the destructive default.
+#
+# Ordering follows uninstall(): the display mode is restored FIRST, while the
+# payload is still in place — the rig is never left with neither UI nor a
+# restore record — then the optional stanza, then the payload subtree itself.
+uninstall_mod_payload() {
+    if [ "${HELIX_MOD_PAYLOAD:-}" != "1" ]; then
+        log_warn "--mod-payload not armed: leaving the firmware mod's tree untouched"
+        return 0
+    fi
+
+    # Resolve THIS run's payload root through the ONE shared resolver
+    # (flag > recorded root > probed default) — see resolve_payload_root, and
+    # helix_install_dirs_for_run, which sweeps install.sh's uninstalls off the
+    # same answer. A refusal (a flag or record naming a directory that is not
+    # ours) fails the run here: the offending source is already logged.
+    payload_root=$(resolve_payload_root) || return 1
+
+    if [ -z "$payload_root" ]; then
+        log_warn "--mod-payload: no payload root resolved; nothing to remove"
+        return 0
+    fi
+
+    # The resolved root is this run's one install target: repoint INSTALL_DIR
+    # so the generic sweeps that follow the arm agree with what it removed.
+    if [ "$payload_root" != "${INSTALL_DIR:-}" ]; then
+        log_info "Payload root: ${payload_root} (was ${INSTALL_DIR:-unset})"
+        INSTALL_DIR="$payload_root"
+    fi
+
+    # Restore the mod's display mode while the payload still exists. Gated on
+    # the flavor the takeover targeted (configure_platform runs the forgex
+    # display takeover only for forge_x), not on the module merely being
+    # present: a Z-Mod payload install never took the display over.
+    if [ "${AD5M_FIRMWARE:-}" = "forge_x" ] && type uninstall_forgex >/dev/null 2>&1; then
+        uninstall_forgex || true
+    fi
+
+    # Drop the --auto-update stanza if this install wrote one. find_moonraker_conf
+    # answers the mod's user.moonraker.conf on mod hosts
+    # (HOST_MOONRAKER_USER_CONF), so this touches nothing of the mod's own.
+    if type remove_update_manager_section >/dev/null 2>&1; then
+        remove_update_manager_section || true
+    fi
+
+    # Remove the service from the mod's chroot. HELIX_INIT_SCRIPTS is a list of
+    # host-absolute paths and never names anything under the chroot, so the
+    # generic SysV sweep cannot find this one. Left behind, the mod's start.sh
+    # runs it at every boot against a payload root that no longer exists.
+    if [ -n "${HOST_MOD_CHROOT:-}" ] && [ -d "${HOST_MOD_CHROOT}/etc/init.d" ]; then
+        for _chroot_init in "${HOST_MOD_CHROOT}"/etc/init.d/S*helixscreen; do
+            [ -e "$_chroot_init" ] || continue
+            $SUDO rm -f "$_chroot_init"
+            log_success "Removed chroot service ${_chroot_init}"
+        done
+        # Drop the directory too when we are the only thing that ever used it.
+        rmdir "${HOST_MOD_CHROOT}/etc/init.d" 2>/dev/null \
+            || $SUDO rmdir "${HOST_MOD_CHROOT}/etc/init.d" 2>/dev/null || true
+    fi
+
+    if [ -d "$INSTALL_DIR" ]; then
+        # The armed flag is exactly what host_mod_destruct_blocked exempts, so
+        # this guard can only fire on a wiring mistake — and must, loudly.
+        if host_mod_destruct_blocked "$INSTALL_DIR"; then
+            log_warn "Refusing to remove mod-owned ${INSTALL_DIR}"
+            return 1
+        fi
+        $SUDO rm -rf "$INSTALL_DIR"
+        log_success "Removed payload root ${INSTALL_DIR}"
+        if [ -d "${INSTALL_DIR}-repo" ]; then
+            $SUDO rm -rf "${INSTALL_DIR}-repo"
+        fi
+    else
+        log_info "Payload root ${INSTALL_DIR} already absent"
+    fi
+
+    # An ADOPTED root sits outside the mod's chroot, so the service installed
+    # into that chroot cannot reach it: the legacy standalone service is what
+    # booted it. With this root gone that service is stale at every boot. Name
+    # it for the operator; removal stays theirs, exactly as adoption kept the
+    # service theirs.
+    if [ -n "${HOST_LEGACY_INIT_SCRIPT:-}" ] \
+       && [ "$INSTALL_DIR" = "${HOST_LEGACY_INSTALL_ROOT:-}" ] \
+       && [ -e "$HOST_LEGACY_INIT_SCRIPT" ]; then
+        log_warn "The standalone service that booted this root is now stale;"
+        log_warn "remove it yourself: rm $HOST_LEGACY_INIT_SCRIPT"
+    fi
+
+    # Consume the record with the root it directed at, so a later plain run
+    # cannot chase a stale pointer.
+    $SUDO rm -f "$(host_payload_root_record)" 2>/dev/null || true
+    return 0
+}
+
+uninstall() {
+    local platform=${1:-}
+
+    # The run's one header; log_note lines below say what went and what stayed.
+    printf '%b\n' "${BOLD}HelixScreen uninstaller${NC}" >&2
+    log_info "Uninstalling HelixScreen..."
+
+    # A desktop install touched nothing system-wide, so its removal touches
+    # nothing either: no service, sentinel, Moonraker or sweep of other roots.
+    if [ "$platform" = "x86-desktop" ]; then
+        uninstall_desktop
+        return 0
+    fi
+
+    # Drop sentinel BEFORE any destructive work.  helixscreen-update.service
+    # checks for it and refuses to fire while uninstall is running, closing
+    # the race where Moonraker's path unit could re-trigger a restart between
+    # stop_service and rm -rf.  Swept at the end by clean_helix_state_dirs;
+    # the trap covers the abort case so a stuck sentinel can't silently block
+    # future update.service firings.
+    # Chained with the scratch-dir cleanup main.sh arms: a trap REPLACES the
+    # previous handler for a signal, and install.sh bundles both modules, so
+    # setting only the sweep here would disarm cleanup on the --uninstall path.
+    trap '_sweep_uninstalling_sentinel; type cleanup_on_success >/dev/null 2>&1 && cleanup_on_success' EXIT INT TERM
+    _drop_uninstalling_sentinel
+
+    # Remove the [update_manager helixscreen] section FIRST, before any files
+    # disappear.  If Moonraker auto-refreshes (or someone clicks "Update" in
+    # Mainsail mid-uninstall), having the section gone before we start
+    # dismantling files prevents a re-extract from racing us.  Moonraker's
+    # in-memory updater object survives until Moonraker is reloaded, but
+    # type:web only extracts on explicit user trigger so the on-disk edit is
+    # the effective fix; no moonraker restart needed.
+    if type remove_update_manager_section >/dev/null 2>&1; then
+        remove_update_manager_section || true
+    fi
+
+    # Drop the service-allowlist entry the install added. Nothing else prunes
+    # moonraker.asvc, so skipping this leaves helixscreen listed forever.
+    if type remove_moonraker_asvc >/dev/null 2>&1; then
+        local _asvc_conf
+        _asvc_conf=$(find_moonraker_conf 2>/dev/null || true)
+        [ -n "$_asvc_conf" ] && remove_moonraker_asvc "$_asvc_conf" || true
+    fi
+
+    # Remove the HelixPrint Moonraker plugin while the install tree is still
+    # here: the removal delegates to moonraker-plugin/install.sh inside it.
+    if type remove_moonraker_plugin >/dev/null 2>&1; then
+        remove_moonraker_plugin || true
+    fi
+
+    # Detect init system first
+    detect_init_system
+
+    if [ "$INIT_SYSTEM" = "systemd" ]; then
+        # Stop and disable systemd service
+        $SUDO systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+        $SUDO systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+        $SUDO rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+        # Remove update watcher units (mainsail#2444 workaround)
+        $SUDO systemctl stop helixscreen-update.path 2>/dev/null || true
+        $SUDO systemctl disable helixscreen-update.path 2>/dev/null || true
+        $SUDO rm -f /etc/systemd/system/helixscreen-update.path
+        $SUDO rm -f /etc/systemd/system/helixscreen-update.service
+        uninstall_qidi_3mf_thumbs
+        remove_permission_rules
+        $SUDO systemctl daemon-reload
+    else
+        # Stop and remove SysV init scripts (check all possible locations)
+        local removed_procd_shim=false
+        for init_script in $HELIX_INIT_SCRIPTS; do
+            if [ -f "$init_script" ]; then
+                log_info "Stopping and removing $init_script..."
+                $SUDO "$init_script" stop 2>/dev/null || true
+                # K2 procd shim: only call disable if this is actually an
+                # rc.common script. CC1 installs a plain SysV script at
+                # the same /etc/init.d/helixscreen path and has no
+                # /etc/rc.common, so the first guard short-circuits there
+                # anyway.
+                if [ "$init_script" = "/etc/init.d/helixscreen" ] && \
+                   [ -x /etc/rc.common ] && \
+                   is_rc_common_script "$init_script"; then
+                    $SUDO "$init_script" disable 2>/dev/null || true
+                    removed_procd_shim=true
+                fi
+                $SUDO rm -f "$init_script"
+            fi
+        done
+        # Belt-and-suspenders cleanup of rc.d symlinks, but only if we actually
+        # removed a procd shim (avoid touching /etc/rc.d on platforms that
+        # don't use the procd boot iterator). Globbed across slots so a stale
+        # link in a different slot does not dangle beside the sweep.
+        if [ "$removed_procd_shim" = "true" ]; then
+            $SUDO rm -f /etc/rc.d/S??helixscreen /etc/rc.d/K??helixscreen 2>/dev/null || true
+        fi
+    fi
+
+    # Kill any remaining processes (watchdog first to prevent crash dialog flash)
+    # shellcheck disable=SC2086
+    kill_process_by_name $HELIX_PROCESSES || true
+
+    # Clean up PID files and log file
+    $SUDO rm -f /var/run/helixscreen.pid 2>/dev/null || true
+    $SUDO rm -f /var/run/helix-splash.pid 2>/dev/null || true
+    rm -f /tmp/helixscreen.log 2>/dev/null || true
+
+    # K2 ustreamer camera teardown (#camera): stop/disable/remove the ustreamer
+    # service + binary and restore Moonraker's stock webcam list. Must run BEFORE
+    # reenable_disabled_services (which chmod +x's the stock WebRTC init scripts
+    # back) and BEFORE $INSTALL_DIR is removed (the .webcams_backup.json and
+    # .camera_migrated marker live in $INSTALL_DIR/config). No-op off K2.
+    if type uninstall_camera_k2 >/dev/null 2>&1; then
+        uninstall_camera_k2 "$platform" || true
+    fi
+
+    # Remote screen nginx route, route file and webcam entry. Before
+    # $INSTALL_DIR is removed: its marker lives in $INSTALL_DIR/config.
+    if type remove_remote_screen_route >/dev/null 2>&1; then
+        remove_remote_screen_route || true
+    fi
+
+    # Re-enable services from state file (before removing install dir)
+    reenable_disabled_services
+
+    # Revert per-printer Klipper includes (#986) — strip the [include] line from
+    # printer.cfg and remove the copied snippet. Must run before $INSTALL_DIR
+    # (which holds the .klipper_includes state file) is removed.
+    undo_klipper_includes
+
+    # Acknowledge per-printer settings seeding (#986) — log which defaults were
+    # seeded (they remain in settings.json by design) and remove the marker.
+    # Must run before $INSTALL_DIR (which holds the .seeded_settings state file)
+    # is removed.
+    undo_seeded_settings
+
+    # The hook key lets the update script re-deploy platform/hooks.sh; with the
+    # install gone there is nothing left for it to restore.
+    remove_state_file "$(_ledger_path .platform_hook)"
+
+    # --mod-payload: this uninstall's one install target is the mod's payload
+    # root (HELIX_INSTALL_DIRS gains it via helix_install_dirs_for_run below).
+    # Restore the mod's display mode FIRST - while the payload is still in
+    # place, the rig is never left with neither UI nor a restore record.
+    # Flavor-gated exactly like the standalone arm: the takeover ran for
+    # forge_x only, and a Z-Mod payload install never took the display over.
+    if [ "${HELIX_MOD_PAYLOAD:-}" = "1" ]; then
+        if [ "${AD5M_FIRMWARE:-}" = "forge_x" ] && type uninstall_forgex >/dev/null 2>&1; then
+            uninstall_forgex || true
+        fi
+        # Resolve the payload root before any sweep removes anything: a flag
+        # or a corrupted record naming a directory that is not ours refuses
+        # the whole uninstall here rather than after the damage. The resolver
+        # has already logged the offending source; its cached answer is what
+        # the sweep below consumes.
+        resolve_payload_root >/dev/null || exit 1
+    fi
+
+    # Remove installation (check all possible locations)
+    local removed_dir=""
+    for install_dir in $(helix_install_dirs_for_run); do
+        if [ -d "$install_dir" ]; then
+            # A mod-owned entry belongs to the firmware mod, not to this
+            # uninstall — skip it (a hard exit here would strand the rest of
+            # the uninstall on one unremovable directory).
+            if host_mod_destruct_blocked "$install_dir"; then
+                log_warn "Skipping mod-owned ${install_dir} (managed by the firmware mod)"
+                continue
+            fi
+            $SUDO rm -rf "$install_dir"
+            log_note "Removed $(display_path "$install_dir")"
+            removed_dir="$install_dir"
+            # Also remove the updater repo clone if present
+            if [ -d "${install_dir}-repo" ]; then
+                $SUDO rm -rf "${install_dir}-repo"
+                log_success "Removed ${install_dir}-repo"
+            fi
+        fi
+    done
+
+    if [ -z "$removed_dir" ]; then
+        log_warn "No HelixScreen installation found"
+    fi
+
+    # Consume the payload-root record with the root it directed the sweep at
+    # — the same contract as the standalone arm, so a later plain run cannot
+    # chase a stale pointer.
+    if [ "${HELIX_MOD_PAYLOAD:-}" = "1" ] && [ -n "${HOST_PAYLOAD_ROOT:-}" ]; then
+        $SUDO rm -f "$(host_payload_root_record)" 2>/dev/null || true
+    fi
+
+    # Re-enable the previous UI based on firmware
+    log_info "Re-enabling previous screen UI..."
+    restore_previous_ui_platform "$platform"
+    local restored_ui="$HELIX_RESTORED_UI"
+    local restored_xorg="$HELIX_RESTORED_XORG"
+    local restore_warned="$HELIX_RESTORE_WARNED"
+
+    # Clean up helixscreen cache directories
+    for cache_dir in $(helix_state_sweep_paths); do
+        if [ -d "$cache_dir" ] 2>/dev/null; then
+            log_info "Removing cache: $cache_dir"
+            $SUDO rm -rf "$cache_dir"
+        fi
+    done
+    helix_state_prune_empty_roots
+    # Clean up /var/tmp helix files
+    for tmp_pattern in /var/tmp/helix_*; do
+        if [ -e "$tmp_pattern" ] 2>/dev/null; then
+            log_info "Removing cache: $tmp_pattern"
+            $SUDO rm -rf "$tmp_pattern"
+        fi
+    done
+
+    # Clean up active flag file
+    rm -f /tmp/helixscreen_active 2>/dev/null || true
+
+    # Clean up macOS resource fork files (created by scp from Mac)
+    for pattern in /opt/._helixscreen /root/._helixscreen; do
+        $(path_sudo "$pattern") rm -f "$pattern" 2>/dev/null || true
+    done
+
+    # Remove config symlinks (preserves user files in printer_data)
+    if type remove_config_symlink >/dev/null 2>&1; then
+        remove_config_symlink || true
+    fi
+
+    # Sweep state dirs holding rolling config backups (out-of-INSTALL_DIR by
+    # design).  Also sweeps the .uninstalling sentinel dropped at the top.
+    clean_helix_state_dirs
+    # Our leftovers in the AD5M's gcodes root show in the print-file picker.
+    if [ "$platform" = "ad5m" ] && type cleanup_ad5m_gcodes_root >/dev/null 2>&1; then cleanup_ad5m_gcodes_root; fi
+
+    # Strip the legacy [shell_command helix_recover] block from moonraker.conf
+    # (dead since v0.99.61 — kept around on already-installed K2s until they
+    # next upgrade or, as here, uninstall).
+    if type remove_legacy_moonraker_block >/dev/null 2>&1; then
+        local _mr_conf
+        _mr_conf=$(find_moonraker_conf 2>/dev/null || true)
+        if [ -n "$_mr_conf" ] && [ -f "$_mr_conf" ]; then
+            remove_legacy_moonraker_block "$_mr_conf" "$(file_sudo "$_mr_conf")" || true
+        fi
+    fi
+
+    if [ -n "$restored_xorg" ]; then
+        log_note "Re-enabled $restored_xorg"
+    fi
+    if [ -n "$restored_ui" ]; then
+        log_note "Re-enabled $restored_ui; reboot to start it"
+    elif [ -z "$restore_warned" ]; then
+        log_info "Note: No previous UI found to restore"
+    fi
+    _log_write "OK HelixScreen uninstalled"
+    printf '\n%s\n' "HelixScreen uninstalled." >&2
+    if [ -n "$restore_warned" ]; then
+        log_warn "Previous UI restore incomplete: $restore_warned"
+    fi
+}
+
+# Gate --clean's irreversible sweep on explicit consent. confirm_point asks
+# it after the plan, before anything on the printer changes.
+#
+# A question nobody can answer is NOT consent. The documented invocation is
+# `curl … | sh -s -- --clean`, where stdin is the pipe carrying the script, so
+# the prompt goes to the controlling terminal (tty_confirm); with no terminal
+# at all, non-interactive runs must opt in with --yes (ASSUME_YES, set by
+# main.sh's argument parser).
+#
+# Returns 0 to proceed; otherwise exits (0 = user declined, 1 = no consent).
+confirm_clean_install() {
+    if [ "${ASSUME_YES:-false}" = true ]; then
+        log_warn "--yes given: proceeding without confirmation."
+        return 0
+    fi
+
+    if tty_can_ask; then
+        tty_confirm "Continue?" n && return 0
+        printf '%s\n' "Nothing changed." >&2
+        exit 0
+    fi
+
+    log_error "Refusing to run --clean without confirmation."
+    log_error "There is no terminal to answer the y/N prompt (a piped"
+    log_error "'curl ... | sh' with no controlling terminal)."
+    log_error "Re-run with --yes to confirm the deletions listed above:"
+    log_error "  curl -sSL https://releases.helixscreen.org/install.sh | sh -s -- --clean --yes"
+    exit 1
+}
+
+# Clean up old installation completely (for --clean flag)
+# Removes all files, config, and caches without backup
+# Args: platform
+clean_old_installation() {
+    local platform=$1
+
+    # The plan's Remove line lists what this deletes; confirm_point asked.
+    log_info "Cleaning old installation..."
+
+    # Stop any running services
+    stop_service
+
+    # Remove installation directories (check all possible locations). The
+    # payload-mode list adds the mod's payload root via
+    # helix_install_dirs_for_run; the mod-owned skip below exempts only the
+    # flag-armed run, so --clean without --mod-payload cannot touch it.
+    # Resolve fatally first, exactly like uninstall(): an armed --clean whose
+    # flag or record names a directory that is not ours refuses before the
+    # sweep. The record itself survives - see the note by the consume below.
+    if [ "${HELIX_MOD_PAYLOAD:-}" = "1" ]; then
+        resolve_payload_root >/dev/null || exit 1
+    fi
+    for install_dir in $(helix_install_dirs_for_run); do
+        if [ -d "$install_dir" ]; then
+            # Same ownership rule as uninstall()'s sweep: never rm -rf a
+            # mod-owned directory out from under the firmware mod.
+            if host_mod_destruct_blocked "$install_dir"; then
+                log_warn "Skipping mod-owned ${install_dir} (managed by the firmware mod)"
+                continue
+            fi
+            log_info "Removing $install_dir..."
+            $SUDO rm -rf "$install_dir"
+        fi
+    done
+
+    # Remove thumbnail caches (POSIX-compatible: no arrays)
+    for cache_pattern in \
+        "/root/.cache/helix/helix_thumbs" \
+        "/home/*/.cache/helix/helix_thumbs" \
+        "/tmp/helix_thumbs" \
+        "/var/tmp/helix_thumbs" \
+        "/var/tmp/helix_*" \
+        $(helix_state_sweep_paths)
+    do
+        for cache_dir in $cache_pattern; do
+            if [ -d "$cache_dir" ] 2>/dev/null; then
+                log_info "Removing cache: $cache_dir"
+                $SUDO rm -rf "$cache_dir"
+            fi
+        done
+    done
+
+    # Remove init scripts (check all possible locations)
+    for init_script in $HELIX_INIT_SCRIPTS; do
+        if [ -f "$init_script" ]; then
+            log_info "Removing init script: $init_script"
+            $SUDO rm -f "$init_script"
+        fi
+    done
+
+    # Remove systemd service if present
+    if [ -f "/etc/systemd/system/${SERVICE_NAME}.service" ]; then
+        log_info "Removing systemd service..."
+        $SUDO systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+        $SUDO rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+    fi
+    # Remove update watcher units
+    $SUDO systemctl stop helixscreen-update.path 2>/dev/null || true
+    $SUDO systemctl disable helixscreen-update.path 2>/dev/null || true
+    $SUDO rm -f /etc/systemd/system/helixscreen-update.path
+    $SUDO rm -f /etc/systemd/system/helixscreen-update.service
+    uninstall_qidi_3mf_thumbs
+    remove_permission_rules
+    $SUDO systemctl daemon-reload 2>/dev/null || true
+
+    # Remove <klipper config dir>/helixscreen/ (user config) in clean mode.
+    # The disabled-services ledger rides the wipe out: it records /etc
+    # init-script disables that --clean leaves in place, and the install
+    # continuing after the wipe cannot re-record them (the stock UI is
+    # already de-executed by then), so dropping the ledger would strand it.
+    local pd_config
+    pd_config="$(klipper_config_dir)"
+    if [ -n "$pd_config" ]; then
+        local pd_helix="${pd_config}/helixscreen"
+        local pd_ledger="${pd_helix}/.disabled_services"
+        local ledger_keep="${pd_config}/.disabled_services.clean-keep"
+        # A keep file with no live ledger is a carry a killed run left
+        # half-done, and the only surviving copy of the ledger: put it back
+        # before this run decides anything about pd_helix.
+        if [ -f "$ledger_keep" ] && [ ! -f "$pd_ledger" ]; then
+            if $(file_sudo "$pd_config") mkdir -p "$pd_helix" 2>/dev/null \
+               && $(file_sudo "$ledger_keep") mv "$ledger_keep" "$pd_ledger" 2>/dev/null; then
+                log_info "Recovered the disabled-services ledger from an interrupted clean"
+            fi
+        fi
+        if [ -d "$pd_helix" ] || [ -L "$pd_helix" ]; then
+            local carried=false
+            if [ -f "$pd_ledger" ]; then
+                if $(file_sudo "$pd_ledger") mv "$pd_ledger" "$ledger_keep" 2>/dev/null; then
+                    carried=true
+                else
+                    log_warn "Could not set the disabled-services ledger aside; --clean drops it (a later uninstall may leave a stock UI disabled)"
+                fi
+            fi
+            log_info "Removing user config: $pd_helix"
+            $SUDO rm -rf "$pd_helix"
+            if [ "$carried" = true ]; then
+                if $(file_sudo "$pd_config") mkdir -p "$pd_helix" 2>/dev/null \
+                   && $(file_sudo "$ledger_keep") mv "$ledger_keep" "$pd_ledger" 2>/dev/null; then
+                    :
+                else
+                    log_warn "Could not restore the disabled-services ledger after the wipe (it is at $ledger_keep); a later uninstall may leave a stock UI disabled"
+                fi
+            fi
+        fi
+    fi
+
+    # A --clean must also remove the root the PREVIOUS install recorded:
+    # mod_payload_mode_block re-records THIS run's root before this sweep
+    # runs, so without this the old custom payload root - and any
+    # --auto-update stanza still pointing at it - survives a mode whose
+    # contract is "remove old installation completely". Name-gated like every
+    # other root the uninstall side acts on.
+    if [ -n "${HELIX_PRIOR_PAYLOAD_ROOT:-}" ] \
+       && [ "$HELIX_PRIOR_PAYLOAD_ROOT" != "${HOST_PAYLOAD_ROOT:-}" ] \
+       && _user_dir_name_ok "$HELIX_PRIOR_PAYLOAD_ROOT" '*helixscreen*' 2>/dev/null; then
+        log_info "Removing previously recorded payload root: $HELIX_PRIOR_PAYLOAD_ROOT"
+        $SUDO rm -rf "$HELIX_PRIOR_PAYLOAD_ROOT"
+        if [ -d "${HELIX_PRIOR_PAYLOAD_ROOT}-repo" ]; then
+            $SUDO rm -rf "${HELIX_PRIOR_PAYLOAD_ROOT}-repo"
+        fi
+        if type remove_update_manager_section >/dev/null 2>&1; then
+            remove_update_manager_section || true
+        fi
+    fi
+
+    # Sweep state dirs holding rolling config backups
+    clean_helix_state_dirs
+
+    # NOTE: unlike uninstall(), the clean step does NOT consume the
+    # payload-root record. --clean is not a terminating removal: main() ran
+    # mod_payload_mode_block first (recording the resolved root) and continues
+    # into a fresh install that never re-records, so eating the record here
+    # would leave the fresh payload unrecorded and a later flagless uninstall
+    # would sweep the probed default instead. Consume only where the removal
+    # is final: uninstall() and the standalone arm.
+    log_success "Old installation cleaned"
+    echo ""
+}

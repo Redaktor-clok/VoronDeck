@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <!-- Shared selection and explicit heat actions in both orientations. -->
+  <view name="material_group"
+        extends="lv_obj" width="100%" height="content" style_pad_all="0" scrollable="false" flex_flow="column"
+        style_pad_gap="#space_md">
+    <!-- Selecting a material only previews its recommendation. -->
+    <lv_obj name="filament_material_selector_row"
+            width="100%" height="content" style_pad_all="0" scrollable="false" flex_flow="row"
+            style_flex_cross_place="end" style_pad_gap="#space_sm">
+      <lv_obj width="0" height="content" flex_grow="1" style_pad_all="0" scrollable="false"
+              flex_flow="column" style_pad_gap="#space_xxs">
+        <text_small text="Material"/>
+        <lv_dropdown name="filament_material_selector" width="100%" height="#button_height"
+                     options="—" bind_selected="filament_material_selector_index">
+          <event_cb trigger="value_changed" callback="on_filament_material_selector_changed"/>
+        </lv_dropdown>
+      </lv_obj>
+      <ui_button name="filament_material_profiles" width="0" height="#button_height_lg" flex_grow="1"
+                 variant="secondary" text="Materials and Profiles" long_mode="wrap"
+                 style_pad_hor="#space_xs">
+        <event_cb trigger="clicked" callback="on_filament_material_profiles"/>
+      </ui_button>
+    </lv_obj>
+    <text_small name="filament_profile_summary" width="100%" bind_text="filament_material_profile_summary" long_mode="wrap" style_text_color="#text_muted">
+      <bind_flag_if_eq subject="filament_material_profile_available" flag="hidden" ref_value="0"/>
+    </text_small>
+    <lv_obj name="filament_heat_actions" width="100%" height="content" flex_flow="row"
+            style_pad_all="0" style_pad_gap="#space_sm" scrollable="false">
+      <!-- Match the operation rows so the selected-profile summary does not
+           consume the portrait graph's readable remainder. -->
+      <ui_button name="filament_heat_selected" width="0" height="#filament_portrait_row_h" flex_grow="1"
+                 text="Heat" icon="fire" variant="primary">
+        <bind_style name="styles.heat_blocked" subject="ams_nozzle_heat_blocked" ref_value="1"/>
+        <bind_state_if cond="filament_material_profile_available eq 0 or ams_nozzle_heat_blocked eq 1 or nav_buttons_enabled eq 0" state="disabled"/>
+        <event_cb trigger="clicked" callback="on_filament_heat_selected"/>
+      </ui_button>
+      <ui_button name="btn_cooldown" width="0" height="#filament_portrait_row_h" flex_grow="1"
+                 variant="secondary" icon="cooldown" text="Cool Down" long_mode="wrap">
+        <bind_state_if_eq subject="filament_nozzle_heating" state="disabled" ref_value="0"/>
+        <event_cb trigger="clicked" callback="on_filament_cooldown"/>
+      </ui_button>
+    </lv_obj>
+  </view>
+</component>

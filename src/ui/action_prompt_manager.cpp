@@ -1,0 +1,456 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file action_prompt_manager.cpp
+ * @brief Implementation of Klipper action:prompt protocol parser and state machine
+ */
+
+#include "action_prompt_manager.h"
+
+#include "color_utils.h"
+
+#include <spdlog/spdlog.h>
+
+#include <cstddef>
+#include <string_view>
+
+namespace helix {
+
+namespace {
+
+// Every command the protocol defines, LONGEST FIRST so that a prefix match can
+// never pick "prompt_button" out of "prompt_button_group_start".
+constexpr std::string_view kActionCommands[] = {
+    "prompt_button_group_start",
+    "prompt_button_group_end",
+    "prompt_footer_button",
+    "prompt_button",
+    "prompt_begin",
+    "prompt_text",
+    "prompt_show",
+    "prompt_end",
+    "notify",
+};
+
+/// Recover the command from a firmware line that forgot the separating space,
+/// e.g. FlashForge/ZMOD emits `// action:prompt_beginResumption interrupted!!!`
+/// for its runout abort. Returns the matched command length, or 0 when `token`
+/// is not a known command with something glued onto it.
+///
+/// A remainder starting with `_` is NOT split: real command names are lowercase
+/// snake_case, so `prompt_begin_something` is far more likely to be a protocol
+/// command this build does not know yet than a glued title, and mis-splitting it
+/// would silently route it to the wrong handler.
+size_t glued_command_length(std::string_view token) {
+    for (std::string_view cmd : kActionCommands) {
+        if (token.size() <= cmd.size() || token.compare(0, cmd.size(), cmd) != 0) {
+            continue;
+        }
+        if (token[cmd.size()] == '_') {
+            return 0;
+        }
+        return cmd.size();
+    }
+    return 0;
+}
+
+} // namespace
+
+// Static instance pointer for cross-TU access (atomic for reads from other threads)
+std::atomic<ActionPromptManager*> ActionPromptManager::s_instance{nullptr};
+std::shared_ptr<const std::string> ActionPromptManager::s_showing_title;
+
+ActionPromptManager::~ActionPromptManager() {
+    if (s_instance.load(std::memory_order_acquire) == this) {
+        set_instance(nullptr);
+    }
+}
+
+void ActionPromptManager::set_instance(ActionPromptManager* instance) {
+    s_instance.store(instance, std::memory_order_release);
+    if (instance != nullptr) {
+        instance->publish_title();
+    } else {
+        std::atomic_store(&s_showing_title, std::shared_ptr<const std::string>{});
+    }
+}
+
+// ============================================================================
+// Static Parsing Functions
+// ============================================================================
+
+std::optional<ActionLineResult> ActionPromptManager::parse_action_line(const std::string& line) {
+    // Find the "// action:" prefix, allowing leading whitespace
+    const std::string prefix = "// action:";
+
+    // Skip leading whitespace
+    size_t start = 0;
+    while (start < line.size() && (line[start] == ' ' || line[start] == '\t')) {
+        ++start;
+    }
+
+    // Check if the line starts with "// action:" after whitespace
+    if (line.size() < start + prefix.size()) {
+        return std::nullopt;
+    }
+
+    if (line.substr(start, prefix.size()) != prefix) {
+        return std::nullopt;
+    }
+
+    // Extract the rest after "// action:"
+    size_t command_start = start + prefix.size();
+    if (command_start >= line.size()) {
+        return std::nullopt;
+    }
+
+    // Find the end of the command (first space or end of line)
+    size_t command_end = command_start;
+    while (command_end < line.size() && line[command_end] != ' ' && line[command_end] != '\t') {
+        ++command_end;
+    }
+
+    std::string command = line.substr(command_start, command_end - command_start);
+    if (command.empty()) {
+        return std::nullopt;
+    }
+
+    // Extract payload (everything after the first space following the command)
+    std::string payload;
+    if (command_end < line.size()) {
+        // Skip exactly one space after the command
+        payload = line.substr(command_end + 1);
+    }
+
+    // Un-glue a missing separator before the payload is handed on. The glued
+    // text belongs at the FRONT of the payload — it is the start of the title
+    // the firmware meant to send.
+    if (size_t cmd_len = glued_command_length(command); cmd_len > 0) {
+        std::string glued = command.substr(cmd_len);
+        command.resize(cmd_len);
+        payload = payload.empty() ? glued : glued + " " + payload;
+        spdlog::warn("[ActionPrompt] Malformed action line (missing space after '{}'): '{}' — "
+                     "recovered payload '{}'",
+                     command, line, payload);
+    }
+
+    return ActionLineResult{command, payload};
+}
+
+PromptButton ActionPromptManager::parse_button_spec(const std::string& spec) {
+    PromptButton button;
+
+    if (spec.empty()) {
+        return button;
+    }
+
+    // Split by '|' character
+    std::vector<std::string> parts;
+    size_t start = 0;
+    size_t pos = 0;
+
+    while ((pos = spec.find('|', start)) != std::string::npos) {
+        parts.push_back(spec.substr(start, pos - start));
+        start = pos + 1;
+    }
+    parts.push_back(spec.substr(start));
+
+    // Field 0 = label
+    if (!parts.empty()) {
+        button.label = parts[0];
+    }
+
+    // Field 1 = gcode (if empty, use label)
+    if (parts.size() > 1 && !parts[1].empty()) {
+        button.gcode = parts[1];
+    } else {
+        button.gcode = button.label;
+    }
+
+    // Field 2 = a named style (primary/secondary/info/warning/error) or a hex
+    // fill color. Fluidd, Mainsail and Z-Mod send the hex here; no named style
+    // is spelled with hex digits alone, so the two cannot collide.
+    if (parts.size() > 2) {
+        if (parse_hex_color(parts[2])) {
+            button.hex_color = parts[2];
+        } else {
+            button.color = parts[2];
+        }
+    }
+
+    // Field 3 = the older spelling of the hex fill; when it is a color it wins.
+    if (parts.size() > 3 && parse_hex_color(parts[3])) {
+        button.hex_color = parts[3];
+    }
+
+    // A hex-carrying button is a color tile; ZMOD labels its color-grid tiles
+    // with a "_" placeholder (sometimes padded). Rendering the placeholder
+    // paints a dash across every swatch, so a label that carries no
+    // information is dropped.
+    if (!button.hex_color.empty() && !button.label.empty() &&
+        button.label.find_first_not_of(" _-") == std::string::npos) {
+        button.label.clear();
+    }
+
+    return button;
+}
+
+// ============================================================================
+// State Machine
+// ============================================================================
+
+const PromptData* ActionPromptManager::get_current_prompt() const {
+    if (m_state == State::SHOWING && m_current_prompt) {
+        return m_current_prompt.get();
+    }
+    return nullptr;
+}
+
+void ActionPromptManager::set_state(State state) {
+    m_state = state;
+    publish_title();
+}
+
+void ActionPromptManager::publish_title() const {
+    if (s_instance.load(std::memory_order_acquire) != this) {
+        return; // Only the registered manager speaks for the screen
+    }
+    std::shared_ptr<const std::string> title;
+    if (m_state == State::SHOWING && m_current_prompt) {
+        title = std::make_shared<const std::string>(m_current_prompt->title);
+    }
+    std::atomic_store(&s_showing_title, std::move(title));
+}
+
+std::function<void(const std::string&)> ActionPromptManager::make_line_sink() {
+    return [this, tok = m_lifetime.token()](const std::string& line) {
+        // Every console line passes through here; only the action lines are
+        // worth a trip to the main thread.
+        if (!parse_action_line(line).has_value()) {
+            return;
+        }
+        tok.defer("ActionPromptManager::process_line", [this, line]() { process_line(line); });
+    };
+}
+
+void ActionPromptManager::end_showing() {
+    m_current_prompt.reset();
+    m_in_group = false;
+    set_state(State::IDLE);
+}
+
+bool ActionPromptManager::closed_on_screen(PromptCloseKind kind) {
+    if (m_state != State::SHOWING) {
+        return false;
+    }
+    switch (kind) {
+    case PromptCloseKind::HotReload: {
+        // The prompt is still live on the printer; show it again in the rebuilt
+        // XML. Deferred because this runs inside Modal::hide(), which must not
+        // show a modal. A prompt shown in the meantime has had its own on_show.
+        const uint64_t shown = m_show_count;
+        m_lifetime.defer("ActionPromptManager::reshow", [this, shown]() {
+            if (m_state == State::SHOWING && m_show_count == shown && m_on_show) {
+                m_on_show(*m_current_prompt);
+            }
+        });
+        return false;
+    }
+    case PromptCloseKind::ButtonWithGcode:
+        // The button's own macro is expected to end or replace the prompt; a
+        // prompt_end sent after it could close the dialog that macro raises next.
+    case PromptCloseKind::External:
+        // A sweep (ctl reset, fault-modal dismissal) clears the screen; the user
+        // did not answer the printer, so nothing is sent.
+        end_showing();
+        return false;
+    case PromptCloseKind::ButtonWithoutGcode:
+    case PromptCloseKind::UserDismiss:
+        end_showing();
+        return true;
+    }
+    return false;
+}
+
+void ActionPromptManager::process_line(const std::string& line) {
+    auto result = parse_action_line(line);
+    if (!result.has_value()) {
+        return; // Not an action line, ignore
+    }
+
+    const std::string& command = result->command;
+    const std::string& payload = result->payload;
+
+    spdlog::debug("ActionPromptManager: command='{}' payload='{}'", command, payload);
+
+    if (command == "prompt_begin") {
+        handle_prompt_begin(payload);
+    } else if (command == "prompt_text") {
+        handle_prompt_text(payload);
+    } else if (command == "prompt_button") {
+        handle_prompt_button(payload, false);
+    } else if (command == "prompt_footer_button") {
+        handle_prompt_button(payload, true);
+    } else if (command == "prompt_button_group_start") {
+        handle_prompt_button_group_start();
+    } else if (command == "prompt_button_group_end") {
+        handle_prompt_button_group_end();
+    } else if (command == "prompt_show") {
+        handle_prompt_show();
+    } else if (command == "prompt_end") {
+        handle_prompt_end();
+    } else if (command == "notify") {
+        handle_notify(payload);
+    } else {
+        spdlog::debug("ActionPromptManager: unknown command '{}'", command);
+    }
+}
+
+// ============================================================================
+// Command Handlers
+// ============================================================================
+
+void ActionPromptManager::handle_prompt_begin(const std::string& payload) {
+    // If currently showing, close the current prompt first
+    if (m_state == State::SHOWING && m_on_close) {
+        m_on_close();
+    }
+
+    // Create a new prompt
+    m_current_prompt = std::make_unique<PromptData>();
+    m_current_prompt->title = payload;
+
+    // Reset group tracking for this new prompt
+    m_in_group = false;
+    // Note: m_next_group_id is NOT reset - it keeps incrementing across prompts
+
+    set_state(State::BUILDING);
+}
+
+void ActionPromptManager::handle_prompt_text(const std::string& payload) {
+    if (m_state != State::BUILDING || !m_current_prompt) {
+        return; // Ignore text outside of BUILDING state
+    }
+
+    m_current_prompt->text_lines.push_back(payload);
+}
+
+void ActionPromptManager::handle_prompt_button(const std::string& payload, bool is_footer) {
+    if (m_state != State::BUILDING || !m_current_prompt) {
+        return; // Ignore buttons outside of BUILDING state
+    }
+
+    PromptButton button = parse_button_spec(payload);
+    button.is_footer = is_footer;
+
+    // Assign group_id if currently in a group
+    if (m_in_group) {
+        button.group_id = m_current_prompt->current_group_id;
+    } else {
+        button.group_id = -1;
+    }
+
+    m_current_prompt->buttons.push_back(button);
+}
+
+void ActionPromptManager::handle_prompt_button_group_start() {
+    if (m_state != State::BUILDING || !m_current_prompt) {
+        return;
+    }
+
+    // Assign a new group ID
+    m_current_prompt->current_group_id = m_next_group_id++;
+    m_in_group = true;
+}
+
+void ActionPromptManager::handle_prompt_button_group_end() {
+    if (m_state != State::BUILDING || !m_current_prompt) {
+        return;
+    }
+
+    // End the current group
+    m_current_prompt->current_group_id = -1;
+    m_in_group = false;
+}
+
+void ActionPromptManager::handle_prompt_show() {
+    if (m_state != State::BUILDING || !m_current_prompt) {
+        return; // Ignore show without a prompt being built
+    }
+
+    set_state(State::SHOWING);
+    ++m_show_count;
+
+    if (m_on_show) {
+        m_on_show(*m_current_prompt);
+    }
+}
+
+void ActionPromptManager::handle_prompt_end() {
+    if (m_state == State::IDLE) {
+        return; // Nothing to end
+    }
+
+    // Fire close callback only if we were showing
+    if (m_state == State::SHOWING && m_on_close) {
+        m_on_close();
+    }
+
+    // Clear the prompt and return to IDLE
+    m_current_prompt.reset();
+    m_in_group = false;
+    set_state(State::IDLE);
+}
+
+void ActionPromptManager::handle_notify(const std::string& payload) {
+    // Notify is independent of prompt state
+    if (m_on_notify) {
+        m_on_notify(payload);
+    }
+}
+
+// ============================================================================
+// Test/Development Helpers
+// ============================================================================
+
+void ActionPromptManager::trigger_test_prompt() {
+    spdlog::info("[ActionPromptManager] Triggering test prompt");
+
+    // Build a comprehensive test prompt showing all features:
+    // - Title and text
+    // - All 5 button colors
+    // - Footer button
+    // - Button group
+
+    process_line("// action:prompt_begin Test Prompt");
+    process_line("// action:prompt_text This is a test prompt for development.");
+    process_line("// action:prompt_text Press any button to dismiss.");
+
+    // All 5 button colors (regular buttons)
+    process_line("// action:prompt_button Primary|RESPOND msg=\"primary\"|primary");
+    process_line("// action:prompt_button Secondary|RESPOND msg=\"secondary\"|secondary");
+    process_line("// action:prompt_button Info|RESPOND msg=\"info\"|info");
+    process_line("// action:prompt_button Warning|RESPOND msg=\"warning\"|warning");
+    process_line("// action:prompt_button Error|RESPOND msg=\"error\"|error");
+
+    // Button group example
+    process_line("// action:prompt_button_group_start");
+    process_line("// action:prompt_button Yes|RESPOND msg=\"yes\"|primary");
+    process_line("// action:prompt_button No|RESPOND msg=\"no\"|secondary");
+    process_line("// action:prompt_button_group_end");
+
+    // Footer button
+    process_line("// action:prompt_footer_button Cancel|RESPOND msg=\"cancel\"|error");
+
+    process_line("// action:prompt_show");
+}
+
+void ActionPromptManager::trigger_test_notify(const std::string& message) {
+    std::string msg = message.empty() ? "Test notification from action:notify" : message;
+    spdlog::info("[ActionPromptManager] Triggering test notification: {}", msg);
+
+    process_line("// action:notify " + msg);
+}
+
+} // namespace helix

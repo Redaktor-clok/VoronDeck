@@ -1,0 +1,522 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "ui_observer_guard.h" // SubjectLifetime
+
+#include "async_lifetime_guard.h"
+#include "axis.h"
+#include "subject_managed_panel.h"
+#include "tool_offsets.h"
+
+#include <array>
+#include <functional>
+#include <lvgl.h>
+#include <memory>
+#include <optional>
+#include <set>
+#include <string>
+#include <vector>
+
+#include "hv/json.hpp"
+
+namespace helix {
+class IMoonrakerAPI;
+class IMoonrakerClient;
+
+// Forward declaration
+class PrinterDiscovery;
+
+enum class DetectState {
+    PRESENT = 0,
+    ABSENT = 1,
+    UNAVAILABLE = 2,
+};
+
+/// One axis of a tool's own offset (helix::tool_offsets), with the bookkeeping
+/// the save path needs. The rules are the same on every axis, which is why
+/// this is one record rather than three sets of fields.
+struct ToolAxisOffset {
+    float mm = 0.0f;
+    /// Whether a value has ever been reported for this axis. 0.000 is a
+    /// legitimate offset, so the value alone cannot say "not known yet".
+    bool known = false;
+    /// The offset as last persisted (or as first seen, which is the config
+    /// value on a fresh connect). `mm` differing from this is what makes the
+    /// axis dirty — a runtime SET_TOOL_PARAMETER is lost on the next Klipper
+    /// restart unless it is saved.
+    float saved_mm = 0.0f;
+
+    [[nodiscard]] bool dirty() const {
+        return known && mm != saved_mm;
+    }
+};
+
+struct ToolInfo {
+    int index = 0;
+    std::string name = "T0";   ///< G-code identity, 0-based ("T0"). What a user types.
+    std::string display_label; ///< Physical label, 1-based ("Tool 1"). What is on the machine.
+    std::optional<std::string> extruder_name = "extruder";
+    std::optional<std::string> heater_name;
+    std::optional<std::string> fan_name;
+    /// The tool's own X/Y/Z offsets, indexed by axis_index(). Read and written
+    /// only through helix::tool_offsets — which store is authoritative is a
+    /// per-firmware question that module owns.
+    std::array<ToolAxisOffset, 3> gcode_offsets{};
+
+    [[nodiscard]] ToolAxisOffset& gcode_offset(Axis axis) {
+        return gcode_offsets[static_cast<size_t>(axis_index(axis))];
+    }
+    [[nodiscard]] const ToolAxisOffset& gcode_offset(Axis axis) const {
+        return gcode_offsets[static_cast<size_t>(axis_index(axis))];
+    }
+
+    bool active = false;
+    bool mounted = false;
+    DetectState detect_state = DetectState::UNAVAILABLE;
+    int backend_index = -1; ///< Which AMS backend feeds this tool (-1 = direct drive)
+    int backend_slot = -1;  ///< Fixed slot in that backend (-1 = any/dynamic)
+    /// This tool's lane is the one seated in its head, whether that head is
+    /// mounted or parked. Where a hub feeds several lanes into one head, it
+    /// says which of them the head holds.
+    bool lane_seated = false;
+
+    // Spoolman spool assignment (persisted per-tool)
+    int spoolman_id = 0;           ///< Spoolman spool ID (0=not tracked)
+    std::string spool_name;        ///< Display name from Spoolman
+    float remaining_weight_g = -1; ///< Remaining weight in grams (-1=unknown)
+    float total_weight_g = -1;     ///< Total spool weight in grams (-1=unknown)
+
+    [[nodiscard]] std::string effective_heater() const {
+        if (heater_name)
+            return *heater_name;
+        if (extruder_name)
+            return *extruder_name;
+        return "extruder";
+    }
+};
+
+/// One printing end the carriage can hold. Several tools share a head where
+/// filament lanes feed one extruder through a hub, so a printer can publish
+/// more tools than it has heads.
+struct PhysicalHead {
+    /// The extruder this head heats, or nullopt where its tool names none.
+    std::optional<std::string> extruder_name;
+    /// Every tool that prints through this head, ascending. Never empty.
+    std::vector<int> tool_indices;
+    /// The tool whose lane is seated in this head, or -1 where none is, or
+    /// where more than one claims it and so none can be believed.
+    int seated_tool = -1;
+
+    [[nodiscard]] bool holds_tool(int tool_index) const;
+    /// The tool that stands for this head: @p active_tool when it prints
+    /// through this head, else the tool whose lane is seated in it, else the
+    /// head's lowest tool. Selecting the head sends this tool, so mounting a
+    /// head that is already mounted changes nothing, and mounting a parked one
+    /// keeps the lane it holds instead of swapping filament on the way.
+    [[nodiscard]] int representative_tool(int active_tool) const;
+};
+
+/// The physical heads behind @p tools, ordered by each head's lowest tool.
+/// Tools naming the same extruder share one head; a tool naming none is a head
+/// of its own, since nothing says it shares one. With @p heads_share_heater
+/// every tool is a head of its own even where several name one extruder: they
+/// are separate nozzles driven and heated through it in turn.
+[[nodiscard]] std::vector<PhysicalHead> physical_heads(const std::vector<ToolInfo>& tools,
+                                                       bool heads_share_heater = false);
+
+/// The index into @p heads of the head @p tool_index prints through, or -1.
+[[nodiscard]] int head_index_for_tool(const std::vector<PhysicalHead>& heads, int tool_index);
+
+/// Tool topology sourced from an AMS backend: multiplexing systems (e.g. AFC)
+/// and tool changers both push it. When set, ToolState rebuilds its tool list
+/// from this and ignores extruder enumeration. tool_to_slot[i] is the backend
+/// slot index that tool i sources.
+struct ToolTopology {
+    int tool_count = 0;
+    int active_tool = -1;
+    /// The carriage can hold no tool at all, so active_tool -1 is a real state
+    /// rather than "nothing loaded". True where selecting a slot mounts a tool.
+    bool allows_empty_carriage = false;
+    std::vector<int> tool_to_slot;
+    /// The extruder each tool's slot feeds, indexed like tool_to_slot. Empty
+    /// where the backend does not say, which leaves the tool the extruder it
+    /// already had.
+    std::vector<std::string> tool_extruder;
+    /// Whether each tool's lane is the one seated in its head, mounted or
+    /// parked, indexed like tool_to_slot. Empty where the backend does not
+    /// say, which leaves no lane seated.
+    std::vector<bool> tool_seated;
+    int backend_index = 0; ///< Source backend in AmsState::backends_
+    /// Every tool is its own nozzle, all driven and heated through one extruder
+    /// (AmsBackend::heads_share_heater()).
+    bool heads_share_heater = false;
+};
+
+/// Manages tool information for multi-tool printers (toolchangers, multi-extruder).
+/// Thread safety: All public methods must be called from the LVGL/UI thread only.
+/// Subject updates are routed through helix::ui::queue_update() from background threads.
+class ToolState {
+  public:
+    static ToolState& instance();
+    ToolState(const ToolState&) = delete;
+    ToolState& operator=(const ToolState&) = delete;
+
+    void init_subjects(bool register_xml = true);
+    void deinit_subjects();
+
+    void init_tools(const helix::PrinterDiscovery& hardware);
+
+    /// Re-render every tool's translated display label ("Tool 2") in the
+    /// current language and bump tools_version so consumers redraw.
+    void refresh_display_labels();
+    void update_from_status(const nlohmann::json& status);
+
+    /// Push AMS-backend-derived topology. Overrides extruder-based init. Idempotent:
+    /// rebuilds tools_ only when count or mapping changes; updates active_tool_index_
+    /// every call. Must be called from the LVGL/UI thread.
+    void set_ams_topology(const ToolTopology& topo);
+
+    /// Remove the AMS topology override. tools_ is cleared; caller should follow
+    /// with init_tools() to repopulate from extruders/toolchanger if appropriate.
+    void clear_ams_topology();
+
+    [[nodiscard]] bool ams_topology_active() const {
+        return ams_topology_active_;
+    }
+
+    /// A backend whose carriage can be empty and which owns no tool table
+    /// decides which head is mounted; -1 is an empty carriage. While set,
+    /// update_from_status() no longer derives the active tool from
+    /// toolhead.extruder or toolchanger.tool_number, which name the last head
+    /// used rather than a mounted one. An index naming no listed tool reads as
+    /// an empty carriage. Must be called from the LVGL/UI thread.
+    void set_backend_active_tool(int index);
+
+    /// Hand the active tool back to the status frame. A no-op when no backend
+    /// owns it. Must be called from the LVGL/UI thread.
+    void clear_backend_active_tool();
+
+    [[nodiscard]] bool backend_owns_active_tool() const {
+        return backend_owns_active_tool_;
+    }
+
+    [[nodiscard]] const std::vector<ToolInfo>& tools() const {
+        return tools_;
+    }
+    [[nodiscard]] const ToolInfo* active_tool() const;
+    [[nodiscard]] int active_tool_index() const {
+        return active_tool_index_;
+    }
+    [[nodiscard]] int tool_count() const {
+        return static_cast<int>(tools_.size());
+    }
+    [[nodiscard]] bool is_multi_tool() const {
+        return tools_.size() > 1;
+    }
+
+    /// Number of distinct physical extruders backing the current tool list.
+    ///
+    /// NOT interchangeable with tool_count(): set_ams_topology() expands tools_
+    /// to one entry per filament SLOT, so a 4-slot AMS on a single-hotend
+    /// printer reports 4 tools and 1 extruder. Only tools carrying an extruder
+    /// name count, and duplicates collapse — the AMS rebuild leaves slots past
+    /// the real extruder list with no mapping at all.
+    [[nodiscard]] int extruder_count() const;
+
+    /// Whether the printer physically has more than one hotend/extruder.
+    ///
+    /// The predicate for anything annotating a single nozzle with which tool it
+    /// is (the nozzle_icon tool badge). is_multi_tool() is the wrong test there:
+    /// it counts AMS slots fed into one hotend, which need no badge.
+    [[nodiscard]] bool has_multiple_extruders() const {
+        return extruder_count() > 1;
+    }
+
+    /// The printing ends behind the tool list (helix::physical_heads()). What
+    /// a surface that draws one control per head counts, where tool_count()
+    /// would draw one per filament lane on a hub-fed rig. Built once per tool
+    /// list: the reference stays valid until the list next changes.
+    [[nodiscard]] const std::vector<PhysicalHead>& physical_heads() const;
+
+    /// The physical heads that name an extruder, in physical_heads() order:
+    /// the ones a heater target can be aimed at. Heads sharing one heater
+    /// count once, through the head that reads it (head_reads_heater()), or
+    /// their lowest while none is mounted.
+    [[nodiscard]] std::vector<PhysicalHead> heated_heads() const;
+
+    /// Whether head @p head_index (into physical_heads()) shows its extruder's
+    /// temperature as its own: it names an extruder, and either its heater is
+    /// its own or it is the mounted head of a shared one. A docked nozzle on a
+    /// shared heater is cold whatever the heater reads.
+    [[nodiscard]] bool head_reads_heater(int head_index) const;
+
+    /// Whether the printer has several physical toolheads: a tool changer or
+    /// more than one hotend. AMS slots feeding one hotend do not count.
+    [[nodiscard]] bool has_multiple_toolheads() const {
+        return physical_heads().size() > 1;
+    }
+
+    /// Returns "Nozzle" for single-tool, "Nozzle 1" for multi-tool (active tool),
+    /// or the tool's configured Klipper name ("Nozzle Left") when it has one.
+    [[nodiscard]] std::string nozzle_label() const;
+
+    /// Whether a nozzle readout must say which nozzle it means: several
+    /// extruders, or several nozzles taking turns on one shared heater. False
+    /// for lanes feeding one hotend, where the loaded lane names no nozzle.
+    [[nodiscard]] bool names_mounted_nozzle() const;
+
+    /// The tools are separate nozzles sharing one extruder and heater.
+    [[nodiscard]] bool heads_share_heater() const {
+        return ams_topology_active_ && heads_share_heater_;
+    }
+
+    /// Request a tool change, delegating to AMS backend or falling back to Tn gcode.
+    /// Callbacks are invoked asynchronously from the API response.
+    void request_tool_change(int tool_index, IMoonrakerAPI* api,
+                             std::function<void()> on_success = nullptr,
+                             std::function<void(const std::string&)> on_error = nullptr);
+
+    /// Returns tool name (e.g. "T0") for the given extruder name, or empty if not found.
+    /// Where the tools share one heater it is the mounted tool's, empty with none mounted.
+    [[nodiscard]] std::string tool_name_for_extruder(const std::string& extruder_name) const;
+
+    /// Returns the extruder name (e.g. "extruder1") tool @p tool_index heats, or
+    /// empty when there is no such tool or it names no extruder.
+    [[nodiscard]] std::string extruder_name_for_tool(int tool_index) const;
+
+    /// Returns the tool's physical label (e.g. "Tool 1") for the given extruder
+    /// name, or empty if not found. Where the tools share one heater it is the
+    /// mounted tool's, empty with none mounted.
+    [[nodiscard]] std::string display_label_for_extruder(const std::string& extruder_name) const;
+
+    /// Assign a Spoolman spool to a tool. Persists to local JSON + Moonraker DB.
+    void assign_spool(int tool_index, int spoolman_id, const std::string& spool_name = "",
+                      float remaining_g = -1, float total_g = -1);
+
+    /// Clear spool assignment for a tool
+    void clear_spool(int tool_index);
+
+    /// Get set of Spoolman spool IDs currently assigned to tools,
+    /// optionally excluding one tool index (e.g., the one being edited).
+    [[nodiscard]] std::set<int> assigned_spool_ids(int exclude_tool = -1) const;
+
+    /// Load persisted spool assignments (Moonraker DB → local JSON → empty)
+    void load_spool_assignments(IMoonrakerAPI* api);
+
+    /// Save all spool assignments (local JSON + Moonraker DB fire-and-forget)
+    void save_spool_assignments(IMoonrakerAPI* api);
+
+    /// Save spool assignments only if data has changed since last save
+    void save_spool_assignments_if_dirty(IMoonrakerAPI* api);
+
+    /// True after load_spool_assignments() has completed (success or fallback).
+    [[nodiscard]] bool spool_assignments_loaded() const {
+        return spool_assignments_loaded_;
+    }
+
+    /// Set the config directory for local JSON persistence (default: "config").
+    /// An explicit override wins over the value init_subjects() derives from
+    /// helix::get_user_config_dir(), so re-initialising subjects can't silently
+    /// move tool_spools.json back to the default location.
+    void set_config_dir(const std::string& dir) {
+        config_dir_ = dir;
+        config_dir_explicit_ = true;
+    }
+
+    /// Directory tool_spools.json is read from and written to.
+    [[nodiscard]] const std::string& get_config_dir() const {
+        return config_dir_;
+    }
+
+    lv_subject_t* get_active_tool_subject() {
+        return &active_tool_;
+    }
+
+    /**
+     * @brief Death signal for the subjects this singleton owns.
+     *
+     * Long-lived observers outside ToolState — PrintStatusPanel watches
+     * get_active_tool_subject() to re-render the nozzle temperature label — must
+     * pass this to observe_*(). deinit_subjects() frees every observer node on
+     * these subjects, and several tests call it mid-process, so a guard without
+     * the token dereferences a freed observer on its next reset().
+     */
+    [[nodiscard]] SubjectLifetime get_subjects_lifetime() const {
+        return subjects_.get_subjects_lifetime();
+    }
+    lv_subject_t* get_tool_count_subject() {
+        return &tool_count_;
+    }
+    lv_subject_t* get_tools_version_subject() {
+        return &tools_version_;
+    }
+    lv_subject_t* get_tool_badge_text_subject() {
+        return &tool_badge_text_;
+    }
+    lv_subject_t* get_show_tool_badge_subject() {
+        return &show_tool_badge_;
+    }
+
+    // ---- Per-tool offsets (helix::tool_offsets) -----------------------------
+    //
+    // Registered for XML as the per_tool_{x,y,z}_supported trio plus the
+    // any_tool_offset_dirty aggregate. The per-tool values themselves live in
+    // tools_ and are read through the tool_offset_*() accessors below. A
+    // firmware that keeps only Z leaves the X and Y supported members at 0
+    // forever.
+
+    /// Whether this printer keeps @p axis's offset per toolhead (1) or not (0).
+    /// Gates whether a UI may offer controls for that axis at all.
+    lv_subject_t* get_per_tool_axis_supported_subject(Axis axis) {
+        return axis_member(axis, per_tool_x_supported_, per_tool_y_supported_,
+                           per_tool_z_supported_);
+    }
+    /// 1 when any tool's offset on ANY axis differs from what is persisted.
+    /// What a save affordance that covers all three axes binds to.
+    lv_subject_t* get_any_tool_offset_dirty_subject() {
+        return &any_tool_offset_dirty_;
+    }
+
+    /// One-shot query for the per-tool offsets after init_tools().
+    ///
+    /// The subscription alone is not enough: Moonraker sends the tool objects
+    /// once in the initial snapshot, which arrives BEFORE tools_ exists (so
+    /// update_from_status() drops it), and thereafter republishes only what
+    /// CHANGED. Without this the selector would sit at "no value reported"
+    /// until someone happened to move an offset.
+    void query_tool_offsets(IMoonrakerClient* client, const helix::PrinterDiscovery& hardware);
+
+    /// Tools with at least one axis whose offset differs from what is
+    /// persisted, lowest index first. Empty when nothing needs saving. Ask
+    /// tool_offset_dirty() which axes.
+    [[nodiscard]] std::vector<int> dirty_tool_indices() const;
+
+    /// Whether @p tool_index's @p axis offset differs from what is persisted.
+    /// False when the index is out of range or nothing has been reported.
+    [[nodiscard]] bool tool_offset_dirty(int tool_index, Axis axis) const;
+
+    /// A tool's current @p axis offset in mm, or 0 when the index is out of
+    /// range or nothing has been reported for it.
+    [[nodiscard]] float tool_offset_mm(int tool_index, Axis axis) const;
+
+    /// Whether a value has ever been reported for @p tool_index's @p axis.
+    /// What lets a UI tell a tool sitting at 0.000 from one it knows nothing
+    /// about.
+    [[nodiscard]] bool tool_offset_known(int tool_index, Axis axis) const;
+
+    /// Apply a locally-issued offset change for @p tool_index's @p axis, in
+    /// microns.
+    ///
+    /// The UI writes the value here rather than poking the published subject,
+    /// so tools_ — the sole input to dirty_tool_indices() and
+    /// tool_offset_mm() — stays the single source of truth. Poking the subject
+    /// alone left the tool invisible to the save path until the firmware
+    /// echoed back, so a save in that window silently discarded it.
+    void set_tool_offset_local(int tool_index, Axis axis, int microns);
+
+    /// Record that every axis of tool @p tool_index is now persisted as it
+    /// stands. Per tool rather than per axis because a save flushes every
+    /// dirty axis of a tool in the same SAVE_CONFIG — a Z-only save would
+    /// restart Klipper and silently drop an unsaved X. Call after the save
+    /// gcode has been accepted, not before — an optimistic clear would hide a
+    /// save that failed.
+    void mark_tool_offsets_saved(int tool_index);
+
+  private:
+    friend class ToolStateTestAccess;
+
+    /// The X, Y or Z member of a subject trio.
+    static lv_subject_t* axis_member(Axis axis, lv_subject_t& x, lv_subject_t& y, lv_subject_t& z) {
+        lv_subject_t* members[] = {&x, &y, &z};
+        return members[axis_index(axis)];
+    }
+
+    /// Whether init_tools() found a per-tool offset on any axis.
+    [[nodiscard]] bool per_tool_offsets_supported() const;
+
+    /// Recompute any_tool_offset_dirty from tools_.
+    void refresh_any_tool_dirty();
+
+    ToolState() = default;
+
+    SubjectManager subjects_;
+    bool subjects_initialized_ = false;
+
+    /// The offset model init_tools() resolved from the hardware, so the
+    /// status path - which has no PrinterDiscovery - reads by direct lookup.
+    helix::tool_offsets::OffsetReader offset_reader_;
+
+    /// Expires the Moonraker-DB spool-assignment callbacks, which fire from the
+    /// WebSocket thread long after the request was issued. Declared after
+    /// `subjects_` so reverse-order member destruction invalidates it before the
+    /// subjects it protects; also invalidated by deinit_subjects() (#1165, #1146).
+    helix::AsyncLifetimeGuard async_lifetime_;
+    lv_subject_t active_tool_{};
+    lv_subject_t tool_count_{};
+    lv_subject_t tools_version_{};
+
+    // Tool badge subjects for nozzle_icon component (XML-bound).
+    // Updated automatically by update_from_status() and init_tools().
+    lv_subject_t tool_badge_text_{};
+    char tool_badge_text_buf_[16] = {};
+    lv_subject_t show_tool_badge_{};
+
+    // Per-tool offsets (helix::tool_offsets). Only a tool changer has any; on
+    // every other printer the *_supported trio stays 0 and the aggregate is
+    // never published. Individual members rather than arrays because
+    // INIT_SUBJECT_INT derives the XML name from the member name.
+    lv_subject_t per_tool_x_supported_{};
+    lv_subject_t per_tool_y_supported_{};
+    lv_subject_t per_tool_z_supported_{};
+    lv_subject_t any_tool_offset_dirty_{};
+
+    std::vector<ToolInfo> tools_;
+    /// physical_heads() of tools_, built on first ask after the list changes.
+    mutable std::optional<std::vector<PhysicalHead>> heads_cache_;
+    /// The extruder heaters init_tools() found, sorted: the names a backend's
+    /// per-tool extruder must be one of to be taken as a Klipper extruder.
+    std::vector<std::string> discovered_extruders_;
+    int active_tool_index_ = 0;
+    std::string config_dir_ = "config";     ///< Directory for local JSON persistence
+    bool config_dir_explicit_ = false;      ///< set_config_dir() pinned it; don't re-derive
+    bool spool_dirty_ = false;              ///< True when spool data changed since last save
+    bool spool_assignments_loaded_ = false; ///< True after load_spool_assignments() completes
+    /// The printer a Moonraker spool load is in flight for; empty when none is.
+    std::string spool_load_printer_;
+    /// The active printer's local set came from a single-printer file, which holds whichever
+    /// printer saved last, so it must not seed this printer's DB. Cleared by a successful DB
+    /// load.
+    bool spool_set_adopted_ = false;
+
+    // AMS topology override (set by AMS backends that multiplex tools, e.g. AFC).
+    // When ams_topology_active_ is true, tools_ is sourced from the backend's
+    // lane->tool mapping rather than from PrinterDiscovery extruder enumeration.
+    bool ams_topology_active_ = false;
+    int ams_topology_tool_count_ = 0;
+    std::vector<int> ams_topology_tool_to_slot_;
+    std::vector<std::string> ams_topology_tool_extruder_;
+    bool heads_share_heater_ = false;
+
+    // Set by set_backend_active_tool(): the backend, not the status frame,
+    // says which head is mounted.
+    bool backend_owns_active_tool_ = false;
+
+    /// Save spool assignments to local JSON file
+    void save_spool_json() const;
+
+    /// Load spool assignments from local JSON file. Returns true on success.
+    bool load_spool_json();
+
+    /// Drop @p printer_id's set from the spool file.
+    void forget_printer_spools(const std::string& printer_id) const;
+
+    /// Build JSON representation of current spool assignments
+    [[nodiscard]] nlohmann::json spool_assignments_to_json() const;
+
+    /// Apply spool assignments from JSON
+    void apply_spool_assignments(const nlohmann::json& data);
+};
+
+} // namespace helix

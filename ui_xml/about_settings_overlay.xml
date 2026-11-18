@@ -1,0 +1,94 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- About Settings Overlay Panel -->
+<!-- Shows branding, version info, and system details -->
+<component>
+  <view name="about_settings_overlay" extends="overlay_panel" title="About" bg_color="#screen_bg">
+    <!-- Content Area -->
+    <lv_obj name="overlay_content"
+            width="100%" flex_grow="1" style_pad_top="0" style_pad_left="#space_lg" style_pad_right="#space_lg"
+            style_pad_bottom="#space_lg" scrollable="true" flex_flow="column">
+      <!-- ================================================================== -->
+      <!-- BRANDING HEADER -->
+      <!-- ================================================================== -->
+      <lv_obj width="100%"
+              height="content" flex_flow="column" style_flex_main_place="center" style_flex_cross_place="center"
+              style_pad_top="0" style_pad_bottom="#space_md" style_pad_left="0" style_pad_right="0"
+              style_pad_gap="#space_xs" scrollable="false">
+        <text_heading width="100%" text="VoronDeck" style_text_align="center"/>
+        <text_small name="copyright_text"
+                    width="100%" bind_text="about_copyright" style_text_color="#text_muted" style_text_align="center"/>
+
+      </lv_obj>
+      <!-- Printer Name (7-tap easter egg trigger) -->
+      <ui_button name="row_printer"
+                 width="100%" height="content" variant="ghost" style_radius="0" style_border_width="0" style_pad_all="0">
+        <lv_obj width="100%"
+                height="content" flex_flow="row" style_flex_main_place="start" style_flex_cross_place="center"
+                style_pad_left="#space_lg" style_pad_right="#space_lg" style_pad_top="#space_md"
+                style_pad_bottom="#space_md" style_pad_gap="#space_sm" scrollable="false" clickable="false"
+                event_bubble="true">
+          <icon name="row_icon" src="printer_3d" size="sm" variant="secondary" clickable="false" event_bubble="true"/>
+          <text_body name="label"
+                     text="Printer Name" style_text_color="#text" flex_grow="1" clickable="false" event_bubble="true"/>
+          <text_muted name="value" bind_text="printer_value" clickable="false" event_bubble="true"/>
+        </lv_obj>
+        <event_cb trigger="clicked" callback="on_about_printer_name_clicked"/>
+      </ui_button>
+      <!-- Current Version - ui_button for native press feedback (7-tap secret to toggle beta features) -->
+      <ui_button name="row_version"
+                 width="100%" height="content" variant="ghost" style_radius="0" style_border_width="0" style_pad_all="0">
+        <lv_obj width="100%"
+                height="content" flex_flow="row" style_flex_main_place="start" style_flex_cross_place="center"
+                style_pad_left="#space_lg" style_pad_right="#space_lg" style_pad_top="#space_md"
+                style_pad_bottom="#space_md" style_pad_gap="#space_sm" scrollable="false" clickable="false"
+                event_bubble="true">
+          <icon name="row_icon" src="info" size="sm" variant="secondary" clickable="false" event_bubble="true"/>
+          <text_body name="label"
+                     text="Current Version" style_text_color="#text" flex_grow="1" clickable="false" event_bubble="true"/>
+          <text_muted name="value" bind_text="version_value" clickable="false" event_bubble="true"/>
+        </lv_obj>
+        <event_cb trigger="clicked" callback="on_about_version_clicked"/>
+      </ui_button>
+      <!-- Klipper Version -->
+      <setting_info_row name="row_klipper" label="Klipper" icon="toy_brick_outline" bind_value="klipper_version"/>
+      <!-- Moonraker Version -->
+      <setting_info_row name="row_moonraker" label="Moonraker" icon="toy_brick_outline" bind_value="moonraker_version"/>
+      <!-- OS Version -->
+      <setting_info_row name="row_os" label="OS" icon="console" bind_value="os_version"/>
+      <!-- Host (kernel arch · userspace bitness). Hidden on Android — irrelevant
+           when the OS row already reads "Android". -->
+      <lv_obj name="container_host_arch" width="100%" style_pad_all="0" scrollable="false">
+        <bind_flag_if_eq subject="settings_is_android" flag="hidden" ref_value="1"/>
+        <setting_info_row name="row_host_arch" label="Host" icon="sysinfo" bind_value="host_arch_value"/>
+      </lv_obj>
+      <!-- Install Root (hidden on Android — SDL-sandboxed paths are not user-meaningful) -->
+      <lv_obj name="container_install_root" width="100%" style_pad_all="0" scrollable="false">
+        <bind_flag_if_eq subject="settings_is_android" flag="hidden" ref_value="1"/>
+        <setting_info_row name="row_install_root"
+                          label="Install Root" icon="folder_home" bind_value="install_root_value"/>
+      </lv_obj>
+      <!-- Config Dir (hidden on Android) -->
+      <lv_obj name="container_config_dir" width="100%" style_pad_all="0" scrollable="false">
+        <bind_flag_if_eq subject="settings_is_android" flag="hidden" ref_value="1"/>
+        <setting_info_row name="row_config_dir" label="Config Dir" icon="cog" bind_value="config_dir_value"/>
+      </lv_obj>
+      <!-- Logs (active spdlog destination — journal/syslog/file path/console/logcat) -->
+      <setting_info_row name="row_log_dest" label="Logs" icon="script_text" bind_value="log_dest_value"/>
+      <!-- Cache Dir (hidden on Android) -->
+      <lv_obj name="container_cache_dir" width="100%" style_pad_all="0" scrollable="false">
+        <bind_flag_if_eq subject="settings_is_android" flag="hidden" ref_value="1"/>
+        <setting_info_row name="row_cache_dir" label="Cache Dir" icon="database" bind_value="cache_dir_value"/>
+      </lv_obj>
+      <!-- Total Print Hours (opens history dashboard) -->
+      <setting_action_row name="row_print_hours"
+                          label="Print Hours" icon="clock" bind_description="print_hours_value"
+                          callback="on_about_print_hours_clicked"/>
+      <setting_action_row name="row_source_licenses" label="Open Source Licenses" icon="book"
+                          description="Source code and authors" callback="on_source_licenses_clicked"/>
+      <!-- Bottom padding for scroll -->
+      <lv_obj width="100%" height="#space_lg" scrollable="false"/>
+    </lv_obj>
+  </view>
+</component>

@@ -1,0 +1,324 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file test_moonraker_api_domain.cpp
+ * @brief Unit tests for MoonrakerAPI domain service operations and PrinterHardware guessing
+ *
+ * Tests the domain logic:
+ * - PrinterHardware guessing (guess_bed_heater, guess_hotend_heater, guess_bed_sensor,
+ *   guess_hotend_sensor, guess_part_cooling_fan, guess_main_led_strip)
+ * - Hardware discovery reaching MoonrakerAPI::hardware()
+ */
+
+#include "ui_update_queue.h"
+
+#include "../../include/moonraker_api.h"
+#include "../../include/moonraker_client.h"
+#include "../../include/moonraker_client_mock.h"
+#include "../../include/printer_hardware.h"
+#include "../../lvgl/lvgl.h"
+#include "../helix_test_fixture.h"
+#include "../lvgl_test_fixture.h"
+#include "../test_helpers/mock_personas.h"
+#include "../test_helpers/update_queue_test_access.h"
+#include "../ui_test_utils.h"
+
+#include <chrono>
+#include <thread>
+
+#include "../catch_amalgamated.hpp"
+
+using namespace helix;
+
+// ============================================================================
+// Test Fixtures
+// ============================================================================
+
+/**
+ * @brief Test fixture for MoonrakerAPI domain operations with mock client
+ *
+ * Uses MoonrakerClientMock to provide hardware discovery data for testing
+ * the domain service operations.
+ */
+class MoonrakerAPIDomainTestFixture : public LVGLTestFixture {
+  public:
+    MoonrakerAPIDomainTestFixture() : mock_client(MoonrakerClientMock::PrinterType::VORON_24) {
+        // Initialize printer state
+        state.init_subjects(false);
+
+        // Connect mock client (required for discovery)
+        mock_client.connect("ws://mock/websocket", []() {}, []() {});
+
+        api = std::make_unique<MoonrakerAPI>(mock_client, state);
+
+        // Run discovery, then hand the hardware to the API as Application does
+        mock_client.discover_printer([this]() { api->hardware() = mock_client.hardware(); });
+    }
+
+    ~MoonrakerAPIDomainTestFixture() {
+        // Drain while `state` is still alive — discover_printer() in the ctor
+        // leaves PrinterCapabilitiesState's deferred setters queued (#1166).
+        helix::ui::UpdateQueueTestAccess::drain_all(helix::ui::UpdateQueue::instance());
+
+        mock_client.stop_temperature_simulation();
+        mock_client.disconnect();
+        api.reset();
+    }
+
+    MoonrakerClientMock mock_client;
+    PrinterState state;
+    std::unique_ptr<MoonrakerAPI> api;
+};
+
+// ============================================================================
+// Hardware Guessing Tests - PrinterHardware
+// ============================================================================
+
+TEST_CASE_METHOD(MoonrakerAPIDomainTestFixture,
+                 "PrinterHardware::guess_bed_heater returns correct heater",
+                 "[printer][guessing]") {
+    // VORON_24 mock should have heater_bed
+    PrinterHardware hw(api->hardware().heaters(), api->hardware().sensors(), api->hardware().fans(),
+                       api->hardware().leds());
+    std::string bed_heater = hw.guess_bed_heater();
+    REQUIRE(bed_heater == "heater_bed");
+}
+
+TEST_CASE_METHOD(MoonrakerAPIDomainTestFixture,
+                 "PrinterHardware::guess_hotend_heater returns correct heater",
+                 "[printer][guessing]") {
+    // VORON_24 mock should have extruder
+    PrinterHardware hw(api->hardware().heaters(), api->hardware().sensors(), api->hardware().fans(),
+                       api->hardware().leds());
+    std::string hotend_heater = hw.guess_hotend_heater();
+    REQUIRE(hotend_heater == "extruder");
+}
+
+TEST_CASE_METHOD(MoonrakerAPIDomainTestFixture,
+                 "PrinterHardware::guess_bed_sensor returns correct sensor",
+                 "[printer][guessing]") {
+    // Bed sensor should return heater_bed (heaters have built-in sensors)
+    PrinterHardware hw(api->hardware().heaters(), api->hardware().sensors(), api->hardware().fans(),
+                       api->hardware().leds());
+    std::string bed_sensor = hw.guess_bed_sensor();
+    REQUIRE(bed_sensor == "heater_bed");
+}
+
+TEST_CASE_METHOD(MoonrakerAPIDomainTestFixture,
+                 "PrinterHardware::guess_hotend_sensor returns correct sensor",
+                 "[printer][guessing]") {
+    // Hotend sensor should return extruder (heaters have built-in sensors)
+    PrinterHardware hw(api->hardware().heaters(), api->hardware().sensors(), api->hardware().fans(),
+                       api->hardware().leds());
+    std::string hotend_sensor = hw.guess_hotend_sensor();
+    REQUIRE(hotend_sensor == "extruder");
+}
+
+TEST_CASE_METHOD(MoonrakerAPIDomainTestFixture,
+                 "PrinterHardware::guess_part_cooling_fan returns correct fan",
+                 "[printer][guessing]") {
+    // VORON_24 should have canonical "fan" for part cooling
+    PrinterHardware hw(api->hardware().heaters(), api->hardware().sensors(), api->hardware().fans(),
+                       api->hardware().leds());
+    std::string fan = hw.guess_part_cooling_fan();
+    // The canonical [fan] section should be prioritized if it exists
+    REQUIRE_FALSE(fan.empty());
+}
+
+TEST_CASE_METHOD(MoonrakerAPIDomainTestFixture, "PrinterHardware::guess_main_led_strip returns LED",
+                 "[printer][guessing]") {
+    // VORON_24 seeds four LEDs (moonraker_client_mock.cpp): "neopixel chamber_light",
+    // "neopixel status_led", "led caselight", "output_pin Enclosure_LEDs". Priority 1
+    // walks its keyword list {"case", "chamber", ...} in order and returns the first LED
+    // matching the CURRENT keyword, so "case" resolves before "chamber" is ever tried —
+    // keyword order wins over LED order. Both room-lighting candidates must beat
+    // "neopixel status_led", which is a machine-status indicator, not room lighting.
+    PrinterHardware hw(api->hardware().heaters(), api->hardware().sensors(), api->hardware().fans(),
+                       api->hardware().leds());
+    REQUIRE(hw.guess_main_led_strip() == "led caselight");
+}
+
+// ============================================================================
+// Hardware Guessing - Multiple Printer Types
+// ============================================================================
+
+TEST_CASE_METHOD(HelixTestFixture, "PrinterHardware guessing works for multiple printer types",
+                 "[printer][guessing][printers]") {
+    PrinterState state;
+    state.init_subjects(false);
+
+    SECTION("VORON_24 printer type") {
+        MoonrakerClientMock mock(MoonrakerClientMock::PrinterType::VORON_24);
+        mock.connect("ws://mock/websocket", []() {}, []() {});
+        mock.discover_printer([]() {});
+
+        PrinterHardware hw(mock.hardware().heaters(), mock.hardware().sensors(),
+                           mock.hardware().fans(), mock.hardware().leds());
+
+        REQUIRE(hw.guess_bed_heater() == "heater_bed");
+        REQUIRE(hw.guess_hotend_heater() == "extruder");
+        REQUIRE(hw.guess_bed_sensor() == "heater_bed");
+        REQUIRE(hw.guess_hotend_sensor() == "extruder");
+
+        mock.stop_temperature_simulation();
+        mock.disconnect();
+    }
+
+    SECTION("CREALITY_K1 printer type") {
+        MoonrakerClientMock mock(MoonrakerClientMock::PrinterType::CREALITY_K1);
+        mock.connect("ws://mock/websocket", []() {}, []() {});
+        mock.discover_printer([]() {});
+
+        PrinterHardware hw(mock.hardware().heaters(), mock.hardware().sensors(),
+                           mock.hardware().fans(), mock.hardware().leds());
+
+        // Just verify these return something sensible
+        REQUIRE_FALSE(hw.guess_bed_heater().empty());
+        REQUIRE_FALSE(hw.guess_hotend_heater().empty());
+
+        mock.stop_temperature_simulation();
+        mock.disconnect();
+    }
+
+    SECTION("MULTI_EXTRUDER printer type") {
+        MoonrakerClientMock mock(MoonrakerClientMock::PrinterType::MULTI_EXTRUDER);
+        mock.connect("ws://mock/websocket", []() {}, []() {});
+        mock.discover_printer([]() {});
+
+        PrinterHardware hw(mock.hardware().heaters(), mock.hardware().sensors(),
+                           mock.hardware().fans(), mock.hardware().leds());
+
+        // Multi-extruder should still find bed and primary extruder
+        REQUIRE_FALSE(hw.guess_bed_heater().empty());
+        REQUIRE_FALSE(hw.guess_hotend_heater().empty());
+
+        mock.stop_temperature_simulation();
+        mock.disconnect();
+    }
+}
+
+// ============================================================================
+// All Printer Types Tests
+// ============================================================================
+
+TEST_CASE_METHOD(HelixTestFixture,
+                 "PrinterHardware and MoonrakerAPI domain methods work for all printer types",
+                 "[printer][api][domain][all_printers]") {
+    PrinterState state;
+    state.init_subjects(false);
+
+    for (const auto* persona : helix::test::personas_one_per_type()) {
+        DYNAMIC_SECTION(persona->id) {
+            helix::test::PersonaEnv env(persona->id);
+            MoonrakerClientMock mock(persona->type);
+            mock.connect("ws://mock/websocket", []() {}, []() {});
+            mock.discover_printer([]() {});
+
+            // Test PrinterHardware guessing
+            PrinterHardware hw(mock.hardware().heaters(), mock.hardware().sensors(),
+                               mock.hardware().fans(), mock.hardware().leds());
+
+            std::string bed_heater = hw.guess_bed_heater();
+            std::string hotend_heater = hw.guess_hotend_heater();
+            std::string bed_sensor = hw.guess_bed_sensor();
+            std::string hotend_sensor = hw.guess_hotend_sensor();
+
+            // All standard printer types should have bed and hotend
+            REQUIRE_FALSE(bed_heater.empty());
+            REQUIRE_FALSE(hotend_heater.empty());
+            REQUIRE_FALSE(bed_sensor.empty());
+            REQUIRE_FALSE(hotend_sensor.empty());
+
+            // No bed-mesh assertions here: has_bed_mesh() and get_active_bed_mesh()
+            // are the same expression over active_bed_mesh_.probed_matrix
+            // (moonraker_advanced_api.cpp), so cross-checking them can never fail.
+
+            mock.stop_temperature_simulation();
+            mock.disconnect();
+        }
+    }
+}
+
+TEST_CASE_METHOD(MoonrakerAPIDomainTestFixture,
+                 "bed-mesh presence reads Klipper's empty mesh as absent",
+                 "[bed_mesh][print_start]") {
+    std::vector<bool> verdicts;
+    api->set_bed_mesh_presence_observer([&verdicts](bool present) { verdicts.push_back(present); });
+
+    mock_client.dispatch_status_update(
+        {{"bed_mesh", {{"probed_matrix", {{0.1, 0.2}, {0.3, 0.4}}}}}});
+    // What Klipper and Kalico publish after BED_MESH_CLEAR.
+    mock_client.dispatch_status_update(
+        {{"bed_mesh", {{"probed_matrix", nlohmann::json::array({nlohmann::json::array()})}}}});
+
+    CHECK(verdicts == std::vector<bool>{true, false});
+    api->set_bed_mesh_presence_observer(nullptr);
+}
+
+// ============================================================================
+// Database operations: error path with null callbacks
+// ============================================================================
+
+// An unconnected MoonrakerClient refuses at its pre-send guard and invokes the
+// error callback synchronously, so these drive the `if (on_error)` branch of
+// the database helpers' error lambdas.
+
+TEST_CASE_METHOD(MoonrakerAPIDomainTestFixture,
+                 "database_get_item error path tolerates a null error callback", "[api][proxy]") {
+    MoonrakerClient offline;
+    MoonrakerAPI offline_api(offline, state);
+
+    // Paired non-null run first: proves the error lambda really is reached in this
+    // setup, so the null run below is exercising the guard rather than nothing.
+    bool success_invoked = false;
+    bool error_invoked = false;
+    offline_api.database_get_item(
+        "helix", "key", [&success_invoked](const json&) { success_invoked = true; },
+        [&error_invoked](const MoonrakerError&) { error_invoked = true; });
+    REQUIRE(error_invoked);
+    REQUIRE_FALSE(success_invoked);
+
+    REQUIRE_NOTHROW(offline_api.database_get_item("helix", "key", [](const json&) {}, nullptr));
+}
+
+TEST_CASE_METHOD(MoonrakerAPIDomainTestFixture,
+                 "database_post_item error path tolerates null callbacks", "[api][proxy]") {
+    MoonrakerClient offline;
+    MoonrakerAPI offline_api(offline, state);
+
+    bool success_invoked = false;
+    bool error_invoked = false;
+    offline_api.database_post_item(
+        "helix", "key", json{{"val", 1}}, [&success_invoked]() { success_invoked = true; },
+        [&error_invoked](const MoonrakerError&) { error_invoked = true; });
+    REQUIRE(error_invoked);
+    REQUIRE_FALSE(success_invoked);
+
+    REQUIRE_NOTHROW(
+        offline_api.database_post_item("helix", "key", json{{"val", 1}}, nullptr, nullptr));
+}
+
+// ============================================================================
+// Client state reached through the API
+// ============================================================================
+
+// The mock inherits these from MoonrakerClient, so they run the real client's code.
+
+TEST_CASE_METHOD(MoonrakerAPIDomainTestFixture,
+                 "suppressing the disconnect modal is visible on the client", "[api][proxy]") {
+    REQUIRE_FALSE(mock_client.is_disconnect_modal_suppressed());
+
+    api->suppress_disconnect_modal(5000);
+
+    CHECK(mock_client.is_disconnect_modal_suppressed());
+}
+
+TEST_CASE_METHOD(MoonrakerAPIDomainTestFixture,
+                 "is_connected turns false once the client disconnects", "[api][proxy]") {
+    REQUIRE(api->is_connected());
+
+    mock_client.disconnect();
+
+    CHECK_FALSE(api->is_connected());
+}

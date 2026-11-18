@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <api>
+    <!-- Per-instance subject names, supplied by the widget at creation. They
+         must exist before this component is parsed: a binding whose subject is
+         missing at parse time is dropped permanently and silently. -->
+    <prop name="tile_icon_subject" type="string" default=""/>
+    <prop name="tile_label_subject" type="string" default=""/>
+    <prop name="tile_dir_subject" type="string" default=""/>
+    <prop name="tile_target_subject" type="string" default=""/>
+    <!-- The rung the bell draws at, which the badge sizes off -->
+    <prop name="tile_drawn_subject" type="string" default=""/>
+  </api>
+  <view name="panel_widget_notifications" extends="lv_obj" height="100%" flex_grow="1" style_pad_all="0" scrollable="false">
+    <home_notification_indicator align="center"/>
+  </view>
+</component>

@@ -1,0 +1,1165 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "ams_backend.h"
+#include "slot_registry.h"
+
+#include <atomic>
+#include <condition_variable>
+#include <functional>
+#include <mutex>
+#include <thread>
+
+namespace helix {
+
+struct AfcMockLane;
+struct AfcMockUnit;
+
+/**
+ * @file ams_backend_mock.h
+ * @brief Mock AMS backend for development and testing
+ *
+ * Provides a simulated multi-filament system with configurable slots,
+ * fake operation timing, and predictable state for UI development.
+ *
+ * Features:
+ * - Configurable slot count (default 4)
+ * - Simulated load/unload timing
+ * - Pre-populated filament colors and materials
+ * - Responds to all AmsBackend operations
+ */
+class AmsBackendMock : public AmsBackend {
+  public:
+    friend class AmsBackendMockTimingTestAccess;
+
+    /**
+     * @brief Construct mock backend with specified slot count
+     * @param slot_count Number of simulated slots (1 to ams::kLanesPerBackend, default 4)
+     */
+    explicit AmsBackendMock(int slot_count = 4);
+
+    ~AmsBackendMock() override;
+
+    // Lifecycle
+    AmsError start() override;
+    void stop() override;
+    [[nodiscard]] bool is_running() const override;
+
+    // Guarded to match the base declaration: ESP32 compiles this class for the
+    // CONFIG_HELIX_MOCK_PRINTER build but never defines HELIX_ENABLE_MOCKS, so
+    // there is no base virtual to override there.
+#ifdef HELIX_ENABLE_MOCKS
+    [[nodiscard]] AmsBackendMock* as_mock() override {
+        return this;
+    }
+#endif
+
+    // Mock-only: receiver for MoonrakerClientMock's active-gcode-tool
+    // notifications. Wired up by MoonrakerManager when both mocks are live.
+    // Production AMS backends get equivalent state from real Klipper via
+    // printer.mmu.tool / toolchanger.tool_number subscriptions.
+    //
+    // slicer_color_rgb: fallback color from the gcode header — used when the
+    // active tool isn't mapped to a real slot (avoids the swatch lying about
+    // slot 0's color). Pass 0 if no slicer color metadata is available.
+    void on_simulated_gcode_tool_changed(int tool_index, uint32_t slicer_color_rgb = 0);
+
+    // Events
+    void set_event_callback(EventCallback callback) override;
+
+    // State queries
+    [[nodiscard]] AmsSystemInfo get_system_info() const override;
+    [[nodiscard]] AmsType get_type() const override;
+    [[nodiscard]] SlotInfo get_slot_info(int slot_index) const override;
+    [[nodiscard]] AmsAction get_current_action() const override;
+    [[nodiscard]] int get_current_tool() const override;
+    [[nodiscard]] int get_current_slot() const override;
+    [[nodiscard]] bool is_filament_loaded() const override;
+
+    /**
+     * @brief Only the carriage tool is an unmount target, matching the real backend.
+     *
+     * Mirrors AmsBackendToolChanger::can_unload_from_toolhead(). Without this the
+     * mock inherits AmsBackend's PARALLEL rule (slot.is_present()), which holds for
+     * every toolhead forever — so the context menu offered Unload on tools parked in
+     * their docks and, through decide_can_load()'s inverted `!toolhead_unload`
+     * factor, disabled Load on all of them. That is prestonbrown/helixscreen#1199,
+     * fixed in the real backend but never reproduced here, which left the fix
+     * unguarded against regression in every mock-driven check.
+     *
+     * Scoped to tool-changer mode: the mock also stands in for lane-based systems,
+     * where the inherited LOADED-status rule is the correct one.
+     */
+    [[nodiscard]] bool can_unload_from_toolhead(int slot_index) const override;
+
+    /// The traits of the backend the current persona stands in for. Three
+    /// fields answer from the mock itself instead (see the .cpp).
+    [[nodiscard]] BackendTraits traits() const override;
+
+    /// Mock extruder->slot mapping. Returns slot == extruder_idx when the
+    /// identity mapping flag is set (simulates a tool-changer) and
+    /// std::nullopt otherwise (default AmsBackend behavior — aggregate routing).
+    [[nodiscard]] std::optional<int> slot_for_extruder(int extruder_idx) const override {
+        if (!identity_extruder_mapping_) {
+            return std::nullopt;
+        }
+        if (extruder_idx < 0 || extruder_idx >= system_info_.total_slots) {
+            return std::nullopt;
+        }
+        return extruder_idx;
+    }
+
+    /**
+     * @brief Test hook: make get_slot_for_extruder / tracks_consumption_natively() return
+     *        the given value. Test-only setter on the mock, not on a production backend
+     *        (per CLAUDE L065 the mock is test infrastructure).
+     */
+    void set_tracks_consumption_natively_for_testing(bool value) {
+        tracks_consumption_natively_ = value;
+    }
+
+    /**
+     * @brief Test hook: enable identity extruder->slot mapping so routing tests
+     *        can exercise the per-extruder dispatch path. When true,
+     *        slot_for_extruder(i) returns i; when false (default),
+     *        slot_for_extruder returns nullopt to preserve the pre-Phase-5
+     *        aggregate-routing behavior.
+     */
+    void set_identity_extruder_mapping_for_testing(bool enabled) {
+        identity_extruder_mapping_ = enabled;
+    }
+
+    // Path visualization
+    [[nodiscard]] PathTopology get_topology() const override;
+    [[nodiscard]] PathTopology get_unit_topology(int unit_index) const override;
+    [[nodiscard]] PathSegment get_filament_segment() const override;
+    [[nodiscard]] PathSegment get_slot_filament_segment(int slot_index) const override;
+    [[nodiscard]] PathSegment infer_error_segment() const override;
+    [[nodiscard]] bool slot_has_prep_sensor(int slot_index) const override;
+    [[nodiscard]] bool slot_has_load_sensor(int slot_index) const override;
+
+    // Operations
+    AmsError load_filament(int slot_index) override;
+    AmsError unload_filament(int slot_index) override;
+    AmsError select_slot(int slot_index) override;
+    AmsError change_tool(int tool_number) override;
+    /// Docks the mounted tool on the personas whose hardware can (tool
+    /// changer, Snapmaker U1): the unload simulation, ending with no tool.
+    AmsError park_active_tool() override;
+    [[nodiscard]] bool supports_tool_park() const override;
+
+    /// Slot index the last accepted unload_filament() ran with, or nullopt when
+    /// none has run. The unload itself ignores the slot, so tests asserting
+    /// which target a dispatch surface chose read it here.
+    [[nodiscard]] std::optional<int> last_unload_slot() const;
+
+    // Batch filament ops: advertised in Snapmaker mode so the picker UI is
+    // drivable in --test. Rehearses the real script (see the .cpp) and then
+    // runs the single-op simulation.
+    AmsError load_filament_batch(const std::vector<int>& slots) override;
+    AmsError unload_filament_batch(const std::vector<int>& slots) override;
+
+    // Recovery
+    AmsError recover() override;
+    AmsError reset() override;
+    AmsError cancel() override;
+    AmsError clear_fault(int slot_index) override;
+    AmsError recover_with_state(const RecoverStateRequest& request) override;
+    AmsError preload_lane(int slot_index) override;
+
+    // Gate select / check (Happy Hare selector-based systems only)
+    AmsError select_gate(int slot_index) override;
+    AmsError move_selector(int delta) override;
+    AmsError check_gate(int slot_index) override;
+    AmsError check_all_gates() override;
+    [[nodiscard]] std::string reset_button_label() const override {
+        return system_info_.type == AmsType::HAPPY_HARE ? std::string("Home")
+                                                        : std::string("Reset");
+    }
+
+    // Configuration
+
+    /**
+     * @brief Edit a lane's FILAMENT metadata. SlotInfo::status is IGNORED.
+     *
+     * Same contract as the real backends: status is firmware-derived, so this
+     * path copies color / material / brand / Spoolman / weights / temps and the
+     * tool mapping, and nothing else. Passing a status other than UNKNOWN that
+     * differs from the slot's current one logs a warning rather than silently
+     * doing nothing — use force_slot_status() to stage a mock slot state.
+     */
+    AmsError apply_user_edit(int slot_index, const SlotInfo& info,
+                             const helix::ams::Observation& declared) override;
+
+    /// The same write as apply_user_edit(). The mock has no firmware or store
+    /// behind a slot, so an edit and a sync differ only in what the caller
+    /// says the values are.
+    AmsError sync_external_identity(int slot_index, const SlotInfo& info) override;
+    [[nodiscard]] AmsError can_set_tool_mapping(int tool_number, int slot_index) const override;
+    /// can_set_tool_mapping() for a caller that holds mutex_.
+    [[nodiscard]] AmsError can_set_tool_mapping_locked(int tool_number, int slot_index) const;
+    AmsError set_tool_mapping_impl(int tool_number, int slot_index) override;
+
+    /// The mock keeps no override records to erase - its slot table is written
+    /// whole by apply_user_edit() - so the clear's whole job is dropping the
+    /// lane's standing user rung, which holds picks a sentinel clear never
+    /// engages.
+    void clear_slot_override(int slot_index) override;
+
+    // Bypass mode
+    AmsError enable_bypass() override;
+    AmsError disable_bypass() override;
+    [[nodiscard]] bool is_bypass_active() const override;
+
+    /// nullopt until the "unaccounted" scenario runs; then true — the mock
+    /// cannot observe a toolhead, so only the staged scenario answers.
+    [[nodiscard]] std::optional<bool> toolhead_filament_unaccounted() const override;
+
+    // Dryer
+    [[nodiscard]] DryerInfo get_dryer_info(int unit = 0) const override;
+    AmsError start_drying(float temp_c, int duration_min, int fan_pct = -1, int unit = 0) override;
+    /// Runs the same simulated cycle as start_drying(); the target is logged, not simulated.
+    AmsError start_drying_to_humidity(float temp_c, int duration_min, float humidity_pct,
+                                      int fan_pct = -1, int unit = 0) override;
+    AmsError stop_drying(int unit = 0) override;
+    /// The "emu_dryer" rig marks the started gates Active (the first) and Queued (the
+    /// rest), then runs the ordinary simulated cycle. Every other rig answers as the base.
+    AmsError start_drying_request(const DryingRequest& request) override;
+    /// The "emu_dryer" rig cancels just those gates and ends the cycle once none is left.
+    AmsError stop_drying_gates(int unit, const std::vector<int>& gates) override;
+
+    /**
+     * @brief Report the capped rig's non-running heated zones as Queued.
+     *
+     * The generic base walk already folds each zone's own DryerInfo::active into
+     * Active or Idle, which is the rig's answer for which zone runs. This layer
+     * only adds the Queued half, via the general concurrency-cap rule in
+     * ams_environment_zone.h.
+     */
+    [[nodiscard]] std::vector<helix::printer::EnvironmentZone>
+    get_environment_zones(int unit = -1) const override;
+
+    // Endless spool. The mock keeps its edges in the SlotRegistry, so its config
+    // is the same one-liner AFC uses. reset_endless_spool() is NOT overridden -
+    // the base's clear-every-slot loop is exactly the behaviour the mock wants,
+    // and its absence is why the mock used to advertise editable=true while
+    // returning NOT_SUPPORTED from reset.
+    /// @note Takes `mutex_`; callers must NOT hold it.
+    [[nodiscard]] helix::printer::EndlessSpoolCapabilities
+    get_endless_spool_capabilities() const override;
+    /// @note Takes `mutex_`; callers must NOT hold it.
+    [[nodiscard]] helix::printer::EndlessSpoolConfig get_endless_spool_config() const override;
+
+    // Tool mapping
+    /// The APPLIED routing, gated the way the emulated firmware gates it.
+    ///
+    /// In Snapmaker mode that gate is AmsBackendSnapmaker::task_routing(): empty
+    /// until a task is configured, because the U1's idle table is a firmware
+    /// default and not a statement about any file. Returning the attachment map
+    /// there published a confident [0,1,2,3] the real machine never publishes,
+    /// and FilamentMapper::effective_routing() takes any non-empty answer as the
+    /// truth - so every --test run resolved each tool to its own head index and
+    /// rehearsed a branch the hardware does not take.
+    [[nodiscard]] std::vector<int> get_tool_mapping() const override;
+    /// Four fixed heads in Snapmaker mode, lane-per-tool otherwise. The
+    /// inherited identity agrees for T0-T3 and diverges from T4 up, which is
+    /// exactly where a U1 file with extended tools lands.
+    [[nodiscard]] helix::FirmwareRouting firmware_default_routing() const override;
+    /// PrePrintSend in Snapmaker mode, otherwise whatever
+    /// set_remap_strategy() was given — Native by default, because every other
+    /// mode stands in for a backend that owns its tool->slot table and writes it
+    /// directly (AFC, CFS, Happy Hare, QIDI, the tool changer).
+    ///
+    /// It used to answer None for all of those while its retired capability
+    /// query answered "editable", which is the contradiction this pair of knobs
+    /// exists to stop. The cost was not cosmetic: every `can this backend remap`
+    /// gate was dead under --test, so the remap picker those five backends reach
+    /// could not be opened in a mock run at all.
+    [[nodiscard]] RemapStrategy get_remap_strategy() const override;
+    [[nodiscard]] bool remap_ready() const override;
+    [[nodiscard]] bool owns_tool_mapping_table() const override;
+    [[nodiscard]] bool carriage_can_be_empty() const override;
+
+    /// One head per slot where the persona's backend has one per tool (tool
+    /// changer, Snapmaker), one shared head otherwise; the Snapmaker batches
+    /// all of them, as AmsBackendSnapmaker does.
+    /// A tool-changer persona answers as AmsBackendToolChanger does with no feed.
+    [[nodiscard]] HeadFilamentOps head_filament_ops(int head) const override;
+    [[nodiscard]] int filament_head_count() const override;
+    [[nodiscard]] std::optional<int> head_for_slot(int slot) const override;
+    [[nodiscard]] std::optional<int> head_source_slot(int head,
+                                                      const AmsSystemInfo& info) const override;
+    [[nodiscard]] std::optional<bool> head_has_filament(int head) const override;
+    [[nodiscard]] int max_heads_per_filament_op() const override;
+
+    /// Emulate a backend that declares a different route. The shape worth
+    /// reaching for is RemapStrategy::None — ACE, or a single-extruder printer
+    /// with no AMS — which no mock MODE produces, and which several tests need
+    /// in order to cover the "card shown, nothing to tap" branch.
+    void set_remap_strategy(RemapStrategy strategy);
+
+    /// Emulate a firmware that picks each tool's lane itself at print time.
+    void set_firmware_picks_lanes_at_print(bool picks);
+    [[nodiscard]] bool firmware_picks_lanes_at_print() const override;
+
+    /// Emulate a backend built to remap through a firmware object it has not
+    /// discovered yet: AD5X IFS before `_IFS_VARS`. Declared route, unusable.
+    /// Reached in a mock run with HELIX_MOCK_REMAP_READY=0.
+    ///
+    /// Note that ifs_mode_ does NOT set this — the mock AD5X declares itself
+    /// ready, where the real AmsBackendAd5xIfs answers has_ifs_vars_. That is
+    /// deliberate (a mock that starts unusable makes a poor demo) and it is why
+    /// the knob exists: the pre-discovery shape has to be asked for.
+    void set_remap_ready(bool ready);
+
+    /// Emulates the U1's firmware-native pre-print config in Snapmaker mode, ""
+    /// otherwise.
+    ///
+    /// Load-bearing, not cosmetic. requires_preprint_send() tells the
+    /// controller there is work to do, and an empty answer here makes it start
+    /// the print directly, so the user's head pick never reaches the printer
+    /// even though the modal logs a stored mapping. Delegates to
+    /// AmsBackendSnapmaker::preprint_gcode so the bytes are the real ones.
+    [[nodiscard]] std::string build_preprint_gcode(const std::set<int>& tools_used,
+                                                   const std::map<int, int>& remap) const override;
+
+    // Device actions
+    [[nodiscard]] std::vector<helix::printer::DeviceSection> get_device_sections() const override;
+    [[nodiscard]] std::vector<helix::printer::DeviceAction> get_device_actions() const override;
+    AmsError execute_device_action(const std::string& action_id,
+                                   const std::any& value = {}) override;
+
+    // ========================================================================
+    // Mock-specific methods (for testing)
+    // ========================================================================
+
+    /**
+     * @brief Simulate an error condition
+     * @param error The error to trigger
+     */
+    void simulate_error(AmsResult error);
+
+    /**
+     * @brief Simulate a paused state (user intervention required)
+     *
+     * Sets the action to PAUSED, which can be resumed with resume().
+     * Used to test UI handling of pause scenarios.
+     */
+    void simulate_pause();
+
+    /**
+     * @brief Resume from PAUSED state
+     * @return Success, or error if not in PAUSED state
+     *
+     * Returns to IDLE state. No-op if already IDLE.
+     */
+    AmsError resume();
+
+    /**
+     * @brief Set operation delay for simulated timing
+     * @param delay_ms Delay in milliseconds (0 for instant)
+     */
+    void set_operation_delay(int delay_ms);
+
+    /**
+     * @brief Block until the current simulated operation has finished
+     *
+     * Every load / unload / tool change runs on a real std::thread spawned by
+     * schedule_completion(), so the transient AmsAction a caller sees right after
+     * issuing one is a race against that thread — and at set_operation_delay(0)
+     * the thread routinely wins, ending back at IDLE before the caller looks.
+     *
+     * Tests that want to assert on the RESULT of an operation must join here
+     * first and then read the settled state, rather than sampling the action mid
+     * flight. Public because the whole class is test infrastructure; joining is
+     * the only way to make those assertions deterministic under parallel load.
+     */
+    void wait_for_operation_thread();
+
+    /**
+     * @brief Force a specific slot status (for testing)
+     * @param slot_index Slot to modify
+     * @param status New status
+     */
+    void force_slot_status(int slot_index, SlotStatus status);
+
+    /**
+     * @brief Force a slot's remaining filament length in metres (for testing)
+     *
+     * remaining_length_m is firmware-derived (the CFS insert probe produces it),
+     * so apply_user_edit deliberately does not copy it - the same discipline as
+     * status. Stage it here instead when a test needs a measured or sentinel
+     * length (100 = never measured, 255 = failed probe).
+     *
+     * @param slot_index Slot to modify
+     * @param remaining_m Remaining length in metres
+     */
+    void force_slot_remaining(int slot_index, float remaining_m);
+
+    /**
+     * @brief Set per-slot error state (for testing error visualization)
+     * @param slot_index Slot to modify
+     * @param error Error to set, or nullopt to clear
+     */
+    void set_slot_error(int slot_index, std::optional<SlotError> error);
+
+    /**
+     * @brief Set unit-level buffer health (for testing hub buffer visualization)
+     * @param unit_index Unit to modify
+     * @param health Buffer health to set, or nullopt to clear
+     */
+    void set_unit_buffer_health(int unit_index, std::optional<BufferHealth> health);
+
+    /**
+     * @brief Set the encoder clog-detection state the meter derives from.
+     *
+     * The constructor seeds one healthy reading and nothing moves it, so every
+     * mock run showed the same 85%. This is what the `ams_clog_*` scenarios
+     * drive to walk the meter through healthy, warning and blocked.
+     *
+     * @param info Encoder state; `enabled = false` takes encoder out of the
+     *             running so a lower-priority source (AFC buffer) can be seen.
+     * @param detection_mode_flag Mirrors `clog_detection` on the system info —
+     *             0 = off, 1 = manual, 2 = auto. Kept explicit because the two
+     *             are separate fields on the wire and the UI reads both.
+     */
+    void set_encoder_clog_info(EncoderClogInfo info, int detection_mode_flag);
+
+    /**
+     * @brief Set the Flowguard clog/tangle state.
+     *
+     * Not seeded at startup, so this is how --test reaches the Flowguard meter
+     * mode. Flowguard outranks the encoder and AFC when enabled, so setting
+     * this is enough to select it.
+     */
+    void set_flowguard_info(FlowguardInfo info);
+
+    /// Publish a tangle-prevention state (the clog meter's note line reads it).
+    void set_tangle_prevention(TanglePreventionInfo info);
+
+    /**
+     * @brief Set the Happy Hare sync-feedback bias (-1..+1; -2 = none).
+     *
+     * Only the Happy Hare simulation publishes it; every other type publishes
+     * its units' pressure sensors instead (see set_unit_buffer_health()).
+     */
+    void set_sync_feedback_bias(float bias);
+
+    /**
+     * @brief Inject error states for visual testing (HELIX_MOCK_AMS_STATE=error)
+     *
+     * Adds lane errors and buffer fault warnings to existing units for
+     * testing error visualization (slot error dots, hub tint, overview badges).
+     */
+    void inject_mock_errors();
+
+    /**
+     * @brief Set whether this mock simulates a hardware bypass sensor
+     * @param has_sensor true=hardware sensor (auto-detect), false=virtual (manual toggle)
+     *
+     * When has_sensor is true:
+     * - The bypass button should be disabled in the UI
+     * - Bypass is controlled by the sensor, not user clicks
+     */
+    void set_has_hardware_bypass_sensor(bool has_sensor);
+
+    /**
+     * @brief Set environment sensor simulation mode
+     * @param mode One of: "passive", "dryer", "slot", "" (auto-detect)
+     *
+     * Controls mock environment data on units/slots:
+     * - "passive": Per-unit temp/humidity, no dryer capability
+     * - "dryer": Per-unit temp/humidity + dryer supported (default when dryer enabled)
+     * - "slot": Per-slot temp/humidity (different values per slot)
+     * - "emu_dryer": A sealed box, a sensor and a heater per lane; the dryer takes a gate
+     *   selection and rotation, and a cycle is already running on lanes 1-3
+     * - "" or unset: auto-detect from dryer state (dryer enabled → "dryer", else "passive")
+     *
+     * Can also be set via HELIX_MOCK_AMS_ENV environment variable.
+     */
+    void set_environment_mode(const std::string& mode);
+
+    /**
+     * @brief Enable dryer simulation for this mock
+     * @param enabled true to simulate a dryer, false to disable
+     *
+     * When enabled, the mock will:
+     * - Report dryer_supported = true in get_dryer_info()
+     * - Simulate temperature ramping and progress when drying
+     * - Support start_drying() and stop_drying() commands
+     */
+    void set_dryer_enabled(bool enabled);
+
+    /**
+     * @brief Whether the simulated dryers take a humidity target
+     *
+     * Off by default, the answer every dryer gives that has no humidity-terminated
+     * cycle. Can also be set via HELIX_MOCK_DRYER_HUMIDITY_TARGET=1.
+     */
+    void set_dryer_humidity_target(bool enabled);
+
+    /**
+     * @brief The target a start with none applies, reported as
+     *        DryerInfo::default_humidity_target while the dryers take a target
+     *
+     * Unset by default. Can also be set via HELIX_MOCK_DRYER_DEFAULT_HUMIDITY=<pct>.
+     */
+    void set_dryer_default_humidity(std::optional<float> pct);
+
+    /**
+     * @brief Set dryer simulation speed multiplier
+     * @param speed_x Speed multiplier (default 60 = 1 real second = 1 simulated minute)
+     *
+     * Can also be set via HELIX_MOCK_DRYER_SPEED environment variable.
+     * Set to 1 for real-time, 60 for fast testing (4h = 4min), 3600 for instant.
+     */
+    void set_dryer_speed(int speed_x);
+
+    /**
+     * @brief Give the next start_drying() a head start (mock/demo only)
+     * @param min Simulated minutes already elapsed when drying begins (clamped to
+     *            the session duration). Consumed by the next start_drying() call,
+     *            then reset to 0. Lets a mock session begin partway through so the
+     *            countdown and progress bar read consistently.
+     */
+    void set_dryer_initial_elapsed_min(int min);
+
+    /**
+     * @brief Enable realistic multi-phase operation mode
+     * @param enabled true for HEATING→LOADING→CHECKING sequences
+     *
+     * When enabled, operations show realistic phase progression:
+     * - Load: HEATING → LOADING (segment animation) → CHECKING → IDLE
+     * - Unload: HEATING → CUTTING → UNLOADING (animation) → IDLE
+     *
+     * Can also be set via HELIX_MOCK_AMS_STATE=loading environment variable.
+     * Timing respects --sim-speed flag with ±20-30% variance.
+     */
+    void set_realistic_mode(bool enabled);
+
+    /**
+     * @brief Check if realistic mode is enabled
+     * @return true if multi-phase operations are simulated
+     */
+    [[nodiscard]] bool is_realistic_mode() const;
+
+    /**
+     * @brief Enable tool changer simulation mode
+     * @param enabled true to simulate a tool changer, false for filament system
+     *
+     * When enabled, the mock will:
+     * - Report type as TOOL_CHANGER instead of HAPPY_HARE
+     * - Use PARALLEL path topology (each slot → own toolhead)
+     * - Disable bypass mode (not applicable for tool changers)
+     * - Label slots as "T0", "T1", etc.
+     *
+     * Can also be set via HELIX_MOCK_AMS=toolchanger environment variable.
+     */
+    void set_tool_changer_mode(bool enabled);
+
+    /**
+     * @brief Check if tool changer mode is enabled
+     * @return true if simulating a tool changer
+     */
+    [[nodiscard]] bool is_tool_changer_mode() const;
+
+    /**
+     * @brief Enable AFC simulation mode
+     * @param enabled true to simulate an AFC Box Turtle, false for Happy Hare
+     *
+     * When enabled, the mock will:
+     * - Report type as AFC instead of HAPPY_HARE
+     * - Use HUB path topology (4 lanes merge through hub)
+     * - Configure 4 lanes with realistic AFC filament data
+     * - Set AFC-specific device sections and actions (calibration, maintenance, etc.)
+     * - Use CUT tip method
+     *
+     * Can also be set via HELIX_MOCK_AMS=afc environment variable.
+     */
+    void set_afc_mode(bool enabled);
+
+    /**
+     * @brief Check if AFC mode is enabled
+     * @return true if simulating an AFC Box Turtle
+     */
+    [[nodiscard]] bool is_afc_mode() const;
+
+    /**
+     * @brief The lane noun for whichever backend type this mock is configured to
+     *        simulate.
+     *
+     * Mirrors the per-backend overrides (AFC -> Lane, Happy Hare -> Gate,
+     * TOOL_CHANGER -> Tool) keyed on get_type() rather than on class identity,
+     * since one mock instance stands in for any of them. Every other AmsType
+     * this mock can report (ACE, AD5X IFS, CFS, SNAPMAKER, QIDI_BOX) shares the
+     * base class's Slot default.
+     */
+    [[nodiscard]] helix::ui::LaneNoun lane_noun() const override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return lane_noun_locked();
+    }
+
+    /// The same answer for a caller that already holds mutex_. Every operation
+    /// here resolves the noun while reporting a bad index, and mutex_ is not
+    /// recursive, so the locking accessor above would deadlock there.
+    [[nodiscard]] helix::ui::LaneNoun lane_noun_locked() const {
+        switch (system_info_.type) {
+        case AmsType::AFC:
+            return helix::ui::LaneNoun::Lane;
+        case AmsType::HAPPY_HARE:
+            return helix::ui::LaneNoun::Gate;
+        case AmsType::TOOL_CHANGER:
+            return helix::ui::LaneNoun::Tool;
+        case AmsType::SNAPMAKER:
+            return helix::ui::LaneNoun::Feeder;
+        default:
+            return helix::ui::LaneNoun::Slot;
+        }
+    }
+
+    /// Mirrors AmsBackendSnapmaker::tool_noun() for the Snapmaker persona;
+    /// every other type this mock simulates uses the base class's Tool.
+    [[nodiscard]] helix::ui::LaneNoun tool_noun() const override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return system_info_.type == AmsType::SNAPMAKER ? helix::ui::LaneNoun::Toolhead
+                                                       : helix::ui::LaneNoun::Tool;
+    }
+
+    /**
+     * @brief Enable multi-unit mode for testing overview panel
+     *
+     * Creates a Box Turtle (4 slots) + Night Owl (2 slots) = 6 total slots, named as AFC
+     * names them: "Box_Turtle Turtle_1" and "Night_Owl Night_Owl_1".
+     * All units feed a single toolhead via combiner (virtual tools).
+     *
+     * @param enabled true to enable multi-unit, false to revert to single unit
+     */
+    void set_multi_unit_mode(bool enabled);
+
+    /// Group an AFC mock's existing lanes into physical units; counts must cover every lane.
+    bool set_unit_slot_counts(const std::vector<int>& counts);
+
+    /**
+     * @brief Enable the multi-unit torture profile (HELIX_MOCK_AMS=torture).
+     *
+     * Five units / 16 lanes / 4 Klipper extruders, modelled on a user rig
+     * captured 2026-08-16: Box Turtle + Claymore both feed e0, ViViD + EMU both
+     * feed e3, and a 2-tool Toolchanger sits between them. Two lanes are
+     * deliberately unmapped and the AFC tool aliases are neither dense nor
+     * unit-ordered.
+     *
+     * This is the only profile whose unit-card row overflows its container, so
+     * it is the only way to exercise the overview's card-row scrolling, its
+     * off-canvas connector clamping, and shared-nozzle hub placement. Every
+     * other profile tops out at 3 units, which always fit.
+     */
+    void set_torture_mode(bool enabled);
+
+    /**
+     * @brief Enable the StealthChanger-style AFC toolchanger profile
+     * (HELIX_MOCK_AMS=stealth).
+     *
+     * Five units / 18 lanes / 7 toolheads: an ACE unit straight to T0-T3 and
+     * four hub units on T4-T6, two of them sharing T6. The toolheads sit close
+     * together, so the overview's mini hubs have to share the row.
+     */
+    void set_stealth_mode(bool enabled);
+
+    /**
+     * @brief Check if multi-unit mode is active
+     */
+    [[nodiscard]] bool is_multi_unit_mode() const;
+
+    /**
+     * @brief Enable mixed topology mode for testing multi-unit mixed hardware
+     *
+     * Simulates J0eB0l's real hardware: 6-tool toolchanger with mixed AFC:
+     * - Unit 0: "Box_Turtle Turtle_1" - 4 lanes, PARALLEL, 1:1 lane->tool
+     * - Unit 1: "OpenAMS AMS_1" - 4 lanes, HUB, 4:1 lane->T4
+     * - Unit 2: "OpenAMS AMS_2" - 4 lanes, HUB, 4:1 lane->T5
+     *
+     * @param enabled true to enable mixed topology mode
+     */
+    void set_mixed_topology_mode(bool enabled);
+
+    /**
+     * @brief Check if mixed topology mode is active
+     */
+    [[nodiscard]] bool is_mixed_topology_mode() const;
+
+    /**
+     * @brief Enable ViViD mixed mode for testing 2x BoxTurtle + 1x ViViD
+     *
+     * Simulates the user's real hardware:
+     * - Unit 0: "Box_Turtle Turtle_1" - lanes 1-4, HUB topology
+     * - Unit 1: "Box_Turtle Turtle_2" - lanes 5-8, HUB topology (shared hub)
+     * - Unit 2: "ViViD Vivid_1" - lanes 13-16, HUB topology
+     *
+     * @param enabled true to enable ViViD mixed mode
+     */
+    void set_vivid_mixed_mode(bool enabled);
+
+    /**
+     * @brief Set AD5X IFS mode (4 slots, LINEAR, bypass + tool mapping)
+     */
+    void set_ifs_mode(bool enabled);
+
+    /**
+     * @brief Set HTLF + Toolchanger mixed topology mode
+     *
+     * Simulates the user's real HTLF+TC setup: HTLF_1 (4 lanes, MIXED — 2 direct + 2 hub-routed)
+     * and Toolchanger Tools (3 standalone toolheads, PARALLEL).
+     *
+     * @param enabled true to enable HTLF+Toolchanger mode
+     */
+    void set_htlf_toolchanger_mode(bool enabled);
+
+    /**
+     * @brief Set Snapmaker U1 SnapSwap mode (4 slots, PARALLEL, NON-editable
+     *        tool mapping, PrePrintSend remap strategy).
+     *
+     * Mirrors AmsBackendSnapmaker: the FilamentMappingCard still renders its
+     * two-tone chips, but the mapping is not editable inline and a tap opens
+     * the native remap picker, exactly as on the device. Test/dev only (gated
+     * by HELIX_MOCK_AMS=snapmaker).
+     */
+    void set_snapmaker_mode(bool enabled);
+
+    /// Hold @p slot_index's filament at its feeder: its entry sensor reads it,
+    /// its toolhead has not taken it (HELIX_MOCK_AMS_STATE=feeder).
+    void set_slot_at_feeder(int slot_index);
+
+    /**
+     * @brief Configure (or clear) the simulated Snapmaker print task.
+     *
+     * The U1 publishes a routing only while a task is set up; idle it holds a
+     * default table nobody may act on. Enabling Snapmaker mode starts with no
+     * task, which is the idle machine.
+     *
+     * @param routing Index = logical tool, value = physical head. EMPTY clears
+     *        the task. On a U1 head N owns lane N, so these are also the slot
+     *        indices HELIX_MOCK_REMAP names.
+     */
+    void set_snapmaker_print_task(std::vector<int> routing);
+
+    /**
+     * @brief Seed per-tool→slot firmware mappings from a "tool:slot" CSV.
+     *
+     * e.g. "0:3,2:1" maps tool 0 to slot 3 and tool 2 to slot 1 by setting each
+     * target slot's mapped_tool. FilamentMapper::compute_defaults() then resolves
+     * those tools to those slots (Priority 1: firmware mapping). Test/dev only
+     * (gated by HELIX_MOCK_REMAP).
+     */
+    void apply_remap_overrides(const std::string& csv);
+
+    /**
+     * @brief Check if ViViD mixed mode is active
+     */
+    [[nodiscard]] bool is_vivid_mixed_mode() const;
+
+    /**
+     * @brief Check if HTLF+Toolchanger mode is active
+     */
+    [[nodiscard]] bool is_htlf_toolchanger_mode() const;
+
+    /**
+     * @brief Set whether endless spool is supported
+     * @param supported true to enable endless spool support
+     *
+     * When disabled, get_endless_spool_capabilities() reports
+     * EndlessSpoolAvailability::Unsupported.
+     */
+    void set_endless_spool_supported(bool supported);
+
+    /**
+     * @brief Set whether endless spool configuration is editable
+     * @param editable true for AFC-style (PerSlot), false for read-only
+     *
+     * When editable=false, set_endless_spool_backup() and reset_endless_spool()
+     * are refused by the base with the FirmwareManaged restriction.
+     */
+    void set_endless_spool_editable(bool editable);
+
+    /**
+     * @brief Set mock device sections for testing
+     * @param sections Device sections to return from get_device_sections()
+     */
+    void set_device_sections(std::vector<helix::printer::DeviceSection> sections);
+
+    /**
+     * @brief Set mock device actions for testing
+     * @param actions Device actions to return from get_device_actions()
+     */
+    void set_device_actions(std::vector<helix::printer::DeviceAction> actions);
+
+    /**
+     * @brief Get the last executed device action (for test verification)
+     * @return Pair of (action_id, value) from last execute_device_action() call
+     */
+    [[nodiscard]] std::pair<std::string, std::any> get_last_executed_action() const;
+
+    /**
+     * @brief Clear the last executed action state
+     */
+    void clear_last_executed_action();
+
+    /**
+     * @brief Set tool change progress for testing swap count display
+     * @param current Current tool change number (0-based, -1=none yet)
+     * @param total Total expected tool changes this print
+     */
+    void set_toolchange_progress(int current, int total);
+
+    /**
+     * @brief Set callback for injecting gcode response lines
+     *
+     * Used by the mock to simulate Klipper gcode responses (e.g., action:prompt
+     * messages) without a real WebSocket connection. The callback feeds lines
+     * into ActionPromptManager::process_line() via AmsState.
+     *
+     * @param callback Function that receives "// action:..." lines
+     */
+    void set_gcode_response_callback(std::function<void(const std::string&)> callback) override;
+
+    /**
+     * @brief Set a deferred state scenario to apply when start() is called
+     *
+     * Some mock states (loading, bypass) require the backend to be running
+     * before they can be applied. This stores the scenario name and applies
+     * it at the end of start().
+     *
+     * @param scenario One of: "idle", "loading", "error", "bypass", "unaccounted"
+     */
+    void set_initial_state_scenario(const std::string& scenario);
+
+  protected:
+    /**
+     * @brief "Transport" for the mock: write the edge straight to the registry.
+     *
+     * Every guard the mock used to carry (support, editability, both ranges,
+     * self-backup) now lives in AmsBackend::set_endless_spool_backup().
+     *
+     * @note Takes `mutex_`; the base calls this with no lock held.
+     */
+    AmsError apply_endless_spool_backup(int slot_index, int backup_slot) override;
+
+  private:
+    void disable_afc_profile_locked();
+    /// Installs a table-driven AFC rig: units, lanes, tool map and loaded tool.
+    void apply_afc_profile_locked(const AfcMockLane* lanes, int lane_count,
+                                  const AfcMockUnit* units, int unit_count, const char* type_name,
+                                  int current_tool);
+    /**
+     * @brief Initialize mock state with sample data
+     */
+    void init_mock_data();
+
+    /// The slot write apply_user_edit() and sync_external_identity() share.
+    AmsError write_slot(int slot_index, const SlotInfo& info);
+
+    /**
+     * @brief set_snapmaker_print_task() for callers already holding mutex_.
+     *
+     * Derives extruders_used from the routing, because that is what it means on
+     * the printer: a head is "used" when some tool in the task prints from it,
+     * and all-false is the firmware's own "no task configured" signal.
+     */
+    void set_snapmaker_task_locked(std::vector<int> routing);
+
+    /**
+     * @brief Shared body of load_filament_batch() / unload_filament_batch()
+     *
+     * Validates exactly as the real dispatch does, rehearses the script the
+     * printer would receive, then runs the single-op simulation: the action
+     * machine models one operation at a time, which is all the sidebar stepper
+     * needs from a mock batch.
+     */
+    AmsError run_filament_batch(const std::vector<int>& slots, bool load);
+
+    /**
+     * @brief Emit event to registered callback
+     * @param event Event name
+     * @param data Event data (JSON or empty)
+     */
+    void emit_event(const std::string& event, const std::string& data = "");
+
+    /**
+     * @brief Simulate async operation completion
+     * @param action Action being performed
+     * @param complete_event Event to emit on completion
+     * @param slot_index Slot involved (-1 if N/A)
+     */
+    void schedule_completion(AmsAction action, const std::string& complete_event,
+                             int slot_index = -1);
+
+    /**
+     * @brief Simulate a transient action state that returns to IDLE.
+     *
+     * Mirrors the reset() idiom: sets the given action + detail, emits a
+     * state-change event, then schedules the action to clear back to IDLE
+     * after the standard operation delay. Used by selector-context commands
+     * (check/select/jog/servo) so --test surfaces the same AMS status-display
+     * feedback that real Happy Hare reports automatically. No-op (returns
+     * busy) if an action is already in flight.
+     *
+     * @param action Transient action enum (CHECKING / SELECTING / RESETTING…)
+     * @param detail Operation detail string shown in the status display
+     * @return success once the transient state has been scheduled, busy if
+     *         the backend is already mid-operation
+     */
+    AmsError simulate_transient_action(AmsAction action, const std::string& detail);
+
+    // Realistic mode helpers (multi-phase operations)
+    using InterruptibleSleep = std::function<bool(int)>;
+
+    /**
+     * @brief Get delay with speedup and optional variance applied
+     * @param base_ms Base delay in milliseconds (at 1x speed)
+     * @param variance Variance factor (0.2 = ±20%, 0 = no variance)
+     * @return Real milliseconds to wait, shortened by helix::sim::SimSpeed::global()
+     */
+    int get_effective_delay_ms(int base_ms, float variance = 0.0f) const;
+
+    /**
+     * @brief Simulated seconds of drying per real second.
+     *
+     * The dryer's own multiplier composed with --sim-speed, so fast-forwarding the
+     * simulated clock carries the drying cycle with it instead of leaving it at 60x.
+     * The product is a composed rate, so it is bounded by
+     * helix::sim::kMaxComposedSpeed rather than by the flag's own MAX_SPEED:
+     * at the 60x base, --sim-speed 1000 really does dry at 60000x.
+     * Caller must hold mutex_.
+     */
+    [[nodiscard]] int effective_dryer_speed_x() const;
+
+    /**
+     * @brief Copy the running cycle's live fields onto a unit's own dryer entry.
+     *
+     * get_dryer_info() answers from the per-unit store whenever one covers the unit,
+     * so a cycle that moved only dryer_state_ reads as frozen on every rig that
+     * declares per-unit boxes. What the box advertises - supported, temperature
+     * limits, maximum duration - stays as that unit declared it; only what the cycle
+     * changes is copied. No-op when no per-unit entry covers @p unit. Caller must
+     * hold mutex_.
+     */
+    void mirror_dryer_to_unit(int unit);
+
+    /**
+     * @brief File this backend's simulated slot population as lane observations
+     *
+     * The simulated population is this backend's firmware: the constructor seeds
+     * it from kSampleFilaments and each rig mode rebuilds it, which is the same
+     * signal a real backend gets from a parse. Presence is Sensed; colour and
+     * material are VendorCache.
+     *
+     * Nothing else is, and the bound is deliberate: a mock that files a field
+     * no hardware reports lets a case pass against a reading no backend can
+     * produce. Brand is out for the reason the constructor gives, that a real
+     * lane's brand comes only from the override store or the Spoolman identity
+     * cache. Colour NAME is out for the same reason one step further on:
+     * firmware reports hex, and a name comes from our own naming or from
+     * Spoolman. The Spoolman handles and weights on these slots are Spoolman's
+     * to file, not this backend's.
+     *
+     * Called from start(), which AmsState reaches only after registration has
+     * stamped a backend index; an earlier call files onto kInvalidLaneId and
+     * is dropped.
+     *
+     * Takes mutex_ itself, so the caller must not hold it.
+     */
+    void publish_lane_observations();
+
+    /**
+     * @brief Update action state with thread safety
+     * @param action New action state
+     * @param detail Operation detail string
+     */
+    void set_action(AmsAction action, const std::string& detail);
+
+    /**
+     * @brief Execute load operation with optional multi-phase sequence
+     * @param slot_index Slot being loaded from
+     * @param interruptible_sleep Sleep function that respects shutdown
+     */
+    void execute_load_operation(int slot_index, InterruptibleSleep interruptible_sleep);
+
+    /**
+     * @brief Execute unload operation with optional multi-phase sequence
+     * @param interruptible_sleep Sleep function that respects shutdown
+     */
+    void execute_unload_operation(InterruptibleSleep interruptible_sleep,
+                                  AmsAction then = AmsAction::IDLE,
+                                  const std::string& then_detail = {});
+
+    /**
+     * @brief Animate filament through load path segments
+     * @param slot_index Slot being loaded from
+     * @param interruptible_sleep Sleep function that respects shutdown
+     */
+    void run_load_segment_animation(int slot_index, InterruptibleSleep interruptible_sleep);
+
+    /**
+     * @brief Animate filament through unload path segments (reverse)
+     * @param interruptible_sleep Sleep function that respects shutdown
+     */
+    void run_unload_segment_animation(InterruptibleSleep interruptible_sleep);
+
+    /**
+     * @brief Finalize state after successful load
+     * @param slot_index Slot that was loaded
+     */
+    void finalize_load_state(int slot_index);
+
+    /**
+     * @brief Finalize state after successful unload
+     *
+     * @param then Action the backend moves to in the same locked step. A tool
+     *        change passes its next phase, so the action never reads IDLE
+     *        between unloading the old tool and loading the new one.
+     * @param then_detail Operation detail for @p then
+     */
+    void finalize_unload_state(AmsAction then = AmsAction::IDLE,
+                               const std::string& then_detail = {});
+
+    /**
+     * @brief Execute tool change operation with SELECTING phase
+     * @param target_slot Target slot for tool change
+     * @param interruptible_sleep Sleep function that respects shutdown
+     */
+    void execute_tool_change_operation(int target_slot, InterruptibleSleep interruptible_sleep);
+
+    /**
+     * @brief Schedule recovery sequence (ERROR → CHECKING → IDLE)
+     * Runs asynchronously in background thread
+     */
+    void schedule_recovery_sequence();
+
+    /**
+     * @brief Populate environment data on units/slots based on environment_mode_
+     *
+     * Called from get_system_info() to overlay environment sensor readings.
+     * Must be called with mutex_ held.
+     */
+    void populate_environment_data(AmsSystemInfo& info) const;
+
+    /**
+     * @brief Resolve the effective environment mode
+     * @return Resolved mode: "passive", "dryer", "slot", or "none"
+     *
+     * When environment_mode_ is empty, auto-detects from dryer state.
+     */
+    [[nodiscard]] std::string resolve_environment_mode() const;
+
+    mutable std::mutex mutex_;         ///< Protects state access
+    std::atomic<bool> running_{false}; ///< Backend running state
+    EventCallback event_callback_;     ///< Registered event handler
+
+    helix::printer::SlotRegistry slots_; ///< Slot registry (single source of truth for slot data)
+    AmsSystemInfo system_info_;          ///< Non-slot system metadata
+    int operation_delay_ms_ = 5000;      ///< Simulated operation delay
+    bool realistic_mode_ = false; ///< Enable multi-phase operations (HEATING→LOADING→CHECKING)
+
+    // Path visualization state
+    PathTopology topology_ = PathTopology::LINEAR; ///< Simulated topology (default linear for HH)
+    PathSegment filament_segment_ = PathSegment::NONE; ///< Current filament position
+    PathSegment error_segment_ = PathSegment::NONE;    ///< Error location (if any)
+
+    // Thread-safe shutdown support
+    std::thread operation_thread_;                      ///< Current operation thread (if any)
+    std::atomic<bool> operation_thread_running_{false}; ///< Guards against double-join
+    std::atomic<bool> shutdown_requested_{false};       ///< Signal thread to exit
+    std::atomic<bool> cancel_requested_{false};         ///< Signal operation cancellation
+    std::condition_variable shutdown_cv_;               ///< For interruptible sleep
+    mutable std::mutex shutdown_mutex_;                 ///< Protects shutdown_cv_ wait
+
+    // Environment sensor simulation
+    std::string environment_mode_; ///< "passive", "dryer", "slot", or "" (auto)
+
+    // Dryer simulation state
+    bool dryer_enabled_ = false;                  ///< Whether dryer is simulated
+    int dryer_initial_elapsed_min_ = 0;           ///< One-shot head start for next start_drying()
+    bool dryer_humidity_target_ = false;          ///< Dryers report supports_humidity_target
+    std::optional<float> dryer_default_humidity_; ///< Reported default humidity target
+    DryerInfo dryer_state_;                       ///< Current dryer state
+    /// Per-unit dryer overrides. Empty = every unit reports dryer_state_, which is the
+    /// single-enclosure shape. A rig with a heated box beside a passive one fills this.
+    std::vector<DryerInfo> unit_dryers_;
+    std::thread dryer_thread_;                      ///< Background thread for dryer simulation
+    std::atomic<bool> dryer_thread_running_{false}; ///< Guards against double-join
+    std::atomic<bool> dryer_stop_requested_{false}; ///< Signal dryer thread to stop
+    int dryer_speed_x_ = 60; ///< Speed multiplier (60 = 1 real sec = 1 sim min)
+    int drying_unit_ = -1;   ///< Unit the running cycle belongs to, -1 when none
+
+    /// A cycle a rig declares already running when the user walks up. Applied from
+    /// start(), because start_drying() spawns the simulation thread and takes the
+    /// same lock the rig is configured under.
+    int pending_drying_unit_ = -1;
+    float pending_drying_temp_c_ = 0.0f;
+    int pending_drying_duration_min_ = 0;
+    int pending_drying_elapsed_min_ = 0;
+    /// Per-gate drying state of the "emu_dryer" rig, indexed by global gate.
+    std::vector<helix::printer::ZoneDryingState> gate_drying_;
+    /// Mark @p gates' part in a new cycle: the first Active, the rest Queued, every
+    /// other gate Idle. Caller holds mutex_.
+    void begin_gate_cycle_locked(const std::vector<int>& gates);
+
+    // Tool changer mode (alternative to filament system simulation)
+    bool tool_changer_mode_ = false; ///< Simulate tool changer instead of filament system
+    int slot_at_feeder_ = -1;        ///< Lane whose filament only its entry sensor sees
+
+    // AFC mode (alternative to Happy Hare simulation)
+    bool afc_mode_ = false;              ///< Simulate AFC Box Turtle instead of Happy Hare
+    bool multi_unit_mode_ = false;       ///< Simulate multi-unit AFC (2x Box Turtle)
+    bool mixed_topology_mode_ = false;   ///< Simulate mixed topology (BT + 2x OpenAMS)
+    bool vivid_mixed_mode_ = false;      ///< Simulate 2x BoxTurtle + 1x ViViD
+    bool ifs_mode_ = false;              ///< Simulate AD5X IFS (4 slots, LINEAR)
+    bool htlf_toolchanger_mode_ = false; ///< Simulate HTLF + Toolchanger mixed topology
+    bool torture_mode_ = false;          ///< A table-driven AFC rig profile (torture, stealth)
+    bool snapmaker_mode_ = false; ///< Simulate Snapmaker U1 (4 slots, PARALLEL, non-editable)
+    /// Declared remap route outside Snapmaker mode. Native by default: every
+    /// non-Snapmaker mode stands in for a table-owning backend.
+    RemapStrategy remap_strategy_ = RemapStrategy::Native;
+    bool firmware_picks_lanes_at_print_ = false;
+    bool remap_ready_ = true; ///< Cleared to emulate AD5X IFS before `_IFS_VARS`
+    /// The emulated print_task_config, in the firmware's own two fields so
+    /// AmsBackendSnapmaker::task_routing() can gate on them unchanged. Both
+    /// empty = no task, which is how Snapmaker mode starts.
+    std::vector<bool> snapmaker_extruders_used_;
+    std::vector<int> snapmaker_extruder_map_;
+    std::vector<PathTopology> unit_topologies_; ///< Per-unit topology storage
+
+    // Endless spool simulation state
+    bool endless_spool_supported_ = true; ///< Whether endless spool is supported
+    bool endless_spool_editable_ = true;  ///< Whether config is editable (AFC) vs read-only (HH)
+
+    // Device actions mock state
+    std::vector<helix::printer::DeviceSection> mock_device_sections_;
+    std::vector<helix::printer::DeviceAction> mock_device_actions_;
+    std::string last_action_id_;
+    std::any last_action_value_;
+
+    // Gcode response injection (for simulating action:prompt from mock)
+    std::function<void(const std::string&)> gcode_response_callback_;
+
+    // Deferred state scenario (applied in start())
+    std::string initial_state_scenario_;
+    std::thread scenario_thread_; ///< Thread for deferred loading/bypass scenario
+    std::atomic<bool> scenario_thread_running_{false}; ///< Guards against double-join
+    bool mock_toolhead_unaccounted_ = false; ///< "unaccounted" scenario staged (gate input)
+    std::optional<int> last_unload_slot_;    ///< slot unload_filament() last accepted
+    bool park_pending_ =
+        false; ///< the running unload is a park: it ends with no tool. Under mutex_
+
+    // Test override for native-tracking capability. False in production; tests
+    // flip this to exercise the FilamentConsumptionTracker gating path.
+    bool tracks_consumption_natively_ = false;
+
+    // Test override for tool->slot identity mapping. False in production;
+    // Phase 5 routing tests set this true to simulate a tool-changer and
+    // exercise per-extruder dispatch.
+    bool identity_extruder_mapping_ = false;
+};
+
+} // namespace helix

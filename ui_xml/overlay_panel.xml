@@ -1,0 +1,121 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <!-- Reusable Overlay Panel Wrapper Component -->
+  <!-- Provides consistent positioning and header for all overlay panels -->
+  <!-- Uses shared backdrop from navigation system (ui_nav.cpp) -->
+  <!-- Usage Pattern:
+       <overlay_panel name="my_panel" title="My Panel" title_tag="My Panel">
+         <lv_obj name="overlay_content" width="100%" flex_grow="1"
+                 style_pad_all="#space_lg" flex_flow="column">
+           [panel-specific controls]
+         </lv_obj>
+       </overlay_panel>
+  -->
+  <!-- API Properties -->
+  <api>
+    <prop name="title" type="string" default="Overlay"/>
+    <prop name="title_tag" type="string" default=""/>
+    <!-- Forwarded to header_bar: bind a string subject to retitle the header live. -->
+    <prop name="title_subject" type="string" default=""/>
+    <prop name="title_font" type="string" default="#font_heading"/>
+    <prop name="title_long_mode" type="string" default="clip"/>
+    <prop name="title_max_lines" type="string" default="1"/>
+    <!-- Forwarded to header_bar: "uppercase" (default) or "none". -->
+    <prop name="title_transform" type="string" default="uppercase"/>
+    <prop name="action_button_text" type="string" default=""/>
+    <prop name="action_button_text_tag" type="string" default=""/>
+    <prop name="action_button_callback" type="string" default=""/>
+    <prop name="action_button_height" type="string" default="content"/>
+    <prop name="action_button_pad" type="string" default="#space_sm"/>
+    <prop name="hide_action_button" type="string" default="true"/>
+    <prop name="action_button_disabled_subject" type="string" default=""/>
+    <prop name="action_button_hidden_subject" type="string" default=""/>
+    <!-- Second action button (left of primary). min_width forwards the base
+         header_bar's 90 floor; the micro header_bar's own floor is tighter, so
+         a micro overlay that leaves this unset pins its own value. -->
+    <prop name="action_button_2_text" type="string" default=""/>
+    <prop name="action_button_2_text_tag" type="string" default=""/>
+    <prop name="action_button_2_icon" type="string" default=""/>
+    <prop name="action_button_2_icon_size" type="string" default="sm"/>
+    <prop name="action_button_2_bg_color" type="string" default="#secondary"/>
+    <prop name="action_button_2_min_width" type="string" default="90"/>
+    <prop name="action_button_2_callback" type="string" default=""/>
+    <prop name="hide_action_button_2" type="string" default="true"/>
+    <prop name="action_button_2_hidden_subject" type="string" default=""/>
+    <prop name="action_button_2_hidden_cond" type="string" default=""/>
+    <prop name="action_button_2_label_hidden_cond" type="string" default=""/>
+    <prop name="action_button_2_disabled_subject" type="string" default=""/>
+    <!-- Icon-only action, forwarded to header_bar. -->
+    <prop name="action_icon" type="string" default=""/>
+    <prop name="action_icon_callback" type="string" default=""/>
+    <prop name="hide_action_icon" type="string" default="true"/>
+    <prop name="action_icon_hidden_cond" type="string" default=""/>
+    <prop name="back_button_callback" type="string" default="on_header_back_clicked"/>
+    <!-- Optional header badge, forwarded to header_bar. Hidden unless
+         title_badge_subject is supplied and resolves to 1. -->
+    <prop name="title_badge_icon" type="string" default=""/>
+    <prop name="title_badge_subject" type="string" default=""/>
+    <prop name="bg_color" type="string" default="#card_bg"/>
+  </api>
+  <!-- Outer container with consistent overlay panel styling -->
+  <!-- Width is deliberately NOT a prop. Every overlay is born a transient
+       layer; NavigationManager::push_overlay() upgrades it to destination width
+       when the navigation says so. Born-gapped rather than unset because
+       setup() runs before the push and several panels measure their own layout
+       there. See include/overlay_class.h and prestonbrown/helixscreen#1178. -->
+  <!-- A transient layer casts a shadow to its LEFT so it reads as sitting ON TOP
+       of what is behind it, rather than as a seam between the nav dock and the
+       panel (prestonbrown/helixscreen#1178). Applied only in LV_STATE_USER_1,
+       which NavigationManager::apply_overlay_width() sets for transient layers
+       and clears for destinations — a destination is flush with the dock and has
+       nothing to cast onto.
+
+       offset_x pushes the blur left; spread stays 0 so it does not bleed under
+       the dock at narrower breakpoints. opa 200 stops short of full black on
+       purpose: bottoming out reads as a hard edge on a light theme, where the
+       panel behind is pale.
+
+       Deliberately NOT bound to the theme's #shadow_opa — that token governs
+       decorative elevation and is 0 in themes that switch shadows off. This is a
+       navigation affordance: without it the gap reads as a rendering artifact. -->
+  <styles>
+    <style name="transient_edge"
+           shadow_width="20" shadow_offset_x="-10" shadow_spread="0" shadow_color="#shadow_cast"
+           shadow_opa="#overlay_shadow_opa"/>
+    <!-- Square corners on the limited tiers. Every overlay panel is full height
+         at the screen's right edge, and a rounded corner fails LVGL's cover test
+         for any redraw band touching it, so the whole screen beneath the panel
+         is drawn again in that band, every frame of a scroll. -->
+    <style name="corners_square" radius="0"/>
+  </styles>
+  <view extends="lv_obj"
+        width="#overlay_width_transient" height="100%" align="right_mid" style_pad_all="0" style_border_width="0"
+        style_bg_opa="255" style_bg_color="$bg_color" scrollable="false" flex_flow="column">
+    <style name="transient_edge" selector="user_1"/>
+    <bind_style_if_lt name="corners_square" subject="platform_tier" ref_value="2"/>
+    <!-- Header Bar -->
+    <header_bar name="overlay_header"
+                title="$title" title_tag="$title_tag" title_subject="$title_subject" title_transform="$title_transform"
+                title_font="$title_font" title_long_mode="$title_long_mode" title_max_lines="$title_max_lines"
+                action_button_text="$action_button_text" action_button_text_tag="$action_button_text_tag"
+                hide_action_button="$hide_action_button" action_button_callback="$action_button_callback"
+                action_button_height="$action_button_height" action_button_pad="$action_button_pad"
+                action_button_disabled_subject="$action_button_disabled_subject"
+                action_button_hidden_subject="$action_button_hidden_subject"
+                action_button_2_text="$action_button_2_text" action_button_2_text_tag="$action_button_2_text_tag"
+                action_button_2_bg_color="$action_button_2_bg_color" action_button_2_icon="$action_button_2_icon"
+                action_button_2_icon_size="$action_button_2_icon_size"
+                action_button_2_min_width="$action_button_2_min_width"
+                action_button_2_callback="$action_button_2_callback" hide_action_button_2="$hide_action_button_2"
+                action_button_2_hidden_subject="$action_button_2_hidden_subject"
+                action_button_2_hidden_cond="$action_button_2_hidden_cond"
+                action_button_2_label_hidden_cond="$action_button_2_label_hidden_cond"
+                action_button_2_disabled_subject="$action_button_2_disabled_subject" action_icon="$action_icon"
+                action_icon_callback="$action_icon_callback" hide_action_icon="$hide_action_icon"
+                action_icon_hidden_cond="$action_icon_hidden_cond" title_badge_icon="$title_badge_icon"
+                title_badge_subject="$title_badge_subject" back_button_callback="$back_button_callback"/>
+    <!-- Panel-specific overlay_content and children go here -->
+  </view>
+</component>

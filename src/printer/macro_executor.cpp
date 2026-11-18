@@ -1,0 +1,530 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "macro_executor.h"
+
+#include "ui_emergency_stop.h"
+#include "ui_toast_manager.h"
+#include "ui_update_queue.h"
+
+#include "app_globals.h"
+#include "async_lifetime_guard.h"
+#include "device_display_name.h"
+#include "filament_database.h"
+#include "i_moonraker_api.h"
+#include "lvgl.h"
+#include "moonraker_error.h"
+#include "printer_discovery.h"
+#include "printer_state.h"
+#include "text_io.h"
+#include "toolhead_homing.h"
+
+#include <spdlog/spdlog.h>
+
+#include <algorithm>
+#include <cctype>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+namespace helix {
+
+namespace {
+
+// Split by what the host does afterwards, because that is what the user is told.
+// A restart comes back on its own; a halt sits there until someone intervenes.
+const std::unordered_set<std::string> kRestartingMacros = {
+    "SAVE_CONFIG",
+    "FIRMWARE_RESTART",
+    "RESTART",
+};
+
+const std::unordered_set<std::string> kHaltingMacros = {
+    "SHUTDOWN",
+    "M112",
+    "EMERGENCY_STOP",
+};
+
+// Klipper's own LED commands (SET_LED) and the klipper-led_effect plugin's.
+const std::unordered_set<std::string> kLedCommands = {
+    "SET_LED",
+    "SET_LED_EFFECT",
+    "STOP_LED_EFFECTS",
+};
+
+// The union, and still the set that decides whether to confirm before running:
+// both families are equally worth a confirmation, they differ only in what is
+// said once the rpc comes back dropped.
+const std::unordered_set<std::string> kDangerousMacros = [] {
+    std::unordered_set<std::string> all = kRestartingMacros;
+    all.insert(kHaltingMacros.begin(), kHaltingMacros.end());
+    return all;
+}();
+
+/// Does this error message name a Klippy disconnect?
+///
+/// Moonraker's wording is "Klippy Disconnected"; matching the two words
+/// independently, uppercased, keeps a "klippy has disconnected" phrasing from
+/// slipping past while still refusing Klipper's own G-code complaints.
+bool contains_klippy_disconnect(const std::string& message) {
+    const std::string upper = helix::text_io::to_upper(message);
+    return upper.find("KLIPPY") != std::string::npos &&
+           upper.find("DISCONNECT") != std::string::npos;
+}
+
+/// Commands a macro body issues, uppercased, in command position only.
+///
+/// Command position is what keeps this honest: ZMOD's own SAVE_CONFIG override
+/// carries `RESPOND PREFIX="info" MSG="SAVE_CONFIG..."`, and a body scan that
+/// matched anywhere would read that line as a config save. So: skip comments,
+/// step over any leading Jinja tag, and take the first token of what is left.
+/// Plain string walking rather than std::regex, which overflows the stack on
+/// the MIPS targets (same constraint MacroFanAnalyzer works under).
+std::vector<std::string> command_tokens(const std::string& gcode) {
+    std::vector<std::string> tokens;
+    size_t line_start = 0;
+    while (line_start <= gcode.size()) {
+        size_t line_end = gcode.find('\n', line_start);
+        if (line_end == std::string::npos) {
+            line_end = gcode.size();
+        }
+        size_t pos = line_start;
+        // Step over leading whitespace and any number of Jinja tags, so
+        // `{% if x %} SAVE_CONFIG {% endif %}` still reports SAVE_CONFIG.
+        while (pos < line_end) {
+            while (pos < line_end && std::isspace(static_cast<unsigned char>(gcode[pos]))) {
+                pos++;
+            }
+            if (pos + 1 < line_end && gcode[pos] == '{' &&
+                (gcode[pos + 1] == '%' || gcode[pos + 1] == '#')) {
+                size_t close = gcode.find('}', pos);
+                if (close == std::string::npos || close >= line_end) {
+                    pos = line_end; // Tag spans lines; nothing callable here.
+                    break;
+                }
+                pos = close + 1;
+                continue;
+            }
+            break;
+        }
+        if (pos < line_end && gcode[pos] != '#' && gcode[pos] != ';' && gcode[pos] != '{') {
+            size_t tok_end = pos;
+            while (tok_end < line_end &&
+                   !std::isspace(static_cast<unsigned char>(gcode[tok_end]))) {
+                tok_end++;
+            }
+            tokens.push_back(helix::text_io::to_upper(gcode.substr(pos, tok_end - pos)));
+        }
+        line_start = line_end + 1;
+    }
+    return tokens;
+}
+
+} // namespace
+
+std::string build_macro_gcode(const std::string& macro_name, const MacroParamResult& result) {
+    std::string gcode;
+    for (const auto& [key, value] : result.variables) {
+        std::string var_lower = key;
+        var_lower = helix::text_io::to_lower(var_lower);
+        gcode += "SET_GCODE_VARIABLE MACRO=" + macro_name + " VARIABLE=" + var_lower +
+                 " VALUE=" + value + "\n";
+    }
+
+    gcode += macro_name;
+    for (const auto& [key, value] : result.params) {
+        gcode += " " + key + "=" + value;
+    }
+
+    return gcode;
+}
+
+void execute_machine_gcode(IMoonrakerAPI* api, const MachineGcode& cmd, const char* caller_tag) {
+    if (!api) {
+        spdlog::warn("{} No API available — cannot execute {}", caller_tag, cmd.log_name);
+        return;
+    }
+    spdlog::info("{} Executing: {}", caller_tag, cmd.gcode);
+
+    const std::string gcode = cmd.gcode;
+    const std::string macro_copy = cmd.log_name;
+    const std::string tag_copy = caller_tag;
+    const std::string display_name = cmd.display_name;
+    const MacroHostEffect host_effect = cmd.host_effect;
+    api->execute_gcode(
+        gcode,
+        [tag_copy, macro_copy, display_name]() {
+            spdlog::info("{} {} executed successfully", tag_copy, macro_copy);
+            std::string msg = display_name + " sent";
+            helix::ui::queue_update("macro_executor::execute_macro_gcode", [msg]() {
+                ToastManager::instance().show(ToastSeverity::SUCCESS, msg.c_str(), 2000);
+            });
+        },
+        [tag_copy, macro_copy, display_name, host_effect](const MoonrakerError& err) {
+            const MacroFailureReport report = classify_macro_rpc_failure(host_effect, err);
+            if (report == MacroFailureReport::ExpectedHalt) {
+                // The macro did what it said: the printer is stopped. Absorbed
+                // like a restart, but WITHOUT begin_expected_klippy_restart() -
+                // that suppresses the recovery dialog, and a halted printer needs
+                // it promptly. No toast either; the dialog is a full-screen modal
+                // that says more than a 3s INFO line could, and says it about a
+                // machine that is not coming back on its own.
+                spdlog::info("{} {} halted the host, so its rpc was dropped ({}) - "
+                             "leaving the recovery dialog to report it",
+                             tag_copy, macro_copy, err.message);
+                return;
+            }
+            if (report == MacroFailureReport::ExpectedRestart) {
+                spdlog::info("{} {} restarted the host, so its rpc was dropped ({}) - "
+                             "reporting the restart rather than a failure",
+                             tag_copy, macro_copy, err.message);
+                // Armed HERE rather than before the send, because this is when
+                // the restart actually happens. The suppression window is 15s
+                // and a wrapping macro can run for minutes (a full bed level),
+                // so arming it at send time would have expired long before
+                // Klipper went down and suppressed nothing. Also completes the
+                // contract: the klippy-READY observer says "Printer ready" when
+                // it comes back, and the recovery dialog still appears if it
+                // does not. The literal is the one the PID and input-shaper
+                // saves already use for this event, so it costs no new
+                // translation key.
+                helix::ui::begin_expected_klippy_restart("Firmware restarting...");
+                return;
+            }
+            spdlog::error("{} {} failed: {}", tag_copy, macro_copy, err.message);
+            std::string msg = display_name + " failed";
+            helix::ui::queue_update("macro_executor::execute_macro_gcode", [msg]() {
+                ToastManager::instance().show(ToastSeverity::ERROR, msg.c_str(), 4000);
+            });
+        },
+        cmd.timeout_ms ? cmd.timeout_ms : IMoonrakerAPI::kMacroTimeoutMs);
+}
+
+void execute_macro_gcode(IMoonrakerAPI* api, const std::string& macro_name,
+                         const MacroParamResult& result, const char* caller_tag,
+                         const PrinterDiscovery& hw) {
+    MachineGcode cmd;
+    cmd.gcode = build_macro_gcode(macro_name, result);
+    cmd.log_name = macro_name;
+    cmd.display_name = helix::get_display_name(macro_name, helix::DeviceType::MACRO);
+    // Resolved before the send, not inside the callback: the callback runs on
+    // the WebSocket thread, and PrinterDiscovery is not ours to read from there.
+    cmd.host_effect = macro_host_effect(macro_name, hw);
+    execute_machine_gcode(api, cmd, caller_tag);
+}
+
+void start_calibration_gcode(IMoonrakerAPI* api, const MachineGcode& cmd, bool needs_home,
+                             const char* caller_tag) {
+    // A print can start while a confirmation is open (Mainsail, the job queue).
+    if (lv_subject_get_int(
+            get_printer_state().print_state().get_machine_motion_blocked_subject()) != 0) {
+        ToastManager::instance().show(ToastSeverity::WARNING,
+                                      lv_tr("Cannot calibrate while printing"), 3000);
+        return;
+    }
+    if (!api) {
+        spdlog::warn("{} No API available — cannot start {}", caller_tag, cmd.log_name);
+        return;
+    }
+    if (!needs_home) {
+        execute_machine_gcode(api, cmd, caller_tag);
+        return;
+    }
+    // The homing continuation can outlive any caller, so it is owned here.
+    static AsyncLifetimeGuard homing_lifetime;
+    const std::string tag = caller_tag;
+    ensure_homed_then(
+        api, homing_lifetime, [api, cmd, tag]() { execute_machine_gcode(api, cmd, tag.c_str()); },
+        [cmd, tag](const MoonrakerError& err) {
+            spdlog::error("{} Homing before {} failed: {}", tag, cmd.log_name, err.message);
+            ToastManager::instance().show(ToastSeverity::ERROR,
+                                          (cmd.display_name + " failed").c_str(), 4000);
+        });
+}
+
+MaterialPreheatPlan plan_material_preheat(const filament::MaterialOverride* override,
+                                          const PrinterDiscovery& hw) {
+    const std::string macro = override ? override->preheat_macro.value_or("") : "";
+    if (macro.empty()) {
+        return {MaterialPreheatMode::TEMPERATURES, ""};
+    }
+    if (!hw.has_macro(macro)) {
+        return {MaterialPreheatMode::MACRO_MISSING, macro};
+    }
+    return {override->macro_handles_heating.value_or(true)
+                ? MaterialPreheatMode::MACRO_ONLY
+                : MaterialPreheatMode::TEMPERATURES_THEN_MACRO,
+            macro};
+}
+
+void execute_material_preheat(IMoonrakerAPI* api, const MaterialPreheatPlan& plan,
+                              const std::function<void()>& set_temperatures, const char* caller_tag,
+                              const PrinterDiscovery& hw,
+                              const std::map<std::string, std::string>& params) {
+    if (!api) {
+        spdlog::warn("{} No API available — cannot preheat material", caller_tag);
+        return;
+    }
+
+    switch (plan.mode) {
+    case MaterialPreheatMode::TEMPERATURES:
+        set_temperatures();
+        return;
+    case MaterialPreheatMode::MACRO_MISSING:
+        spdlog::warn("{} Preheat macro '{}' not found on this printer; setting temperatures "
+                     "directly",
+                     caller_tag, plan.macro);
+        set_temperatures();
+        return;
+    case MaterialPreheatMode::TEMPERATURES_THEN_MACRO:
+        set_temperatures();
+        break;
+    case MaterialPreheatMode::MACRO_ONLY:
+        break;
+    }
+    execute_macro_gcode(api, plan.macro, MacroParamResult{params, {}}, caller_tag, hw);
+    spdlog::info("{} Preheat via macro '{}' (handles_heating={})", caller_tag, plan.macro,
+                 plan.mode == MaterialPreheatMode::MACRO_ONLY);
+}
+
+const std::unordered_set<std::string>& dangerous_command_names() {
+    return kDangerousMacros;
+}
+
+namespace {
+
+/// The call-graph walk both public analyzers share, seeded with whichever
+/// command family is being looked for. One body, so the restart and halt answers
+/// cannot drift in how they propagate.
+std::unordered_set<std::string>
+analyze_macros_reaching(const nlohmann::json& config_settings,
+                        const std::unordered_set<std::string>& seed) {
+    std::unordered_set<std::string> flagged;
+    if (!config_settings.is_object()) {
+        return flagged;
+    }
+
+    static constexpr const char* PREFIX = "gcode_macro ";
+    static constexpr size_t PREFIX_LEN = 12; // strlen(PREFIX)
+    std::unordered_map<std::string, std::vector<std::string>> calls;
+
+    for (const auto& [section, values] : config_settings.items()) {
+        if (section.rfind(PREFIX, 0) != 0 || !values.is_object()) {
+            continue;
+        }
+        auto gcode = values.find("gcode");
+        if (gcode == values.end() || !gcode->is_string()) {
+            continue;
+        }
+        std::string name = helix::text_io::to_upper(section.substr(PREFIX_LEN));
+        std::vector<std::string> tokens = command_tokens(gcode->get<std::string>());
+        for (const auto& token : tokens) {
+            if (seed.count(token) > 0) {
+                flagged.insert(name);
+                break;
+            }
+        }
+        calls.emplace(std::move(name), std::move(tokens));
+    }
+
+    // Propagate: calling a flagged macro flags the caller. Iterate to a
+    // fixpoint rather than recursing - mutual recursion between macros is legal
+    // config, it only fails when Klipper runs it, and a DFS would not return.
+    // Each round can only add, so the chain length bounds the rounds.
+    for (size_t round = 0; round <= calls.size(); ++round) {
+        bool changed = false;
+        for (const auto& [name, tokens] : calls) {
+            if (flagged.count(name) > 0) {
+                continue;
+            }
+            for (const auto& token : tokens) {
+                if (flagged.count(token) > 0) {
+                    flagged.insert(name);
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        if (!changed) {
+            break;
+        }
+    }
+
+    return flagged;
+}
+
+} // namespace
+
+std::unordered_set<std::string>
+analyze_host_restarting_macros(const nlohmann::json& config_settings) {
+    return analyze_macros_reaching(config_settings, kRestartingMacros);
+}
+
+std::unordered_set<std::string> analyze_host_halting_macros(const nlohmann::json& config_settings) {
+    return analyze_macros_reaching(config_settings, kHaltingMacros);
+}
+
+std::unordered_set<std::string> analyze_led_driving_macros(const nlohmann::json& config_settings) {
+    return analyze_macros_reaching(config_settings, kLedCommands);
+}
+
+const std::unordered_set<std::string>& host_restarting_command_names() {
+    return kRestartingMacros;
+}
+
+const std::unordered_set<std::string>& host_halting_command_names() {
+    return kHaltingMacros;
+}
+
+bool is_dangerous_macro(const std::string& name) {
+    return kDangerousMacros.count(helix::text_io::to_upper(name)) > 0;
+}
+
+bool is_dangerous_macro(const std::string& name, const PrinterDiscovery& hw) {
+    return is_dangerous_macro(name) || hw.macro_restarts_host(name);
+}
+
+namespace {
+
+/// Params a plain run (no param modal) sends: the saved values overlaid by the
+/// caller's known_values — the computed one wins where both name a parameter —
+/// each filtered to the names this macro declares. Saved and known keys are
+/// spelled the way the macro declares them, so an exact-name match is the
+/// filter; undeclared names belong to some other macro's signature. An
+/// UNKNOWN macro declares nothing to filter by, so it sends its saved values
+/// as typed and no known_values: those were computed for a declared name.
+std::map<std::string, std::string> plain_run_params(const CachedMacroInfo& cached,
+                                                    const MacroRunRequest& req) {
+    std::map<std::string, std::string> out;
+    if (cached.knowledge == MacroParamKnowledge::UNKNOWN) {
+        // Nothing to filter against: the user typed these for this macro.
+        return req.saved_values;
+    }
+    if (cached.knowledge != MacroParamKnowledge::KNOWN_PARAMS) {
+        return out;
+    }
+    for (const auto& param : cached.params) {
+        if (auto it = req.saved_values.find(param.name); it != req.saved_values.end()) {
+            out.emplace(param.name, it->second);
+        }
+        if (auto it = req.known_values.find(param.name); it != req.known_values.end()) {
+            out.insert_or_assign(param.name, it->second);
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+MacroRunDecision decide_macro_run(const CachedMacroInfo& cached, const MacroRunRequest& req) {
+    if (req.dangerous && !req.dangerous_confirmed) {
+        return {MacroRunAction::ConfirmDangerous, {}};
+    }
+
+    // A click that will raise no param modal - the caller never allows one, or
+    // the macro takes no parameters. A saved record rides along with the
+    // caller's known_values overlaid on it (both filtered to the declared
+    // names), so an ask-off filament load still heats with the temp the
+    // surface computed.
+    if (!req.prompt_for_params || cached.knowledge == MacroParamKnowledge::KNOWN_NO_PARAMS) {
+        // The dangerous-macro confirm already ran; a second "Run X?" on top of
+        // it would ask the same question twice. The confirmed run still sends
+        // the same params.
+        std::map<std::string, std::string> params = plain_run_params(cached, req);
+        if (req.confirm_plain_run && !req.dangerous) {
+            return {MacroRunAction::ConfirmRun, std::move(params)};
+        }
+        return {MacroRunAction::Run, std::move(params)};
+    }
+
+    if (cached.knowledge == MacroParamKnowledge::KNOWN_PARAMS) {
+        // Only names the macro declares can be prefilled; anything else in
+        // known_values or saved_values belongs to some other macro's signature.
+        std::map<std::string, std::string> known;
+        std::map<std::string, std::string> prefill;
+        for (const auto& param : cached.params) {
+            if (auto it = req.known_values.find(param.name); it != req.known_values.end()) {
+                known.emplace(param.name, it->second);
+                prefill.emplace(param.name, it->second); // caller-computed wins
+            } else if (auto it = req.saved_values.find(param.name); it != req.saved_values.end()) {
+                prefill.emplace(param.name, it->second);
+            }
+        }
+        // Saved values deliberately do not count toward this check: they
+        // prefill the modal, they never skip it.
+        if (known.size() == cached.params.size()) {
+            return {MacroRunAction::Run, std::move(known)};
+        }
+        return {MacroRunAction::Prompt, std::move(prefill)};
+    }
+
+    return {MacroRunAction::PromptUnknown, req.saved_values};
+}
+
+bool macro_takes_saved_defaults(MacroParamKnowledge knowledge) {
+    return knowledge == MacroParamKnowledge::KNOWN_PARAMS ||
+           knowledge == MacroParamKnowledge::UNKNOWN;
+}
+
+MacroParamResult macro_param_result_from_values(const std::vector<MacroParam>& params,
+                                                const std::map<std::string, std::string>& values) {
+    MacroParamResult result;
+    for (const auto& [name, value] : values) {
+        const std::string& key = name; // a structured binding is not capturable in C++17
+        const bool is_variable =
+            std::any_of(params.begin(), params.end(),
+                        [&](const MacroParam& p) { return p.name == key && p.is_variable; });
+        if (is_variable) {
+            result.variables[name] = value;
+        } else {
+            result.params[name] = value;
+        }
+    }
+    return result;
+}
+
+MacroHostEffect macro_host_effect(const std::string& name, const PrinterDiscovery& hw) {
+    const std::string upper = helix::text_io::to_upper(name);
+    // Halts first: a macro reaching both leaves the host down, and that is the
+    // answer the user has to be given.
+    if (kHaltingMacros.count(upper) > 0 || hw.macro_halts_host(name)) {
+        return MacroHostEffect::Halts;
+    }
+    if (kRestartingMacros.count(upper) > 0 || hw.macro_restarts_host(name)) {
+        return MacroHostEffect::Restarts;
+    }
+    return MacroHostEffect::None;
+}
+
+MacroFailureReport classify_macro_rpc_failure(MacroHostEffect effect, const MoonrakerError& err) {
+    if (effect == MacroHostEffect::None) {
+        return MacroFailureReport::Error;
+    }
+
+    const MacroFailureReport expected = effect == MacroHostEffect::Halts
+                                            ? MacroFailureReport::ExpectedHalt
+                                            : MacroFailureReport::ExpectedRestart;
+
+    switch (err.type) {
+    case MoonrakerErrorType::CONNECTION_LOST:
+    case MoonrakerErrorType::TIMEOUT:
+    case MoonrakerErrorType::NOT_READY:
+        // The socket, the reply, or Klipper itself went away. Nothing here can
+        // be Klipper's opinion of the macro.
+        return expected;
+    default:
+        break;
+    }
+
+    // Moonraker fails the pending request with 503 "Klippy Disconnected" when
+    // the host it was talking to restarts, and that arrives as a JSON-RPC error
+    // like any other. Klipper's OWN rejections come through the same channel
+    // carrying its complaint ("Unknown command", "Must home axis first"), so the
+    // text is what separates them.
+    if (err.code == 503 || contains_klippy_disconnect(err.message)) {
+        return expected;
+    }
+    return MacroFailureReport::Error;
+}
+
+} // namespace helix

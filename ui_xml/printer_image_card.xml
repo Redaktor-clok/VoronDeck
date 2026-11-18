@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <api><prop name="group" type="string" default="shipped"/><prop name="index" type="string" default="0"/></api>
+  <consts>
+    <px name="printer_picker_render_height_small" value="90"/>
+    <px name="printer_picker_render_height_medium" value="110"/>
+    <px name="printer_picker_render_height_large" value="120"/>
+    <px name="printer_picker_card_height_small" value="150"/>
+    <px name="printer_picker_card_height_medium" value="180"/>
+    <px name="printer_picker_card_height_large" value="200"/>
+  </consts>
+  <styles>
+    <style name="card_width_base" width="31%"/>
+    <style name="card_width_portrait" width="47%"/>
+    <style name="selected_card" border_color="#primary" bg_color="#elevated_bg"/>
+    <style name="disabled_card" opa="100"/>
+  </styles>
+  <view name="printer_image_${group}_${index}" extends="lv_button" height="#printer_picker_card_height" flex_flow="column" style_pad_all="#space_sm" style_pad_gap="#space_xs" style_bg_color="#card_bg" style_bg_opa="255" style_border_width="2" style_border_color="#border" style_radius="#border_radius" style_shadow_width="0" scrollable="false">
+    <style name="card_width_base"/>
+    <bind_style_if_eq name="card_width_portrait" subject="ui_is_portrait" ref_value="1"/>
+    <style name="selected_card" selector="checked"/>
+    <style name="disabled_card" selector="disabled"/>
+    <bind_state_if_eq subject="printer_image_${group}_${index}_selected" state="checked" ref_value="1"/>
+    <bind_state_if_eq subject="printer_image_${group}_${index}_valid" state="disabled" ref_value="0"/>
+    <event_cb trigger="clicked" callback="on_printer_image_card_clicked" user_data="${group}:${index}"/>
+    <lv_image name="printer_card_render" width="100%" height="#printer_picker_render_height" bind_src="printer_image_${group}_${index}_src" inner_align="contain" clickable="false" event_bubble="true"/>
+    <text_body name="printer_card_name" width="100%" bind_text="printer_image_${group}_${index}_name" long_mode="dots" clickable="false" event_bubble="true"/>
+  </view>
+</component>

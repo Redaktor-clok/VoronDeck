@@ -1,0 +1,181 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2025-2026 356C LLC
+
+#include "touch_calibration_session.h"
+
+#include "config.h"
+#include "touch_calibration_wrapper.h"
+
+#include <spdlog/spdlog.h>
+
+namespace helix {
+
+namespace {
+
+void write_affine(Config& cfg, const TouchCalibration& cal) {
+    cfg.set<bool>("/input/calibration/valid", cal.valid);
+    cfg.set<double>("/input/calibration/a", static_cast<double>(cal.a));
+    cfg.set<double>("/input/calibration/b", static_cast<double>(cal.b));
+    cfg.set<double>("/input/calibration/c", static_cast<double>(cal.c));
+    cfg.set<double>("/input/calibration/d", static_cast<double>(cal.d));
+    cfg.set<double>("/input/calibration/e", static_cast<double>(cal.e));
+    cfg.set<double>("/input/calibration/f", static_cast<double>(cal.f));
+    // Without this the matrix is unplaceable: it was solved against logical,
+    // post-rotation targets, so it only means anything relative to a rotation.
+    cfg.set<int>("/input/calibration/rotation", cal.capture_rotation);
+}
+
+void restore_range(ICalibrationSink& sink, const LiveTouchRange& live) {
+    const TouchRangeSettings& r = live.range;
+    if (r.valid) {
+        sink.apply_touch_range(r.swap_axes, r.min_x, r.min_y, r.max_x, r.max_y, live.source);
+    }
+}
+
+struct InstalledCalibration {
+    bool range_installed = false;
+    TouchCalibration affine{};
+    bool applied = false;
+};
+
+InstalledCalibration install_calibration_result(ICalibrationSink* sink, const TouchCalibration& cal,
+                                                const TouchRangeFit& fit) {
+    InstalledCalibration out;
+    // Re-program the evdev stage first. A backend that cannot (no evdev, or a
+    // degenerate range) says so, and the result falls back to the affine-only
+    // shape rather than a range nothing honours. A device that cannot report the
+    // range it runs now is left alone too: a session could not put it back.
+    out.range_installed = fit.valid && sink != nullptr && sink->current_touch_range().range.valid &&
+                          sink->apply_touch_range(fit.swap_axes, fit.min_x, fit.min_y, fit.max_x,
+                                                  fit.max_y, TouchRangeSource::Stored);
+
+    // Exactly one of these two describes the mapping from here on.
+    out.affine = out.range_installed ? fit.residual : cal;
+    // The residual re-parameterises the same solve over the same logical targets,
+    // so it lives in the same basis as the matrix it came from. Provenance is
+    // stamped once, where the solve happens, and every form derived from it
+    // inherits it here rather than depending on who chose to compute a range.
+    out.affine.capture_rotation = cal.capture_rotation;
+
+    if (sink != nullptr) {
+        if (out.affine.valid) {
+            out.applied = sink->apply_calibration(out.affine);
+        } else {
+            // The range carries the whole mapping. Drop whatever affine the device
+            // still holds instead of leaving the pre-session one composed on top of
+            // a range that no longer matches it.
+            sink->clear_calibration();
+            out.applied = true;
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+bool apply_calibration_result(ICalibrationSink* sink, const TouchCalibration& cal,
+                              const TouchRangeFit& fit) {
+    const InstalledCalibration installed = install_calibration_result(sink, cal, fit);
+    spdlog::info("[TouchCalSession] Calibration installed for preview: evdev range {}, "
+                 "applied={}",
+                 installed.range_installed ? "re-programmed" : "unchanged", installed.applied);
+    return installed.applied;
+}
+
+bool commit_calibration_result(ICalibrationSink* sink, const TouchCalibration& cal,
+                               const TouchRangeFit& fit) {
+    const InstalledCalibration installed = install_calibration_result(sink, cal, fit);
+
+    TouchRangeSettings range;
+    if (installed.range_installed) {
+        range.valid = true;
+        range.swap_axes = fit.swap_axes;
+        range.min_x = fit.min_x;
+        range.max_x = fit.max_x;
+        range.min_y = fit.min_y;
+        range.max_y = fit.max_y;
+        range.capture_rotation = cal.capture_rotation;
+    } else if (sink != nullptr) {
+        // The affine was solved over whatever range is live. A stored one stays
+        // with it, keeping its own capture rotation; anything else is the
+        // declared range, which next boot gets without a stored record.
+        const LiveTouchRange live = sink->current_touch_range();
+        if (live.source == TouchRangeSource::Stored && live.range.valid) {
+            range = live.range;
+        }
+    }
+    save_touch_range(range);
+    write_affine(*Config::get_instance(), installed.affine);
+
+    const char* affine_kind =
+        !installed.affine.valid ? "none" : (installed.range_installed ? "residual" : "full");
+    spdlog::info("[TouchCalSession] Calibration committed: evdev range {}, affine {}, applied={}",
+                 installed.range_installed ? "re-programmed" : "left as the kernel declared it",
+                 affine_kind, installed.applied);
+    return installed.applied;
+}
+
+void TouchCalibrationSession::begin_capture(ICalibrationSink& sink) {
+    backup_ = sink.current_calibration();
+    range_backup_ = sink.current_touch_range();
+    has_backup_ = true;
+    sink.disable_affine();
+    spdlog::debug("[TouchCalSession] begin_capture: backup snapshotted (valid={}), affine disabled",
+                  backup_.valid);
+}
+
+void TouchCalibrationSession::revert_for_retry(ICalibrationSink& sink) {
+    // The candidate may have re-programmed the evdev range, and the next capture
+    // has to run under the range the session began with: the full affine
+    // compute_range_fit() pairs with the raw points is solved against it.
+    restore_range(sink, range_backup_);
+    bool reverted = has_backup_ && backup_.valid;
+    if (reverted) {
+        sink.apply_calibration(backup_);
+    } else if (has_backup_) {
+        // The session began on an uncalibrated device, so there is no backup to
+        // re-apply — but the device is no longer uncalibrated: VERIFY installed
+        // the candidate matrix in the stored slot. disable_affine() below only
+        // suppresses it, so the next enable_affine() would install a matrix the
+        // user never accepted. Drop it instead.
+        sink.clear_calibration();
+    }
+    sink.disable_affine();
+    spdlog::debug("[TouchCalSession] revert_for_retry: restored backup={}, affine disabled",
+                  reverted);
+}
+
+void TouchCalibrationSession::commit() {
+    has_backup_ = false;
+    backup_ = {};
+    range_backup_ = {};
+    spdlog::debug("[TouchCalSession] commit: backup dropped (new calibration kept)");
+}
+
+void TouchCalibrationSession::restore(ICalibrationSink& sink) {
+    restore_range(sink, range_backup_);
+    bool reverted = has_backup_ && backup_.valid;
+    if (reverted) {
+        sink.apply_calibration(backup_);
+    } else if (has_backup_) {
+        // No prior calibration existed, so "restore" means "make the device
+        // uncalibrated again", not "leave whatever is stored". VERIFY puts the
+        // candidate matrix in the stored slot so the user can test it; without
+        // this the enable_affine() below would make that unaccepted matrix live
+        // for the rest of the session — the same shape of bug as the original
+        // #943 report, where a failed recalibration changed touch until reboot.
+        sink.clear_calibration();
+    }
+    // Always re-enable the affine transform, even when no valid backup was held
+    // (first-run wizard) or no session was active — touch must never be left in
+    // the disabled state a capture session puts it in (#943). With the stored
+    // calibration cleared above, "enabled" resolves to the uncalibrated
+    // pass-through the device started from.
+    sink.enable_affine();
+    has_backup_ = false;
+    backup_ = {};
+    range_backup_ = {};
+    spdlog::debug("[TouchCalSession] restore: restored backup={}, affine re-enabled", reverted);
+}
+
+} // namespace helix

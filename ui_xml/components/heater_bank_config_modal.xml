@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <styles><style name="layout_selected" border_color="#primary" border_width="2"/></styles>
+  <view name="heater_bank_config_modal" extends="ui_dialog" width="85%" height="content" align="center" flex_flow="column" style_pad_gap="0">
+    <modal_header icon_src="cog" icon_variant="accent" title="Configure Heaters"/>
+    <divider_horizontal/>
+    <text_small text="Heater Layout"/>
+    <lv_obj width="100%" height="content" flex_flow="row" style_pad_all="0" scrollable="false">
+      <ui_button name="heater_layout_grid" width="0" flex_grow="1" text="Grid" variant="ghost">
+        <bind_style_if_eq subject="heater_bank_cfg_mode" name="layout_selected" ref_value="0"/>
+        <event_cb trigger="clicked" callback="heater_bank_mode_cb" user_data="grid"/>
+      </ui_button>
+      <ui_button name="heater_layout_list" width="0" flex_grow="1" text="List" variant="ghost">
+        <bind_style_if_eq subject="heater_bank_cfg_mode" name="layout_selected" ref_value="1"/>
+        <event_cb trigger="clicked" callback="heater_bank_mode_cb" user_data="list"/>
+      </ui_button>
+    </lv_obj>
+    <lv_obj name="heater_list" width="100%" height="content" style_max_height="#dialog_content_max" flex_flow="column" style_pad_gap="0" style_pad_hor="#space_md" style_pad_ver="#space_sm" scrollbar_mode="auto">
+      <repeat count="heater_bank_cfg_count"><heater_bank_config_row index="${i}"/></repeat>
+    </lv_obj>
+    <divider_horizontal/>
+    <modal_button_row secondary_text="Cancel" secondary_callback="on_modal_cancel_clicked" primary_text="OK" primary_callback="on_modal_ok_clicked"/>
+  </view>
+</component>

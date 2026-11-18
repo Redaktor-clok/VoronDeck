@@ -1,0 +1,159 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "ui_search_debounce.h"
+#include "ui_spool_wizard.h"
+#include "ui_spoolman_context_menu.h"
+#include "ui_spoolman_edit_modal.h"
+#include "ui_spoolman_list_view.h"
+
+#include "overlay_base.h"
+#include "spoolman_types.h" // For SpoolInfo
+#include "static_panel_registry.h"
+#include "subject_managed_panel.h"
+
+#include <memory>
+#include <string>
+#include <vector>
+
+/**
+ * @brief Panel display state for reactive visibility binding
+ */
+enum class SpoolmanPanelState : int32_t {
+    LOADING = 0, ///< Showing loading spinner
+    EMPTY = 1,   ///< Showing empty state (no spools)
+    SPOOLS = 2   ///< Showing spool list
+};
+
+/**
+ * @brief Spoolman filament inventory panel
+ *
+ * Displays all spools from Spoolman server with 3D visualization,
+ * weight tracking, and low-stock warnings. Allows setting active spool
+ * for filament usage tracking.
+ *
+ * Features:
+ * - Scrollable list of spools with 3D canvas visualization
+ * - Material, vendor, and weight display
+ * - Low-stock warning (< 100g remaining)
+ * - Click to set active spool
+ * - Refresh button to reload from server
+ *
+ * Capability-gated: Only accessible when printer_has_spoolman=1
+ */
+class SpoolmanPanel : public OverlayBase {
+  public:
+    SpoolmanPanel();
+    ~SpoolmanPanel() override;
+
+    // === OverlayBase interface ===
+    void init_subjects() override;
+    void deinit_subjects();
+    void register_callbacks() override;
+    lv_obj_t* create(lv_obj_t* parent) override;
+    const char* get_name() const override {
+        return "Spoolman";
+    }
+    const char* xml_component() const override {
+        return "spoolman_panel";
+    }
+
+    // === Lifecycle hooks ===
+    void on_activate() override;
+    void on_deactivating(DeactivateReason reason) override;
+
+    // === Public API ===
+    lv_obj_t* get_panel() const {
+        return overlay_root_;
+    }
+
+    /**
+     * @brief Refresh spool list from Spoolman server
+     *
+     * Fetches all spools via IMoonrakerAPI and updates the UI.
+     * Shows loading state during fetch, empty state if no spools.
+     */
+    void refresh_spools();
+
+  private:
+    // ========== UI Widget Pointers ==========
+    lv_obj_t* spool_list_ = nullptr;
+
+    // ========== State ==========
+    std::vector<SpoolInfo> cached_spools_;
+    std::vector<SpoolInfo> filtered_spools_; ///< Filtered view of cached_spools_
+    int active_spool_id_ = -1;
+
+    // ========== Search ==========
+    std::string search_query_;
+    std::string selected_location_;           ///< Currently selected location filter ("" = All)
+    bool updating_location_dropdown_ = false; ///< Guard against dropdown event feedback loop
+    helix::ui::SearchDebounce search_debounce_;
+
+    // ========== Virtualized List View ==========
+    helix::ui::SpoolmanListView list_view_;
+    bool preserve_scroll_ = false; ///< Preserve scroll position on next populate
+
+    // ========== Subjects ==========
+    SubjectManager subjects_;            ///< RAII subject manager
+    lv_subject_t panel_state_subject_{}; ///< Panel display state (loading/empty/spools)
+    lv_subject_t header_title_subject_{};
+    char header_title_buf_[64];
+
+    // ========== Private Methods ==========
+    friend class SpoolmanPanelTestAccess;
+
+    [[nodiscard]] const SpoolInfo* find_cached_spool(int spool_id) const;
+
+    void populate_spool_list();
+    void apply_filter();
+    void update_location_filter_dropdown();
+    std::vector<SpoolInfo> filter_by_location(const std::vector<SpoolInfo>& spools) const;
+    void update_active_indicators();
+    void show_loading_state();
+    void show_empty_state();
+    void show_spool_list();
+    void update_spool_count();
+
+    void handle_spool_clicked(lv_obj_t* row, lv_point_t click_pt);
+    void handle_context_action(helix::ui::SpoolmanContextMenu::MenuAction action, int spool_id);
+    void set_active_spool(int spool_id);
+    void duplicate_spool(int spool_id);
+    void archive_spool(int spool_id);
+    void delete_spool(int spool_id);
+
+    /// "Display Name (#id)" for a confirm dialog, falling back to "Spool #id"
+    /// when the spool is no longer in the cache.
+    [[nodiscard]] std::string confirmation_spool_desc(int spool_id) const;
+
+    void show_edit_modal(int spool_id);
+#if HELIX_HAS_LABEL_PRINTER
+    void print_label_for_spool(int spool_id);
+#endif
+
+    // === Context Menu ===
+    helix::ui::SpoolmanContextMenu context_menu_;
+    helix::ui::SpoolEditModal edit_modal_;
+
+    // === Label Printing ===
+
+    // === Spool Wizard ===
+
+    // ========== Virtualized list scroll handler ==========
+    static void on_scroll(lv_event_t* e);
+};
+
+// ============================================================================
+// Global Instance Accessors
+// ============================================================================
+
+/**
+ * @brief Get global SpoolmanPanel instance
+ * @return Reference to the singleton panel
+ *
+ * Creates the instance on first call. Used by static callbacks.
+ */
+// Defined out of line: the ESP32 build, which excludes this panel, supplies its own.
+SpoolmanPanel& get_global_spoolman_panel();

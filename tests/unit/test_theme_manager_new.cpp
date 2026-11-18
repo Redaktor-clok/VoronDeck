@@ -1,0 +1,785 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+/**
+ * @file test_theme_manager_new.cpp
+ * @brief Unit tests for the new ThemeManager table-driven style system
+ *
+ * Tests the foundational data structures for the ThemeManager refactor:
+ * - StyleRole enum: semantic roles for all styles
+ * - ThemePalette struct: holds all semantic colors
+ * - StyleEntry struct: binds a role to a configure function
+ */
+
+#include "../ui_test_utils.h"
+#include "theme_loader.h"
+#include "theme_manager.h"
+
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+
+#include "../catch_amalgamated.hpp"
+
+// ============================================================================
+// Task 1.1: StyleRole Enum Tests
+// ============================================================================
+
+TEST_CASE("StyleRole enum has expected values", "[theme-manager][style-role]") {
+    REQUIRE(static_cast<int>(StyleRole::Card) >= 0);
+    REQUIRE(static_cast<int>(StyleRole::Dialog) >= 0);
+    REQUIRE(static_cast<int>(StyleRole::TextPrimary) >= 0);
+    REQUIRE(static_cast<int>(StyleRole::ButtonPrimary) >= 0);
+    REQUIRE(static_cast<int>(StyleRole::IconPrimary) >= 0);
+    REQUIRE(static_cast<int>(StyleRole::COUNT) > 30);
+}
+
+TEST_CASE("StyleRole::COUNT equals total style count", "[theme-manager][style-role]") {
+    constexpr size_t count = static_cast<size_t>(StyleRole::COUNT);
+    REQUIRE(count >= 35);
+    REQUIRE(count <= 50);
+}
+
+// ============================================================================
+// Task 1.2: ThemePalette Struct Tests
+// ============================================================================
+
+TEST_CASE("Palette holds semantic colors", "[theme-manager][palette]") {
+    ThemePalette p{};
+    REQUIRE(sizeof(p.screen_bg) == sizeof(lv_color_t));
+    REQUIRE(sizeof(p.primary) == sizeof(lv_color_t));
+    REQUIRE(p.border_radius >= 0);
+}
+
+// ============================================================================
+// Task 1.3: StyleEntry and Configure Function Type Tests
+// ============================================================================
+
+TEST_CASE("StyleEntry holds role and configure function", "[theme-manager][style-entry]") {
+    auto configure_red = [](lv_style_t* s, const ThemePalette& p) {
+        lv_style_set_bg_color(s, lv_color_hex(0xFF0000));
+    };
+    StyleEntry entry{StyleRole::Card, {}, configure_red};
+    REQUIRE(entry.role == StyleRole::Card);
+    REQUIRE(entry.configure != nullptr);
+}
+
+// ============================================================================
+// Task 2.1: ThemeManager Singleton Tests
+// ============================================================================
+
+#include "../lvgl_test_fixture.h"
+
+TEST_CASE_METHOD(LVGLTestFixture, "ThemeManager::get_style returns valid style for each role",
+                 "[theme-manager][get-style]") {
+    auto& tm = ThemeManager::instance();
+
+    // Card style should exist (may be null before init, but pointer should be valid after)
+    lv_style_t* card = tm.get_style(StyleRole::Card);
+    lv_style_t* btn = tm.get_style(StyleRole::ButtonPrimary);
+
+    // Different roles return different pointers
+    REQUIRE(card != btn);
+}
+
+// ============================================================================
+// Phase 3: Style Configure Function Tests
+// ============================================================================
+
+TEST_CASE_METHOD(LVGLTestFixture, "Card style has correct properties after init",
+                 "[theme-manager][card-style]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    lv_style_t* card = tm.get_style(StyleRole::Card);
+    REQUIRE(card != nullptr);
+
+    // Card should have background color set
+    lv_style_value_t bg;
+    auto res = lv_style_get_prop(card, LV_STYLE_BG_COLOR, &bg);
+    REQUIRE(res == LV_STYLE_RES_FOUND);
+
+    // Card should have border
+    lv_style_value_t border_width;
+    res = lv_style_get_prop(card, LV_STYLE_BORDER_WIDTH, &border_width);
+    REQUIRE(res == LV_STYLE_RES_FOUND);
+    REQUIRE(border_width.num > 0);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "Text styles have text color set",
+                 "[theme-manager][text-style]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    lv_style_t* primary = tm.get_style(StyleRole::TextPrimary);
+    lv_style_t* muted = tm.get_style(StyleRole::TextMuted);
+
+    lv_style_value_t c1, c2;
+    REQUIRE(lv_style_get_prop(primary, LV_STYLE_TEXT_COLOR, &c1) == LV_STYLE_RES_FOUND);
+    REQUIRE(lv_style_get_prop(muted, LV_STYLE_TEXT_COLOR, &c2) == LV_STYLE_RES_FOUND);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "Icon styles have text color set",
+                 "[theme-manager][icon-style]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    lv_style_t* icon_primary = tm.get_style(StyleRole::IconPrimary);
+    lv_style_t* icon_danger = tm.get_style(StyleRole::IconDanger);
+
+    lv_style_value_t c1, c2;
+    REQUIRE(lv_style_get_prop(icon_primary, LV_STYLE_TEXT_COLOR, &c1) == LV_STYLE_RES_FOUND);
+    REQUIRE(lv_style_get_prop(icon_danger, LV_STYLE_TEXT_COLOR, &c2) == LV_STYLE_RES_FOUND);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "Button styles have background set",
+                 "[theme-manager][button-style]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    lv_style_t* btn = tm.get_style(StyleRole::Button);
+    lv_style_t* btn_primary = tm.get_style(StyleRole::ButtonPrimary);
+
+    lv_style_value_t c1, c2;
+    REQUIRE(lv_style_get_prop(btn, LV_STYLE_BG_COLOR, &c1) == LV_STYLE_RES_FOUND);
+    REQUIRE(lv_style_get_prop(btn_primary, LV_STYLE_BG_COLOR, &c2) == LV_STYLE_RES_FOUND);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "Severity styles have border color set",
+                 "[theme-manager][severity-style]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    lv_style_t* info = tm.get_style(StyleRole::SeverityInfo);
+    lv_style_t* danger = tm.get_style(StyleRole::SeverityDanger);
+
+    lv_style_value_t c1, c2;
+    REQUIRE(lv_style_get_prop(info, LV_STYLE_BORDER_COLOR, &c1) == LV_STYLE_RES_FOUND);
+    REQUIRE(lv_style_get_prop(danger, LV_STYLE_BORDER_COLOR, &c2) == LV_STYLE_RES_FOUND);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "Spinner style has arc color set",
+                 "[theme-manager][spinner-style]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    lv_style_t* spinner = tm.get_style(StyleRole::Spinner);
+    REQUIRE(spinner != nullptr);
+
+    lv_style_value_t arc_color;
+    REQUIRE(lv_style_get_prop(spinner, LV_STYLE_ARC_COLOR, &arc_color) == LV_STYLE_RES_FOUND);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "ObjBase style has transparent background",
+                 "[theme-manager][obj-base-style]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    lv_style_t* obj_base = tm.get_style(StyleRole::ObjBase);
+    REQUIRE(obj_base != nullptr);
+
+    lv_style_value_t bg_opa;
+    REQUIRE(lv_style_get_prop(obj_base, LV_STYLE_BG_OPA, &bg_opa) == LV_STYLE_RES_FOUND);
+    REQUIRE(bg_opa.num == LV_OPA_0);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "InputBg style is an unfilled field with a text_subtle outline",
+                 "[theme-manager][input-style]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    lv_style_t* input = tm.get_style(StyleRole::InputBg);
+    REQUIRE(input != nullptr);
+
+    lv_style_value_t v;
+    REQUIRE(lv_style_get_prop(input, LV_STYLE_BG_OPA, &v) == LV_STYLE_RES_FOUND);
+    CHECK(v.num == LV_OPA_0);
+
+    const auto& pal = tm.current_palette();
+    REQUIRE(lv_style_get_prop(input, LV_STYLE_BORDER_COLOR, &v) == LV_STYLE_RES_FOUND);
+    CHECK(lv_color_eq(v.color,
+                      helix::field_outline_color(pal.text_subtle, pal.screen_bg, pal.overlay_bg,
+                                                 pal.card_bg, pal.elevated_bg)));
+
+    REQUIRE(lv_style_get_prop(input, LV_STYLE_BORDER_WIDTH, &v) == LV_STYLE_RES_FOUND);
+    CHECK(v.num > 0);
+}
+
+TEST_CASE("field_outline_color keeps text_subtle when it already clears every surface",
+          "[theme-manager][input-style]") {
+    lv_color_t subtle = lv_color_hex(0x9A9AA4);
+    lv_color_t bg = lv_color_hex(0x101012);
+    REQUIRE(helix::contrast_ratio(subtle, bg) >= helix::kFieldOutlineContrastThreshold);
+    CHECK(lv_color_eq(helix::field_outline_color(subtle, bg, bg, bg, bg), subtle));
+}
+
+TEST_CASE("field_outline_color clears 3:1 on every surface of every shipped theme",
+          "[theme-manager][input-style]") {
+    // __FILE__ is relative to the repo root in some builds and absolute in others.
+    const std::string src = __FILE__;
+    const size_t pos = src.rfind("tests/unit/");
+    const std::string root = (pos == 0 || pos == std::string::npos) ? "." : src.substr(0, pos - 1);
+    int palettes_checked = 0;
+    for (const auto& entry :
+         std::filesystem::directory_iterator(root + "/assets/config/themes/defaults")) {
+        if (entry.path().extension() != ".json")
+            continue;
+        helix::ThemeData theme = helix::load_theme_from_file(entry.path().string());
+        for (bool dark : {true, false}) {
+            if (dark ? !theme.supports_dark() : !theme.supports_light())
+                continue;
+            const helix::ModePalette& mp = dark ? theme.dark : theme.light;
+            auto c = [](const std::string& hex) {
+                return theme_manager_parse_hex_color(hex.c_str());
+            };
+            lv_color_t outline =
+                helix::field_outline_color(c(mp.text_subtle), c(mp.screen_bg), c(mp.overlay_bg),
+                                           c(mp.card_bg), c(mp.elevated_bg));
+            for (const std::string* surface :
+                 {&mp.screen_bg, &mp.overlay_bg, &mp.card_bg, &mp.elevated_bg}) {
+                INFO(entry.path().filename().string()
+                     << (dark ? " dark" : " light") << " on " << *surface);
+                CHECK(helix::contrast_ratio(outline, c(*surface)) >=
+                      helix::kFieldOutlineContrastThreshold - 0.01);
+            }
+            ++palettes_checked;
+        }
+    }
+    REQUIRE(palettes_checked > 10);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "Themed dropdown is an unfilled field with an opaque popup list",
+                 "[theme-manager][input-style]") {
+    // Attaches the theme to the display, so widgets created below get its apply callback.
+    theme_manager_init(lv_display_get_default(), theme_manager_is_dark_mode());
+    lv_obj_t* dd = lv_dropdown_create(lv_screen_active());
+    lv_obj_t* list = lv_dropdown_get_list(dd);
+    REQUIRE(list != nullptr);
+
+    REQUIRE(lv_obj_get_style_bg_opa(dd, LV_PART_MAIN) == LV_OPA_TRANSP);
+    CHECK(lv_obj_get_style_bg_opa(list, LV_PART_MAIN) == LV_OPA_COVER);
+
+    lv_obj_delete(dd);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "Switch knob is neutral when off and accented when on",
+                 "[theme-manager][switch-style]") {
+    const bool original_dark = theme_manager_is_dark_mode();
+    for (bool dark : {true, false}) {
+        INFO((dark ? "dark" : "light") << " mode");
+        theme_manager_init(lv_display_get_default(), dark);
+        lv_obj_t* sw = lv_switch_create(lv_screen_active());
+        const auto& pal = ThemeManager::instance().current_palette();
+
+        lv_obj_remove_state(sw, LV_STATE_CHECKED);
+        lv_color_t off = lv_obj_get_style_bg_color(sw, LV_PART_KNOB);
+        int32_t off_border = lv_obj_get_style_border_width(sw, LV_PART_KNOB);
+        lv_obj_add_state(sw, LV_STATE_CHECKED);
+        lv_color_t on = lv_obj_get_style_bg_color(sw, LV_PART_KNOB);
+
+        // Dark: muted grey knob. Light: a card-coloured knob, outlined so it reads on the track.
+        CHECK(lv_color_eq(off, dark ? pal.text_muted : pal.card_bg));
+        CHECK(off_border == (dark ? 0 : 1));
+        CHECK_FALSE(lv_color_eq(off, on));
+
+        lv_obj_delete(sw);
+    }
+    theme_manager_init(lv_display_get_default(), original_dark);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "All registered configure functions are called",
+                 "[theme-manager][configure-all]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    // Check that all major style roles have properties set
+    struct TestCase {
+        StyleRole role;
+        lv_style_prop_t prop;
+    };
+
+    TestCase cases[] = {
+        {StyleRole::Card, LV_STYLE_BG_COLOR},
+        {StyleRole::Dialog, LV_STYLE_BG_COLOR},
+        {StyleRole::TextPrimary, LV_STYLE_TEXT_COLOR},
+        {StyleRole::IconPrimary, LV_STYLE_TEXT_COLOR},
+        {StyleRole::Button, LV_STYLE_BG_COLOR},
+        {StyleRole::ButtonPrimary, LV_STYLE_BG_COLOR},
+        {StyleRole::SeverityInfo, LV_STYLE_BORDER_COLOR},
+        {StyleRole::Dropdown, LV_STYLE_BG_COLOR},
+        {StyleRole::Checkbox, LV_STYLE_BG_COLOR},
+        {StyleRole::Switch, LV_STYLE_BG_COLOR},
+        {StyleRole::Slider, LV_STYLE_BG_COLOR},
+        {StyleRole::Spinner, LV_STYLE_ARC_COLOR},
+        {StyleRole::Arc, LV_STYLE_ARC_COLOR},
+    };
+
+    for (const auto& tc : cases) {
+        lv_style_t* style = tm.get_style(tc.role);
+        REQUIRE(style != nullptr);
+
+        lv_style_value_t val;
+        INFO("Testing StyleRole index " << static_cast<int>(tc.role));
+        REQUIRE(lv_style_get_prop(style, tc.prop, &val) == LV_STYLE_RES_FOUND);
+    }
+}
+
+// ============================================================================
+// Phase 4: Dark/Light Mode Switching Tests
+// ============================================================================
+
+TEST_CASE_METHOD(LVGLTestFixture, "ThemeManager toggles dark mode", "[theme-manager][dark-mode]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    // Explicitly set to dark mode first (may not be default if other tests ran)
+    tm.set_dark_mode(true);
+    REQUIRE(tm.is_dark_mode() == true);
+
+    // Toggle to light
+    tm.set_dark_mode(false);
+    REQUIRE(tm.is_dark_mode() == false);
+
+    // Toggle back
+    tm.toggle_dark_mode();
+    REQUIRE(tm.is_dark_mode() == true);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "Styles update when mode changes",
+                 "[theme-manager][mode-change]") {
+    auto& tm = ThemeManager::instance();
+    // Reset to clean state: prior tests may have called set_palettes() with
+    // identical light/dark palettes, making dark/light comparison impossible
+    tm.shutdown();
+    tm.set_palettes(ThemePalette{}, ThemePalette{});
+    tm.init();
+
+    // Ensure we start in dark mode
+    tm.set_dark_mode(true);
+
+    lv_style_t* card = tm.get_style(StyleRole::Card);
+    lv_style_value_t dark_bg;
+    lv_style_get_prop(card, LV_STYLE_BG_COLOR, &dark_bg);
+
+    tm.set_dark_mode(false);
+
+    lv_style_value_t light_bg;
+    lv_style_get_prop(card, LV_STYLE_BG_COLOR, &light_bg);
+
+    // Colors should be different in light vs dark mode
+    bool different = (dark_bg.color.red != light_bg.color.red) ||
+                     (dark_bg.color.green != light_bg.color.green) ||
+                     (dark_bg.color.blue != light_bg.color.blue);
+    REQUIRE(different);
+}
+
+// ============================================================================
+// Phase 4: Color Lookup API Tests
+// ============================================================================
+
+TEST_CASE_METHOD(LVGLTestFixture, "get_color returns palette colors",
+                 "[theme-manager][get-color]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    lv_color_t primary = tm.get_color("primary");
+    lv_color_t danger = tm.get_color("danger");
+
+    // Should return actual colors (not default black or magenta error)
+    REQUIRE((primary.red + primary.green + primary.blue) > 0);
+    REQUIRE(danger.red > 0); // Danger should have red component
+
+    // Unknown returns magenta
+    lv_color_t unknown = tm.get_color("nonexistent");
+    REQUIRE(unknown.red == 0xFF);
+    REQUIRE(unknown.green == 0x00);
+    REQUIRE(unknown.blue == 0xFF);
+}
+
+// ============================================================================
+// Phase 4: Preview System Tests
+// ============================================================================
+
+TEST_CASE_METHOD(LVGLTestFixture, "preview_palette applies temporarily",
+                 "[theme-manager][preview]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    lv_style_t* card = tm.get_style(StyleRole::Card);
+    lv_style_value_t original_bg;
+    lv_style_get_prop(card, LV_STYLE_BG_COLOR, &original_bg);
+
+    // Preview a different palette
+    ThemePalette preview_palette = tm.current_palette();
+    preview_palette.card_bg = lv_color_hex(0xFF0000); // Red
+
+    tm.preview_palette(preview_palette);
+    REQUIRE(tm.is_previewing() == true);
+
+    lv_style_value_t preview_bg;
+    lv_style_get_prop(card, LV_STYLE_BG_COLOR, &preview_bg);
+    REQUIRE(preview_bg.color.red == 0xFF);
+
+    // Cancel reverts
+    tm.cancel_preview();
+    REQUIRE(tm.is_previewing() == false);
+
+    lv_style_value_t reverted_bg;
+    lv_style_get_prop(card, LV_STYLE_BG_COLOR, &reverted_bg);
+    REQUIRE(reverted_bg.color.red == original_bg.color.red);
+}
+
+// ============================================================================
+// Contrast Text API Tests
+// ============================================================================
+
+TEST_CASE_METHOD(LVGLTestFixture,
+                 "theme_manager_get_contrast_color returns light text for dark background",
+                 "[theme-manager][contrast]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    // Dark background (low brightness)
+    lv_color_t dark_bg = lv_color_hex(0x2E3440);
+    lv_color_t text = theme_manager_get_contrast_color(dark_bg);
+
+    // Should return light colored text (high brightness)
+    int brightness = theme_compute_brightness(text);
+    REQUIRE(brightness > 128);
+}
+
+TEST_CASE_METHOD(LVGLTestFixture,
+                 "theme_manager_get_contrast_color returns dark text for light background",
+                 "[theme-manager][contrast]") {
+    auto& tm = ThemeManager::instance();
+    tm.init();
+
+    // Light background (high brightness)
+    lv_color_t light_bg = lv_color_hex(0xECEFF4);
+    lv_color_t text = theme_manager_get_contrast_color(light_bg);
+
+    // Should return dark colored text (low brightness)
+    int brightness = theme_compute_brightness(text);
+    REQUIRE(brightness < 128);
+}
+
+// ============================================================================
+// responsive_dimension() — picks the smaller screen axis so portrait layouts
+// adapt to their cramped width instead of their tall height.
+// ============================================================================
+
+namespace {
+// Bufferless display: responsive_dimension() only reads the resolution, never
+// renders, so no draw buffer / flush_cb is needed.
+lv_display_t* make_test_display(int32_t w, int32_t h) {
+    return lv_display_create(w, h);
+}
+} // namespace
+
+TEST_CASE_METHOD(LVGLTestFixture, "responsive_dimension picks the smaller screen axis",
+                 "[theme][breakpoints]") {
+    SECTION("landscape — min is height (unchanged behavior)") {
+        lv_display_t* d = make_test_display(800, 480);
+        REQUIRE(responsive_dimension(d) == 480);
+        lv_display_delete(d);
+
+        d = make_test_display(1024, 600);
+        REQUIRE(responsive_dimension(d) == 600);
+        lv_display_delete(d);
+    }
+
+    SECTION("portrait — min is width (the fix)") {
+        lv_display_t* d = make_test_display(480, 800);
+        REQUIRE(responsive_dimension(d) == 480); // was 800 (ver_res) before
+        lv_display_delete(d);
+
+        d = make_test_display(320, 480);
+        REQUIRE(responsive_dimension(d) == 320);
+        lv_display_delete(d);
+
+        d = make_test_display(272, 480);
+        REQUIRE(responsive_dimension(d) == 272);
+        lv_display_delete(d);
+    }
+
+    SECTION("square — either axis") {
+        lv_display_t* d = make_test_display(480, 480);
+        REQUIRE(responsive_dimension(d) == 480);
+        lv_display_delete(d);
+    }
+
+    SECTION("null display falls back to the default display") {
+        // lv_display_get_default() returns the first display created — here the
+        // fixture's kTestDisplayWidth x kTestDisplayHeight screen — so the
+        // fallback resolves to its smaller axis, not any later-created display.
+        REQUIRE(responsive_dimension(nullptr) == std::min(kTestDisplayWidth, kTestDisplayHeight));
+    }
+}
+
+TEST_CASE_METHOD(LVGLTestFixture,
+                 "responsive_dimension feeds breakpoint selection — portrait no longer overflows",
+                 "[theme][breakpoints]") {
+    // End-to-end: a 480x800 portrait screen used to resolve to _xlarge (via
+    // ver_res=800) and overflow; it now resolves to _medium via the 480 width.
+    lv_display_t* d = make_test_display(480, 800);
+    REQUIRE(std::string(theme_manager_get_breakpoint_suffix(responsive_dimension(d))) == "_medium");
+    lv_display_delete(d);
+
+    // 320x480 portrait resolves to _tiny instead of _medium.
+    d = make_test_display(320, 480);
+    REQUIRE(std::string(theme_manager_get_breakpoint_suffix(responsive_dimension(d))) == "_tiny");
+    lv_display_delete(d);
+
+    // Landscape 800x480 is byte-identical to the old behavior — still _medium.
+    d = make_test_display(800, 480);
+    REQUIRE(std::string(theme_manager_get_breakpoint_suffix(responsive_dimension(d))) == "_medium");
+    lv_display_delete(d);
+}
+
+// ============================================================================
+// theme_manager_get_readable_on: contrast on an accent fill
+// ============================================================================
+
+TEST_CASE("theme_manager_get_readable_on returns white on a dark fill", "[theme]") {
+    lv_color_t fg = theme_manager_get_readable_on(lv_color_hex(0x1B3A5C));
+    CHECK(fg.red == 0xFF);
+    CHECK(fg.green == 0xFF);
+    CHECK(fg.blue == 0xFF);
+}
+
+TEST_CASE("theme_manager_get_readable_on returns black on a light fill", "[theme]") {
+    lv_color_t fg = theme_manager_get_readable_on(lv_color_hex(0xFFCC66));
+    CHECK(fg.red == 0x00);
+    CHECK(fg.green == 0x00);
+    CHECK(fg.blue == 0x00);
+}
+
+// The point of the helper: whatever it returns must actually be readable. A
+// fixed choice cannot satisfy this — pure black fails on a dark navy accent and
+// the palette's own text color fails on a saturated mid-tone.
+TEST_CASE("theme_manager_get_readable_on clears WCAG AA on every accent it is given", "[theme]") {
+    // Accents drawn from the shipped theme presets, spanning dark navy through
+    // saturated mid-tone to bright yellow.
+    const uint32_t accents[] = {
+        0x1B3A5C, 0x1e2f5c, 0x000000, 0x2E2E2E, // dark: black-on-these is unreadable
+        0x8DA101, 0x6693BF, 0x907AA9, 0x2E7DE9, // mid-tone: palette text is unreadable
+        0x8AB4F8, 0xFFCC66, 0xFFD100, 0xA7C080, // light
+    };
+    for (uint32_t hex : accents) {
+        lv_color_t fill = lv_color_hex(hex);
+        double ratio = wcag::contrast(theme_manager_get_readable_on(fill), fill);
+        CAPTURE(hex, ratio);
+        CHECK(ratio >= 4.5);
+    }
+}
+
+// Every shipped theme, every mode it supports, every accent a badge or button
+// can be filled with: the foreground must clear WCAG AA. The palette's own text
+// colour fails this on 143 of the 160 combinations, which is why the fills do
+// not use it.
+TEST_CASE("theme_manager_get_readable_on clears WCAG AA on every shipped theme accent",
+          "[theme][contrast]") {
+    static const char* const kAccents[] = {"primary", "secondary", "success", "warning", "danger"};
+
+    int combinations = 0;
+    for (const auto& entry :
+         std::filesystem::directory_iterator(helix::get_default_themes_directory())) {
+        if (entry.path().extension() != ".json")
+            continue;
+        const std::string filename = entry.path().filename().string();
+        std::ifstream in(entry.path());
+        std::stringstream buf;
+        buf << in.rdbuf();
+        helix::ThemeData theme = helix::parse_theme_json(buf.str(), filename);
+        CAPTURE(filename);
+        REQUIRE(theme.is_valid());
+
+        auto check_palette = [&](const helix::ModePalette& palette, const char* mode) {
+            for (const char* accent : kAccents) {
+                const std::string& hex = accent == std::string("primary")     ? palette.primary
+                                         : accent == std::string("secondary") ? palette.secondary
+                                         : accent == std::string("success")   ? palette.success
+                                         : accent == std::string("warning")   ? palette.warning
+                                                                              : palette.danger;
+                lv_color_t fill = theme_manager_parse_hex_color(hex.c_str());
+                double ratio = wcag::contrast(theme_manager_get_readable_on(fill), fill);
+                CAPTURE(mode, accent, hex, ratio);
+                CHECK(ratio >= 4.5);
+                ++combinations;
+            }
+        };
+        if (theme.supports_dark())
+            check_palette(theme.dark, "dark");
+        if (theme.supports_light())
+            check_palette(theme.light, "light");
+    }
+    // A wrong directory would pass vacuously; the shipped set is 18 themes.
+    REQUIRE(combinations >= 18 * 5);
+}
+
+// ============================================================================
+// theme_manager_get_contrast_adjusted_text: the palette's own text colour,
+// shifted toward its pole only as far as 4:1 requires
+// ============================================================================
+
+// Passing palette text comes back byte-for-byte: no shift, no rounding.
+TEST_CASE("contrast_adjusted_text returns passing palette text unchanged",
+          "[theme][contrast][1648]") {
+    lv_color_t text = lv_color_hex(0xE8E8EC);
+    lv_color_t fill = lv_color_hex(0x1B1B1F);
+    REQUIRE(wcag::contrast(text, fill) >= 4.0);
+    lv_color_t result = theme_manager_get_contrast_adjusted_text(text, fill);
+    CHECK(result.red == text.red);
+    CHECK(result.green == text.green);
+    CHECK(result.blue == text.blue);
+}
+
+// helixscreen dark: the Controls Motion button's #E8E8EC label on the #3A7CC8
+// primary measures ~3.5:1. The shift must stay light and keep the theme's
+// tint instead of flipping to black.
+TEST_CASE("contrast_adjusted_text keeps the dark-theme label light on primary #3A7CC8",
+          "[theme][contrast][1648]") {
+    lv_color_t text = lv_color_hex(0xE8E8EC);
+    lv_color_t fill = lv_color_hex(0x3A7CC8);
+    REQUIRE(wcag::contrast(text, fill) < 4.0);
+    lv_color_t result = theme_manager_get_contrast_adjusted_text(text, fill);
+    CAPTURE(lv_color_to_u32(result) & 0xFFFFFF, wcag::contrast(result, fill));
+    CHECK(wcag::contrast(result, fill) >= 4.0);
+    CHECK(wcag::luminance(result) > wcag::luminance(fill));
+    // Pure white is not required to reach 4:1 here, so the tint must survive.
+    CHECK((lv_color_to_u32(result) & 0xFFFFFF) != 0xFFFFFF);
+    CHECK((lv_color_to_u32(result) & 0xFFFFFF) != 0x000000);
+}
+
+// Mirror on the dark side: mid-grey text on a light grey fill darkens toward
+// black just enough, without snapping to pure black.
+TEST_CASE("contrast_adjusted_text darkens failing dark text without snapping to black",
+          "[theme][contrast][1648]") {
+    lv_color_t text = lv_color_hex(0x666666);
+    lv_color_t fill = lv_color_hex(0xB0B0B0);
+    REQUIRE(wcag::contrast(text, fill) < 4.0);
+    lv_color_t result = theme_manager_get_contrast_adjusted_text(text, fill);
+    CAPTURE(lv_color_to_u32(result) & 0xFFFFFF, wcag::contrast(result, fill));
+    CHECK(wcag::contrast(result, fill) >= 4.0);
+    CHECK(wcag::luminance(result) < wcag::luminance(fill));
+    CHECK((lv_color_to_u32(result) & 0xFFFFFF) != 0x000000);
+}
+
+// When no tint on the text's own side can reach 4:1 (light text on a light
+// fill), the function falls back to the pure-pole picker, which can.
+TEST_CASE(
+    "contrast_adjusted_text falls back to the readable pole when its own side cannot reach 4:1",
+    "[theme][contrast][1648]") {
+    lv_color_t text = lv_color_hex(0xFFFFFF);
+    lv_color_t fill = lv_color_hex(0xB0B0B0);
+    REQUIRE(wcag::contrast(text, fill) < 4.0); // white is the best light-side try
+    lv_color_t result = theme_manager_get_contrast_adjusted_text(text, fill);
+    CHECK(lv_color_eq(result, theme_manager_get_readable_on(fill)));
+}
+
+// Every shipped theme, every mode it supports: the palette's own text on every
+// accent either already clears 4:1 byte-for-byte or shifts until it does.
+TEST_CASE("contrast_adjusted_text clears 4:1 for palette text on every shipped accent",
+          "[theme][contrast][1648]") {
+    static const char* const kAccents[] = {"primary", "secondary", "success", "warning", "danger"};
+
+    int combinations = 0;
+    for (const auto& entry :
+         std::filesystem::directory_iterator(helix::get_default_themes_directory())) {
+        if (entry.path().extension() != ".json")
+            continue;
+        const std::string filename = entry.path().filename().string();
+        std::ifstream in(entry.path());
+        std::stringstream buf;
+        buf << in.rdbuf();
+        helix::ThemeData theme = helix::parse_theme_json(buf.str(), filename);
+        CAPTURE(filename);
+        REQUIRE(theme.is_valid());
+
+        auto check_palette = [&](const helix::ModePalette& palette, const char* mode) {
+            lv_color_t text = theme_manager_parse_hex_color(palette.text.c_str());
+            for (const char* accent : kAccents) {
+                const std::string& hex = accent == std::string("primary")     ? palette.primary
+                                         : accent == std::string("secondary") ? palette.secondary
+                                         : accent == std::string("success")   ? palette.success
+                                         : accent == std::string("warning")   ? palette.warning
+                                                                              : palette.danger;
+                lv_color_t fill = theme_manager_parse_hex_color(hex.c_str());
+                lv_color_t result = theme_manager_get_contrast_adjusted_text(text, fill);
+                CAPTURE(mode, accent, palette.text, hex, lv_color_to_u32(result) & 0xFFFFFF);
+                CHECK(wcag::contrast(result, fill) >= 4.0);
+                if (wcag::contrast(text, fill) >= 4.0)
+                    CHECK(lv_color_eq(result, text));
+                ++combinations;
+            }
+        };
+        if (theme.supports_dark())
+            check_palette(theme.dark, "dark");
+        if (theme.supports_light())
+            check_palette(theme.light, "light");
+    }
+    // A wrong directory would pass vacuously; the shipped set is 18 themes.
+    REQUIRE(combinations >= 18 * 5);
+}
+
+// ============================================================================
+// theme_manager_get_contrast_adjusted_text (translucent overload): contrast is
+// judged against the fill as it renders, composited over its backing
+// ============================================================================
+
+// The edit-mode chrome pills: the palette's text colour drawn at LV_OPA_50
+// over the card. The icon must clear WCAG AA (4.5:1) against the pill as it
+// actually lands on screen - judged against the raw fill it measures as low
+// as ~1.3:1 (dark) and ~3.0:1 (light).
+TEST_CASE("contrast_adjusted_text translucent overload clears WCAG AA on the chrome pill",
+          "[theme][contrast][edit-chrome]") {
+    struct PillCase {
+        const char* name;
+        uint32_t text, backing;
+    };
+    // helixscreen default theme, both modes; the pill overhangs the widget
+    // edge, so both the card and the screen background count as backing.
+    const PillCase cases[] = {
+        {"dark/card", 0xE8E8EC, 0x202023},
+        {"dark/screen", 0xE8E8EC, 0x19191C},
+        {"light/card", 0x2A2A2E, 0xFFFFFF},
+        {"light/screen", 0x2A2A2E, 0xF0F0F4},
+    };
+    for (const auto& c : cases) {
+        const lv_color_t text = lv_color_hex(c.text);
+        const lv_color_t fill = text; // the pill fill is the text colour itself
+        const lv_color_t backing = lv_color_hex(c.backing);
+        const lv_color_t composited = lv_color_mix(fill, backing, LV_OPA_50);
+        const lv_color_t icon =
+            theme_manager_get_contrast_adjusted_text(text, fill, backing, LV_OPA_50, 4.5);
+        CAPTURE(c.name, lv_color_to_u32(icon) & 0xFFFFFF, lv_color_to_u32(composited) & 0xFFFFFF,
+                wcag::contrast(icon, composited));
+        CHECK(wcag::contrast(icon, composited) >= 4.5);
+    }
+}
+
+// The delete-page pill: danger fill at LV_OPA_80 over the screen background.
+// The helper's own contract is 4:1, so that is the bar here.
+TEST_CASE("contrast_adjusted_text translucent overload holds 4:1 on the delete-page pill",
+          "[theme][contrast][edit-chrome]") {
+    const lv_color_t white = lv_color_hex(0xFFFFFF);
+    const struct {
+        const char* name;
+        uint32_t danger, screen;
+    } cases[] = {
+        {"dark", 0xD94848, 0x19191C},
+        {"light", 0xC43030, 0xF0F0F4},
+    };
+    for (const auto& c : cases) {
+        const lv_color_t fill = lv_color_hex(c.danger);
+        const lv_color_t backing = lv_color_hex(c.screen);
+        const lv_color_t composited = lv_color_mix(fill, backing, LV_OPA_80);
+        const lv_color_t icon =
+            theme_manager_get_contrast_adjusted_text(white, fill, backing, LV_OPA_80);
+        CAPTURE(c.name, lv_color_to_u32(icon) & 0xFFFFFF, lv_color_to_u32(composited) & 0xFFFFFF,
+                wcag::contrast(icon, composited));
+        CHECK(wcag::contrast(icon, composited) >= 4.0);
+    }
+}

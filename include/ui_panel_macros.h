@@ -1,0 +1,216 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "ui_observer_guard.h"
+
+#include "helix/xml/indexed_subject_pool.h"
+#include "lvgl.h"
+#include "macro_edit_logic.h"
+#include "macro_param_modal.h"
+#include "overlay_base.h"
+#include "static_panel_registry.h"
+#include "subject_managed_panel.h"
+
+#include <memory>
+#include <set>
+#include <string>
+#include <sys/types.h>
+#include <vector>
+
+/**
+ * @file ui_panel_macros.h
+ * @brief Klipper macro execution panel
+ *
+ * Displays discovered Klipper macros as a reactive, declarative row list and
+ * allows single-tap execution. A long-press enters edit mode, where each row
+ * gains a visibility checkbox; the header Save button persists the per-printer
+ * hidden-macro set.
+ *
+ * ## Virtual row list (prestonbrown/helixscreen#1748)
+ * An XML `<repeat count="macro_slot_count">` in `macro_panel.xml` builds a
+ * viewport's worth of row slots; C++ never creates or cleans row widgets. Each
+ * slot binds to its own subjects in the per-slot IndexedSubjectPools, and
+ * ui_virtual_list.h decides which macro each slot shows as the list scrolls.
+ * Rows differ in height (a description wraps), so every macro's height is
+ * measured on a real slot and the window is computed from row tops.
+ * `macro_row_count` holds the number of macros listed and drives only the
+ * list/empty-state switch.
+ *
+ * ## Pools (grow-only within a session, reclaimed on close)
+ * The pools grow with the slot count and are all reclaim()ed in
+ * on_ui_destroyed() so their name-registered subjects are unregistered and
+ * freed while LVGL is still live.
+ */
+class MacrosPanel : public OverlayBase {
+  public:
+    ~MacrosPanel() override;
+
+    // === OverlayBase interface ===
+    void init_subjects() override;
+    void deinit_subjects();
+    void register_callbacks() override;
+    const char* xml_component() const override {
+        return "macro_panel";
+    }
+    lv_obj_t* create(lv_obj_t* parent) override;
+    /// Freed on close; the next open rebuilds it.
+    bool destroy_on_close() const override {
+        return true;
+    }
+
+    const char* get_name() const override {
+        return "Macros";
+    }
+
+    // === Lifecycle hooks ===
+    void on_activate() override;
+    void on_deactivating(DeactivateReason reason) override;
+
+  protected:
+    /**
+     * @brief Null cached state and reclaim row subject pools after teardown.
+     *
+     * OverlayBase::destroy_overlay_ui() async-deletes overlay_root_ and then
+     * calls this hook. MacrosPanel is a singleton that outlives its widgets, so
+     * this drops the discovery observer and reclaims all five pools (unregister
+     * + deinit + free) so a re-open starts from a clean subject registry.
+     */
+    void on_ui_destroyed() override;
+
+  public:
+    // === Public API ===
+    lv_obj_t* get_panel() const {
+        return overlay_root_;
+    }
+
+  private:
+    friend struct MacrosPanelTestAccess;
+
+    // === Event handlers (the XML callback table forwards here) ===
+    void handle_row_clicked(size_t index);      ///< tap: toggle (edit) or run
+    bool handle_long_press();                   ///< long-press: enter edit mode; true when it did
+    void handle_defaults_clicked(size_t index); ///< edit-mode tune button per row
+
+    // === Virtual list ===
+    /// The macro a row slot shows, or SIZE_MAX for a parked slot.
+    size_t item_in_slot(size_t slot) const;
+    /// What a macro's row binds, from the edit state and its cached parameter facts.
+    helix::macros::RowValues row_values(size_t item) const;
+    /// Point slot @p slot at displayed_[@p item].
+    void fill_slot(size_t slot, size_t item);
+    /// Measure every row's height at the list's current width, grow the slot pool to
+    /// cover the viewport, and rebind every slot.
+    void layout_rows();
+    /// Show the rows the current scroll position reaches. @p refill rebinds every slot.
+    void update_visible(bool refill);
+
+    // === Edit-mode model ===
+    /**
+     * @brief Refresh all_macros_ from the discovered hardware (sorted, incl.
+     * `_`-prefixed). No-op when no IMoonrakerAPI is available (leaves the
+     * current list intact — used for both mock and reconnect timing).
+     * @return true when the list changed
+     */
+    bool refresh_macros();
+
+    /**
+     * @brief Recompute displayed_ from all_macros_, size + populate the five
+     * pools, then publish macro_row_count. Populate-before-count so the repeat
+     * binds to already-set subjects (no first-frame flash).
+     */
+    void rebuild_rows();
+
+    /// Enter edit mode: seed pending_hidden_, show checkboxes + Save, rebuild.
+    void enter_edit_mode();
+
+    /// Exit edit mode. When @p save, persist pending_hidden_ via SettingsManager.
+    void exit_edit_mode(bool save);
+
+    /// Reset the row list's scroll position to the top after an edit-mode switch.
+    void scroll_list_to_top();
+
+    /// Edit-mode row tap: flip pending_hidden_ membership and the visible pool.
+    void toggle_row(size_t display_index);
+
+    /**
+     * @brief The effective hidden set: the saved set, or the first-run seed
+     * (`_`-prefixed macros) when the per-printer key does not yet exist.
+     */
+    std::set<std::string> seed_default_hidden() const;
+
+    // === Run path (unchanged) ===
+    void fetch_params_and_execute(const std::string& macro_name);
+    void fetch_params_and_run(const std::string& macro_name);
+    void execute_with_params(const std::string& macro_name, const helix::MacroParamResult& result);
+    static std::string prettify_macro_name(const std::string& name);
+
+    // === State ===
+    std::vector<std::string> all_macros_;  ///< sorted discovered macros (incl. _*)
+    std::set<std::string> pending_hidden_; ///< in-flight edit-mode hidden set
+    std::vector<std::string> displayed_;   ///< macros currently rendered (row order)
+    bool edit_mode_ = false;               ///< true while in edit mode
+    bool ui_alive_ = false;                ///< true between create() and on_ui_destroyed()
+    lv_obj_t* scroll_container_ = nullptr; ///< "macro_list", the scrolling viewport
+    lv_obj_t* rows_container_ = nullptr;
+    lv_obj_t* leading_spacer_ = nullptr;
+    lv_obj_t* trailing_spacer_ = nullptr;
+
+    // === Virtual list state ===
+    static constexpr int kBufferRows = 2; ///< Rows kept beyond each edge of the viewport
+    std::vector<lv_obj_t*> slots_;        ///< Row slot widgets, by slot index
+    std::vector<ssize_t> slot_items_;     ///< Slot -> displayed_ index (-1 = parked)
+    std::vector<int> row_tops_;           ///< displayed_ row tops; back() = list height
+    int shown_first_ = -1, shown_last_ = -1;
+    int measured_width_ = -1;      ///< List width the rows were last laid out at
+    int measured_viewport_h_ = -1; ///< List content height the slot pool was sized for
+    int last_leading_ = -1, last_trailing_ = -1;
+
+    // === Per-slot subject pools (grow-only; reclaimed on close) ===
+    helix::xml::IndexedSubjectPool name_pool_{"macro_name",
+                                              helix::xml::IndexedSubjectPool::Type::String};
+    // Descriptions can exceed the 64-char default.
+    helix::xml::IndexedSubjectPool desc_pool_{"macro_desc",
+                                              helix::xml::IndexedSubjectPool::Type::String, 256};
+    helix::xml::IndexedSubjectPool visible_pool_{"macro_visible",
+                                                 helix::xml::IndexedSubjectPool::Type::Int};
+    helix::xml::IndexedSubjectPool desc_hidden_pool_{"macro_desc_hidden",
+                                                     helix::xml::IndexedSubjectPool::Type::Int};
+    helix::xml::IndexedSubjectPool chevron_hidden_pool_{"macro_chevron_hidden",
+                                                        helix::xml::IndexedSubjectPool::Type::Int};
+    helix::xml::IndexedSubjectPool defaults_hidden_pool_{"macro_defaults_hidden",
+                                                         helix::xml::IndexedSubjectPool::Type::Int};
+    helix::xml::IndexedSubjectPool slot_hidden_pool_{"macro_slot_hidden",
+                                                     helix::xml::IndexedSubjectPool::Type::Int};
+
+    // Macro parameter modal and dangerous macro confirmation
+    helix::MacroParamModal param_modal_;
+    std::string pending_dangerous_macro_; ///< Macro awaiting danger confirmation
+    std::string pending_run_macro_;       ///< Macro awaiting generic run confirmation
+
+    // === Scalar subjects (registered in init_subjects; NOT reclaimed) ===
+    SubjectManager subjects_;
+    char status_buf_[64] = {};
+    lv_subject_t status_subject_{};          ///< "macros_status" (legacy, XML-bound)
+    lv_subject_t macro_row_count_{};         ///< "macro_row_count" (macros listed)
+    lv_subject_t macro_slot_count_{};        ///< "macro_slot_count" (drives the repeat)
+    lv_subject_t macro_edit_mode_{};         ///< "macro_edit_mode" (0/1)
+    lv_subject_t macros_edit_save_hidden_{}; ///< "macros_edit_save_hidden" (1 = Save hidden)
+
+    /// Re-runs rebuild_rows() once macros become available (late discovery /
+    /// reconnect / printer switch). nav_buttons_enabled flips to 1 only after
+    /// hardware is populated on the main thread.
+    ObserverGuard nav_enabled_observer_;
+};
+
+/**
+ * @brief Get the global MacrosPanel instance
+ *
+ * Creates the instance on first call. Used by static callbacks.
+ *
+ * @return Reference to singleton MacrosPanel
+ */
+inline MacrosPanel& get_global_macros_panel() {
+    return helix::lazy_global<MacrosPanel>("MacrosPanel");
+}

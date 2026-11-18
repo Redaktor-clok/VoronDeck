@@ -1,0 +1,93 @@
+diff --git a/src/core/lv_obj_event.c b/src/core/lv_obj_event.c
+index de842cef7..b0ba71cf1 100644
+--- a/src/core/lv_obj_event.c
++++ b/src/core/lv_obj_event.c
+@@ -26,6 +26,12 @@ __attribute__((weak)) extern void helix_crash_note_event(const void * target,
+ __attribute__((weak)) extern void helix_crash_note_event_target_id(const char * class_name,
+                                                                     const char * obj_name);
+ 
++/* HelixScreen telemetry hook for conditions LVGL treats as unrecoverable and
++ * that we convert into recoverable bails. Weak so standalone LVGL builds
++ * (demos, tests outside the helix tree) link without it; every call below is
++ * guarded with `if(helix_lvgl_anomaly)`. */
++extern void helix_lvgl_anomaly(const char * code, const char * context) __attribute__((weak));
++
+ /*********************
+  *      DEFINES
+  *********************/
+@@ -141,29 +147,46 @@ lv_event_dsc_t * lv_obj_add_event_cb(lv_obj_t * obj, lv_event_cb_t event_cb, lv_
+ 
+ uint32_t lv_obj_get_event_count(lv_obj_t * obj)
+ {
+-    LV_CHECK_ARG(obj != NULL, return 0);
++    /* A NULL obj arriving from a deferred callback is reported, not only bailed:
++     * LV_CHECK_ARG bails silently and compiles out with LV_USE_CHECK_ARG 0. */
++    if(obj == NULL) {
++        if(helix_lvgl_anomaly) helix_lvgl_anomaly("obj_event_null_obj", "lv_obj_get_event_count");
++        return 0;
++    }
+     if(obj->spec_attr == NULL) return 0;
+     return lv_event_get_count(&obj->spec_attr->event_list);
+ }
+ 
+ lv_event_dsc_t * lv_obj_get_event_dsc(lv_obj_t * obj, uint32_t index)
+ {
+-    LV_CHECK_ARG(obj != NULL, return NULL);
++    if(obj == NULL) {
++        if(helix_lvgl_anomaly) helix_lvgl_anomaly("obj_event_null_obj", "lv_obj_get_event_dsc");
++        return NULL;
++    }
+     if(obj->spec_attr == NULL) return NULL;
+     return lv_event_get_dsc(&obj->spec_attr->event_list, index);
+ }
+ 
+ bool lv_obj_remove_event(lv_obj_t * obj, uint32_t index)
+ {
+-    LV_CHECK_ARG(obj != NULL, return false);
++    if(obj == NULL) {
++        if(helix_lvgl_anomaly) helix_lvgl_anomaly("obj_event_null_obj", "lv_obj_remove_event");
++        return false;
++    }
+     if(obj->spec_attr == NULL) return false;
+     return lv_event_remove(&obj->spec_attr->event_list, index);
+ }
+ 
+ bool lv_obj_remove_event_dsc(lv_obj_t * obj, lv_event_dsc_t * dsc)
+ {
+-    LV_CHECK_ARG(obj != NULL, return false);
+-    LV_CHECK_ARG(dsc != NULL, return false);
++    if(obj == NULL) {
++        if(helix_lvgl_anomaly) helix_lvgl_anomaly("obj_event_null_obj", "lv_obj_remove_event_dsc");
++        return false;
++    }
++    if(dsc == NULL) {
++        if(helix_lvgl_anomaly) helix_lvgl_anomaly("obj_event_null_dsc", "lv_obj_remove_event_dsc");
++        return false;
++    }
+ 
+     if(obj->spec_attr == NULL) return false;
+     return lv_event_remove_dsc(&obj->spec_attr->event_list, dsc);
+@@ -171,7 +194,10 @@ bool lv_obj_remove_event_dsc(lv_obj_t * obj, lv_event_dsc_t * dsc)
+ 
+ uint32_t lv_obj_remove_event_cb(lv_obj_t * obj, lv_event_cb_t event_cb)
+ {
+-    LV_CHECK_ARG(obj != NULL, return 0);
++    if(obj == NULL) {
++        if(helix_lvgl_anomaly) helix_lvgl_anomaly("obj_event_null_obj", "lv_obj_remove_event_cb");
++        return 0;
++    }
+ 
+     uint32_t event_cnt = lv_obj_get_event_count(obj);
+     uint32_t removed_count = 0;
+@@ -192,7 +218,10 @@ uint32_t lv_obj_remove_event_cb(lv_obj_t * obj, lv_event_cb_t event_cb)
+ 
+ uint32_t lv_obj_remove_event_cb_with_user_data(lv_obj_t * obj, lv_event_cb_t event_cb, void * user_data)
+ {
+-    LV_CHECK_ARG(obj != NULL, return 0);
++    if(obj == NULL) {
++        if(helix_lvgl_anomaly) helix_lvgl_anomaly("obj_event_null_obj", "lv_obj_remove_event_cb_with_user_data");
++        return 0;
++    }
+ 
+     uint32_t event_cnt = lv_obj_get_event_count(obj);
+     uint32_t removed_count = 0;

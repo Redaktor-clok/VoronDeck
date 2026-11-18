@@ -1,0 +1,1183 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// Plan 4 Task 6 — the real HelixScreen shell booting on the K-Touch.
+//
+// app_boot_ui() mirrors the desktop Application startup phases (see
+// src/application/application.cpp Application::run() / init_ui()) with the real
+// registration/init calls, minus SDL/CLI/desktop-only seams. The canonical
+// desktop order is reproduced: asset root → Config → fonts → globals.xml →
+// theme → widgets → translations → XML components → core subjects →
+// MoonrakerManager (ESP factory arm) → panel subjects → app shell. It runs
+// once on the UI pthread (created in app_main before any network task) and
+// leaves the navbar + six resident panels live on the active screen.
+//
+// Divergences from desktop (documented in esp32p4-task-6-report.md):
+//   * Config storage is injected explicitly (set_storage) to the writable
+//     /config LittleFS partition — the /assets container is read-only frogfs.
+//   * fonts are registered via helix_fonts_register() (the medium-tier ESP
+//     face set, link-anchored in main/CMakeLists.txt) in addition to
+//     AssetManager::register_all(), which registers the full token set backed
+//     by the aliases in font_aliases.cpp.
+//   * Real (non-mock) builds bring WiFi up through the shared WifiBackend
+//     (Task 13, wifi_backend_esp.cpp) rather than raw esp_wifi calls; the
+//     shell still comes up in the not-ready/connecting UI first and the
+//     Moonraker connect fires once the backend reports an IP.
+//   * CONFIG_HELIX_MOCK_PRINTER drives a firmware-local synthetic PrinterState
+//     driver (below), NOT the app-layer MoonrakerClientMock — that mock
+//     inherits the libhv-based concrete MoonrakerClient, whose transport base
+//     is intentionally undefined on ESP32 (see helixnet/helixapp shims), so it
+//     cannot be constructed on-device. The synthetic driver feeds the same
+//     production PrinterState::update_from_status() path the real notify stream
+//     would, with zero network.
+
+#include "app_boot.h"
+
+#include "ui_ams_mini_status.h"
+#include "ui_bed_mesh.h"
+#include "ui_card.h"
+#include "ui_change_host_modal.h"
+#include "ui_component_header_bar.h"
+#include "ui_dialog.h"
+#include "ui_gcode_viewer.h"
+#include "ui_gradient_canvas.h"
+#include "ui_guided_device_flow.h"
+#include "ui_humidity_drop.h"
+#include "ui_icon.h"
+#include "ui_nav_manager.h"
+#include "ui_notification_history.h"
+#include "ui_notification_manager.h"
+#include "ui_panel_ams.h"
+#include "ui_panel_home.h"
+#include "ui_severity_card.h"
+#include "ui_status_pill.h"
+#include "ui_switch.h"
+#include "ui_temp_display.h"
+#include "ui_tile_rung.h"
+#include "ui_update_queue.h"
+
+#include "ams_state.h"
+#include "app_globals.h"
+#include "asset_manager.h"
+#include "async_lifetime_guard.h"
+#include "boot_connect_handoff.h"
+#include "boot_crash_guard.h"
+#include "config.h"
+#include "config_storage.h"
+#include "connection_state.h"
+#include "data_root_resolver.h"
+#include "discovery_steps.h"
+#include "esp_heap_caps.h"
+#include "esp_http_lane.h"
+#include "esp_log.h"
+#include "esp_moonraker_client.h"
+#include "esp_system.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "hardware_fingerprint.h"
+#include "helix_fs.h"
+#include "helix_sparkline.h"
+#include "i_moonraker_client.h"
+#include "job_queue_state.h"
+#include "lap_log.h"
+#include "led/led_controller.h"
+#include "moonraker_api.h" // complete MoonrakerAPI : IMoonrakerAPI for the init_panels upcast
+#include "moonraker_manager.h"
+#include "moonraker_types.h" // FileInfo/FileMetadata/ThumbnailInfo/resolve_thumbnail_path — HTTP HIL probe
+#include "panel_factory.h"
+#include "panel_widget_manager.h"
+#include "pending_startup_warnings.h"
+#include "performance_state.h"
+#include "print_history_manager.h"
+#include "printer_retarget.h"
+#include "printer_state.h"
+#include "printer_switch_flow.h"
+#include "runtime_config.h"
+#include "scroll_blit.h"
+#include "sdkconfig.h"
+#include "session_wiring.h"
+#include "setting_group.h"
+#include "src/xml/lv_xml.h"
+#include "status_dispatch.h"
+#include "subject_initializer.h"
+#include "system/update_checker.h"
+#include "text_io.h"
+#include "theme_manager.h"
+#include "thumbnail_cache.h"
+#include "tips_manager.h"
+#include "translation_loader.h"
+#include "wizard_config_paths.h"
+#include "xml_registration.h"
+
+#include <spdlog/spdlog.h>
+
+#include <atomic>
+#include <string>
+
+#if !CONFIG_HELIX_MOCK_PRINTER
+// Non-mock (real connect) path only — WiFi bring-up (Task 13, over the shared
+// WifiBackend) + Moonraker connect thread.
+#include "provisioning_esp.h"
+#include "wall_clock_esp.h"
+#include "wifi_backend_esp.h"
+#include "wifi_manager.h"
+
+#include <atomic>
+#include <pthread.h>
+#endif // !CONFIG_HELIX_MOCK_PRINTER
+
+#if CONFIG_HELIX_MOCK_PRINTER
+// Task 15 R3: AmsBackendMock has no dependency on the concrete libhv
+// MoonrakerClient (unlike moonraker_client_mock.cpp etc. — see the MOCK_SRCS
+// comment in CMakeLists.txt), so it links cleanly here. Included only in mock
+// builds (CMakeLists.txt's MOCK_SRCS).
+#include "ams_backend_mock.h"
+#endif // CONFIG_HELIX_MOCK_PRINTER
+
+// Defined in the main component (main/font_registration.c). Declared locally
+// rather than via its header: that header lives under main/, which cannot be
+// on helixapp's include path (main REQUIRES helixapp — the reverse include
+// would be circular). The symbol resolves at the final whole-image link, and
+// is kept alive by -Wl,--undefined=helix_fonts_register in main/CMakeLists.txt.
+extern "C" void helix_fonts_register(void);
+extern "C" void helix_fonts_log_summary(void);
+
+static const char* TAG = "app_boot";
+
+namespace {
+
+// The MoonrakerManager owns the client + API for the process lifetime. Held at
+// file scope so app_boot_tick() can pump its notification/timeout queues from
+// the render loop. Set once app_boot_ui() completes; null before then.
+MoonrakerManager* g_manager = nullptr;
+
+// When the current live switch started, for the tap-to-connected log; 0 when none is running.
+int64_t g_switch_started_us = 0;
+
+// The active printer's discoveries. auto-detect and the heater-role heal write the active
+// printer's config section, so a switch starts a new record even when the next printer has
+// the same hardware shape (two stock machines on one hostname, a printer re-added under a
+// new id).
+helix::HardwareChangeTracker g_hw_changes;
+
+// One-shot heap milestone. heap_caps_get_largest_free_block() walks the heap
+// in a critical section, so this is called only at discrete milestones, never
+// from the steady-state render loop (see the audit's log_heap vs log_heap_fast
+// note). Every milestone runs after board_display_init() has started the RGB
+// scan-out, and a PSRAM walk there masks the frame buffer's reads for 21-33 ms,
+// a visible glitch; so PSRAM reports only its free total, which is a counter
+// read. The internal walk is short and stays.
+void log_heap_milestone(const char* stage) {
+    ESP_LOGI(TAG, "[heap:%s] internal free=%u largest=%u | psram free=%u", stage,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+}
+
+// Task 12 R2: Config (settings.json, the `cfg` partition) is the source of
+// truth for the Moonraker host/port — same schema desktop uses
+// (df()+"moonraker_host" / df()+"moonraker_port", see src/system/config.cpp
+// and src/ui/ui_change_host_modal.cpp). CONFIG_HELIX_HIL_MOONRAKER_URL is only
+// the FIRST-BOOT seed for that schema: a full "ws://host:port/path" string
+// (Kconfig's format), parsed once when Config has no value yet. Split out as
+// its own struct/function because Config's two keys need host and port
+// separated.
+struct HostPort {
+    std::string host;
+    int port;
+};
+
+HostPort parse_moonraker_kconfig_url(const std::string& url) {
+    std::string working = url;
+    size_t scheme_end = working.find("://");
+    if (scheme_end != std::string::npos) {
+        working = working.substr(scheme_end + 3);
+    }
+    size_t path_start = working.find('/');
+    if (path_start != std::string::npos) {
+        working = working.substr(0, path_start);
+    }
+    size_t colon_pos = working.rfind(':');
+    if (colon_pos == std::string::npos) {
+        return {working, 7125};
+    }
+    std::string host = working.substr(0, colon_pos);
+    const int port =
+        helix::text_io::parse_leading<int>(working.substr(colon_pos + 1)).value_or(7125);
+    return {host, port};
+}
+
+// Register the custom C++ widgets the XML components extend. Same set as the
+// desktop register_widgets() phase (application.cpp:1517) minus the subsystems
+// gated off for v1 (camera/gcode-3D/etc.). helix::ui::gcode_viewer_register() resolves
+// to the no-op #else branch in ui_gcode_viewer.cpp on ESP (HELIX_HAS_GCODE_
+// VIEWER=0) — it still registers a stub <gcode_viewer> widget so XML that names
+// it parses.
+void register_widgets() {
+    helix::ui::icon::register_widget();
+    helix::ui::register_tile_rung_binding();
+    ui_status_pill_register_widget();
+    ui_switch_register();
+    ui_card_register();
+    setting_group_register();
+    ui_temp_display_init();
+    ui_ams_mini_status_init();
+    ui_severity_card_register();
+    ui_dialog_register();
+    ui_bed_mesh_register();
+    helix::ui::gcode_viewer_register();
+    ui_gradient_canvas_register();
+    helix::ui::register_helix_sparkline_widget();
+    helix::ui::register_humidity_drop_widget();
+    ui_component_header_bar_init();
+}
+
+// The restart fallback of a live switch: boot connects to the active printer, with every
+// heap back at its boot state. The label is the only feedback, drawn synchronously because
+// nothing runs after it.
+// Fallback restarts since the panel last stayed connected for kHealthyUptimeUs. Past the
+// cap the panel stays up and keeps reconnecting instead, so neither an unreachable printer
+// nor a weak link that connects briefly between failures becomes a boot loop.
+constexpr int kMaxFallbackRestarts = 2;
+constexpr int64_t kHealthyUptimeUs = 10LL * 60 * 1000 * 1000;
+
+void restart_into_active_printer() {
+    helix::Config* config = helix::Config::get_instance();
+    const int streak = config->get<int>(helix::kSwitchRestartStreakKey, 0);
+    if (streak >= kMaxFallbackRestarts) {
+        ESP_LOGE(TAG, "app_boot: %d fallback restarts without a connection; staying up", streak);
+        return;
+    }
+    // A switch in progress already shows its card, which says the same thing.
+    if (!lv_obj_find_by_name(lv_layer_top(), "printer_switch_interstitial")) {
+        lv_obj_t* label = lv_label_create(lv_layer_top());
+        const std::string text =
+            fmt::format(fmt::runtime(lv_tr("Switching to {}")), config->get_active_printer_name());
+        lv_label_set_text(label, text.c_str());
+        lv_obj_center(label);
+    }
+    lv_refr_now(nullptr);
+
+    // Counted across restarts: how often a switch fell back, and how many in a row.
+    const int fallbacks = config->get<int>("/switch_restart_fallbacks", 0) + 1;
+    config->set<int>("/switch_restart_fallbacks", fallbacks);
+    config->set<int>(helix::kSwitchRestartStreakKey, streak + 1);
+    config->save();
+    ESP_LOGW(TAG, "app_boot: restarting into printer '%s' (switch fallback #%d, %d in a row)",
+             config->get_active_printer_id().c_str(), fallbacks, streak + 1);
+    esp_restart();
+}
+
+// A panic or watchdog reset. The switch fallback's esp_restart() and a power-on are not crashes.
+bool reset_was_crash() {
+    switch (esp_reset_reason()) {
+    case ESP_RST_PANIC:
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// The printer a run of crash resets moved this boot away from, when it fell back.
+std::string g_boot_crashed_printer_name;
+// False while the connection is held after a run of crashes, until the user picks a printer.
+bool g_boot_auto_connect = true;
+
+// Counts crash resets since the last healthy session, and past the threshold boots the
+// printer the last switch came from, or holds the connection (prestonbrown/helixscreen#1750).
+// Runs before anything reads the active printer.
+void apply_boot_crash_guard(helix::Config* config) {
+    const bool crash = reset_was_crash();
+    const helix::BootPrinterChoice choice = helix::choose_boot_printer(
+        crash, config->get<int>(helix::kBootCrashStreakKey, 0),
+        config->get<bool>(helix::kBootConnectHoldKey, false), config->get_active_printer_id(),
+        config->get<std::string>(helix::kSwitchPreviousPrinterKey, ""), config->get_printer_ids());
+    g_boot_auto_connect = choice.auto_connect;
+    if (!g_boot_auto_connect) {
+        ESP_LOGW(TAG, "app_boot: connection held after repeated crashes; pick a printer");
+    }
+    if (!crash) {
+        return;
+    }
+    config->set<int>(helix::kBootCrashStreakKey, choice.crash_streak);
+    config->set<bool>(helix::kBootConnectHoldKey, !choice.auto_connect);
+    if (!choice.tripped) {
+        ESP_LOGW(TAG, "app_boot: crash reset %d of %d before falling back", choice.crash_streak,
+                 helix::kBootCrashFallbackThreshold);
+    } else {
+        ESP_LOGE(TAG, "app_boot: '%s' crashed the panel %d times; %s",
+                 config->get_active_printer_name().c_str(), helix::kBootCrashFallbackThreshold,
+                 choice.auto_connect ? "falling back to the previous printer" : "not connecting");
+        if (!choice.fallback_id.empty()) {
+            g_boot_crashed_printer_name = config->get_active_printer_name();
+            config->set_active_printer(choice.fallback_id);
+        }
+        config->set<std::string>(helix::kSwitchPreviousPrinterKey, "");
+    }
+    config->save();
+}
+
+// The WebSocket task's internal stack plus headroom. The stopped task deleted itself and
+// the idle task frees its stack, which this thread outranks, so wait one beat before looking.
+constexpr size_t kWsStackReserveBytes = helix::EspMoonrakerClient::kWsTaskStackBytes + 2 * 1024;
+
+bool ws_stack_available() {
+    vTaskDelay(pdMS_TO_TICKS(20));
+    const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    ESP_LOGI(TAG, "[switch] internal free=%u largest=%u (need %u)",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)largest,
+             (unsigned)kWsStackReserveBytes);
+    return largest >= kWsStackReserveBytes;
+}
+
+// Discovery right after a connect allocates internal RAM in a burst (at boot the largest
+// block briefly drops below 8 KB). A switch whose discovery never lands on a live connection
+// would leave the panel half-switched, so it restarts into the printer instead. An unreachable
+// printer is left to the normal reconnect loop.
+constexpr uint32_t kSwitchDiscoveryTimeoutMs = 30000;
+
+void arm_switch_watchdog() {
+    static lv_timer_t* timer = nullptr;
+    if (timer) {
+        lv_timer_delete(timer);
+    }
+    timer = lv_timer_create(
+        [](lv_timer_t*) {
+            timer = nullptr; // one-shot: LVGL deletes it after this run
+            if (g_switch_started_us == 0) {
+                return;
+            }
+            helix::IMoonrakerClient* client = g_manager ? g_manager->client() : nullptr;
+            // Change Host's Test borrows the client for another host, connected with no
+            // discovery by design; only a connection to the switched-to printer counts.
+            if (client && client->get_last_url() != helix::active_printer_ws_url()) {
+                ESP_LOGI(TAG, "[switch] client lent to another host; watchdog stands down");
+                return;
+            }
+            if (client && client->get_connection_state() == helix::ConnectionState::CONNECTED) {
+                ESP_LOGW(TAG, "[switch] connected but no discovery after %u ms",
+                         (unsigned)kSwitchDiscoveryTimeoutMs);
+                restart_into_active_printer();
+                return;
+            }
+            ESP_LOGW(TAG, "[switch] printer not reachable yet; reconnecting continues");
+        },
+        kSwitchDiscoveryTimeoutMs, nullptr);
+    lv_timer_set_repeat_count(timer, 1);
+}
+
+// The K-Touch's hooks for the shared switch flow: one connection is retargeted in place, and
+// the shell stays built. A printer whose home layout differs gets its home grid rebuilt.
+helix::PrinterSwitchFlow& switch_flow() {
+    static helix::Config* config = helix::Config::get_instance();
+    static helix::AsyncLifetimeGuard lifetime;
+    static helix::PrinterSwitchFlow flow(
+        config, lifetime,
+        {[] {
+             g_switch_started_us = esp_timer_get_time();
+             g_hw_changes.reset();
+         },
+         [] {
+             helix::LapLog laps("switch rebuild");
+             const bool connecting = helix::retarget_printer_connection();
+             if (!connecting) {
+                 restart_into_active_printer();
+             }
+             laps.lap("retarget");
+             arm_switch_watchdog();
+             // The flow still names the previous printer until the switch completes.
+             const std::string& previous_id = switch_flow().connected_printer_id();
+             if (config->get<nlohmann::json>("/printers/" + previous_id + "/panel_widgets", {}) !=
+                 config->get<nlohmann::json>(config->df() + "panel_widgets", {})) {
+                 helix::PanelWidgetManager::instance().notify_config_changed("home");
+                 laps.lap("home grid");
+             }
+             return connecting;
+         },
+         [] {
+             NavigationManager::instance().request_panel(helix::PanelId::Home,
+                                                         NavigationManager::SwitchDispatch::Queued);
+         }});
+    return flow;
+}
+
+void wire_printer_callbacks() {
+    // The transport worker starts each new WebSocket task only once the stopped one's
+    // stack is back; when it is not, or a task will not stop, the panel restarts onto the
+    // saved printer rather than run without a connection.
+    helix::EspMoonrakerClient::set_before_transport_start(ws_stack_available);
+    helix::EspMoonrakerClient::set_transport_stall_handler([] {
+        helix::ui::queue_update("app_boot::transport_stall", [] { restart_into_active_printer(); });
+    });
+    // Both are safe on the websocket task: the reset takes its own lock, and
+    // set_klippy_state() defers the subject write to the UI thread.
+    static const helix::EspMoonrakerClient::KlippyStateSink kKlippyStateSink{
+        [] { get_printer_state().network_state().reset_klippy_state_freshness(); },
+        [](helix::KlippyState state) { get_printer_state().set_klippy_state(state); }};
+    helix::EspMoonrakerClient::set_klippy_state_sink(&kKlippyStateSink);
+    switch_flow().set_connected_printer_id(helix::Config::get_instance()->get_active_printer_id());
+}
+
+// Build the app shell (the navbar and all six panels resident-and-hidden, the desktop memory
+// model) through the shared builder, with the navbar's printer menu driving this device's
+// switch flow. Returns false on any structural failure (logged).
+bool build_shell() {
+    wire_printer_callbacks();
+    lv_obj_t* screen = lv_screen_active();
+    lv_obj_t* app_layout = helix::create_app_layout(
+        screen, [](const std::string& printer_id) { switch_flow().request_switch(printer_id); },
+        [] {
+            helix::ui::show_add_printer_modal([](const std::string& host, int port) {
+                return switch_flow().add_printer(host, port);
+            });
+        });
+    static helix::PanelFactory panels;
+    if (!app_layout || !helix::setup_app_panels(app_layout, screen, panels)) {
+        return false;
+    }
+    get_global_home_panel().finalize_setup();
+    return true;
+}
+
+#if CONFIG_HELIX_MOCK_PRINTER
+// Firmware-local synthetic printer, gated behind CONFIG_HELIX_MOCK_PRINTER.
+// Feeds oscillating temperatures through the same production status-apply path
+// (PrinterState::update_from_status) the real Moonraker notify stream uses, so
+// the home panel shows live-looking data with no network and no printer. This
+// is the ESP substitute for the desktop MoonrakerClientMock (unconstructible
+// here — see file header).
+void mock_seed_ready() {
+    helix::PrinterState& ps = get_printer_state();
+    ps.set_klippy_state_sync(helix::KlippyState::READY);
+    ps.set_printer_connection_state(static_cast<int>(helix::ConnectionState::CONNECTED),
+                                    "Mock printer");
+    // Seed a printer identity so the home printer-image widget resolves to a
+    // bundled image. The widget reads config PRINTER_TYPE at attach() (during
+    // build_shell); without an identity get_best_printer_image("") returns the
+    // generic fallback. "Voron 2.4" maps to the staged voron-v2.png. This is why
+    // the seed must run BEFORE the shell builds (see call site).
+    helix::Config* config = helix::Config::get_instance();
+    if (config) {
+        config->set<std::string>(config->df() + helix::wizard::PRINTER_TYPE, "Voron 2.4");
+    }
+    spdlog::info("app_boot: mock printer seeded READY/CONNECTED + type Voron 2.4");
+}
+
+// Task 15 R3: mirrors desktop's HELIX_MOCK_AMS=multi (src/printer/ams_backend.cpp
+// try_create_mock()) — but that path is gated on RuntimeConfig::should_mock_ams(),
+// which requires test_mode, deliberately never set on ESP (see the NOTE in
+// app_boot_ui() below: test_mode would route MoonrakerManager through the
+// unlinkable app-layer mock arms). So this constructs AmsBackendMock directly,
+// bypassing the factory, and installs it as AmsState's active backend the same
+// way a real backend would install via AmsState::init_backends_from_hardware().
+// set_multi_unit_mode(true) alone (no HELIX_MOCK_AMS_STATE scenario) never
+// spawns AmsBackendMock's internal scenario_thread_ — only "loading"/"bypass"
+// initial-state scenarios do that — so this stays thread-free, matching R1's
+// "no new BG surfaces" constraint.
+void mock_seed_ams() {
+    auto backend = std::make_unique<helix::AmsBackendMock>(4);
+    backend->set_multi_unit_mode(true);
+    backend->start();
+    helix::AmsState::instance().set_backend(std::move(backend));
+    helix::AmsState::instance().sync_from_backend();
+    spdlog::info("app_boot: mock AMS seeded (multi-unit)");
+}
+
+void mock_push_temps() {
+    static int t = 0;
+    ++t;
+    // Jitter both heaters WITHIN kTempTolerance (2.0C) of their targets so the
+    // heating-icon animator stays AT_TARGET and never starts its infinite pulse.
+    // A wider sweep that crosses (target - tolerance) toggles HEATING<->AT_TARGET
+    // and repaints the icon at frame rate for half of every cycle — millions of
+    // idle repaints that tear on the unpaced ESP32 blit. Nozzle 214-216 (target
+    // 215, threshold 213), bed 58-62 (target 60, threshold 58): both stay above
+    // threshold, readout still visibly jitters, animator stays quiet.
+    double nozzle = 214.0 + (t % 3);
+    double bed = 58.0 + (t % 5);
+    nlohmann::json status = {
+        {"extruder", {{"temperature", nozzle}, {"target", 215.0}}},
+        {"heater_bed", {{"temperature", bed}, {"target", 60.0}}},
+    };
+    helix::dispatch_status(status);
+}
+#endif // CONFIG_HELIX_MOCK_PRINTER
+
+#if !CONFIG_HELIX_MOCK_PRINTER
+// ---------------------------------------------------------------------------
+// Real Moonraker connect path (Task 8) — non-mock builds.
+//
+// Two halves: (1) setup_discovery_callbacks_esp() registers the ESP consumer of
+// the Task 7 discovery chain on the manager's EspMoonrakerClient; (2)
+// app_net_start() brings WiFi up and kicks MoonrakerManager::connect(). Both are
+// the on-device stand-in for Application (excluded on ESP): without (1) the
+// discovery callbacks fire into a void and no subject updates; without (2) the
+// client never connects (WiFi was deferred to "Task 13" in Stage A).
+// ---------------------------------------------------------------------------
+
+#if CONFIG_HELIX_HTTP_HIL
+// One-shot Task 10 HTTP-lane self-test (R5). Lists the gcodes root, fetches
+// metadata for the first file found, and pulls its best thumbnail through the
+// HTTP lane (ITransfersAPI::download_file_partial — MoonrakerFileTransferAPI's
+// real ESP32 implementation, esp_rest_api.cpp), logging the resolved path,
+// dimensions, byte count, and heap so the controller can flash-and-verify on
+// real hardware without writing any code. Fire-and-forget: nothing here
+// blocks boot or the shell, and a failure at any step just logs and stops
+// (no retry — this is a manual verification aid, not production behavior).
+void run_http_hil_probe(MoonrakerManager* mgr) {
+    helix::IMoonrakerAPI* api = mgr->api();
+    if (!api) {
+        ESP_LOGW(TAG, "[http_hil] no API available — skipping probe");
+        return;
+    }
+
+    api->files().get_directory(
+        "gcodes", "",
+        [api](const std::vector<FileInfo>& entries) {
+            const FileInfo* first_file = nullptr;
+            for (const auto& e : entries) {
+                if (!e.is_dir) {
+                    first_file = &e;
+                    break;
+                }
+            }
+            if (!first_file) {
+                ESP_LOGW(TAG, "[http_hil] no gcode files in root — nothing to probe");
+                return;
+            }
+
+            std::string filename = first_file->filename;
+            ESP_LOGI(TAG, "[http_hil] fetching metadata for %s", filename.c_str());
+
+            api->files().get_file_metadata(
+                filename,
+                [api, filename](const FileMetadata& meta) {
+                    const ThumbnailInfo* thumb = select_thumbnail(meta.thumbnails, 160, 160);
+                    if (!thumb) {
+                        ESP_LOGW(TAG, "[http_hil] %s has no thumbnails — nothing to fetch",
+                                 filename.c_str());
+                        return;
+                    }
+                    std::string thumb_path = resolve_thumbnail_path(thumb->relative_path, "");
+                    ESP_LOGI(TAG, "[http_hil] fetching thumbnail %s (%dx%d, metadata-reported)",
+                             thumb_path.c_str(), thumb->width, thumb->height);
+
+                    api->transfers().download_file_partial(
+                        "gcodes", thumb_path, 512 * 1024,
+                        [thumb_path](const std::string& content) {
+                            ESP_LOGI(TAG,
+                                     "[http_hil] OK: %s -> %u bytes | heap internal=%u psram=%u",
+                                     thumb_path.c_str(), (unsigned)content.size(),
+                                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                                     (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+                        },
+                        [thumb_path](const MoonrakerError& err) {
+                            ESP_LOGE(TAG, "[http_hil] FAILED: %s -> %s", thumb_path.c_str(),
+                                     err.message.c_str());
+                        });
+                },
+                [filename](const MoonrakerError& err) {
+                    ESP_LOGE(TAG, "[http_hil] get_file_metadata(%s) failed: %s", filename.c_str(),
+                             err.message.c_str());
+                });
+        },
+        [](const MoonrakerError& err) {
+            ESP_LOGE(TAG, "[http_hil] get_directory failed: %s", err.message.c_str());
+        });
+}
+#endif // CONFIG_HELIX_HTTP_HIL
+
+// The firmware's discovery callbacks: the shared wiring (session_wiring.h) plus what only
+// the device does after the core steps. No tail steps run here: no splash, update checker,
+// timelapse, power/sensor subscribe, hardware validation, setup prompts, telemetry or
+// Spoolman.
+void setup_discovery_callbacks_esp(MoonrakerManager& manager) {
+    helix::IMoonrakerClient* client = manager.client();
+    helix::IMoonrakerAPI* api = manager.api();
+    if (!client || !api) {
+        spdlog::error("app_boot: no Moonraker client or API — discovery callbacks not registered");
+        return;
+    }
+
+    MoonrakerManager* mgr = &manager;
+    helix::wire_discovery(
+        *api, *client, {g_hw_changes, nullptr, nullptr, [mgr](helix::DiscoveryContext& ctx) {
+                            helix::wall_clock_esp::request_date(ctx.api.get_http_base_url());
+                            if (g_switch_started_us != 0) {
+                                spdlog::info("[app_boot] printer switch connected in {} ms",
+                                             (esp_timer_get_time() - g_switch_started_us) / 1000);
+                                g_switch_started_us = 0;
+                            }
+#if CONFIG_HELIX_HTTP_HIL
+                            run_http_hil_probe(mgr);
+#else
+                               (void)mgr;
+#endif
+                        }});
+
+    spdlog::info("[app_boot] discovery callbacks registered (real connect path)");
+}
+
+// Task 13: process-lifetime guard for the state-observer callback below.
+// app_net_start()'s pthread is the only thread that registers against it; the
+// observer itself fires from WiFiManager::notify_state_observers(), called
+// from whatever context the esp_wifi backend reports CONNECTED/DISCONNECTED
+// on (see wifi_backend_esp.cpp), and defers via the token to the UpdateQueue
+// — drained by app_boot_tick() on the render loop, never back onto the net
+// thread. Never invalidated (this boot flow has no owning object to tear
+// down), matching net_hil.cpp's "process-lifetime singleton, leaked on
+// purpose" precedent for the same reason.
+helix::AsyncLifetimeGuard s_net_lifetime;
+// The first connect waits for app_net's exit as well as WiFi; see
+// BootConnectHandoff for why.
+helix::BootConnectHandoff s_connect_handoff;
+// Given by the WiFi observer, so app_net leaves as soon as WiFi is up.
+SemaphoreHandle_t s_wifi_up_sem = nullptr;
+std::atomic<bool> s_connect_poll_armed{false};
+constexpr uint32_t kConnectPollMs = 20;
+
+// The boot's Moonraker connect. Its one caller is the connect poll below, which
+// runs it once, on the UI thread.
+void start_moonraker_connect() {
+    if (!g_boot_auto_connect) {
+        ESP_LOGW(TAG, "app_net: not connecting after repeated crashes; pick a printer");
+        return;
+    }
+    // The connect creates the print-start collector, whose observers and API hooks
+    // belong to the UI thread. It runs from the UpdateQueue drain, like every other
+    // connect, rather than inside the poll's own lv_timer callback; the hop costs
+    // one UI tick.
+    helix::ui::queue_update("app_net::connect", [] {
+        // Task 12 R2: read the effective host from Config, not Kconfig directly —
+        // app_boot_ui()'s Phase 1 seed guarantees a value is present (either the
+        // user's saved Host or the first-boot Kconfig default) by the time this runs
+        // (app_net_start() is called last, after Phase 1).
+        helix::Config* config = helix::Config::get_instance();
+        std::string host = config->get<std::string>(config->df() + "moonraker_host", "");
+        // No host yet (empty Kconfig seed, nothing saved in Settings): connecting to
+        // "ws://:7125/websocket" would hand the websocket client an unresolvable URL
+        // and spin the auto-reconnect loop forever. Leave the not-ready UI up
+        // instead; ChangeHostModal connects directly once a host is entered, so no
+        // reboot is needed. Logged once: the poll answers Connect once.
+        if (host.empty()) {
+            ESP_LOGI(TAG, "app_net: no Moonraker host configured — set it in Settings");
+            return;
+        }
+        // Async: connect() starts the WebSocket client task and returns. on_connected
+        // → MoonrakerManager::connect()'s discover_printer() → the callbacks
+        // registered in setup_discovery_callbacks_esp(), all on the WS task.
+        helix::connect_active_printer();
+    });
+}
+
+// Polls the handoff on the UI thread until it answers Connect, then stops.
+// Armed once, from whichever thread first sees WiFi up.
+void arm_connect_poll() {
+    if (s_connect_poll_armed.exchange(true)) {
+        return;
+    }
+    helix::ui::queue_update("app_net::connect_poll", [] {
+        lv_timer_create(
+            [](lv_timer_t* timer) {
+                switch (s_connect_handoff.poll()) {
+                case helix::BootConnectHandoff::Step::Wait:
+                    return;
+                case helix::BootConnectHandoff::Step::Connect:
+                    start_moonraker_connect();
+                    break;
+                case helix::BootConnectHandoff::Step::Done:
+                    break;
+                }
+                lv_timer_delete(timer);
+            },
+            kConnectPollMs, nullptr);
+    });
+}
+
+void note_wifi_up() {
+    s_connect_handoff.wifi_up();
+    if (s_wifi_up_sem) {
+        xSemaphoreGive(s_wifi_up_sem);
+    }
+    arm_connect_poll();
+}
+
+// Bounded wait for the first post-boot association, so this thread's stack is
+// never held against a network that does not associate. 20s covers a successful
+// association with margin; the backend's own assoc-timeout and bounded backoff
+// retry (wifi_backend_esp.cpp) keep trying underneath either way.
+constexpr int kBootBoundedWaitMs = 20000;
+
+// The connect thread's stack, one contiguous internal-RAM block claimed after
+// the UI stack and the RGB bounce buffers. What is left of the heap's largest
+// block at that point varies by about 1KB with static DRAM, and has measured
+// 31,744 bytes, so the request must stay below that. The thread logs its
+// high-water mark on exit.
+constexpr unsigned kAppNetStackBytes = 24 * 1024;
+
+void* app_net_thread_main(void*) {
+    // Opens the esp_wifi hardware bring-up gate — see wifi_backend_esp.h for
+    // why this must happen from THIS pthread specifically (THE PATTERN:
+    // >=32KB internal alloc claimed only here, after app_boot_ui()'s
+    // internal-DRAM gates), not from whatever thread happens to call
+    // get_wifi_manager() first (e.g. NetworkWidget's ctor during the earlier,
+    // heavy build_shell() phase).
+    helix::wifi_backend_esp_allow_hardware_bringup();
+
+    auto wifi = helix::get_wifi_manager();
+
+    // Registered before the wait: the observer wakes it, and a CONNECTED that
+    // lands after it (weak signal, slow AP) still arms the connect poll, with no
+    // thread parked waiting for it.
+    wifi->add_state_observer(s_net_lifetime.token(), [wifi]() {
+        if (wifi->is_connected()) {
+            note_wifi_up();
+        }
+    });
+
+    // The singleton may already exist — constructed earlier (gate closed) by
+    // some other get_wifi_manager() caller, in which case its start_async()
+    // was a harmless no-op. Kick a real bring-up attempt now that the gate is
+    // open; idempotent if this call IS the first construction (the ctor
+    // already invoked start_async() once).
+    wifi->retry_async();
+
+    // Task 14: out-of-box case. retry_async() -> WifiBackendEsp::start() just
+    // ran load_or_seed_credentials(), so provisioning_needed() below sees the
+    // post-seed state (a dev sdkconfig.local Kconfig SSID, if any, has already
+    // been written to NVS) rather than a never-started snapshot. If NVS still
+    // has no stored SSID, stand up the SoftAP captive portal instead of
+    // silently idling for kBootBoundedWaitMs below — the shell is already up
+    // (this thread starts after build_shell()), so the not-ready UI is on
+    // screen throughout and the portal's own instructions modal explains what
+    // to do. provisioning_run_portal() blocks until either a join succeeds
+    // (through this same WiFiManager) or the user dismisses back to Settings >
+    // Network; either way the bounded wait below resolves instantly
+    // afterward (is_connected() is already true on the join path).
+    if (helix::provisioning_needed()) {
+        helix::provisioning_run_portal();
+    }
+
+    // The semaphore can hold a give from an association that has since dropped,
+    // so the wait can end at once with WiFi down: log what was actually waited.
+    const int64_t wait_start_us = esp_timer_get_time();
+    if (!wifi->is_connected() && s_wifi_up_sem) {
+        xSemaphoreTake(s_wifi_up_sem, pdMS_TO_TICKS(kBootBoundedWaitMs));
+    }
+
+    const bool connected = wifi->is_connected();
+    if (!connected) {
+        ESP_LOGW(TAG,
+                 "app_net: not associated after waiting %lldms — UI stays not-ready; backend "
+                 "keeps retrying in the background",
+                 (long long)((esp_timer_get_time() - wait_start_us) / 1000));
+    }
+    // Exit either way, freeing this thread's stack (R4: no permanent park). The
+    // connect starts once the stack is gone, from the poll the observer armed or
+    // the one armed here; a later association still connects through the observer.
+    ESP_LOGI(TAG, "app_net: exiting, stack never used below %u of %u bytes free",
+             (unsigned)uxTaskGetStackHighWaterMark(nullptr), (unsigned)kAppNetStackBytes);
+    s_connect_handoff.thread_exited();
+    if (connected) {
+        note_wifi_up();
+    }
+    return nullptr;
+}
+
+// Spawn the connect thread. Called at the END of app_boot_ui() (home panel up),
+// so the pthread stack — the largest internal allocation on this path — is
+// claimed AFTER the boot's internal-DRAM gates and BEFORE esp_wifi_start()
+// (which runs inside the thread). pthread-created + detached, mirroring net_hil
+// (which documented an ENOMEM near-miss when a net thread spawned after WiFi).
+void app_net_start() {
+    s_wifi_up_sem = xSemaphoreCreateBinary();
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, kAppNetStackBytes);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+    pthread_t thread;
+    int rc = pthread_create(&thread, &attr, app_net_thread_main, nullptr);
+    pthread_attr_destroy(&attr);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "app_net: pthread_create failed: %d — no live connection", rc);
+    }
+}
+#endif // !CONFIG_HELIX_MOCK_PRINTER
+
+} // namespace
+
+// Cooperative yield for the long synchronous boot build. The UI pthread runs at
+// a higher priority than the idle task; a multi-second uninterrupted stretch of
+// XML registration / panel layout starves idle, and the Task WDT (which watches
+// idle) fires (TG1WDT_SYS_RST). Shared boot code (register_xml_components,
+// PanelFactory::setup_panels) calls this between units of work — one tick of
+// vTaskDelay lets idle run and feed the WDT. Cheap (~1 tick each) and correct
+// regardless of how long the boot build takes. Declared extern "C" so the
+// main-tree callers can reference it under their HELIX_PLATFORM_ESP32 gate
+// without pulling in FreeRTOS headers.
+extern "C" void helix_boot_yield(void) {
+    vTaskDelay(1);
+}
+
+// Set by main/ during display bring-up, which probes the GT911 before this
+// runs. Defaults to true so any build that never reports stays silent rather
+// than warning about touch it never checked.
+static bool s_touch_available = true;
+
+extern "C" void app_boot_set_touch_available(bool available) {
+    s_touch_available = available;
+}
+
+extern "C" void app_boot_set_retained_frame(uint8_t* buf, size_t stride, uint8_t* scratch,
+                                            size_t scratch_bytes,
+                                            bool (*claim_rows)(int32_t, int32_t)) {
+    if (!buf) {
+        helix::scroll_blit_uninstall();
+        return;
+    }
+    helix::scroll_blit_install(
+        lv_display_get_default(),
+        helix::RetainedFrame{buf, stride, scratch, scratch_bytes, claim_rows});
+}
+
+extern "C" void app_boot_print_notifications(void) {
+    static const char* const kSeverity[] = {"INFO", "SUCCESS", "WARNING", "ERROR"};
+    const auto entries = NotificationHistory::instance().get_all();
+    printf("\n=====HELIX-NOTES %u\n", static_cast<unsigned>(entries.size()));
+    for (const auto& e : entries) {
+        const auto sev = static_cast<unsigned>(e.severity);
+        printf("NOTE: %s t=%llums %s%s%s\n", sev < 4 ? kSeverity[sev] : "?",
+               static_cast<unsigned long long>(e.timestamp_ms), e.title, e.title[0] ? ": " : "",
+               e.message);
+    }
+    printf("=====HELIX-NOTES-END\n");
+}
+
+extern "C" void app_boot_ui(void) {
+    log_heap_milestone("boot-ui-start");
+
+    // Phase 1: asset root + writable config storage. The packed /assets frogfs
+    // container is read-only; settings live on the /config LittleFS partition.
+    helix::set_asset_root("/assets");
+    // get_data_dir() honors $HELIX_DATA_DIR; without this it returns the relative
+    // "." — meaningless on a CWD-less VFS. The read-only seed reads that go
+    // through get_data_dir() (find_readable's "<data>/assets/config/" seed used
+    // by e.g. PrinterDetector's printer_database.json) then resolve under the
+    // /assets mount (→ /assets/assets/config/...). Matches set_asset_root above.
+    setenv("HELIX_DATA_DIR", "/assets", 1);
+    // get_user_config_dir() honors $HELIX_CONFIG_DIR; without this it returns
+    // the relative "config", which is meaningless on a CWD-less VFS (theme
+    // loader, env backups). Must point at the writable partition.
+    setenv("HELIX_CONFIG_DIR", "/config", 1);
+    helix::Config* config = helix::Config::get_instance();
+    // The cfg partition is 128 KB and a save holds the old and new copies at
+    // once, so the document is kept as small as it can be.
+    config->set_storage(
+        helix::make_file_config_storage("/config/settings.json", helix::ConfigFootprint::Small));
+    config->init("/config/settings.json");
+    // What filament backends remember across boots, e.g. which latched
+    // message each printer has already shown.
+    helix::AmsBackend::init_persistent_state("/config");
+    apply_boot_crash_guard(config);
+
+    // Task 12 R2: first-boot-only Moonraker host/port seed. If settings.json
+    // already has a value (any boot after the user has edited Host in Settings,
+    // or a prior first-boot seed), leave it untouched — the Kconfig value must
+    // never override a user-set value. Seeding here (before any UI/subject
+    // reads Config) means the Settings > Connection > Host row and the real
+    // connect path (app_net_start(), below) both see a consistent value from
+    // their very first read.
+    // The Kconfig URL is empty in the committed tree (a bench address is
+    // site-local, supplied through sdkconfig.local), so skip the seed entirely
+    // rather than writing a blank host every boot — a blank host would build
+    // "ws://:7125/websocket" and feed the reconnect churn loop forever.
+    if (config->get<std::string>(config->df() + "moonraker_host", "").empty()) {
+        HostPort seed = parse_moonraker_kconfig_url(CONFIG_HELIX_HIL_MOONRAKER_URL);
+        if (seed.host.empty()) {
+            ESP_LOGI(TAG, "app_boot: no Moonraker host configured — set it in Settings");
+        } else {
+            config->set(config->df() + "moonraker_host", seed.host);
+            config->set(config->df() + "moonraker_port", seed.port);
+            config->save();
+            ESP_LOGI(TAG, "app_boot: seeded first-boot Moonraker host from Kconfig default (%s:%d)",
+                     seed.host.c_str(), seed.port);
+        }
+    }
+
+    // Phase 2: RuntimeConfig from build config (no CLI). g_runtime_config is a
+    // process-global; MoonrakerManager + SubjectInitializer read it back.
+    RuntimeConfig& rc = *get_runtime_config();
+#if CONFIG_HELIX_MOCK_PRINTER
+    // NOTE: we deliberately do NOT set rc.test_mode here. test_mode would route
+    // MoonrakerManager through the app-layer mock arms, which construct the
+    // libhv-based MoonrakerClientMock/MoonrakerAPIMock — unlinkable on ESP32.
+    // The synthetic driver above provides mock data instead.
+#endif
+
+    // Phase 3: UI update queue (registers its high-priority drain timer), then
+    // fonts BEFORE theme init. helix_fonts_register() is the link-anchored
+    // medium-tier face set; AssetManager::register_all() adds the full token
+    // set (aliased) + images. Both must precede globals.xml/theme — the
+    // responsive font registrar hard-aborts on an unresolved font token.
+    helix::ui::update_queue_init();
+    helix_fonts_register();
+    AssetManager::register_all();
+
+    // Phase 4: globals scope (theme consts, font tokens) then theme init.
+    std::string globals = "A:" + helix::asset_path("ui_xml/globals.xml");
+    if (lv_xml_register_component_from_file(globals.c_str()) != LV_RESULT_OK) {
+        spdlog::error("app_boot: globals.xml register FAILED ({})", globals);
+    }
+    theme_manager_init(lv_display_get_default(), true);
+    log_heap_milestone("theme-up");
+
+    // Phase 5: custom widgets.
+    register_widgets();
+
+    // Phase 6: translations for the active locale (before XML create — layout
+    // + bindings resolve lv_tr() strings).
+    std::string lang = config->get_language();
+    helix::ui::ensure_translation_loaded(lang);
+    lv_translation_set_language(lang.c_str());
+    log_heap_milestone("translations-up");
+
+    // Phase 7: all XML components from the /assets container. This is the
+    // heaviest boot phase (~300 component templates: frogfs read + decompress +
+    // expat parse each) — the milestone brackets it so the HIL profile can
+    // separate registration cost from panel-build cost (subjects-up → home).
+    helix::register_xml_components();
+    helix::ui::register_builtin_guided_device_flows();
+    log_heap_milestone("xml-registered");
+
+    // The bell opens the notification history panel. Registered BEFORE
+    // app_layout XML is created in build_shell(), as desktop does.
+    helix::ui::notification_register_callbacks();
+
+    // Phase 8: core subjects (PrinterState / AmsState).
+    static SubjectInitializer subjects;
+    subjects.init_core_and_state();
+    get_printer_state().set_active_printer_name(config->get_active_printer_name());
+
+    // Bring LedController up with no API yet so its `led_controllable` and
+    // `led_command_in_flight` subjects are registered for XML before the
+    // home/print-status panels instantiate in build_shell() — print_status_panel
+    // and panel_widget_led bind both. Registration is scope-sensitive, so this
+    // has to sit exactly here, matching desktop (application.cpp, same call and
+    // same phase). Discovery re-runs init() with the real API and client
+    // (init_subsystems_from_hardware); this call only registers subjects.
+    helix::led::LedController::instance().init(nullptr, nullptr);
+
+    // Phase 9: MoonrakerManager — ESP factory arm builds EspMoonrakerClient +
+    // the real MoonrakerAPI over it. init() creates client + API; it does NOT
+    // connect (WiFi is Task 13). In mock builds the client stays idle and the
+    // synthetic driver supplies data.
+    static MoonrakerManager manager;
+    manager.init(rc, config);
+    set_moonraker_manager(&manager);
+    g_manager = &manager;
+#if !CONFIG_HELIX_MOCK_PRINTER
+    // Register the ESP consumer of the Task 7 discovery chain before any connect
+    // can fire it. Harmless when app_net_start() below is gated off (NET_HIL
+    // owns the network): the callbacks just never run because manager never
+    // connects.
+    setup_discovery_callbacks_esp(manager);
+#endif
+
+    // Phase 10: panel subjects, now that the API pointer exists.
+    subjects.init_panels(manager.api(), rc);
+    subjects.init_post(rc);
+
+    // Job queue state — owns `job_queue_count` (plus the two queue text
+    // subjects). The home panel's queue widget, the print-status widget's queue
+    // row, and the job-queue modal each look that subject up from C++ when they
+    // attach, and it is their only rebuild trigger — so it must construct before
+    // build_shell(). Mirrors desktop's Application::init_moonraker() (construct,
+    // init_subjects, publish through the global accessor). Function-static like
+    // the manager above: it lives for the process and is never destroyed on this
+    // platform.
+    static JobQueueState job_queue(manager.api(), manager.client());
+    job_queue.init_subjects();
+    set_job_queue_state(&job_queue);
+
+    // Settings rows bind these by name. No performance source or update checker
+    // runs on this platform, so the Performance row stays hidden (perf_available
+    // = 0) and the update rows read Idle.
+    helix::perf::PerformanceState::instance().init_subjects();
+    UpdateChecker::instance().init();
+
+    // Print history cache: Reprint Last, the print-status idle card and the
+    // file list's success marks all read it through get_print_history_manager()
+    // and render as "no history" while that returns null.
+    static PrintHistoryManager print_history(manager.api(), manager.client());
+    print_history.hold_until_discovery();
+    set_print_history_manager(&print_history);
+    log_heap_milestone("subjects-up");
+
+    // A touch controller that failed to probe no longer aborts boot, so the
+    // only thing telling the user why the panel is unresponsive is this
+    // warning. Enqueued before init_session_services() drains the queue, so it
+    // goes out through the same toast path as the pre-UI backend warnings.
+    if (!s_touch_available) {
+        helix::PendingStartupWarnings::instance().enqueue(
+            helix::PendingStartupWarnings::Severity::ERROR,
+            "Touchscreen not detected - display only");
+    }
+
+    if (!g_boot_auto_connect || !g_boot_crashed_printer_name.empty()) {
+        const std::string text =
+            g_boot_auto_connect
+                ? fmt::format(
+                      fmt::runtime(lv_tr("{} kept crashing the panel; switched back to {}")),
+                      g_boot_crashed_printer_name, config->get_active_printer_name())
+                : fmt::format(
+                      fmt::runtime(lv_tr("{} kept crashing the panel; pick a printer to connect")),
+                      config->get_active_printer_name());
+        helix::PendingStartupWarnings::instance().enqueue(
+            helix::PendingStartupWarnings::Severity::WARNING, text, 15000);
+    }
+
+    // E-stop, abort, the keyboard, notifications and toasts (draining the warnings above
+    // with the pre-UI backend ones), custom printer images, the theme's light/dark
+    // availability, post-op cooldown and filament-consumption tracking. Before
+    // build_shell(): panels raise toasts and bind the E-stop subjects while they build.
+    helix::init_session_services(manager.api(), lv_screen_active());
+    log_heap_milestone("services-up");
+
+#if CONFIG_HELIX_MOCK_PRINTER
+    // Before the shell builds: seed READY/CONNECTED + the printer identity so the
+    // home printer-image widget reads a resolvable PRINTER_TYPE at attach().
+    mock_seed_ready();
+    // Task 15 R3: seed a multi-unit AMS backend so the AMS panels have slots/
+    // colors to render in mock builds (AmsState::init_subjects(), which already
+    // ran in Phase 8 above, left backends_ empty on ESP — see mock_seed_ams()).
+    mock_seed_ams();
+#endif
+
+    // Task 12 R3: tips database. Must run before build_shell() below — the home
+    // panel's TipsWidget calls TipsManager::get_random_unique_tip() from
+    // attach(), which fires as soon as app_layout's XML is created. Mirrors
+    // desktop's Application::init_ui() call (application.cpp). ESP32 boot never
+    // called this (root cause of "No tips available for unique selection" on
+    // every boot — NOT a staging/path bug: printing_tips.json is staged and
+    // find_readable() resolves it correctly under /assets/assets/config/, the
+    // init() call itself was simply missing).
+    if (!helix::TipsManager::get_instance()->init(helix::find_readable("printing_tips.json"))) {
+        spdlog::warn("app_boot: Failed to initialize tips manager");
+    }
+
+    // Phase 11: the app shell (navbar + six resident panels).
+    if (!build_shell()) {
+        spdlog::error("app_boot: shell build failed — UI incomplete");
+        return;
+    }
+
+    ESP_LOGI(TAG, "helix: home panel up");
+    // The desktop's AmsErrorBridge is not in the firmware; this raises a
+    // filament fault outside a running print, AMS panel open or not.
+    helix::ui::init_ams_standing_fault_dialog();
+    log_heap_milestone("home-panel-up");
+    // The .bin font loads at ~2s print into the WiFi RF-cal serial dead window
+    // (CH340 drops off USB); re-log them here where serial is reliable.
+    helix_fonts_log_summary();
+
+    // The HTTP lane's worker runs on a PSRAM stack and must never touch
+    // LittleFS. Its callbacks reach get_thumbnail_cache(), whose first call
+    // creates the cache directory, so the cache is built here on the UI thread,
+    // and the worker is barred from storage before it takes a request.
+    helix::http::EspHttpLane::set_worker_start_hook(
+        [] { helix::fs::forbid_storage_on_this_thread("http_lane"); });
+    get_thumbnail_cache();
+
+#if !CONFIG_HELIX_MOCK_PRINTER && !CONFIG_HELIX_NET_HIL
+    // Bring up WiFi + connect to Moonraker, LAST — the shell is already up, so
+    // the connect thread's stack (the largest internal alloc on this path)
+    // is claimed after every boot internal-DRAM gate, and the not-ready UI is
+    // already on screen while the network converges. Gated off for the NET_HIL
+    // test build (net_hil.cpp owns WiFi + its own client there) and for mock
+    // builds (synthetic driver, no network).
+    app_net_start();
+#endif
+}
+
+extern "C" void app_boot_tick(void) {
+    if (g_manager) {
+        // Drain queued Moonraker notifications + request timeouts on the UI
+        // thread — the work Application does each main-loop iteration.
+        g_manager->process_notifications();
+        g_manager->process_timeouts();
+    }
+    // One-shot steady-state budget sample at t=60s: by then WiFi, WebSocket,
+    // discovery, and live status streaming are all up, so this reads budgets
+    // under real load. It runs once, so it can afford the largest-block walk
+    // log_heap_milestone takes; the per-frame loop never may.
+    // Ten minutes up and connected: a later fallback restart or crash is not part of a loop.
+    static bool restart_streak_cleared = false;
+    if (!restart_streak_cleared && esp_timer_get_time() > kHealthyUptimeUs && g_manager &&
+        g_manager->client() &&
+        g_manager->client()->get_connection_state() == helix::ConnectionState::CONNECTED) {
+        restart_streak_cleared = true;
+        helix::Config* cfg = helix::Config::get_instance();
+        if (helix::end_boot_crash_run(*cfg)) {
+            cfg->save();
+        }
+    }
+
+    // Test-only fault injection; the Kconfig help says how to set it.
+    if (CONFIG_HELIX_FAULT_CRASH_HOST[0] != '\0' && g_manager && g_manager->client() &&
+        g_manager->client()->get_connection_state() == helix::ConnectionState::CONNECTED &&
+        g_manager->client()->get_last_url().find(CONFIG_HELIX_FAULT_CRASH_HOST) !=
+            std::string::npos) {
+        ESP_LOGE(TAG, "fault injection: crashing on %s", CONFIG_HELIX_FAULT_CRASH_HOST);
+        abort();
+    }
+
+    static bool steady_logged = false;
+    if (!steady_logged && esp_timer_get_time() > 60000000LL) {
+        steady_logged = true;
+        log_heap_milestone("steady-60s");
+
+        // Stack headroom for the two IDF-owned tasks that run our code but that
+        // we never sized deliberately: "sys_evt" carries wifi_event_handler
+        // (-> on_got_ip / on_scan_done) and "esp_timer" carries
+        // housekeeping_trampoline (-> process_timeouts -> execute_reconnect).
+        // uxTaskGetStackHighWaterMark reports the MINIMUM free bytes each has
+        // ever had since boot, so sampling once at steady state covers the
+        // whole boot + connect + discovery burst. Without this the only
+        // overflow signal is the canary, which reboots without saying which
+        // task died. Same one-shot, non-loop discipline as the heap numbers
+        // above; the sizes are set in sdkconfig.defaults.
+        struct {
+            const char* name;
+            unsigned configured;
+        } const watched[] = {
+            {"sys_evt", (unsigned)CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE},
+            {"esp_timer", (unsigned)CONFIG_ESP_TIMER_TASK_STACK_SIZE},
+        };
+        for (const auto& t : watched) {
+            TaskHandle_t h = xTaskGetHandle(t.name);
+            if (h) {
+                ESP_LOGI(TAG, "[stack:steady-60s] %s free=%u of %u", t.name,
+                         (unsigned)uxTaskGetStackHighWaterMark(h), t.configured);
+            } else {
+                // Not fatal: the name is an IDF implementation detail and a
+                // rename would only cost us the telemetry, not the boot.
+                ESP_LOGW(TAG, "[stack:steady-60s] task '%s' not found", t.name);
+            }
+        }
+    }
+#if CONFIG_HELIX_MOCK_PRINTER
+    // ~1 Hz synthetic temperature push. tick fires every render iteration
+    // (5-50ms); gate to roughly once a second.
+    static int64_t last = 0;
+    int64_t now = esp_timer_get_time();
+    if (now - last > 1000000) {
+        last = now;
+        mock_push_temps();
+    }
+#endif
+}

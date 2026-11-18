@@ -1,0 +1,739 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "ui_coalesced_timer.h"
+#include "ui_context_menu.h"
+#include "ui_heater_icon_binder.h"
+#include "ui_job_queue_modal.h"
+#include "ui_observer_guard.h"
+#include "ui_runout_guidance_modal.h"
+#include "ui_widget_ref.h"
+
+#include "async_lifetime_guard.h"
+#include "panel_widget.h"
+#if defined(HELIX_PLATFORM_ESP32)
+#include "esp_psram_thumbnail.h"
+#endif
+#include "print_history_manager.h"
+#include "print_lifecycle_state.h" // PrintState, job_holds_machine
+#include "printer_temperature_state.h"
+#include "subject_managed_panel.h"
+
+#include <atomic>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+namespace helix {
+
+class PrinterState;
+enum class PrintJobState;
+
+// Forward-declared friend that gives unit tests access to private static
+// subjects without exposing them on the production API (see [L065]).
+class PrintStatusWidgetTestAccess;
+
+/// The idle tile's three lines describing the newest reprintable print.
+struct LastPrintText {
+    std::string filename;
+    std::string when;
+    std::string meta;
+};
+
+/// Decides the idle tile's text for `job`. `now_s` is the current Unix time in
+/// seconds, passed in so every branch is reachable from a test.
+[[nodiscard]] LastPrintText describe_last_print(const PrintHistoryJob& job, double now_s);
+
+/// What the idle card needs to show its filename, its detail lines and its
+/// action buttons, measured from the live theme.
+struct IdleCardNeeds {
+    int chrome_w = 0; ///< Card padding and border, both sides.
+    int chrome_h = 0;
+    int title_h = 0;   ///< One line of the filename.
+    int detail_h = 0;  ///< The detail column beside the thumbnail: both its lines.
+    int gap = 0;       ///< Between the card's rows, and between the two buttons.
+    int button_h = 0;  ///< One row of buttons.
+    int reprint_w = 0; ///< Each button's natural width: caption plus padding.
+    int queue_w = 0;
+    const lv_font_t* button_font = nullptr;
+};
+
+/// The idle card's needs at the current breakpoint.
+[[nodiscard]] IdleCardNeeds measure_idle_card_needs(int width_px = 0);
+
+/// Whether a box holds the idle card: the filename, the detail column and both
+/// buttons, side by side where the row has room for the two and stacked where
+/// it does not. The detail column always draws its two lines, so a box with
+/// room for one would push the second under the buttons. Monotonic on both
+/// axes, as PanelWidget::fits_at must be.
+[[nodiscard]] bool idle_card_fits(const IdleCardNeeds& needs, int width_px, int height_px);
+
+class PrintStatusWidget : public PanelWidget {
+    friend class PrintStatusWidgetTestAccess;
+
+  public:
+    PrintStatusWidget();
+    ~PrintStatusWidget() override;
+
+    void attach(lv_obj_t* widget_obj, lv_obj_t* parent_screen) override;
+    void detach() override;
+    void on_activate() override;
+    void on_edit_mode_exited() override;
+    void on_size_changed(int colspan, int rowspan, int width_px, int height_px) override;
+    /// Refuses a box the idle card cannot draw in (idle_card_fits). The needs
+    /// are the Detailed card's whatever layout_style is set: the Library card's
+    /// action rows shrink to share their column, so it has no fixed floor.
+    bool fits_at(int width_px, int height_px) const override;
+    /// Factory-registration key. Exposed so callers scanning a heterogeneous
+    /// widget list can match on id() and static_cast, instead of dynamic_cast —
+    /// the firmware builds -fno-rtti.
+    static constexpr const char* kWidgetId = "print_status";
+
+    /// One row of the nozzle-tool picker: what it reads, and the Klipper
+    /// extruder object it pins the temperature display to.
+    struct NozzleToolOption {
+        std::string label;
+        std::string extruder_name;
+    };
+
+    /// The nozzle rows the picker should offer, ordered by extruder index.
+    ///
+    /// Sourced from the extruders PrinterTemperatureState actually discovered,
+    /// never from a tool count: an AMS expands ToolState's tool list to one
+    /// entry per filament slot, so deriving names from that count offered
+    /// "extruder1".."extruder15" on a 4-port AD5X with one hotend - names no
+    /// Klipper object answers to, every one of which the formatter then refused.
+    [[nodiscard]] static std::vector<NozzleToolOption> build_nozzle_tool_options(
+        const std::unordered_map<std::string, helix::ExtruderInfo>& extruders);
+
+    /// Adopt a nozzle pin from the picker. Returns false when the formatter
+    /// cannot bind the named extruder, in which case the widget records the
+    /// "auto" fallback it actually applied rather than the rejected name.
+    bool apply_nozzle_tool_override(const std::string& tool_key);
+
+    const char* id() const override {
+        return kWidgetId;
+    }
+
+    // Configuration
+    void set_config(const nlohmann::json& config) override;
+    bool has_edit_configure() const override {
+        return true;
+    }
+    bool on_edit_configure() override;
+
+    /// Re-check runout condition after wizard completion
+    void trigger_idle_runout_check();
+
+    /// XML event callback — opens print status panel or file browser
+    static void print_card_clicked_cb(lv_event_t* e);
+
+    /// Library row callbacks
+    static void library_files_cb(lv_event_t* e);
+    static void library_last_cb(lv_event_t* e);
+    static void library_recent_cb(lv_event_t* e);
+    static void library_queue_cb(lv_event_t* e);
+
+    /// XML event callbacks — layout selector in configure picker
+    static void print_status_layout_library_cb(lv_event_t* e);
+    static void print_status_layout_detailed_cb(lv_event_t* e);
+
+    /// XML event callback — chevron tap on nozzle temp opens tool picker
+    static void print_status_nozzle_chevron_cb(lv_event_t* e);
+
+    /// Registry of live (attached) widget instances for use-after-free prevention
+    static std::unordered_set<PrintStatusWidget*>& live_instances();
+
+    /// Parent screen used as overlay/modal anchor (e.g., temp graph overlay).
+    lv_obj_t* get_parent_screen() const {
+        return parent_screen_;
+    }
+
+    /// Arc thickness tier (0..4 → 4/6/8/10/12 px). Driven by C++ when the arc
+    /// resizes; consumed by XML bind_style entries in print_status_detailed_active.
+    /// Public so the static helper in the .cpp can publish to it without a friend.
+    static inline lv_subject_t arc_thickness_tier_subject_{};
+
+    // Test accessors (always compiled — used by unit tests)
+    const std::string& layout_style_for_test() const {
+        return layout_style_;
+    }
+    const std::string& nozzle_tool_override_for_test() const {
+        return nozzle_tool_override_;
+    }
+    const nlohmann::json& config_for_test() const {
+        return config_;
+    }
+    static lv_subject_t* layout_effective_subject_for_test() {
+        return &layout_effective_subject_;
+    }
+    static lv_subject_t* show_filament_active_subject_for_test() {
+        return &show_filament_active_subject_;
+    }
+    static lv_subject_t* view_subject_for_test() {
+        return &view_subject_;
+    }
+    // Test-only — drive on_print_state_changed without a real PrinterState change.
+    void on_print_state_changed_for_test(PrintState state) {
+        on_print_state_changed(state);
+    }
+    // Test-only — destroy the singleton formatter regardless of refcount. Used
+    // by test fixtures that reset PrinterState between cases so the next
+    // formatter's observers bind to fresh subjects rather than freed memory.
+    static void destroy_formatter_for_test() {
+        s_formatter_.reset();
+        s_formatter_refcount_ = 0;
+        // The view subject is shared and outlives every instance; a case left
+        // printing would build the next case's tree in the active view.
+        if (detailed_subjects_initialized_) {
+            lv_subject_set_int(&view_subject_, 0);
+        }
+    }
+
+    // Test-only — instantiate the formatter without needing a real attach()
+    static void ensure_formatter_for_test() {
+        // Widget-static subjects (print_status_multi_tool, layout_effective, etc.)
+        // are normally registered in the PrintStatusWidget ctor. Tests construct
+        // only the formatter, so make sure those subjects are alive too — the
+        // formatter writes to multi_tool_subject_ and tests assert on it.
+        init_static_subjects();
+        acquire_formatter();
+    }
+    // Initializes the widget's static-inline subjects + their StaticSubjectRegistry
+    // deinit callback. Idempotent — guarded by *_initialized_ flags inside.
+    // Called from the ctor in production, AND from ensure_formatter_for_test so
+    // tests that only construct the formatter still get the subjects.
+    static void init_static_subjects();
+
+    /// Whether a history entry is the active print. Moonraker records the name
+    /// print_stats reported (@p raw_file), which for a rewritten copy differs
+    /// from the print's identity (@p identity_file); either one matches.
+    [[nodiscard]] static bool history_job_is_active_print(const std::string& history_file,
+                                                          const std::string& raw_file,
+                                                          const std::string& identity_file);
+
+    /// Whether the idle card shows the active print's thumbnail rather than
+    /// resolving one from history. The thumbnail must have been loaded for the
+    /// print (@p thumbnail_file == @p identity_file). While print_stats says
+    /// complete that print is the finished one; otherwise the history head
+    /// (@p history_file, "" when history has none) has to name it.
+    [[nodiscard]] static bool idle_card_shows_active_thumbnail(PrintState state,
+                                                               const std::string& history_file,
+                                                               const std::string& raw_file,
+                                                               const std::string& identity_file,
+                                                               const std::string& thumbnail_file);
+    // Take a reference on the shared DetailedFormatter, building it if this is
+    // the first. Shared by the ctor and ensure_formatter_for_test() so both go
+    // through the same replacement ordering (see the definition).
+    static void acquire_formatter();
+
+    // Floor at zero: destroy_formatter_for_test() zeroes the count outright, so a
+    // release_ that follows one would otherwise drive the count negative and leave
+    // the next acquire unable to recognise itself as the first.
+    static void release_formatter_for_test() {
+        if (s_formatter_refcount_ > 0 && --s_formatter_refcount_ == 0) {
+            s_formatter_.reset();
+        }
+    }
+    // Test-only — forward nozzle override to active formatter; no-op if none alive
+    static void set_nozzle_tool_override_for_test(const std::string& override_name) {
+        if (s_formatter_)
+            s_formatter_->set_nozzle_tool_override(override_name);
+    }
+
+  private:
+    /// Layout selector plus the Show Sections checkbox list, raised from edit
+    /// mode. Every control applies live, so both the Done button and a tap on
+    /// the backdrop commit the card rather than discarding it.
+    class ConfigurePicker : public helix::ui::ContextMenu {
+        HELIX_CONTEXT_MENU_KIND(ConfigurePicker)
+
+      public:
+        explicit ConfigurePicker(PrintStatusWidget& owner) : owner_(owner) {}
+
+        /// Adopt a layout style, repaint the selector and apply it to the live
+        /// widget behind the card. Driven by the two XML layout buttons.
+        void select_layout(const char* style);
+
+        /// Read the checkbox rows back into the widget's config, save, and apply
+        /// the new visibility. Idempotent, so every toggle can call it.
+        void apply_state();
+
+      protected:
+        const char* xml_component_name() const override {
+            return "print_status_configure_picker";
+        }
+        /// 30% of the screen, clamped so the option rows stay readable on a 480px
+        /// panel and the card does not sprawl on a 1024px one.
+        CardWidth card_width() const override {
+            return {30, 160, 240};
+        }
+        void on_created(lv_obj_t* backdrop) override;
+        /// A tap outside the card commits the toggles and re-gates the widget.
+        /// on_close_clicked() inherits this, so Done takes the same path.
+        void on_backdrop_clicked() override;
+
+      private:
+        /// Paint the selected layout button with the primary accent and hide the
+        /// Show Sections group in Detailed mode. Visuals only - no checkbox read,
+        /// no save, so opening the card cannot rewrite the config.
+        void apply_visuals();
+
+        PrintStatusWidget& owner_;
+    };
+
+    /// Single-select list of the printer's tools, raised by a tap on the nozzle
+    /// readout in the detailed-active footer. Picking a row pins the temperature
+    /// display to that tool; a tap outside it chooses nothing.
+    class NozzleToolPicker : public helix::ui::ContextMenu {
+        HELIX_CONTEXT_MENU_KIND(NozzleToolPicker)
+
+      public:
+        explicit NozzleToolPicker(PrintStatusWidget& owner) : owner_(owner) {}
+
+      protected:
+        const char* xml_component_name() const override {
+            return "print_status_nozzle_tool_picker";
+        }
+        /// The card is width="content" in XML but its option_list is width="100%",
+        /// which cannot resolve against a still-empty content area (L082). The base
+        /// applies this policy before on_created() builds the rows, so they size
+        /// against a real width instead of collapsing to zero.
+        CardWidth card_width() const override {
+            return {30, 160, 240};
+        }
+        void on_created(lv_obj_t* backdrop) override;
+
+      private:
+        /// What a row needs to act on a tap: which tool it names, and the picker
+        /// that owns it. Heap-allocated per row, hung off the row's user_data and
+        /// freed by that row's own LV_EVENT_DELETE handler.
+        struct RowPayload {
+            NozzleToolPicker* picker;
+            std::string tool_key;
+        };
+
+        PrintStatusWidget& owner_;
+    };
+
+    helix::ui::WidgetRef widget_obj_;
+    helix::ui::WidgetRef parent_screen_;
+
+    // Cached widget references (looked up after XML creation)
+    helix::ui::WidgetRef print_card_thumb_;          // Idle state thumbnail
+    helix::ui::WidgetRef print_card_active_thumb_;   // Active print thumbnail
+    helix::ui::WidgetRef print_card_layout_;         // Row/column layout container
+    helix::ui::WidgetRef print_card_thumb_wrap_;     // Thumbnail wrapper
+    helix::ui::WidgetRef print_card_info_;           // Info section (filename/progress)
+    helix::ui::WidgetRef print_card_preparing_info_; // Preparing info section
+
+    // Library idle state widgets
+    helix::ui::WidgetRef print_card_thumb_compact_; // Compact thumbnail
+    helix::ui::WidgetRef library_row_last_;         // Print Last row (for graying out)
+    helix::ui::WidgetRef compact_row_last_;         // Compact Print Last row (for graying out)
+
+    // Size-dependent subject for XML bindings (1 = column/2x2 mode, 0 = row/wide)
+    static inline lv_subject_t column_mode_subject_;
+    static inline bool column_mode_subject_initialized_ = false;
+
+    // Physical width band (0=compact, 1=normal, 2=wide) derived from width_px in
+    // on_size_changed — see panel_widget_size.h. Exposed to XML so library_body's
+    // per-tier gap (panel_widget_print_status.xml bind_style entries) can react to
+    // it; the raw pixel value isn't meaningful to XML the way a small band enum is.
+    static inline lv_subject_t width_band_subject_;
+    static inline bool width_band_subject_initialized_ = false;
+
+    // Per-element visibility subjects — 1 = hidden, 0 = visible. XML binds via
+    // <bind_flag_if_eq ... ref_value="1"/>. apply_visibility_config() computes
+    // each value from show_* config + breakpoint + job queue count and writes
+    // these subjects; C++ no longer toggles LV_OBJ_FLAG_HIDDEN directly.
+    // Initial values (0 visible, 1 hidden for queue) are safe defaults for the
+    // first XML parse; apply_visibility_config() re-derives them on attach().
+    static inline lv_subject_t title_hidden_subject_;
+    static inline lv_subject_t files_hidden_subject_;
+    static inline lv_subject_t last_hidden_subject_;
+    static inline lv_subject_t recent_hidden_subject_;
+    static inline lv_subject_t queue_hidden_subject_;
+    static inline lv_subject_t actions_hidden_subject_;
+    static inline bool visibility_subjects_initialized_ = false;
+
+    // The library actions' measured fit (decide_library_actions_layout): 1 = every
+    // label hidden; 1 = two rows of buttons instead of one column; and in two
+    // rows, the action cell (0 files, 1 last, 2 recent, 3 queue) that starts the
+    // second row, -1 otherwise.
+    static inline lv_subject_t library_icon_only_subject_;
+    static inline lv_subject_t library_grid_subject_;
+    static inline lv_subject_t library_wrap_at_subject_;
+
+    // Detailed-layout subjects (static inline — shared across all widget instances)
+    static inline lv_subject_t layout_effective_subject_{}; // after width gating
+    // Combined gate: (width band == wide) AND (filament_used > 0). Avoids the
+    // phantom-row gap when filament hasn't started extruding yet.
+    static inline lv_subject_t show_filament_active_subject_{};
+    static inline lv_subject_t multi_tool_subject_{}; // 1 when the readout names its nozzle
+    /// 1 when there is more than one heater to pin the readout to.
+    static inline lv_subject_t nozzle_pickable_subject_{};
+    // 1 when the detailed temperature row has room for the picker chevron.
+    static inline lv_subject_t nozzle_picker_fits_subject_{};
+    // 1 when the detailed layer row has room for the Z height after the count.
+    static inline lv_subject_t layer_z_fits_subject_{};
+    // 1 when the detailed time row has room for the elapsed time before the remaining.
+    static inline lv_subject_t elapsed_fits_subject_{};
+    // 1 when the detailed data column has the height for the speed row.
+    static inline lv_subject_t speed_fits_subject_{};
+    // 1 when the filament row has room for the flow after the length used.
+    static inline lv_subject_t flow_fits_subject_{};
+    // Resolved thumbnail path for the detailed-idle hero; written by
+    // reset_print_card_to_idle alongside the lv_image_set_src calls on the
+    // Library-mode thumbs, so all three idle thumbnails share the same source.
+    // The initializer here is never observed — init_static_subjects()
+    // overwrites the buffer with the asset-root-resolved benchy path before
+    // lv_subject_init_string publishes it. A static array needs a constant
+    // initializer, so the accessor cannot be called from this line.
+    static inline char idle_thumb_path_buf_[512] = "A:assets/images/benchy_thumbnail_white.png";
+    static inline lv_subject_t idle_thumb_path_subject_{};
+    // Single subject driving visibility of all five card-body siblings:
+    //   0 = idle_library_full   (print_card_idle)
+    //   1 = idle_library_compact (print_card_idle_compact)
+    //   2 = idle_detailed       (print_card_idle_detailed)
+    //   3 = active_library      (print_card_layout)
+    //   4 = active_detailed     (print_card_printing_detailed)
+    // C++ sets this; XML binds with bind_flag_if_not_eq per sibling.
+    static inline lv_subject_t view_subject_{};
+    static inline bool detailed_subjects_initialized_ = false;
+
+    // Compact mode and state tracking
+    bool is_active_ = false; // job_holds_machine() (drives view_subject_)
+    bool is_compact_ = false;
+    bool is_column_ = false;
+    bool last_print_available_ = false;
+    // Cached granted pixel size, for picker-dismiss re-gating (regate_after_configure
+    // re-runs on_size_changed after a layout_style change, and needs the widget's last
+    // known real size — colspan/rowspan are no longer read).
+    int last_width_px_ = 0;
+    int last_height_px_ = 0;
+
+    // PrinterState reference for subject access
+    PrinterState& printer_state_;
+
+    // Observers (RAII cleanup via ObserverGuard)
+    ObserverGuard print_state_observer_;
+    ObserverGuard print_thumbnail_path_observer_;
+#if defined(HELIX_PLATFORM_ESP32)
+    ObserverGuard print_psram_thumb_observer_; ///< Ditto, via the PSRAM generation counter
+    /// PSRAM-resident thumbnail currently shown in print_card_active_thumb_,
+    /// and in the idle thumbs while they show the finished print. There is no
+    /// cache file on this platform, so this shared_ptr is what keeps the image
+    /// src's buffer alive. Main-thread only (its destructor drops the LVGL image
+    /// cache entry).
+    std::shared_ptr<helix::ui::EspPsramThumbnail> esp_thumbnail_;
+#endif
+    ObserverGuard filament_runout_observer_;
+    ObserverGuard job_queue_count_observer_;
+    ObserverGuard connection_observer_;
+    ObserverGuard breakpoint_observer_;
+    ObserverGuard view_observer_;     ///< Rebinds the active views after any card rebuilds them
+    ObserverGuard language_observer_; ///< Re-fits the library actions to the new labels
+    ObserverGuard theme_observer_; ///< Re-fits the idle action captions after a font switch
+
+    // Guards async thumbnail callbacks and history observer from use-after-free
+    helix::AsyncLifetimeGuard lifetime_;
+
+    // Supersedes in-flight idle thumbnail loads. Bumped by every
+    // reset_print_card_to_idle() through ThumbnailLoadContext, so a load started
+    // for the previous history head can no longer land on top of a newer one.
+    // Per-instance, unlike the static-inline subjects above: two dashboard
+    // widgets resolve independently, and a shared counter would have each
+    // cancelling the other's fetch.
+    std::atomic<uint32_t> idle_thumb_generation_{0};
+
+    // The last-print render this instance last published to the idle thumbs:
+    // its cache key, the source stamp it was validated against and the image
+    // path. Empty key while the placeholder is up. A re-resolve of that same
+    // render that misses the cache refetches behind it instead of putting the
+    // placeholder back, as long as the image file is still there.
+    struct ShownIdleThumb {
+        std::string key;
+        time_t source_modified = 0;
+        std::string src;
+    };
+    ShownIdleThumb shown_idle_thumb_;
+    void publish_idle_render(const std::string& key, time_t source_modified,
+                             const std::string& src);
+
+    // An idle resolve is queued and has not run yet. Every trigger in the same
+    // tick (attach, the print-state observer's first notification, activation)
+    // joins it rather than issuing its own request for the same file.
+    helix::ui::CoalescedTimer idle_reset_timer_{0};
+    // Same coalescing for the active-print thumbnail write.
+    helix::ui::CoalescedTimer active_apply_timer_{0};
+    // Re-fits the library actions on the next tick, once the layout that asked
+    // for it has settled.
+    helix::ui::CoalescedTimer library_fit_timer_{0};
+
+    // Thermal tint for the detailed-active heater icons. Plain by-value members
+    // of THIS instance — never on the shared/refcounted s_formatter_ below.
+    // Dashboard widget instances are recycled by the panel manager: attach A ->
+    // detach A -> attach B, and A's deferred LV_EVENT_DELETE fires after B has
+    // taken over. Per-instance ownership is what keeps that safe, since each
+    // animator's delete callback carries its own `this` (see the equivalent
+    // guard for the progress arc in attach_arc(), below).
+    helix::ui::HeaterIconBinder nozzle_icon_binder_;
+    helix::ui::HeaterIconBinder bed_icon_binder_;
+    helix::ui::HeaterIconBinder chamber_icon_binder_;
+
+    // History observer for updating idle thumbnail when history loads
+    helix::HistoryChangedCallback history_changed_cb_;
+
+    // Filament runout modal
+    RunoutGuidanceModal runout_modal_;
+    bool runout_modal_shown_ = false;
+
+    /// Set once this widget has seen the runout sensor report filament present.
+    /// It separates the two ways the sensor can read empty while idle: an edge
+    /// this widget watched happen, and a state it found on arrival.
+    bool saw_filament_present_ = false;
+
+    // Job queue
+    helix::JobQueueModal job_queue_modal_;
+
+    // First-instance formatter singleton — owns observers + formatted subjects for Detailed layout.
+    // Created on the first widget attach, destroyed on the last detach.
+    class DetailedFormatter {
+      public:
+        DetailedFormatter();
+        ~DetailedFormatter();
+        DetailedFormatter(const DetailedFormatter&) = delete;
+        DetailedFormatter& operator=(const DetailedFormatter&) = delete;
+        DetailedFormatter(DetailedFormatter&&) = delete;
+        DetailedFormatter& operator=(DetailedFormatter&&) = delete;
+
+        /// Override is "" or "auto" for auto-tracking; else extruder name like "extruder1".
+        /// Silently falls back to auto if the named subject doesn't resolve.
+        // Returns true if the override resolved to a real subject. False
+        // when override_name was non-empty/non-"auto" but the per-tool subject
+        // didn't exist (formatter falls back to "auto"); callers should clear
+        // their cached override / persisted config to match.
+        bool set_nozzle_tool_override(const std::string& override_name);
+
+        /// Called by widget attach() to hand the arc widget to the formatter
+        void attach_arc(lv_obj_t* arc);
+
+        /// Re-fit the arc to a square sized from its parent column (call from on_size_changed)
+        void resize_arc();
+
+      private:
+        helix::ui::WidgetRef arc_widget_;
+        std::string current_nozzle_override_ = "auto";
+
+        SubjectManager subjects_;
+
+        // Buffers backing string subjects
+        char layer_text_buf_[32];     // "~9999 / 9999"
+        char layer_z_text_buf_[24];   // "· 123.4mm"
+        char elapsed_text_buf_[24];   // "12h 34m"
+        char remaining_text_buf_[24]; // "99h 59m"
+        char filament_text_buf_[32];  // "1234.5m"
+        char speed_text_buf_[16];     // "1234mm/s"
+        char flow_text_buf_[24];      // "· 123.4 mm³/s"
+        size_t speed_flow_len_ = 0;
+        char nozzle_text_buf_[32];       // "265 / 270°C" — kept for tool_override test
+        char nozzle_badge_text_buf_[16]; // the nozzle icon's 1-based tool number
+        char idle_filename_buf_[160];
+        char idle_when_buf_[64]; // "Completed 2 hours ago"
+        char idle_meta_buf_[64]; // "12.4m filament • 4h 12m"
+
+        // String + int subjects (XML-registered)
+        lv_subject_t layer_text_subject_{};
+        lv_subject_t layer_z_text_subject_{};
+        lv_subject_t elapsed_text_subject_{};
+        lv_subject_t remaining_text_subject_{};
+        lv_subject_t filament_text_subject_{};
+        lv_subject_t speed_text_subject_{};
+        lv_subject_t flow_text_subject_{};
+        lv_subject_t nozzle_text_subject_{};
+        lv_subject_t nozzle_badge_text_subject_{};
+        // Proxy temp subjects (decidegrees, int) so the temp_display widget in the
+        // detailed XML follows the pinned tool when nozzle_tool_override is set.
+        // The formatter's nozzle_temp/target observers re-bind on pin change and
+        // copy the source value into these proxies; XML binds temp_display to them.
+        lv_subject_t nozzle_current_subject_{};
+        lv_subject_t nozzle_target_subject_{};
+        lv_subject_t idle_filename_subject_{};
+        lv_subject_t idle_when_subject_{};
+        lv_subject_t idle_meta_subject_{};
+        lv_subject_t idle_has_last_subject_{};
+
+        // Print-state observers (wired in constructor, RAII cleanup via ObserverGuard)
+        ObserverGuard layer_current_observer_;
+        ObserverGuard layer_total_observer_;
+        ObserverGuard elapsed_observer_;
+        ObserverGuard time_left_observer_;
+        ObserverGuard filament_used_observer_;
+        ObserverGuard live_velocity_observer_;
+        ObserverGuard live_extruder_velocity_observer_;
+
+        // Nozzle temp observers — paired SubjectLifetimes per [L084] for per-tool pinning.
+        // Lifetimes declared before observers so they destruct AFTER observers in ~dtor
+        // (the observer's cleanup queries the lifetime; reverse order = UAF on dead lifetime).
+        // In auto mode the static active_extruder subjects are observed, lifetimes unused.
+        SubjectLifetime nozzle_temp_lifetime_;
+        SubjectLifetime nozzle_target_lifetime_;
+        ObserverGuard nozzle_temp_observer_;
+        ObserverGuard nozzle_target_observer_;
+
+        /// Bound to ToolState's tools_version subject, not tool_count: the badge
+        /// gate counts extruders, and a spool/status refresh can change the
+        /// extruder mapping without moving the tool count.
+        ObserverGuard tools_version_observer_;
+        ObserverGuard active_tool_observer_;
+        ObserverGuard language_observer_;
+
+        void update_layer_text();
+        void update_time_text();
+        void update_filament_text();
+        void update_speed_flow_text();
+        void update_nozzle_text();
+        void update_multi_tool();
+        void update_tool_label();
+        void update_idle_fields();
+
+        helix::HistoryChangedCallback history_cb_;
+    };
+
+    static inline std::unique_ptr<DetailedFormatter> s_formatter_;
+    static inline int s_formatter_refcount_ = 0;
+
+    // Print card update methods
+    [[nodiscard]] std::string get_last_print_thumbnail_path() const;
+    /// Source gcode mtime for the history entry get_last_print_thumbnail_path()
+    /// resolved from, or 0 when history is unavailable or Moonraker omitted it.
+    /// Feeds ThumbnailRequest::source_modified so a re-slice under the same
+    /// filename invalidates the cached render instead of being served forever.
+    [[nodiscard]] time_t get_last_print_source_modified() const;
+    void handle_print_card_clicked();
+    void on_print_state_changed(PrintState state);
+#if defined(HELIX_PLATFORM_ESP32)
+    /// Pull the current PSRAM thumbnail from PrinterState, hold a reference,
+    /// and point print_card_active_thumb_ at its descriptor. Main thread only;
+    /// no-op when the widget is unattached or nothing has been fetched yet.
+    /// Called from the generation observer AND from attach(), because widget
+    /// instances are recycled and a fresh attach must re-apply the image.
+    void apply_esp_psram_thumbnail();
+    /// Point every thumb still showing @p dsc back at the placeholder, so the
+    /// buffer behind it can be released. lv_image stores a variable source as
+    /// the raw pointer.
+    void unpoint_thumbs_from(const void* dsc);
+    /// The detailed-idle hero image, or nullptr outside that layout.
+    [[nodiscard]] lv_obj_t* idle_hero_thumb() const;
+    /// Show the active print's PSRAM thumbnail on the idle thumbs when the
+    /// history head is that print, which is how a finished print looks. False
+    /// when it is not available, leaving the history resolve.
+    bool show_finished_print_image();
+#endif
+    void reset_print_card_to_idle();
+    // Publish one resolved idle thumbnail everywhere it is shown: the two
+    // imperative Library-mode thumbs and idle_thumb_path_subject_, which the
+    // detailed-idle hero reads through bind_src. A member rather than a lambda
+    // inside reset_print_card_to_idle() so the async fetch completion publishes
+    // to all three too, instead of leaving the hero on the placeholder.
+    void set_thumb_on_widgets(const char* src);
+    // Schedule reset_print_card_to_idle() on the next LVGL tick via run_next_tick.
+    // Required when called from UpdateQueue::process_pending() contexts (subject
+    // observers, token.defer bodies): reset_print_card_to_idle() does synchronous
+    // lv_image_set_src which cascades into lv_obj_update_layout up to the page
+    // grid; if populate_page is mid-rebuild, grid_update reads freed track data
+    // and SIGSEGVs (J2URYGSM AD5M / SY6JLLKJ / FFATPQWB Pi5).
+    void defer_reset_print_card_to_idle();
+    // Schedule the active-print thumbnail write on the next LVGL tick. Same
+    // reasoning as defer_reset_print_card_to_idle() above — the observer body
+    // runs inside UpdateQueue::process_pending(), and lv_image_set_src there
+    // cascades into lv_obj_update_layout across a page grid populate_page may
+    // still be rebuilding. The tick reads the thumbnail current THEN, never a
+    // value captured here: another source can apply a newer image before it
+    // fires, and a captured value would overwrite it.
+    void defer_apply_active_thumbnail();
+    void apply_active_thumbnail();
+    void update_idle_compact_mode();
+    void update_active_layout_mode();
+    // Apply the imperative print-card row/column flex layout for is_column_.
+    // Called from on_size_changed and attach() (recycled-instance re-sync, #1109).
+    void apply_card_layout();
+    void update_last_print_availability();
+
+    // Library action handlers
+    void handle_library_files();
+    void handle_library_last();
+    void handle_library_recent();
+    void handle_library_queue();
+    void update_job_queue_row_visibility();
+
+    // Filament runout handling
+    void check_and_show_idle_runout_modal();
+    void show_idle_runout_modal();
+
+    /**
+     * @brief Dispatch the idle runout dialog's "Load filament" action.
+     *
+     * The fourth surface on the shared plan_load() ladder — AMS backend, then
+     * the configured LOAD_FILAMENT macro, then raw gcode. It used to
+     * set_active(PanelId::Filament) instead, which navigated out from under the
+     * dialog and left the user to find the Load button themselves.
+     *
+     * Same two constraints as FilamentRunoutHandler, and for the same reasons:
+     * ParamPolicy::Suppress (a parameter modal would stack on top of this live
+     * dialog, whose observers keep firing underneath it), and a refusal never
+     * navigates. Main thread only — reached from the modal's button callback
+     * after its LifetimeToken check.
+     */
+    void dispatch_load();
+
+    // Configuration state
+    nlohmann::json config_;
+    std::string layout_style_ = "library";      // "library" | "detailed"
+    std::string nozzle_tool_override_ = "auto"; // "auto" | extruder name
+    bool show_title_ = true;
+    bool show_print_files_ = true;
+    bool show_reprint_last_ = true;
+    bool show_recent_prints_ = true;
+    bool show_job_queue_ = true;
+
+    void show_configure_picker();
+    void apply_visibility_config();
+    void recompute_actions_visibility();
+    /// Measure the library action buttons on the next tick and publish whether
+    /// they drop their labels and re-flow into two rows.
+    void schedule_library_fit();
+    void fit_library_actions();
+    // Re-run width gating against the last granted size, so a layout_style change
+    // made in the configure picker reaches the visible widget the moment the card
+    // closes.
+    void regate_after_configure();
+    // Recompute the view subject from (is_active_, layout_style_, is_compact_).
+    // Drives bind_flag_if_not_eq on the five card-body siblings.
+    void update_view_subject();
+    /// Finds and wires the widgets of the active branch (views 3 and 4), which the XML
+    /// builds only while a print holds the machine; clears them when it is not built.
+    void bind_active_branch();
+
+    void show_nozzle_tool_picker(lv_obj_t* anchor);
+    // Whether the nozzle readout offers its tool picker at the current size.
+    bool nozzle_picker_available() const;
+    // Publishes print_status_nozzle_picker_fits from the temperature row's widths.
+    void fit_nozzle_picker();
+    // Publishes whether the named row has room for all of its pieces, the ones
+    // its optional piece hides included.
+    void fit_row(const char* row_name, lv_subject_t* fits);
+    void fit_speed_row();
+
+    // The two context menus this widget raises
+    ConfigurePicker configure_picker_{*this};
+    NozzleToolPicker nozzle_picker_{*this};
+};
+
+} // namespace helix

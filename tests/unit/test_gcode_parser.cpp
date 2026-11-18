@@ -1,0 +1,2026 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "gcode_parser.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+#include <map>
+#include <set>
+#include <sstream>
+#include <unistd.h>
+#include <vector>
+
+#include "../catch_amalgamated.hpp"
+
+using namespace helix::gcode;
+using Catch::Approx;
+
+namespace {
+
+/// extract_header_metadata() over a file holding @p content.
+GCodeHeaderMetadata header_of(const std::string& content) {
+    const std::string path = "/tmp/test_gcode_header_" + std::to_string(getpid()) + ".gcode";
+    std::ofstream(path) << content;
+    auto metadata = extract_header_metadata(path);
+    std::remove(path.c_str());
+    return metadata;
+}
+
+} // namespace
+
+TEST_CASE("GCodeParser - Basic movement parsing", "[gcode][parser]") {
+    GCodeParser parser;
+
+    SECTION("Parse simple G1 move") {
+        parser.parse_line("G1 X10 Y20 Z0.2");
+        auto file = parser.finalize();
+
+        // Debug: print all layers
+        for (size_t i = 0; i < file.layers.size(); i++) {
+            std::cerr << "DEBUG: Layer " << i << " Z=" << file.layers[i].z_height
+                      << " segments=" << file.layers[i].segments.size() << std::endl;
+        }
+
+        REQUIRE(file.layers.size() == 1);
+        REQUIRE(file.layers[0].z_height == Approx(0.2f));
+    }
+
+    SECTION("Parse movement with extrusion") {
+        parser.parse_line("G1 X10 Y20 Z0.2 E1.5");
+        auto file = parser.finalize();
+
+        REQUIRE(file.layers.size() == 1);
+        REQUIRE(file.total_segments == 1);
+        REQUIRE(file.layers[0].segments[0].is_extrusion == true);
+    }
+
+    SECTION("Parse travel move (no extrusion)") {
+        parser.parse_line("G0 X10 Y20 Z0.2");
+        auto file = parser.finalize();
+
+        REQUIRE(file.total_segments == 1);
+        REQUIRE(file.layers[0].segments[0].is_extrusion == false);
+    }
+}
+
+TEST_CASE("GCodeParser - Layer detection", "[gcode][parser]") {
+    GCodeParser parser;
+
+    SECTION("Detect Z-axis layer changes") {
+        parser.parse_line("G1 X0 Y0 Z0.2 E1");
+        parser.parse_line("G1 X10 Y10 E2");
+        parser.parse_line("G1 X0 Y0 Z0.4 E3"); // New layer
+        parser.parse_line("G1 X20 Y20 E4");
+
+        auto file = parser.finalize();
+
+        REQUIRE(file.layers.size() == 2);
+        REQUIRE(file.layers[0].z_height == Approx(0.2f));
+        REQUIRE(file.layers[1].z_height == Approx(0.4f));
+    }
+
+    SECTION("Find layer by Z height") {
+        parser.parse_line("G1 X0 Y0 Z0.2");
+        parser.parse_line("G1 X0 Y0 Z0.4");
+        parser.parse_line("G1 X0 Y0 Z0.6");
+
+        auto file = parser.finalize();
+
+        REQUIRE(file.find_layer_at_z(0.2f) == 0);
+        REQUIRE(file.find_layer_at_z(0.4f) == 1);
+        REQUIRE(file.find_layer_at_z(0.6f) == 2);
+        REQUIRE(file.find_layer_at_z(0.3f) == 0); // Closest to 0.2
+    }
+}
+
+TEST_CASE("GCodeParser - Coordinate extraction", "[gcode][parser]") {
+    GCodeParser parser;
+
+    SECTION("Extract X, Y, Z coordinates") {
+        parser.parse_line("G1 X10.5 Y-20.3 Z0.2");
+        parser.parse_line("G1 X15.5 Y-15.3"); // Move from previous position
+
+        auto file = parser.finalize();
+
+        REQUIRE(file.total_segments == 2);
+        auto& seg1 = file.layers[0].segments[0];
+        REQUIRE(seg1.start.x == Approx(0.0f));
+        REQUIRE(seg1.start.y == Approx(0.0f));
+        REQUIRE(seg1.end.x == Approx(10.5f));
+        REQUIRE(seg1.end.y == Approx(-20.3f));
+
+        auto& seg2 = file.layers[0].segments[1];
+        REQUIRE(seg2.start.x == Approx(10.5f));
+        REQUIRE(seg2.start.y == Approx(-20.3f));
+        REQUIRE(seg2.end.x == Approx(15.5f));
+        REQUIRE(seg2.end.y == Approx(-15.3f));
+    }
+
+    SECTION("A leading '+' on a coordinate parses as the signed value, matching Klipper") {
+        // Klipper's klippy/gcode.py reads G-code parameters through Python's float(),
+        // which accepts a single leading '+' ("+10.5" == 10.5); the preview follows suit
+        // so a hand-written G1 X+10.5 renders the same move the printer executes.
+        parser.parse_line("G1 X+10.5 Y20");
+        auto file = parser.finalize();
+
+        REQUIRE(file.total_segments == 1);
+        auto& seg = file.layers[0].segments[0];
+        CHECK(seg.start.x == Approx(0.0f));
+        CHECK(seg.end.x == Approx(10.5f));
+        CHECK(seg.end.y == Approx(20.0f));
+    }
+
+    SECTION("A lone '+' or a second sign right after it is not extracted, matching Klipper") {
+        // Python's float() rejects "+" and a second sign immediately after the first
+        // ("++1", "+-1"); the coordinate is treated as absent in each case.
+        parser.parse_line("G1 X+ Y1");
+        parser.parse_line("G1 X++1 Y2");
+        parser.parse_line("G1 X+-1 Y3");
+        auto file = parser.finalize();
+
+        REQUIRE(file.total_segments == 3);
+        for (const auto& seg : file.layers[0].segments) {
+            CHECK(seg.end.x == Approx(0.0f)); // X was never extracted on any of the 3 lines
+        }
+        CHECK(file.layers[0].segments[0].end.y == Approx(1.0f));
+        CHECK(file.layers[0].segments[1].end.y == Approx(2.0f));
+        CHECK(file.layers[0].segments[2].end.y == Approx(3.0f));
+    }
+}
+
+TEST_CASE("GCodeParser - Comments and whitespace", "[gcode][parser]") {
+    GCodeParser parser;
+
+    SECTION("Ignore comments") {
+        parser.parse_line("G1 X10 Y20 ; This is a comment");
+        auto file = parser.finalize();
+
+        REQUIRE(file.total_segments == 1);
+    }
+
+    SECTION("Handle blank lines") {
+        parser.parse_line("");
+        parser.parse_line("   ");
+        parser.parse_line("\t");
+        auto file = parser.finalize();
+
+        REQUIRE(file.total_segments == 0);
+    }
+
+    SECTION("Trim leading/trailing whitespace") {
+        parser.parse_line("  G1 X10 Y20  ");
+        auto file = parser.finalize();
+
+        REQUIRE(file.total_segments == 1);
+    }
+}
+
+TEST_CASE("GCodeParser - EXCLUDE_OBJECT commands", "[gcode][parser]") {
+    GCodeParser parser;
+
+    SECTION("Parse EXCLUDE_OBJECT_DEFINE") {
+        parser.parse_line("EXCLUDE_OBJECT_DEFINE NAME=cube_1 CENTER=50,75 "
+                          "POLYGON=[[45,70],[55,70],[55,80],[45,80]]");
+        auto file = parser.finalize();
+
+        REQUIRE(file.objects.size() == 1);
+        REQUIRE(file.objects.count("cube_1") == 1);
+
+        auto& obj = file.objects["cube_1"];
+        REQUIRE(obj.name == "cube_1");
+        REQUIRE(obj.center.x == Approx(50.0f));
+        REQUIRE(obj.center.y == Approx(75.0f));
+        REQUIRE(obj.polygon.size() == 4);
+    }
+
+    SECTION("Track segments by object") {
+        parser.parse_line("EXCLUDE_OBJECT_DEFINE NAME=part1 CENTER=10,10");
+        parser.parse_line("EXCLUDE_OBJECT_START NAME=part1");
+        parser.parse_line("G1 X10 Y10 Z0.2 E1");
+        parser.parse_line("G1 X20 Y10 E2");
+        parser.parse_line("EXCLUDE_OBJECT_END NAME=part1");
+        parser.parse_line("G1 X30 Y30 E3"); // Not in object
+
+        auto file = parser.finalize();
+
+        REQUIRE(file.total_segments == 3);
+        REQUIRE(file.get_object_name(file.layers[0].segments[0].object_name_index) == "part1");
+        REQUIRE(file.get_object_name(file.layers[0].segments[1].object_name_index) == "part1");
+        REQUIRE(file.layers[0].segments[2].object_name_index < 0);
+    }
+
+    SECTION("CENTER with a leading '+' parses as the signed value, matching Klipper") {
+        // Klipper's float()-based parameter parsing accepts a leading '+', so the
+        // preview must too rather than reading the object as centered at its default.
+        parser.parse_line("EXCLUDE_OBJECT_DEFINE NAME=cube_1 CENTER=+50,75");
+        auto file = parser.finalize();
+
+        REQUIRE(file.objects.count("cube_1") == 1);
+        auto& obj = file.objects["cube_1"];
+        CHECK(obj.center.x == Approx(50.0f));
+        CHECK(obj.center.y == Approx(75.0f));
+    }
+
+    SECTION("POLYGON point with a leading '+' parses as the signed value, matching Klipper") {
+        parser.parse_line("EXCLUDE_OBJECT_DEFINE NAME=cube_3 "
+                          "POLYGON=[[+45,70],[55,70],[55,+80],[45,80]]");
+        auto file = parser.finalize();
+
+        REQUIRE(file.objects.count("cube_3") == 1);
+        auto& obj = file.objects["cube_3"];
+        REQUIRE(obj.polygon.size() == 4);
+        CHECK(obj.polygon[0].x == Approx(45.0f));
+        CHECK(obj.polygon[2].y == Approx(80.0f));
+    }
+
+    SECTION("POLYGON point too large for float truncates the polygon instead of writing inf") {
+        // An overflowing token reports result_out_of_range, so
+        // parse_exclude_object_command stops at the first bad point instead of
+        // continuing with an inf coordinate.
+        std::string huge_x(80, '9');
+        parser.parse_line("EXCLUDE_OBJECT_DEFINE NAME=cube_2 CENTER=50,75 "
+                          "POLYGON=[[45,70],[" +
+                          huge_x + ",70],[55,80],[45,80]]");
+        auto file = parser.finalize();
+
+        REQUIRE(file.objects.count("cube_2") == 1);
+        auto& obj = file.objects["cube_2"];
+        REQUIRE(obj.polygon.size() == 1); // only the point before the overflow survives
+        CHECK(obj.polygon[0].x == Approx(45.0f));
+        CHECK(obj.polygon[0].y == Approx(70.0f));
+    }
+}
+
+TEST_CASE("GCodeParser - Bounding box calculation", "[gcode][parser]") {
+    GCodeParser parser;
+
+    SECTION("Calculate global bounding box from extrusion moves") {
+        parser.parse_line("G1 X-10 Y-10 Z0.2 E1");
+        parser.parse_line("G1 X100 Y50 Z10.5 E2");
+
+        auto file = parser.finalize();
+
+        REQUIRE(file.global_bounding_box.min.x == Approx(-10.0f));
+        REQUIRE(file.global_bounding_box.min.y == Approx(-10.0f));
+        REQUIRE(file.global_bounding_box.min.z == Approx(0.2f));
+        REQUIRE(file.global_bounding_box.max.x == Approx(100.0f));
+        REQUIRE(file.global_bounding_box.max.y == Approx(50.0f));
+        REQUIRE(file.global_bounding_box.max.z == Approx(10.5f));
+
+        auto center = file.global_bounding_box.center();
+        REQUIRE(center.x == Approx(45.0f));
+        REQUIRE(center.y == Approx(20.0f));
+    }
+}
+
+TEST_CASE("GCodeParser - Positioning modes", "[gcode][parser]") {
+    GCodeParser parser;
+
+    SECTION("Absolute positioning (G90, default)") {
+        parser.parse_line("G90"); // Absolute mode
+        parser.parse_line("G1 X10 Y10 Z0.2");
+        parser.parse_line("G1 X20 Y20"); // Absolute coordinates
+
+        auto file = parser.finalize();
+
+        REQUIRE(file.layers[0].segments[1].end.x == Approx(20.0f));
+        REQUIRE(file.layers[0].segments[1].end.y == Approx(20.0f));
+    }
+
+    SECTION("Relative positioning (G91)") {
+        parser.parse_line("G91"); // Relative mode
+        parser.parse_line("G1 X10 Y10 Z0.2");
+        parser.parse_line("G1 X5 Y5"); // Relative offset
+
+        auto file = parser.finalize();
+
+        REQUIRE(file.layers[0].segments[1].end.x == Approx(15.0f));
+        REQUIRE(file.layers[0].segments[1].end.y == Approx(15.0f));
+    }
+}
+
+TEST_CASE("GCodeParser - Statistics", "[gcode][parser]") {
+    GCodeParser parser;
+
+    SECTION("Count segments by type") {
+        parser.parse_line("G1 X10 Y10 Z0.2 E1"); // Extrusion
+        parser.parse_line("G0 X20 Y20");         // Travel
+        parser.parse_line("G1 X30 Y30 E2");      // Extrusion
+
+        auto file = parser.finalize();
+
+        REQUIRE(file.total_segments == 3);
+        REQUIRE(file.layers[0].segment_count_extrusion == 2);
+        REQUIRE(file.layers[0].segment_count_travel == 1);
+    }
+}
+
+TEST_CASE("GCodeParser - Real-world G-code snippet", "[gcode][parser]") {
+    GCodeParser parser;
+
+    SECTION("Parse typical slicer output") {
+        std::vector<std::string> gcode = {
+            "; Layer 0",
+            "G1 Z0.2 F7800",
+            "G1 X95.3 Y95.3",
+            "G1 X95.3 Y104.7 E0.5",
+            "G1 X104.7 Y104.7 E1.0",
+            "G1 X104.7 Y95.3 E1.5",
+            "G1 X95.3 Y95.3 E2.0",
+            "; Layer 1",
+            "G1 Z0.4 F7800",
+            "G1 X95.3 Y95.3",
+            "G1 X95.3 Y104.7 E2.5",
+            "G1 X104.7 Y104.7 E3.0",
+        };
+
+        for (const auto& line : gcode) {
+            parser.parse_line(line);
+        }
+
+        auto file = parser.finalize();
+
+        REQUIRE(file.layers.size() == 2);
+        REQUIRE(file.layers[0].z_height == Approx(0.2f));
+        REQUIRE(file.layers[1].z_height == Approx(0.4f));
+        REQUIRE(file.total_segments > 0);
+    }
+}
+
+TEST_CASE("GCodeParser - Move type differentiation", "[gcode][parser]") {
+    // A move extrudes when E advances; G0, G1 without E and a retracting G1 travel.
+    struct Row {
+        const char* what;
+        std::vector<const char*> lines;
+        std::vector<bool> extrudes; ///< one per segment, in order
+    };
+    const Row rows[] = {
+        {"G0 moves travel", {"G0 X10 Y10 Z0.2", "G0 X20 Y20"}, {false, false}},
+        {"G1 without E travels", {"G1 X10 Y10 Z0.2", "G1 X20 Y20"}, {false, false}},
+        {"G1 with E extrudes", {"G1 X10 Y10 Z0.2 E0.5", "G1 X20 Y20 E1.0"}, {true, true}},
+        {"a G1 whose E falls retracts",
+         {"M82", "G1 X10 Y10 Z0.2 E1.0", "G1 X15 Y15 E0.5", "G1 X20 Y20"},
+         {true, false, false}},
+        {"mixed G0 and G1",
+         {"G1 X10 Y10 Z0.2 E1.0", "G0 X20 Y20", "G1 X30 Y30 E2.0", "G0 X0 Y0"},
+         {true, false, true, false}},
+    };
+    for (const auto& r : rows) {
+        DYNAMIC_SECTION(r.what) {
+            GCodeParser parser;
+            for (const char* line : r.lines) {
+                parser.parse_line(line);
+            }
+            auto file = parser.finalize();
+
+            const auto n = static_cast<long>(r.extrudes.size());
+            const auto extruding = std::count(r.extrudes.begin(), r.extrudes.end(), true);
+            REQUIRE(file.total_segments == static_cast<size_t>(n));
+            CHECK(file.layers[0].segment_count_extrusion == static_cast<size_t>(extruding));
+            CHECK(file.layers[0].segment_count_travel == static_cast<size_t>(n - extruding));
+            for (size_t i = 0; i < r.extrudes.size(); ++i) {
+                INFO("segment " << i);
+                CHECK(file.layers[0].segments[i].is_extrusion == r.extrudes[i]);
+            }
+        }
+    }
+}
+
+TEST_CASE("GCodeParser - Extrusion amount tracking", "[gcode][parser]") {
+    // M82 reports the delta from the last absolute E; M83 takes E as the delta.
+    struct Row {
+        const char* what;
+        std::vector<const char*> lines;
+        std::vector<float> amounts;
+    };
+    const Row rows[] = {
+        {"absolute (M82)", {"M82", "G1 X10 Y10 Z0.2 E1.0", "G1 X20 Y20 E3.0"}, {1.0f, 2.0f}},
+        {"relative (M83)", {"M83", "G1 X10 Y10 Z0.2 E1.5", "G1 X20 Y20 E2.0"}, {1.5f, 2.0f}},
+        {"a retraction is negative",
+         {"M82", "G1 X10 Y10 Z0.2 E5.0", "G1 X15 Y15 E3.0"},
+         {5.0f, -2.0f}},
+    };
+    for (const auto& r : rows) {
+        DYNAMIC_SECTION(r.what) {
+            GCodeParser parser;
+            for (const char* line : r.lines) {
+                parser.parse_line(line);
+            }
+            auto file = parser.finalize();
+            REQUIRE(file.layers[0].segments.size() >= r.amounts.size());
+            for (size_t i = 0; i < r.amounts.size(); ++i) {
+                INFO("segment " << i);
+                CHECK(file.layers[0].segments[i].extrusion_amount == Approx(r.amounts[i]));
+            }
+        }
+    }
+}
+
+TEST_CASE("GCodeParser - Travel move characteristics", "[gcode][parser]") {
+    GCodeParser parser;
+
+    SECTION("Travel moves create segments with start and end positions") {
+        parser.parse_line("G0 X10 Y10 Z0.2"); // Move to (10,10,0.2)
+        parser.parse_line("G0 X100 Y100");    // Travel to (100,100)
+
+        auto file = parser.finalize();
+
+        // Verify both travel moves created segments
+        REQUIRE(file.layers[0].segments.size() == 2);
+
+        // Check first segment: from (0,0,0) to (10,10,0.2)
+        auto& seg1 = file.layers[0].segments[0];
+        REQUIRE(seg1.end.x == Approx(10.0f));
+        REQUIRE(seg1.end.y == Approx(10.0f));
+        REQUIRE(seg1.is_extrusion == false);
+
+        // Check second segment: from (10,10,0.2) to (100,100,0.2)
+        auto& seg2 = file.layers[0].segments[1];
+        REQUIRE(seg2.start.x == Approx(10.0f));
+        REQUIRE(seg2.start.y == Approx(10.0f));
+        REQUIRE(seg2.end.x == Approx(100.0f));
+        REQUIRE(seg2.end.y == Approx(100.0f));
+        REQUIRE(seg2.is_extrusion == false);
+    }
+
+    SECTION("Z-only travel moves (layer changes)") {
+        parser.parse_line("G1 X10 Y10 Z0.2 E1");
+        parser.parse_line("G0 Z0.4"); // Z-hop / layer change
+        parser.parse_line("G1 X10 Y10 E2");
+
+        auto file = parser.finalize();
+
+        REQUIRE(file.layers.size() == 2);
+        REQUIRE(file.layers[0].z_height == Approx(0.2f));
+        REQUIRE(file.layers[1].z_height == Approx(0.4f));
+    }
+}
+
+// ============================================================================
+// Metadata Extraction Tests
+// ============================================================================
+
+TEST_CASE("extract_header_metadata - OrcaSlicer file footer parsing", "[gcode][metadata]") {
+    // Note: OrcaSlicer places print time and filament usage at the END of the file,
+    // not in the header. The extract_header_metadata function must scan both
+    // header and footer to get complete metadata.
+
+    SECTION("Parse estimated print time from footer (format: NNm NNs)") {
+        // Create a temp file with footer-style metadata
+        auto metadata = header_of("; generated by OrcaSlicer 2.3.1\n"
+                                  "; total layer number: 100\n"
+                                  "G1 X10 Y10 Z0.2\n" // Some G-code to simulate content
+                                  "G1 X20 Y20\n"
+                                  // Footer metadata (like OrcaSlicer produces)
+                                  "; estimated printing time (normal mode) = 36m 25s\n"
+                                  "; total filament used [g] = 10.98\n");
+
+        // 36m 25s = 36*60 + 25 = 2185 seconds
+        REQUIRE(metadata.estimated_time_seconds == Approx(2185.0));
+        REQUIRE(metadata.filament_used_g == Approx(10.98));
+    }
+
+    SECTION("Parse estimated print time with hours (format: Nh NNm NNs)") {
+        auto metadata = header_of("; generated by PrusaSlicer\n"
+                                  "G1 X10 Y10 Z0.2\n"
+                                  "; estimated printing time (normal mode) = 2h 30m 15s\n");
+
+        // 2h 30m 15s = 2*3600 + 30*60 + 15 = 9015 seconds
+        REQUIRE(metadata.estimated_time_seconds == Approx(9015.0));
+    }
+
+    SECTION("Parse slicer info from header") {
+        auto metadata = header_of("; generated by: OrcaSlicer 2.3.1\n"
+                                  "; slicer_version = 2.3.1\n"
+                                  "; total layer number: 240\n"
+                                  "G1 X10 Y10 Z0.2\n");
+
+        REQUIRE(metadata.slicer == "OrcaSlicer 2.3.1");
+        REQUIRE(metadata.layer_count == 240);
+    }
+
+    SECTION("Parse filament weight with decimal") {
+        auto metadata = header_of("G1 X10 Y10 Z0.2\n"
+                                  "; total filament used [g] = 25.73\n"
+                                  "; filament used [mm] = 8532.5\n");
+
+        REQUIRE(metadata.filament_used_g == Approx(25.73));
+        REQUIRE(metadata.filament_used_mm == Approx(8532.5));
+    }
+
+    SECTION("Parse height fields from OrcaSlicer footer") {
+        auto metadata = header_of("; generated by OrcaSlicer 2.3.1\n"
+                                  "G1 X10 Y10 Z0.2\n"
+                                  // Footer metadata (OrcaSlicer places these at end of file)
+                                  "; layer_height = 0.24\n"
+                                  "; first_layer_height = 0.300\n"
+                                  "; max_z_height: 52.62\n");
+
+        REQUIRE(metadata.layer_height == Approx(0.24));
+        REQUIRE(metadata.first_layer_height == Approx(0.300));
+        REQUIRE(metadata.object_height == Approx(52.62));
+    }
+
+    SECTION("Handle file with metadata only in footer (large file simulation)") {
+        std::string temp_path =
+            "/tmp/test_metadata_" + std::to_string(getpid()) + "_footer_only.gcode";
+        std::ofstream out(temp_path);
+
+        // Header with basic info
+        out << "; generated by: TestSlicer 1.0\n";
+        out << "; total layer number: 50\n";
+
+        // Simulate a lot of G-code (header scanner will stop at G-code)
+        for (int i = 0; i < 1000; i++) {
+            out << "G1 X" << (i % 100) << " Y" << (i % 100) << " E" << (i * 0.1) << "\n";
+        }
+
+        // Footer metadata - should be picked up by footer scanner
+        out << "; estimated printing time (normal mode) = 1h 5m 30s\n";
+        out << "; total filament used [g] = 15.5\n";
+        out.close();
+
+        auto metadata = extract_header_metadata(temp_path);
+
+        // Verify footer metadata was found
+        // 1h 5m 30s = 3600 + 300 + 30 = 3930 seconds
+        REQUIRE(metadata.estimated_time_seconds == Approx(3930.0));
+        REQUIRE(metadata.filament_used_g == Approx(15.5));
+
+        // Verify header metadata was also found
+        REQUIRE(metadata.slicer == "TestSlicer 1.0");
+        REQUIRE(metadata.layer_count == 50);
+
+        std::remove(temp_path.c_str());
+    }
+}
+
+TEST_CASE("extract_header_metadata - Cura format parsing", "[gcode][metadata]") {
+    // Cura places metadata at the BEGINNING of the file with different syntax
+
+    SECTION("Parse Cura slicer info") {
+        auto metadata = header_of(";Generated with Cura_SteamEngine 5.6.0\n"
+                                  ";TIME:7036\n"
+                                  ";Filament used: 1.20047m\n"
+                                  ";Layer height: 0.12\n"
+                                  "G1 X10 Y10 Z0.2\n");
+
+        REQUIRE(metadata.slicer == "Cura_SteamEngine 5.6.0");
+        REQUIRE(metadata.layer_height == Approx(0.12));
+    }
+
+    SECTION("Parse Cura time in seconds") {
+        auto metadata = header_of(";TIME:7036\n"
+                                  "G1 X10 Y10 Z0.2\n");
+
+        // 7036 seconds = ~117 minutes = ~1h 57m
+        REQUIRE(metadata.estimated_time_seconds == Approx(7036.0));
+    }
+
+    SECTION("Parse Cura filament in meters") {
+        auto metadata = header_of(";Filament used: 1.20047m\n"
+                                  "G1 X10 Y10 Z0.2\n");
+
+        // 1.20047m = 1200.47mm
+        REQUIRE(metadata.filament_used_mm == Approx(1200.47));
+        // Grams estimated as PLA (1.24 g/cm^3) through a 1.75mm cross-section
+        REQUIRE(metadata.filament_used_g == Approx(3.5805).margin(0.0005));
+    }
+}
+
+TEST_CASE("extract_header_metadata - slot-aligned colors and day-long times", "[gcode][metadata]") {
+    SECTION("An empty color slot keeps later tools on their own index") {
+        auto metadata =
+            extract_header_metadata_from_content("; extruder_colour = #FF0000;;#0000FF\nG1 X10\n");
+        REQUIRE(metadata.tool_colors.size() == 3);
+        CHECK(metadata.tool_colors[0] == "#FF0000");
+        CHECK(metadata.tool_colors[1].empty());
+        CHECK(metadata.tool_colors[2] == "#0000FF");
+    }
+
+    SECTION("A colon-separated color line fills the palette") {
+        auto metadata =
+            extract_header_metadata_from_content("; filament_colour: #FF0000;#00FF00\nG1 X10\n");
+        REQUIRE(metadata.tool_colors.size() == 2);
+        CHECK(metadata.tool_colors[0] == "#FF0000");
+        CHECK(metadata.tool_colors[1] == "#00FF00");
+    }
+
+    SECTION("A print longer than a day keeps its days") {
+        auto metadata = extract_header_metadata_from_content(
+            "; estimated printing time (normal mode) = 1d 2h 3m 4s\nG1 X10\n");
+        CHECK(metadata.estimated_time_seconds == Approx(93784.0));
+    }
+
+    SECTION("A key with no space after the semicolon keeps its first letter") {
+        auto metadata = extract_header_metadata_from_content(";layer_height = 0.16\nG1 X10\n");
+        CHECK(metadata.layer_height == Approx(0.16));
+    }
+}
+
+TEST_CASE("extract_header_metadata - Real OrcaSlicer file", "[gcode][metadata][integration]") {
+    // Test with actual test gcode file if it exists
+    std::string test_file = "assets/test_gcodes/3DBenchy.gcode";
+
+    std::ifstream check(test_file);
+    if (!check.good()) {
+        SKIP("Test G-code file not found: " << test_file);
+    }
+    check.close();
+
+    auto metadata = extract_header_metadata(test_file);
+
+    SECTION("Parses slicer information") {
+        // 3DBenchy.gcode header: "; generated by OrcaSlicer 2.3.1"
+        REQUIRE_FALSE(metadata.slicer.empty());
+        REQUIRE(metadata.slicer.find("OrcaSlicer") != std::string::npos);
+    }
+
+    SECTION("Parses layer count from header") {
+        // "; total layer number: 240"
+        REQUIRE(metadata.layer_count == 240);
+    }
+
+    SECTION("Parses estimated print time from footer") {
+        // "; estimated printing time (normal mode) = 36m 25s" at line ~126292
+        // 36m 25s = 2185 seconds
+        REQUIRE(metadata.estimated_time_seconds > 0);
+        REQUIRE(metadata.estimated_time_seconds == Approx(2185.0));
+    }
+
+    SECTION("Parses filament weight from footer") {
+        // "; total filament used [g] = 10.98" at line ~126289
+        REQUIRE(metadata.filament_used_g > 0);
+        REQUIRE(metadata.filament_used_g == Approx(10.98));
+    }
+
+    SECTION("Parses filament type from header") {
+        // "; filament_type = PLA" in header
+        REQUIRE(metadata.filament_type == "PLA");
+    }
+
+    SECTION("Parses height fields from footer") {
+        // "; layer_height = 0.2" and "; first_layer_height = 0.200" in footer
+        // "; max_z_height: 48.00" in header
+        REQUIRE(metadata.layer_height == Approx(0.2));
+        REQUIRE(metadata.first_layer_height == Approx(0.200));
+        REQUIRE(metadata.object_height == Approx(48.00));
+    }
+}
+
+TEST_CASE("extract_header_metadata - Real exclude_object_test file",
+          "[gcode][metadata][gcode_parser][integration]") {
+    std::string test_file = "assets/test_gcodes/exclude_object_test.gcode";
+
+    std::ifstream check(test_file);
+    if (!check.good()) {
+        SKIP("Test G-code file not found: " << test_file);
+    }
+    check.close();
+
+    auto metadata = extract_header_metadata(test_file);
+
+    SECTION("Parses slicer information") {
+        REQUIRE_FALSE(metadata.slicer.empty());
+        REQUIRE(metadata.slicer.find("OrcaSlicer") != std::string::npos);
+        // Version 2.3 embedded in slicer string
+        REQUIRE(metadata.slicer.find("2.3") != std::string::npos);
+    }
+
+    SECTION("Parses layer count") {
+        REQUIRE(metadata.layer_count == 218);
+    }
+
+    SECTION("Parses layer height fields") {
+        REQUIRE(metadata.layer_height == Approx(0.24));
+        REQUIRE(metadata.first_layer_height == Approx(0.300));
+    }
+
+    SECTION("Parses object height from max_z_height") {
+        REQUIRE(metadata.object_height == Approx(52.62));
+    }
+
+    SECTION("Parses estimated print time") {
+        REQUIRE(metadata.estimated_time_seconds > 0);
+    }
+
+    SECTION("Parses filament usage") {
+        REQUIRE(metadata.filament_used_mm > 0);
+    }
+}
+
+// ============================================================================
+// Filament Type Detection Tests
+// ============================================================================
+
+TEST_CASE("extract_header_metadata - Filament type parsing", "[gcode][metadata][filament_type]") {
+    // A multi-extruder value is kept whole, semicolons and all; consumers split it.
+    const std::pair<const char*, const char*> rows[] = {
+        {"; generated by TestSlicer 1.0\n; filament_type = PLA\n", "PLA"},
+        {"; generated by PrusaSlicer 2.6\n; filament_type = PLA;PLA;PLA;PLA\n", "PLA;PLA;PLA;PLA"},
+        {"; generated by OrcaSlicer 2.3.1\n; filament_type = PETG;PLA;ABS\n", "PETG;PLA;ABS"},
+        {"; filament_type = PETG\n", "PETG"},
+        {"; filament_type = ABS\n", "ABS"},
+        {"; filament_type = TPU\n", "TPU"},
+        {"; filament_type = ASA\n", "ASA"},
+        {"; filament_type = Nylon\n", "Nylon"},
+        {"; filament_type = PC\n", "PC"},
+        {"; generated by TestSlicer 1.0\n; total layer number: 100\n", ""}, // absent
+    };
+    for (const auto& [header, expected] : rows) {
+        INFO(header);
+        CHECK(header_of(std::string(header) + "G1 X10 Y10 Z0.2\n").filament_type == expected);
+    }
+}
+
+TEST_CASE("extract_header_metadata - Real multi-extruder file", "[gcode][metadata][integration]") {
+    // Test with actual multi-extruder G-code file if it exists
+    std::string test_file = "assets/test_gcodes/Benchbin_MK4_MMU3.gcode";
+
+    std::ifstream check(test_file);
+    if (!check.good()) {
+        SKIP("Test G-code file not found: " << test_file);
+    }
+    check.close();
+
+    auto metadata = extract_header_metadata(test_file);
+
+    SECTION("Parses filament type from multi-extruder file") {
+        // File has "; filament_type = PLA;PLA;PLA;PLA"
+        // Preserves full semicolon-separated string; consumers split as needed
+        REQUIRE_FALSE(metadata.filament_type.empty());
+        REQUIRE(metadata.filament_type == "PLA;PLA;PLA;PLA");
+    }
+}
+
+// ============================================================================
+// Layer Counting Tests
+// ============================================================================
+
+TEST_CASE("GCodeParser - Layer counting with LAYER_CHANGE markers", "[gcode][parser][layers]") {
+    GCodeParser parser;
+
+    SECTION("Use LAYER_CHANGE markers when present") {
+        // Simulate G-code with slicer layer markers - should count 3 layers
+        parser.parse_line(";LAYER_CHANGE");
+        parser.parse_line(";Z:0.2");
+        parser.parse_line("G1 Z0.2 F3000");
+        parser.parse_line("G1 X10 Y10 E1");
+        parser.parse_line("G1 X20 Y10 E2");
+        // Z-hop (should NOT create new layer)
+        parser.parse_line("G1 Z0.5 F3000"); // z-hop up
+        parser.parse_line("G0 X30 Y30");    // travel
+        parser.parse_line("G1 Z0.2 F3000"); // z-hop down
+        parser.parse_line("G1 X40 Y40 E3"); // continue extrusion
+        parser.parse_line(";LAYER_CHANGE"); // Second layer marker
+        parser.parse_line(";Z:0.4");
+        parser.parse_line("G1 Z0.4 F3000");
+        parser.parse_line("G1 X10 Y10 E4");
+        parser.parse_line(";LAYER_CHANGE"); // Third layer marker
+        parser.parse_line(";Z:0.6");
+        parser.parse_line("G1 Z0.6 F3000");
+        parser.parse_line("G1 X10 Y10 E5");
+
+        auto file = parser.finalize();
+
+        // Should have exactly 3 layers (from markers), not more from z-hops
+        REQUIRE(file.layers.size() == 3);
+        REQUIRE(file.layers[0].z_height == Approx(0.2f));
+        REQUIRE(file.layers[1].z_height == Approx(0.4f));
+        REQUIRE(file.layers[2].z_height == Approx(0.6f));
+    }
+
+    SECTION("Fall back to Z-based detection when no markers") {
+        // G-code without slicer markers - must fall back to Z changes
+        parser.parse_line("G1 Z0.2 F3000");
+        parser.parse_line("G1 X10 Y10 E1");
+        parser.parse_line("G1 Z0.4 F3000");
+        parser.parse_line("G1 X20 Y20 E2");
+        parser.parse_line("G1 Z0.6 F3000");
+        parser.parse_line("G1 X30 Y30 E3");
+
+        auto file = parser.finalize();
+
+        // Without markers, falls back to Z-based counting
+        REQUIRE(file.layers.size() == 3);
+    }
+
+    SECTION("LAYER:N format (alternative slicer syntax)") {
+        parser.parse_line(";LAYER:0");
+        parser.parse_line("G1 Z0.2 F3000");
+        parser.parse_line("G1 X10 Y10 E1");
+        parser.parse_line(";LAYER:1");
+        parser.parse_line("G1 Z0.4 F3000");
+        parser.parse_line("G1 X20 Y20 E2");
+
+        auto file = parser.finalize();
+
+        // Should recognize LAYER:N format
+        REQUIRE(file.layers.size() == 2);
+    }
+
+    SECTION("Ignore LAYER_COUNT metadata (not a layer change)") {
+        parser.parse_line("; total layer number = 100"); // Metadata, not layer change
+        parser.parse_line(";LAYER_CHANGE");
+        parser.parse_line("G1 Z0.2 E1");
+        parser.parse_line(";LAYER_CHANGE");
+        parser.parse_line("G1 Z0.4 E2");
+
+        auto file = parser.finalize();
+
+        // Should have 2 layers from markers, not confused by metadata
+        REQUIRE(file.layers.size() == 2);
+    }
+}
+
+TEST_CASE("GCodeParser - Z-hop handling", "[gcode][parser][layers][zhop]") {
+    GCodeParser parser;
+
+    SECTION("Z-hop moves should not create new layers") {
+        // This is the bug scenario: z-hop creates phantom layers
+        parser.parse_line(";LAYER_CHANGE");
+        parser.parse_line("G1 Z0.2 E1"); // Real layer
+        parser.parse_line("G1 X10 Y10 E2");
+        parser.parse_line("G1 Z0.6");    // Z-hop up (travel, no E)
+        parser.parse_line("G0 X50 Y50"); // Travel move
+        parser.parse_line("G1 Z0.2");    // Z-hop down
+        parser.parse_line("G1 X60 Y60 E3");
+
+        auto file = parser.finalize();
+
+        // Should have only 1 layer - the z-hop should not create layers
+        REQUIRE(file.layers.size() == 1);
+        REQUIRE(file.layers[0].z_height == Approx(0.2f));
+    }
+}
+
+// ============================================================================
+// Thumbnail Extraction from Content Tests
+// ============================================================================
+
+TEST_CASE("get_best_thumbnail_from_content - Basic extraction", "[gcode][thumbnail]") {
+    SECTION("Extract thumbnail from minimal valid gcode content") {
+        // Create minimal gcode with a tiny base64-encoded PNG
+        // This is a minimal 1x1 PNG (smallest valid PNG)
+        // PNG magic: 89 50 4E 47 0D 0A 1A 0A, followed by minimal chunks
+        std::string minimal_png_base64 =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAA"
+            "BJRU5ErkJggg==";
+
+        std::stringstream gcode;
+        gcode << "; generated by OrcaSlicer 2.3.1\n";
+        gcode << "; thumbnail begin 1x1 " << minimal_png_base64.size() << "\n";
+        // Split base64 into lines (like real gcode)
+        gcode << "; " << minimal_png_base64 << "\n";
+        gcode << "; thumbnail end\n";
+        gcode << "G28 ; home\n";
+
+        auto thumb = get_best_thumbnail_from_content(gcode.str());
+
+        REQUIRE(thumb.width == 1);
+        REQUIRE(thumb.height == 1);
+
+        // Verify PNG magic bytes
+        REQUIRE(thumb.png_data.size() >= 8);
+        REQUIRE(thumb.png_data[0] == 0x89);
+        REQUIRE(thumb.png_data[1] == 'P');
+        REQUIRE(thumb.png_data[2] == 'N');
+        REQUIRE(thumb.png_data[3] == 'G');
+    }
+
+    SECTION("Returns empty for gcode without thumbnails") {
+        std::string gcode = "; generated by TestSlicer\n"
+                            "G28 ; home\n"
+                            "G1 X10 Y10 Z0.2\n"
+                            "G1 X20 Y20 E1.0\n";
+
+        REQUIRE(get_best_thumbnail_from_content(gcode).png_data.empty());
+    }
+
+    SECTION("Returns empty for empty content") {
+        REQUIRE(get_best_thumbnail_from_content("").png_data.empty());
+    }
+
+    SECTION("Truncated thumbnail block emits nothing") {
+        std::string gcode = "; generated by TestSlicer\n"
+                            "; thumbnail begin 48x48 100\n"
+                            "; iVBORw0KGgoAAAANSUhEU\n"
+                            // Missing "thumbnail end" - the block never closes
+                            "G28 ; home\n";
+
+        // A block counts only once "thumbnail end" / "png end" closes it; real
+        // gcode ends the header scan with the block still open. A truncated
+        // block must NOT yield a half-decoded PNG that image decoding chokes on.
+        REQUIRE(get_best_thumbnail_from_content(gcode).png_data.empty());
+    }
+}
+
+TEST_CASE("get_best_thumbnail_from_content - an unusable JPEG yields to the PNG",
+          "[gcode][thumbnail]") {
+    const std::string png_block = "; thumbnail begin 1x1 96\n"
+                                  "; "
+                                  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+"
+                                  "M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==\n"
+                                  "; thumbnail end\n";
+
+    SECTION("a JPEG wider than the 4096px decode limit") {
+        const std::string gcode =
+            png_block +
+            "; thumbnail_JPG begin 5000x8 1040\n"
+            "; /9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkz\n"
+            "; ODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2Nj\n"
+            "; Y2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAAIE4gDASIA\n"
+            "; AhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQA\n"
+            "; AAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3\n"
+            "; ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWm\n"
+            "; p6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEA\n"
+            "; AwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSEx\n"
+            "; BhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElK\n"
+            "; U1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3\n"
+            "; uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDHooor\n"
+            "; kPLCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooo\n"
+            "; oAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiig\n"
+            "; AooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigD//Z\n"
+            "; thumbnail_JPG end\n"
+            "G28\n";
+        auto thumb = get_best_thumbnail_from_content(gcode);
+        CHECK(thumb.width == 1);
+        CHECK(thumb.height == 1);
+        REQUIRE(thumb.png_data.size() >= 8);
+        CHECK(thumb.png_data[0] == 0x89);
+    }
+
+    SECTION("a 600px-wide JPEG converts and wins on size") {
+        const std::string gcode =
+            png_block +
+            "; thumbnail_JPG begin 600x8 1040\n"
+            "; /9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkz\n"
+            "; ODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2Nj\n"
+            "; Y2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAAIAlgDASIA\n"
+            "; AhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQA\n"
+            "; AAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3\n"
+            "; ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWm\n"
+            "; p6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEA\n"
+            "; AwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSEx\n"
+            "; BhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElK\n"
+            "; U1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3\n"
+            "; uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDHooor\n"
+            "; kPLCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooo\n"
+            "; oAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiig\n"
+            "; AooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigD//Z\n"
+            "; thumbnail_JPG end\n"
+            "G28\n";
+        auto thumb = get_best_thumbnail_from_content(gcode);
+        CHECK(thumb.width == 600);
+        CHECK(thumb.height == 8);
+        REQUIRE(thumb.png_data.size() >= 8);
+        CHECK(thumb.png_data[0] == 0x89);
+    }
+
+    SECTION("a JPEG that does not decode") {
+        const std::string gcode =
+            png_block +
+            "; thumbnail_JPG begin 300x300 96\n"
+            "; /9j/4G5vdCBhIGpwZWcgYXQgYWxsbm90IGEganBlZyBhdCBhbGxub3QgYSBqcGVnIGF0IGFsbG5v\n"
+            "; dCBhIGpwZWcgYXQgYWxs\n"
+            "; thumbnail_JPG end\n"
+            "G28\n";
+        auto thumb = get_best_thumbnail_from_content(gcode);
+        CHECK(thumb.width == 1);
+        REQUIRE(thumb.png_data.size() >= 8);
+        CHECK(thumb.png_data[0] == 0x89);
+    }
+
+    SECTION("a 512px-wide JPEG still converts") {
+        const std::string gcode =
+            png_block +
+            "; thumbnail_JPG begin 512x8 1008\n"
+            "; /9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkz\n"
+            "; ODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2Nj\n"
+            "; Y2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wAARCAAIAgADASIA\n"
+            "; AhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQA\n"
+            "; AAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3\n"
+            "; ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWm\n"
+            "; p6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEA\n"
+            "; AwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSEx\n"
+            "; BhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElK\n"
+            "; U1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3\n"
+            "; uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDHooor\n"
+            "; kPLCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooo\n"
+            "; oAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiig\n"
+            "; AooooAKKKKACiiigD//Z\n"
+            "; thumbnail_JPG end\n"
+            "G28\n";
+        auto thumb = get_best_thumbnail_from_content(gcode);
+        CHECK(thumb.width == 512);
+        REQUIRE(thumb.png_data.size() >= 8);
+        CHECK(thumb.png_data[0] == 0x89);
+    }
+}
+
+TEST_CASE("get_best_thumbnail_from_content - Cura JPEG thumbnail comes back as PNG",
+          "[gcode][thumbnail]") {
+    // Cura writes "; thumbnail_JPG begin"; a 16x8 JPEG.
+    std::stringstream gcode;
+    gcode << ";FLAVOR:Marlin\n";
+    gcode << "; thumbnail_JPG begin 16x8 848\n";
+    gcode << "; /9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsK\n";
+    gcode << "; CwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQU\n";
+    gcode << "; FBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAAIABADASIA\n";
+    gcode << "; AhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQA\n";
+    gcode << "; AAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3\n";
+    gcode << "; ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWm\n";
+    gcode << "; p6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEA\n";
+    gcode << "; AwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSEx\n";
+    gcode << "; BhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElK\n";
+    gcode << "; U1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3\n";
+    gcode << "; uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDwSiii\n";
+    gcode << "; vz8/uA//2Q==\n";
+    gcode << "; thumbnail_JPG end\n";
+    gcode << "G28 ; home\n";
+
+    auto thumb = get_best_thumbnail_from_content(gcode.str());
+
+    REQUIRE(thumb.width == 16);
+    REQUIRE(thumb.height == 8);
+    REQUIRE(thumb.png_data.size() >= 8);
+    CHECK(thumb.png_data[0] == 0x89);
+    CHECK(thumb.png_data[1] == 'P');
+    CHECK(thumb.png_data[2] == 'N');
+    CHECK(thumb.png_data[3] == 'G');
+}
+
+TEST_CASE("get_best_thumbnail_from_content - thumbnail after setup commands",
+          "[gcode][thumbnail]") {
+    const std::string png =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAA"
+        "BJRU5ErkJggg==";
+    const std::string block = "; thumbnail begin 1x1 " + std::to_string(png.size()) + "\n; " + png +
+                              "\n; thumbnail end\n";
+
+    SECTION("M73 / temperature / mode commands before the block do not hide it") {
+        std::string gcode =
+            "; generated by Cura\nM73 P0 R42\nM82\nM140 S60\nM104 S200\nG21\n" + block + "G28\n";
+        auto thumb = get_best_thumbnail_from_content(gcode);
+        REQUIRE(thumb.width == 1);
+        REQUIRE_FALSE(thumb.png_data.empty());
+    }
+
+    SECTION("a block after the first extrusion move is outside the header") {
+        std::string gcode = "; generated by Cura\nG28\nG1 X10 Y10 E1\n" + block;
+        REQUIRE(get_best_thumbnail_from_content(gcode).png_data.empty());
+    }
+}
+
+TEST_CASE("get_best_thumbnail_from_content - Multiple thumbnails", "[gcode][thumbnail]") {
+    // Real slicers often embed multiple sizes (e.g., 48x48 for LCD, 300x300 for web)
+    std::string small_png_base64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAA"
+        "BJRU5ErkJggg==";
+    std::string large_png_base64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR42mNk+M9Qz8DAwMAAAA8ABMoCE/"
+        "t5ZwAAAABJRU5ErkJggg==";
+
+    std::stringstream gcode;
+    gcode << "; generated by OrcaSlicer 2.3.1\n";
+    // First (smaller) thumbnail
+    gcode << "; thumbnail begin 1x1 " << small_png_base64.size() << "\n";
+    gcode << "; " << small_png_base64 << "\n";
+    gcode << "; thumbnail end\n";
+    // Second (larger) thumbnail
+    gcode << "; thumbnail begin 2x2 " << large_png_base64.size() << "\n";
+    gcode << "; " << large_png_base64 << "\n";
+    gcode << "; thumbnail end\n";
+    gcode << "G28 ; home\n";
+
+    auto thumb = get_best_thumbnail_from_content(gcode.str());
+
+    // The largest wins regardless of order in the file
+    REQUIRE(thumb.width == 2);
+    REQUIRE(thumb.png_data.size() >= 8);
+    REQUIRE(thumb.png_data[0] == 0x89);
+    REQUIRE(thumb.png_data[1] == 'P');
+}
+
+TEST_CASE("get_best_thumbnail_from_content - Real-world format variations", "[gcode][thumbnail]") {
+    SECTION("Handles multi-line base64 (split across lines)") {
+        // Real slicers split base64 into ~78 char lines
+        std::string line1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk";
+        std::string line2 = "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+        std::stringstream gcode;
+        gcode << "; thumbnail begin 1x1 100\n";
+        gcode << "; " << line1 << "\n";
+        gcode << "; " << line2 << "\n";
+        gcode << "; thumbnail end\n";
+
+        auto thumb = get_best_thumbnail_from_content(gcode.str());
+
+        // Should have decoded the concatenated base64
+        REQUIRE(thumb.png_data.size() >= 8);
+        REQUIRE(thumb.png_data[0] == 0x89);
+    }
+
+    SECTION("Ignores non-thumbnail comments") {
+        std::string png_base64 =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAA"
+            "BJRU5ErkJggg==";
+
+        std::stringstream gcode;
+        gcode << "; generated by OrcaSlicer\n";
+        gcode << "; filament_type = PLA\n";
+        gcode << "; estimated printing time (normal mode) = 36m 25s\n";
+        gcode << "; thumbnail begin 1x1 100\n";
+        gcode << "; " << png_base64 << "\n";
+        gcode << "; thumbnail end\n";
+        gcode << "; total layer number: 240\n";
+
+        auto thumb = get_best_thumbnail_from_content(gcode.str());
+
+        // Other comments are not mistaken for thumbnail data
+        REQUIRE(thumb.width == 1);
+        REQUIRE(thumb.png_data.size() >= 8);
+        REQUIRE(thumb.png_data[0] == 0x89);
+    }
+}
+
+TEST_CASE("GCodeParser - a T with parameters is not a tool change", "[gcode][parser]") {
+    // Same rule as tool_index_for_line(), so the full parse and the streaming
+    // index agree on the tool set.
+    GCodeParser parser;
+    parser.parse_line("T0");
+    parser.parse_line("T1 X5");
+    parser.parse_line("G1 X10 Y10 E1");
+    auto file = parser.finalize();
+    CHECK(file.tools_used_indices == std::set<int>{0});
+}
+
+TEST_CASE("tool_index_for_line - a tool change may carry Klipper macro parameters",
+          "[gcode][parser][1848]") {
+    // AFC's Orca Change Filament G-code: the T macro takes KEY=VALUE words.
+    CHECK(tool_index_for_line("T3") == 3);
+    CHECK(tool_index_for_line("T0 PURGE_LENGTH=121.4 NEW_EXTRUDER_TEMP=222") == 0);
+    CHECK(tool_index_for_line("T3 PURGE_LENGTH=0 ; change") == 3);
+    CHECK(tool_index_for_line("  T12\tpurge_length=5\r") == 12);
+
+    // A G-code word, an empty key or value, or one bare word among parameters
+    // makes it something other than a tool change.
+    CHECK(tool_index_for_line("T0 X1") == -1);
+    CHECK(tool_index_for_line("T0X1") == -1);
+    CHECK(tool_index_for_line("T0 =5") == -1);
+    CHECK(tool_index_for_line("T0 PURGE_LENGTH=") == -1);
+    CHECK(tool_index_for_line("T0 PURGE-LENGTH=1") == -1);
+    CHECK(tool_index_for_line("T0 PURGE_LENGTH=1 X1") == -1);
+    CHECK(tool_index_for_line("TURN_OFF_HEATERS") == -1);
+    CHECK(tool_index_for_line("t0 PURGE_LENGTH=1") == -1);
+    CHECK(tool_index_for_line("; T0 PURGE_LENGTH=1") == -1);
+
+    // The digit span covers the tool number alone.
+    std::pair<size_t, size_t> digits;
+    const std::string line = "  T10 PURGE_LENGTH=121.399 NEW_EXTRUDER_TEMP=222";
+    REQUIRE(tool_index_for_line(line, &digits) == 10);
+    CHECK(digits == std::pair<size_t, size_t>{3, 5});
+}
+
+TEST_CASE("Tools-used scan counts parameterised tool changes", "[gcode][parser][1848]") {
+    const std::string content = "T0 PURGE_LENGTH=121.399 NEW_EXTRUDER_TEMP=222\n"
+                                "G1 X10 Y10 E1\n"
+                                "T1 PURGE_LENGTH=98.2 NEW_EXTRUDER_TEMP=230\n"
+                                "G1 X20 Y20 E1\n"
+                                "T2 PURGE_LENGTH=0 ; change";
+    CHECK(scan_tools_used_from_content(content) == std::set<int>{0, 1, 2});
+
+    GCodeParser parser;
+    std::istringstream in(content);
+    std::string line;
+    while (std::getline(in, line)) {
+        parser.parse_line(line);
+    }
+    CHECK(parser.finalize().tools_used_indices == std::set<int>{0, 1, 2});
+}
+
+TEST_CASE("get_best_thumbnail - real file picks the largest block", "[gcode][thumbnail]") {
+    // 3DBenchy embeds a 48x48 and a 300x300 thumbnail, in that order
+    const std::string test_file = "assets/test_gcodes/3DBenchy.gcode";
+    if (!std::ifstream(test_file).good()) {
+        SKIP("Test G-code file not found: " << test_file);
+    }
+    auto thumb = get_best_thumbnail(test_file);
+    REQUIRE(thumb.width == 300);
+    REQUIRE(thumb.height == 300);
+    REQUIRE(thumb.png_data.size() > 1000);
+    REQUIRE(thumb.png_data[0] == 0x89);
+    REQUIRE(thumb.png_data[1] == 'P');
+}
+
+TEST_CASE("get_cached_thumbnail - a cache entry that is not a PNG is regenerated",
+          "[gcode][thumbnail]") {
+    const std::string test_file = "assets/test_gcodes/3DBenchy.gcode";
+    if (!std::ifstream(test_file).good()) {
+        SKIP("Test G-code file not found: " << test_file);
+    }
+    char dir_tmpl[] = "/tmp/helix_thumb_cache_XXXXXX";
+    REQUIRE(mkdtemp(dir_tmpl) != nullptr);
+    const std::string cache_dir = dir_tmpl;
+    const std::string cache_file = cache_dir + "/3DBenchy.png";
+
+    // JPEG bytes under a .png name, newer than the G-code.
+    {
+        std::ofstream out(cache_file, std::ios::binary);
+        out << "\xff\xd8\xff\xe0\x00\x10JFIF-not-a-png";
+    }
+
+    REQUIRE(get_cached_thumbnail(test_file, cache_dir) == cache_file);
+
+    std::ifstream in(cache_file, std::ios::binary);
+    char head[4] = {};
+    in.read(head, 4);
+    CHECK(std::memcmp(head, "\x89PNG", 4) == 0);
+
+    std::remove(cache_file.c_str());
+    rmdir(cache_dir.c_str());
+}
+
+TEST_CASE("GCodeParser - Real 3DBenchy layer count", "[gcode][parser][layers][integration]") {
+    // Integration test with real test file
+    std::string test_file = "assets/test_gcodes/3DBenchy.gcode";
+
+    std::ifstream check(test_file);
+    if (!check.good()) {
+        SKIP("Test G-code file not found: " << test_file);
+    }
+    check.close();
+
+    // Parse the entire file line by line
+    GCodeParser parser;
+    std::ifstream file_stream(test_file);
+    std::string line;
+    while (std::getline(file_stream, line)) {
+        parser.parse_line(line);
+    }
+    auto file = parser.finalize();
+
+    SECTION("Layer count matches slicer metadata") {
+        // 3DBenchy has 240 LAYER_CHANGE markers (confirmed via grep)
+        // The parser should count 240 layers, not 2912
+        INFO("Actual layer count: " << file.layers.size());
+        INFO("Expected: ~240 (from slicer metadata, not 2912 from Z movements)");
+
+        // Allow some tolerance for first layer/intro differences
+        REQUIRE(file.layers.size() >= 230);
+        REQUIRE(file.layers.size() <= 250);
+    }
+}
+
+// ============================================================================
+// Extrusion width metadata parsing
+// ============================================================================
+
+TEST_CASE("GCodeParser - Extrusion width metadata parsing", "[gcode][parser][metadata][width]") {
+    SECTION("Parse OrcaSlicer header width comments") {
+        GCodeParser parser;
+        parser.parse_line("; perimeters extrusion width = 0.45mm");
+        parser.parse_line("; infill extrusion width = 0.50mm");
+        parser.parse_line("; first layer extrusion width = 0.42mm");
+        parser.parse_line("G1 X10 Y10 Z0.2 E1");
+        auto file = parser.finalize();
+
+        REQUIRE(file.perimeter_extrusion_width_mm == Approx(0.45f));
+        REQUIRE(file.infill_extrusion_width_mm == Approx(0.50f));
+        REQUIRE(file.first_layer_extrusion_width_mm == Approx(0.42f));
+    }
+
+    SECTION("Parse width without mm suffix") {
+        GCodeParser parser;
+        parser.parse_line("; perimeters extrusion width = 0.40");
+        parser.parse_line("G1 X10 Y10 Z0.2 E1");
+        auto file = parser.finalize();
+
+        REQUIRE(file.perimeter_extrusion_width_mm == Approx(0.40f));
+    }
+
+    SECTION("Parse generic line_width as default extrusion width") {
+        GCodeParser parser;
+        parser.parse_line("; line_width = 0.4");
+        parser.parse_line("G1 X10 Y10 Z0.2 E1");
+        auto file = parser.finalize();
+
+        REQUIRE(file.extrusion_width_mm == Approx(0.4f));
+    }
+
+    SECTION("Percentage values are ignored — not parsed as mm") {
+        GCodeParser parser;
+        // Header with correct mm values (parsed first)
+        parser.parse_line("; perimeters extrusion width = 0.40mm");
+        parser.parse_line("; infill extrusion width = 0.45mm");
+        parser.parse_line("; first layer extrusion width = 0.40mm");
+        parser.parse_line("G1 X10 Y10 Z0.2 E1");
+        // OrcaSlicer settings dump at end with percentage values
+        parser.parse_line("; line_width = 100%");
+        parser.parse_line("; inner_wall_line_width = 100%");
+        parser.parse_line("; sparse_infill_line_width = 112.5%");
+        parser.parse_line("; initial_layer_line_width = 100%");
+        parser.parse_line("; outer_wall_line_width = 100%");
+        auto file = parser.finalize();
+
+        // Percentage values must NOT overwrite the correct mm values
+        INFO("extrusion_width_mm: " << file.extrusion_width_mm);
+        INFO("perimeter_extrusion_width_mm: " << file.perimeter_extrusion_width_mm);
+        INFO("infill_extrusion_width_mm: " << file.infill_extrusion_width_mm);
+        INFO("first_layer_extrusion_width_mm: " << file.first_layer_extrusion_width_mm);
+        REQUIRE(file.extrusion_width_mm < 1.0f);
+        REQUIRE(file.perimeter_extrusion_width_mm == Approx(0.40f));
+        REQUIRE(file.infill_extrusion_width_mm == Approx(0.45f));
+        REQUIRE(file.first_layer_extrusion_width_mm == Approx(0.40f));
+    }
+
+    SECTION("Percentage-only file gets zero width (no valid mm values)") {
+        GCodeParser parser;
+        parser.parse_line("; line_width = 100%");
+        parser.parse_line("G1 X10 Y10 Z0.2 E1");
+        auto file = parser.finalize();
+
+        // No valid mm-based width was parsed, should remain 0
+        REQUIRE(file.extrusion_width_mm == Approx(0.0f));
+    }
+
+    SECTION("Out-of-range values are rejected") {
+        GCodeParser parser;
+        // Value too large (>3.0mm)
+        parser.parse_line("; line_width = 5.0");
+        parser.parse_line("G1 X10 Y10 Z0.2 E1");
+        auto file = parser.finalize();
+
+        REQUIRE(file.extrusion_width_mm == Approx(0.0f));
+    }
+}
+
+TEST_CASE("GCodeParser - Real OrcaSlicer SSR file metadata",
+          "[gcode][parser][metadata][integration]") {
+    // Integration test with the real file that triggered the 100mm width bug
+    std::string test_file = "assets/test_gcodes/ssr_heat_sink_orca.gcode";
+
+    std::ifstream check(test_file);
+    if (!check.good()) {
+        SKIP("Test G-code file not found: " << test_file);
+    }
+    check.close();
+
+    GCodeParser parser;
+    std::ifstream file_stream(test_file);
+    std::string line;
+    while (std::getline(file_stream, line)) {
+        parser.parse_line(line);
+    }
+    auto file = parser.finalize();
+
+    SECTION("Extrusion width is sane despite OrcaSlicer settings dump") {
+        INFO("extrusion_width_mm: " << file.extrusion_width_mm);
+        INFO("perimeter_extrusion_width_mm: " << file.perimeter_extrusion_width_mm);
+        INFO("infill_extrusion_width_mm: " << file.infill_extrusion_width_mm);
+        INFO("first_layer_extrusion_width_mm: " << file.first_layer_extrusion_width_mm);
+
+        // All widths must be in sane range (not 100mm from percentage parsing)
+        REQUIRE(file.extrusion_width_mm < 1.0f);
+        REQUIRE(file.perimeter_extrusion_width_mm < 1.0f);
+        REQUIRE(file.infill_extrusion_width_mm < 1.0f);
+        REQUIRE(file.first_layer_extrusion_width_mm < 1.0f);
+
+        // Should have parsed the correct header values
+        // Note: "solid infill extrusion width = 0.40mm" overwrites "infill extrusion width =
+        // 0.45mm" because both match the "infill" category (last-writer-wins)
+        REQUIRE(file.perimeter_extrusion_width_mm == Approx(0.40f));
+        REQUIRE(file.infill_extrusion_width_mm == Approx(0.40f));
+        REQUIRE(file.first_layer_extrusion_width_mm == Approx(0.40f));
+    }
+
+    SECTION("Layer count is correct") {
+        // File header says: ; total layer number: 153
+        INFO("Parsed layers: " << file.layers.size());
+        REQUIRE(file.layers.size() >= 150);
+        REQUIRE(file.layers.size() <= 156);
+    }
+}
+
+TEST_CASE("GCodeParser - drawable_segments on a real 4-color prime-tower file",
+          "[gcode][parser][feature_type][integration]") {
+    // The scenario #1425 describes, on a real slicer file rather than a stub:
+    // a 4-color OrcaSlicer print whose prime tower is a large share of the
+    // segment mass. The 3D budget used to be charged for that whole share.
+    std::string test_file = "assets/test_gcodes/u1_4color_ring.gcode";
+    std::ifstream check(test_file);
+    if (!check.good()) {
+        SKIP("Test G-code file not found: " << test_file);
+    }
+    check.close();
+
+    GCodeParser parser;
+    std::ifstream file_stream(test_file);
+    std::string line;
+    while (std::getline(file_stream, line)) {
+        parser.parse_line(line);
+    }
+    auto file = parser.finalize();
+
+    REQUIRE(file.total_segments > 0);
+
+    // Count the auxiliary mass independently, straight off the stored feature
+    // types, and require the counter to agree exactly. This cross-checks the
+    // running increment against the segments actually retained, so an off-by-one
+    // or a missed increment fails here even if the magnitude looks plausible.
+    size_t auxiliary = 0;
+    for (const auto& layer : file.layers) {
+        for (const auto& seg : layer.segments) {
+            if (is_auxiliary_geometry(seg.feature_type)) {
+                ++auxiliary;
+            }
+        }
+    }
+    REQUIRE(file.drawable_segments == file.total_segments - auxiliary);
+
+    // And it must actually be a meaningful share on this file, otherwise the
+    // assertion above would pass on a file with no tower at all.
+    REQUIRE(auxiliary > 0);
+    REQUIRE(file.drawable_segments < file.total_segments);
+    INFO("total=" << file.total_segments << " drawable=" << file.drawable_segments
+                  << " auxiliary=" << auxiliary);
+}
+
+TEST_CASE("GCodeParser - reset() clears the drawable count with the layers",
+          "[gcode][parser][feature_type]") {
+    // drawable_segments is a RUNNING counter, unlike total_segments which
+    // finalize() re-sums from the layers each time. reset() empties layers_, so
+    // a counter that survived would exceed the recomputed total on the next
+    // parse - and the 3D budget would size itself on segments from a file that
+    // is no longer loaded.
+    GCodeParser parser;
+    parser.parse_line(";TYPE:Outer wall");
+    parser.parse_line("G1 X10 Y10 Z0.2 F600");
+    parser.parse_line("G1 X20 Y20 E0.1");
+    parser.parse_line(";TYPE:Wipe tower");
+    parser.parse_line("G1 X300 Y300 E0.3");
+    auto first = parser.finalize();
+    REQUIRE(first.total_segments == 3);
+    REQUIRE(first.drawable_segments == 2);
+
+    parser.reset();
+
+    // A shorter second file through the SAME parser instance.
+    parser.parse_line(";TYPE:Outer wall");
+    parser.parse_line("G1 X10 Y10 Z0.2 F600");
+    parser.parse_line("G1 X20 Y20 E0.1");
+    auto second = parser.finalize();
+    REQUIRE(second.total_segments == 2);
+    CHECK(second.drawable_segments == 2);
+    // The invariant that actually matters: drawable can never exceed the total.
+    CHECK(second.drawable_segments <= second.total_segments);
+}
+
+TEST_CASE("GCodeParser - FeatureType tagging", "[gcode][parser][feature_type]") {
+    GCodeParser parser;
+
+    // OrcaSlicer/PrusaSlicer dialect: space-separated names after `;TYPE:`
+    parser.parse_line(";TYPE:Custom");
+    parser.parse_line("G1 X10 Y10 Z0.2 F600");
+    parser.parse_line("G1 X200 Y10 E5"); // purge line (extrusion)
+    parser.parse_line(";TYPE:Brim");
+    parser.parse_line("G1 X50 Y50 E0.1");
+    parser.parse_line(";TYPE:Outer wall");
+    parser.parse_line("G1 X60 Y60 E0.2");
+    parser.parse_line(";TYPE:Wipe tower");
+    parser.parse_line("G1 X300 Y300 E0.3");
+
+    auto file = parser.finalize();
+    REQUIRE(file.total_segments == 5);
+    // THREE of the five are auxiliary - both ;TYPE:Custom segments (the travel
+    // into position and the purge line) plus the wipe tower - leaving Brim and
+    // Outer wall as the only two the geometry builder will build. The 3D memory
+    // budget sizes itself on this count: charging it for the tower could
+    // downgrade the tube tier, or refuse 3D entirely, over segments never built.
+    REQUIRE(file.drawable_segments == 2);
+    auto& segs = file.layers[0].segments;
+
+    // First two segments emitted under ;TYPE:Custom (travel into position +
+    // purge extrusion line).
+    REQUIRE(segs[0].feature_type == FeatureType::Custom);
+    REQUIRE(segs[1].feature_type == FeatureType::Custom);
+    REQUIRE(segs[2].feature_type == FeatureType::Brim);
+    REQUIRE(segs[3].feature_type == FeatureType::OuterWall);
+    REQUIRE(segs[4].feature_type == FeatureType::WipeTower);
+}
+
+TEST_CASE("GCodeParser - Prime tower classifies and stays out of every bounds",
+          "[gcode][parser][feature_type]") {
+    // OrcaSlicer emits ';TYPE:Prime tower' (capital P) for its multi-color
+    // tower. The normalization table had "Wipe tower" and Cura's
+    // "PRIME-TOWER" but not Orca's spelling, so the tower fell to Unknown -
+    // which is NOT bounds-excluded - and auto-fit framed the print against
+    // the tower, zooming the actual part out to a thumbnail.
+    GCodeParser parser;
+    parser.parse_line(";TYPE:Outer wall");
+    parser.parse_line("G1 X10 Y10 Z0.2 F600");
+    parser.parse_line("G1 X100 Y100 E5"); // the part
+    parser.parse_line(";TYPE:Prime tower");
+    parser.parse_line("G1 X100 Y100 E0.1"); // tower entry, same spot
+    parser.parse_line("G1 X250 Y250 E2");   // the tower, far off the part
+
+    auto file = parser.finalize();
+    // Travel into the part, the part's extrusion, the tower's extrusion
+    // (the zero-XY-length entry move is not a segment).
+    REQUIRE(file.layers[0].segments.size() == 3);
+    REQUIRE(file.layers[0].segments[1].feature_type == FeatureType::OuterWall);
+    REQUIRE(file.layers[0].segments[2].feature_type == FeatureType::WipeTower);
+
+    // Global bounds feed the 3D camera fit and the full-load 2D auto-fit:
+    // the tower's far corner must not be in them.
+    REQUIRE(file.global_bounding_box.max.x < 150.0f);
+    REQUIRE(file.global_bounding_box.max.y < 150.0f);
+
+    // Per-layer bounds feed the single-layer view and its centering: same
+    // exclusion, or the tower pulls the layer framing off-center.
+    REQUIRE(file.layers[0].bounding_box.max.x < 150.0f);
+    REQUIRE(file.layers[0].bounding_box.max.y < 150.0f);
+}
+
+TEST_CASE("GCodeParser - tower approach and departure travels frame nothing",
+          "[gcode][parser][feature_type]") {
+    // The travels around a tower section carry tower coordinates: the
+    // approach ends at the tower, the departure starts there. Neither may
+    // reach the layer box, or the single-layer view still frames the tower
+    // through moves that extrude nothing.
+    GCodeParser parser;
+    parser.parse_line(";TYPE:Outer wall");
+    parser.parse_line("G1 X10 Y10 Z0.2 F600");
+    parser.parse_line("G1 X100 Y100 E5"); // the part
+    parser.parse_line(";TYPE:Prime tower");
+    parser.parse_line("G0 X250 Y250");    // approach travel: ends at the tower
+    parser.parse_line("G1 X260 Y260 E6"); // the tower
+    parser.parse_line(";TYPE:Inner wall");
+    parser.parse_line("G0 X100 Y100"); // departure travel: starts at the tower
+    parser.parse_line("G1 X101 Y101 E7");
+
+    auto file = parser.finalize();
+    REQUIRE(file.layers[0].bounding_box.max.x < 150.0f);
+    REQUIRE(file.layers[0].bounding_box.max.y < 150.0f);
+    REQUIRE(file.global_bounding_box.max.x < 150.0f);
+}
+
+TEST_CASE("GCodeParser - stationary toolchange prime mints no segment",
+          "[gcode][parser][feature_type]") {
+    // Orca's toolchange prime is an E-only move parked at the tower, emitted
+    // under the PREVIOUS part section's type (the tower's ;TYPE: marker has
+    // not started yet). A stationary extrusion has no spatial extent - the
+    // parser must not mint a segment for it, so the tower's parked
+    // coordinates cannot reach any bounds from here.
+    GCodeParser parser;
+    parser.parse_line(";TYPE:Outer wall");
+    parser.parse_line("G1 X10 Y10 Z0.2 F600");
+    parser.parse_line("G1 X100 Y100 E5");
+    parser.parse_line(";TYPE:Prime tower");
+    parser.parse_line("G1 X250 Y250 E6"); // the tower's extrusion (auxiliary)
+    parser.parse_line(";TYPE:Inner wall");
+    parser.parse_line("G1 E7 F2700"); // stationary prime at (250,250), part type
+
+    auto file = parser.finalize();
+    // Travel, part, tower - and NO segment for the stationary prime.
+    REQUIRE(file.layers[0].segments.size() == 3);
+    REQUIRE(file.layers[0].segments[2].feature_type == FeatureType::WipeTower);
+    REQUIRE(file.layers[0].segments[2].end.x == Approx(250.0f)); // setup reached the spot
+    REQUIRE(file.global_bounding_box.max.x < 150.0f);
+    REQUIRE(file.global_bounding_box.max.y < 150.0f);
+}
+
+TEST_CASE("GCodeParser - auxiliary-only whole file promotes its extrusion to the print",
+          "[gcode][parser][feature_type]") {
+    // OrcaSlicer calibration files (pressure advance, flow rate) tag their
+    // entire body ;TYPE:Custom. The auxiliary classification exists to hide
+    // purge lines and prime towers NEXT TO a real print; applied to a file
+    // whose only extrusion is auxiliary it suppresses the whole toolpath. When
+    // finalize() has the whole file and finds not one non-auxiliary extrusion,
+    // the auxiliary geometry IS the print and must draw and frame normally.
+    SECTION("Custom-only body (calibration file shape)") {
+        GCodeParser parser;
+        parser.parse_line("M83");
+        parser.parse_line("G1 X10 Y10 Z0.2 F600"); // travel into position, before any ;TYPE:
+        parser.parse_line(";TYPE:Custom");
+        parser.parse_line("G1 X100 Y10 E0.5"); // the print, per the slicer's own tagging
+        parser.parse_line("G1 X100 Y100 E0.6");
+        auto file = parser.finalize(/*whole_file=*/true);
+
+        // The setup reached the branch: extrusion exists and none of it is
+        // auxiliary any more.
+        REQUIRE(file.total_segments == 3);
+        size_t extrusions = 0;
+        for (const auto& layer : file.layers) {
+            for (const auto& seg : layer.segments) {
+                REQUIRE_FALSE(is_auxiliary_geometry(seg.feature_type));
+                if (seg.is_extrusion) {
+                    ++extrusions;
+                }
+            }
+        }
+        REQUIRE(extrusions == 2);
+
+        // Drawability with extrusions shown - the blank-preview failure mode.
+        for (const auto& layer : file.layers) {
+            for (const auto& seg : layer.segments) {
+                CHECK(segment_drawable(seg, /*is_support=*/false, /*show_support=*/false,
+                                       /*show_extrusion=*/true,
+                                       /*show_travel=*/false) == seg.is_extrusion);
+            }
+        }
+
+        // Bounds were accumulated during parse under the auxiliary assumption,
+        // so they were never expanded; promotion must rebuild them.
+        REQUIRE_FALSE(file.global_bounding_box.is_empty());
+        CHECK(file.global_bounding_box.min.x == Approx(10.0f));
+        CHECK(file.global_bounding_box.max.x == Approx(100.0f));
+        CHECK(file.global_bounding_box.max.y == Approx(100.0f));
+        REQUIRE_FALSE(file.layers[0].bounding_box.is_empty());
+
+        // The running drawable count must include the promoted mass.
+        CHECK(file.drawable_segments == file.total_segments);
+    }
+
+    SECTION("Wipe-tower-only body promotes the same way") {
+        GCodeParser parser;
+        parser.parse_line("M83");
+        parser.parse_line("G1 X10 Y10 Z0.2 F600");
+        parser.parse_line(";TYPE:Wipe tower");
+        parser.parse_line("G1 X60 Y10 E0.5");
+        auto file = parser.finalize(/*whole_file=*/true);
+
+        REQUIRE(file.total_segments == 2);
+        REQUIRE(file.layers[0].segments[1].feature_type == FeatureType::Unknown);
+        CHECK_FALSE(file.global_bounding_box.is_empty());
+        CHECK(file.drawable_segments == file.total_segments);
+    }
+
+    SECTION("a per-layer chunk parse never promotes: it cannot see the rest of the file") {
+        // Streaming parses one layer at a time, and a tower-only layer of a
+        // normal multi-color print is indistinguishable from an
+        // auxiliary-only file at chunk granularity. The whole-file answer is
+        // the only safe one, so the default finalize() (what the streaming
+        // controller calls) must keep hiding auxiliary extrusion.
+        GCodeParser parser;
+        parser.parse_line("M83");
+        parser.parse_line("G1 X10 Y10 Z0.2 F600");
+        parser.parse_line(";TYPE:Custom");
+        parser.parse_line("G1 X100 Y10 E0.5");
+        auto file = parser.finalize();
+
+        REQUIRE(file.layers[0].segments[1].feature_type == FeatureType::Custom);
+        CHECK(file.global_bounding_box.is_empty());
+        CHECK(file.drawable_segments == 1); // the pre-marker travel only
+    }
+}
+
+TEST_CASE("GCodeParser - whole file with real extrusion keeps its purge auxiliary",
+          "[gcode][parser][feature_type]") {
+    // Promotion fires only when not one non-auxiliary extrusion exists
+    // anywhere in the file. A normal print's purge line stays hidden and out
+    // of every bounds even though finalize() was told it has the whole file.
+    GCodeParser parser;
+    parser.parse_line("M83");
+    parser.parse_line(";TYPE:Custom");
+    parser.parse_line("G1 X200 Y10 Z0.2 E5"); // purge line, out at the bed's edge
+    parser.parse_line(";TYPE:Outer wall");
+    parser.parse_line("G0 X10 Y10");      // travel from the purge to the part
+    parser.parse_line("G1 X50 Y50 E0.2"); // the part
+
+    auto file = parser.finalize(/*whole_file=*/true);
+    REQUIRE(file.total_segments == 3);
+    // The setup reached the branch's other side: real extrusion exists.
+    REQUIRE(file.layers[0].segments[2].is_extrusion);
+
+    REQUIRE(file.layers[0].segments[0].feature_type == FeatureType::Custom);
+    CHECK_FALSE(segment_drawable(file.layers[0].segments[0], /*is_support=*/false,
+                                 /*show_support=*/false, /*show_extrusion=*/true,
+                                 /*show_travel=*/true));
+    CHECK(file.global_bounding_box.max.x == Approx(50.0f));
+    CHECK(file.layers[0].bounding_box.max.x == Approx(50.0f));
+    // The purge extrusion is not drawable; the travel and the wall are.
+    CHECK(file.drawable_segments == 2);
+}
+
+TEST_CASE("GCodeParser - FeatureType normalization across slicer dialects",
+          "[gcode][parser][feature_type]") {
+    SECTION("OrcaSlicer / PrusaSlicer / Bambu dialect (space-separated)") {
+        REQUIRE(GCodeParser::parse_feature_type_value("Custom") == FeatureType::Custom);
+        REQUIRE(GCodeParser::parse_feature_type_value("Skirt") == FeatureType::Skirt);
+        REQUIRE(GCodeParser::parse_feature_type_value("Brim") == FeatureType::Brim);
+        REQUIRE(GCodeParser::parse_feature_type_value("Outer wall") == FeatureType::OuterWall);
+        REQUIRE(GCodeParser::parse_feature_type_value("Inner wall") == FeatureType::InnerWall);
+        REQUIRE(GCodeParser::parse_feature_type_value("Sparse infill") ==
+                FeatureType::SparseInfill);
+        REQUIRE(GCodeParser::parse_feature_type_value("Solid infill") == FeatureType::SolidInfill);
+        REQUIRE(GCodeParser::parse_feature_type_value("Top surface") == FeatureType::TopSurface);
+        REQUIRE(GCodeParser::parse_feature_type_value("Top solid infill") ==
+                FeatureType::TopSurface);
+        REQUIRE(GCodeParser::parse_feature_type_value("Bottom surface") ==
+                FeatureType::BottomSurface);
+        REQUIRE(GCodeParser::parse_feature_type_value("Bridge") == FeatureType::Bridge);
+        REQUIRE(GCodeParser::parse_feature_type_value("Wipe tower") == FeatureType::WipeTower);
+        REQUIRE(GCodeParser::parse_feature_type_value("Support material") == FeatureType::Support);
+        REQUIRE(GCodeParser::parse_feature_type_value("Overhang wall") ==
+                FeatureType::OverhangWall);
+        REQUIRE(GCodeParser::parse_feature_type_value("Gap infill") == FeatureType::GapInfill);
+    }
+
+    SECTION("Cura dialect (hyphenated UPPERCASE)") {
+        REQUIRE(GCodeParser::parse_feature_type_value("WALL-OUTER") == FeatureType::OuterWall);
+        REQUIRE(GCodeParser::parse_feature_type_value("WALL-INNER") == FeatureType::InnerWall);
+        REQUIRE(GCodeParser::parse_feature_type_value("SKIRT") == FeatureType::Skirt);
+        REQUIRE(GCodeParser::parse_feature_type_value("FILL") == FeatureType::SparseInfill);
+        REQUIRE(GCodeParser::parse_feature_type_value("SKIN") == FeatureType::SolidInfill);
+        REQUIRE(GCodeParser::parse_feature_type_value("SUPPORT") == FeatureType::Support);
+        REQUIRE(GCodeParser::parse_feature_type_value("PRIME-TOWER") == FeatureType::WipeTower);
+    }
+
+    SECTION("Unknown values map to Unknown, not crash") {
+        REQUIRE(GCodeParser::parse_feature_type_value("Squiggle") == FeatureType::Unknown);
+        REQUIRE(GCodeParser::parse_feature_type_value("") == FeatureType::Unknown);
+    }
+}
+
+TEST_CASE("GCodeParser - extract_type_marker handles formatting variants",
+          "[gcode][parser][feature_type]") {
+    // Shared helper used by both the full-file parser and the streaming
+    // indexer. Both must classify identically.
+    auto extract = [](const char* s) {
+        return GCodeParser::extract_type_marker(s, std::strlen(s));
+    };
+
+    REQUIRE(extract(";TYPE:Custom").value() == FeatureType::Custom);
+    REQUIRE(extract("; TYPE:Custom").value() == FeatureType::Custom);
+    REQUIRE(extract(";  TYPE:Outer wall").value() == FeatureType::OuterWall);
+    REQUIRE(extract(";TYPE:Outer wall\r\n").value() == FeatureType::OuterWall);
+    REQUIRE(extract(";TYPE:Outer wall   ").value() == FeatureType::OuterWall);
+
+    // Inline (after G-code) — slicers don't emit this, but the helper should
+    // still classify it so the parser and indexer don't diverge if a hand-
+    // edited file does.
+    REQUIRE(extract("G1 X10 Y10 ;TYPE:Brim").value() == FeatureType::Brim);
+
+    // No marker
+    REQUIRE_FALSE(extract("G1 X10 Y10").has_value());
+    REQUIRE_FALSE(extract(";").has_value());
+    REQUIRE_FALSE(extract(";comment without type").has_value());
+    REQUIRE_FALSE(extract(";FEATURE_TYPE:Outer wall").has_value());
+}
+
+TEST_CASE("GCodeParser - FeatureType bounds filter classification",
+          "[gcode][parser][feature_type]") {
+    // Purge-like types must be excluded from bbox; physical/visible types
+    // must be included.
+    REQUIRE(is_auxiliary_geometry(FeatureType::Custom));
+    REQUIRE(is_auxiliary_geometry(FeatureType::WipeTower));
+
+    REQUIRE_FALSE(is_auxiliary_geometry(FeatureType::Unknown));
+    REQUIRE_FALSE(is_auxiliary_geometry(FeatureType::Skirt));
+    REQUIRE_FALSE(is_auxiliary_geometry(FeatureType::Brim));
+    REQUIRE_FALSE(is_auxiliary_geometry(FeatureType::OuterWall));
+    REQUIRE_FALSE(is_auxiliary_geometry(FeatureType::InnerWall));
+    REQUIRE_FALSE(is_auxiliary_geometry(FeatureType::SparseInfill));
+    REQUIRE_FALSE(is_auxiliary_geometry(FeatureType::SolidInfill));
+    REQUIRE_FALSE(is_auxiliary_geometry(FeatureType::TopSurface));
+    REQUIRE_FALSE(is_auxiliary_geometry(FeatureType::BottomSurface));
+    REQUIRE_FALSE(is_auxiliary_geometry(FeatureType::Bridge));
+    REQUIRE_FALSE(is_auxiliary_geometry(FeatureType::OverhangWall));
+    REQUIRE_FALSE(is_auxiliary_geometry(FeatureType::GapInfill));
+    REQUIRE_FALSE(is_auxiliary_geometry(FeatureType::Support));
+}
+
+TEST_CASE("segment_drawable - auxiliary short-circuits every later branch",
+          "[gcode][parser][feature_type]") {
+    // The branch ORDER is the contract: auxiliary geometry is decided before
+    // support visibility and before the travel/extrusion toggles, so no
+    // toggle combination can resurrect it. A tower inside a support-named
+    // object, or tower travel moves with travels shown, stay hidden.
+    ToolpathSegment tower_extrusion;
+    tower_extrusion.is_extrusion = true;
+    tower_extrusion.feature_type = FeatureType::WipeTower;
+    CHECK_FALSE(segment_drawable(tower_extrusion, /*is_support=*/true,
+                                 /*show_support=*/true, /*show_extrusion=*/true,
+                                 /*show_travel=*/true));
+
+    ToolpathSegment tower_travel;
+    tower_travel.is_extrusion = false;
+    tower_travel.feature_type = FeatureType::WipeTower;
+    CHECK_FALSE(segment_drawable(tower_travel, /*is_support=*/false, true, true, true));
+
+    ToolpathSegment purge;
+    purge.is_extrusion = true;
+    purge.feature_type = FeatureType::Custom;
+    CHECK_FALSE(segment_drawable(purge, false, true, true, true));
+
+    // And the branches still answer for real geometry.
+    ToolpathSegment wall;
+    wall.is_extrusion = true;
+    wall.feature_type = FeatureType::OuterWall;
+    CHECK(segment_drawable(wall, false, false, true, false));
+    CHECK_FALSE(segment_drawable(wall, false, false, false, false));
+}
+
+TEST_CASE("GCodeParser - Real Cura file FeatureType distribution",
+          "[gcode][parser][feature_type][integration]") {
+    // Regression guard for #942. The Cura `;TYPE:` dialect (hyphenated
+    // UPPERCASE: WALL-OUTER, WALL-INNER, SKIRT, FILL, SKIN, …) was normalized
+    // from spec only, with no real Cura file in the repo to confirm the strings
+    // match. This parses an actual Cura 5.3.1 file end-to-end and asserts its
+    // markers resolve to real FeatureType values instead of silently falling
+    // back to Unknown (which would re-include purge/skirt in the auto-fit bbox).
+    std::string test_file = "assets/test_gcodes/SimpleCuraTest.gcode";
+
+    std::ifstream check(test_file);
+    if (!check.good()) {
+        SKIP("Test G-code file not found: " << test_file);
+    }
+    check.close();
+
+    // Sanity: the standalone metadata extractor should recognize this as Cura.
+    auto metadata = extract_header_metadata(test_file);
+    REQUIRE(metadata.slicer.find("Cura") != std::string::npos);
+
+    GCodeParser parser;
+    std::ifstream file_stream(test_file);
+    std::string line;
+    while (std::getline(file_stream, line)) {
+        parser.parse_line(line);
+    }
+    auto file = parser.finalize();
+
+    // Tally feature types across every segment in every layer.
+    std::map<FeatureType, size_t> counts;
+    for (const auto& layer : file.layers) {
+        for (const auto& seg : layer.segments) {
+            counts[seg.feature_type]++;
+        }
+    }
+
+    INFO("OuterWall=" << counts[FeatureType::OuterWall] << " InnerWall="
+                      << counts[FeatureType::InnerWall] << " Skirt=" << counts[FeatureType::Skirt]
+                      << " SparseInfill=" << counts[FeatureType::SparseInfill]
+                      << " SolidInfill=" << counts[FeatureType::SolidInfill] << " Unknown="
+                      << counts[FeatureType::Unknown] << " total=" << file.total_segments);
+
+    // Every ;TYPE: value present in this file must have normalized to a real
+    // enum. If Cura's emitted strings diverged from the table they would land
+    // in Unknown and these counts would be zero.
+    REQUIRE(counts[FeatureType::OuterWall] > 0);    // WALL-OUTER
+    REQUIRE(counts[FeatureType::InnerWall] > 0);    // WALL-INNER
+    REQUIRE(counts[FeatureType::Skirt] > 0);        // SKIRT
+    REQUIRE(counts[FeatureType::SparseInfill] > 0); // FILL
+    REQUIRE(counts[FeatureType::SolidInfill] > 0);  // SKIN
+
+    // Recognized physical-feature segments should dominate — a regression that
+    // broke Cura normalization would push the bulk of extrusions into Unknown.
+    size_t recognized = counts[FeatureType::OuterWall] + counts[FeatureType::InnerWall] +
+                        counts[FeatureType::Skirt] + counts[FeatureType::SparseInfill] +
+                        counts[FeatureType::SolidInfill];
+    REQUIRE(recognized > counts[FeatureType::Unknown]);
+}
+
+TEST_CASE("parse_exclude_object_define reads a slicer DEFINE line",
+          "[gcode][parser][pre_start_exclude]") {
+    using helix::gcode::parse_exclude_object_define;
+    auto obj = parse_exclude_object_define(
+        "EXCLUDE_OBJECT_DEFINE NAME=Cube_id_1_copy_0 CENTER=-36.362,6.5 "
+        "POLYGON=[[-40,2],[-32,2],[-32,11],[-40,11]]");
+    REQUIRE(obj.has_value());
+    CHECK(obj->name == "Cube_id_1_copy_0");
+    CHECK(obj->center.x == Catch::Approx(-36.362f));
+    CHECK(obj->center.y == Catch::Approx(6.5f));
+    REQUIRE(obj->polygon.size() == 4);
+    CHECK(obj->polygon[2] == glm::vec2(-32.0f, 11.0f));
+
+    CHECK_FALSE(parse_exclude_object_define("EXCLUDE_OBJECT_START NAME=Cube").has_value());
+    CHECK_FALSE(parse_exclude_object_define("EXCLUDE_OBJECT_DEFINE CENTER=1,2").has_value());
+    CHECK_FALSE(parse_exclude_object_define("G1 X10 Y10").has_value());
+}
+
+TEST_CASE("parse_exclude_object_define keeps a quoted name whole",
+          "[gcode][parser][pre_start_exclude]") {
+    using helix::gcode::parse_exclude_object_define;
+    auto dq = parse_exclude_object_define("EXCLUDE_OBJECT_DEFINE NAME=\"Part 1\" CENTER=5,6");
+    REQUIRE(dq.has_value());
+    CHECK(dq->name == "Part 1");
+    CHECK(dq->center == glm::vec2(5.0f, 6.0f));
+
+    auto sq = parse_exclude_object_define("EXCLUDE_OBJECT_DEFINE NAME='Part 2' CENTER=7,8");
+    REQUIRE(sq.has_value());
+    CHECK(sq->name == "Part 2");
+    CHECK(sq->center == glm::vec2(7.0f, 8.0f));
+}
+
+TEST_CASE("collect_exclude_object_defines keeps file order and ignores a cut final line",
+          "[gcode][parser][pre_start_exclude]") {
+    const std::string content = "; header\n"
+                                "EXCLUDE_OBJECT_DEFINE NAME=Zed CENTER=30,30\n"
+                                "EXCLUDE_OBJECT_DEFINE NAME=Alpha CENTER=90,30 ; slicer note\n"
+                                "G28\n"
+                                "EXCLUDE_OBJECT_DEFINE NAME=Mid CENTER=150,30\n"
+                                "EXCLUDE_OBJECT_DEFINE NAME=Cut_of"; // the read stopped here
+    const auto objs = helix::gcode::collect_exclude_object_defines(content);
+    REQUIRE(objs.size() == 3);
+    CHECK(objs[0].name == "Zed");
+    CHECK(objs[1].name == "Alpha");
+    CHECK(objs[2].name == "Mid");
+    CHECK(helix::gcode::collect_exclude_object_defines("G28\nG1 X1\n").empty());
+}
+
+TEST_CASE("collect_exclude_object_defines: a redefinition replaces the object in place",
+          "[gcode][parser][pre_start_exclude]") {
+    const auto objs =
+        helix::gcode::collect_exclude_object_defines("EXCLUDE_OBJECT_DEFINE NAME=Zed CENTER=1,1\n"
+                                                     "EXCLUDE_OBJECT_DEFINE NAME=Alpha CENTER=5,5\n"
+                                                     "EXCLUDE_OBJECT_DEFINE NAME=Zed CENTER=2,2\n");
+    REQUIRE(objs.size() == 2);
+    CHECK(objs[0].name == "Zed");
+    CHECK(objs[0].center == glm::vec2(2.0f, 2.0f));
+    CHECK(objs[1].name == "Alpha");
+}
+
+TEST_CASE("GCodeParser keeps a quoted object name whole across DEFINE and START",
+          "[gcode][parser][pre_start_exclude]") {
+    helix::gcode::GCodeParser parser;
+    parser.parse_line("EXCLUDE_OBJECT_DEFINE NAME='Part 1' CENTER=10,10");
+    parser.parse_line("EXCLUDE_OBJECT_START NAME='Part 1'");
+    parser.parse_line("G1 X10 Y10 Z0.2 E1");
+    parser.parse_line("G1 X20 Y10 E2");
+    parser.parse_line("EXCLUDE_OBJECT_END NAME='Part 1'");
+    auto file = parser.finalize();
+    REQUIRE(file.objects.count("Part 1") == 1);
+    REQUIRE_FALSE(file.layers.empty());
+    REQUIRE_FALSE(file.layers[0].segments.empty());
+    CHECK(file.get_object_name(file.layers[0].segments[0].object_name_index) == "Part 1");
+}
+
+TEST_CASE("GCodeParser - an object's box grows from the extrusions inside it", "[gcode][parser]") {
+    GCodeParser parser;
+    SECTION("defined before it starts") {
+        parser.parse_line("EXCLUDE_OBJECT_DEFINE NAME=part1 CENTER=15,10");
+        parser.parse_line("EXCLUDE_OBJECT_START NAME=part1");
+    }
+    SECTION("defined after it starts") {
+        parser.parse_line("EXCLUDE_OBJECT_START NAME=part1");
+        parser.parse_line("EXCLUDE_OBJECT_DEFINE NAME=part1 CENTER=15,10");
+    }
+    parser.parse_line("G1 X10 Y10 Z0.2 E1");
+    parser.parse_line("G1 X20 Y12 E2");
+    parser.parse_line("EXCLUDE_OBJECT_END NAME=part1");
+    parser.parse_line("G1 X90 Y90 E3"); // outside the object: must not reach its box
+
+    auto file = parser.finalize();
+    REQUIRE(file.objects.count("part1") == 1);
+    const auto& box = file.objects["part1"].bounding_box;
+    CHECK(box.max.x == Approx(20.0f));
+    CHECK(box.max.y == Approx(12.0f));
+    CHECK(box.max.x < 90.0f);
+}
+
+TEST_CASE("GCodeParser - parsing after finalize() leaves the returned file alone",
+          "[gcode][parser]") {
+    GCodeParser parser;
+    parser.parse_line("EXCLUDE_OBJECT_DEFINE NAME=part1 CENTER=15,10");
+    parser.parse_line("EXCLUDE_OBJECT_START NAME=part1");
+    parser.parse_line("G1 X10 Y10 Z0.2 E1");
+    parser.parse_line("G1 X20 Y10 E2");
+    auto file = parser.finalize();
+    REQUIRE(file.objects.count("part1") == 1);
+    const float max_x = file.objects["part1"].bounding_box.max.x;
+
+    // Still inside part1 as far as the parser knows; the file it handed out
+    // owns that object's box now.
+    parser.parse_line("G1 X150 Y150 E3");
+    CHECK(file.objects["part1"].bounding_box.max.x == max_x);
+}
+
+TEST_CASE("GCodeParser - reset() forgets the wipe tower's interned index",
+          "[gcode][parser][multicolor]") {
+    GCodeParser parser;
+    parser.parse_line("; WIPE_TOWER_START");
+    parser.parse_line("G1 X20 Y20 E2");
+    parser.parse_line("; WIPE_TOWER_END");
+    (void)parser.finalize();
+
+    // After reset the name table starts empty: an object takes index 0, so the
+    // wipe tower must be interned afresh rather than reuse the old index.
+    parser.reset();
+    parser.parse_line("EXCLUDE_OBJECT_START NAME=part1");
+    parser.parse_line("G1 X10 Y10 E1");
+    parser.parse_line("EXCLUDE_OBJECT_END NAME=part1");
+    parser.parse_line("; WIPE_TOWER_START");
+    parser.parse_line("G1 X30 Y30 E2");
+    parser.parse_line("; WIPE_TOWER_END");
+    auto file = parser.finalize();
+
+    const auto& segs = file.layers.at(0).segments;
+    REQUIRE(segs.size() >= 2);
+    CHECK(file.get_object_name(segs.front().object_name_index) == "part1");
+    CHECK(file.get_object_name(segs.back().object_name_index) == "__WIPE_TOWER__");
+}

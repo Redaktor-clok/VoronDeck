@@ -1,0 +1,1414 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Global dimensions and constants (colors/fonts handled by LVGL theme) -->
+<component>
+  <consts>
+    <!-- ===================================================================== -->
+    <!-- Runtime-Registered Layout Constants                                   -->
+    <!-- ===================================================================== -->
+    <!-- nav_width is defined in navigation_bar.xml and registered using
+         horizontal breakpoint. overlay_width_transient is computed at runtime as
+         screen - nav_width - space_lg gap. DO NOT define nav_width here. -->
+    <!-- UI dimensions -->
+    <px name="nav_padding" value="16"/>
+    <!-- Modal backdrop opacity (0-255) -->
+    <px name="modal_backdrop_opacity" value="120"/>
+    <!-- Ghosted lane cell opacity (0-255): LV_OPA_20 -->
+    <px name="ghost_opacity" value="51"/>
+    <!-- border_radius is now resolved from BorderRadiusSizes table per breakpoint in C++ -->
+    <!-- Fixed small radius for swatches/badges that always want 4px regardless of theme -->
+    <px name="border_radius_small" value="4"/>
+    <!-- Underline under a selected zone_tab (the LEDs overlay's device tabs). -->
+    <px name="tab_underline_width_small" value="2"/>
+    <px name="tab_underline_width_medium" value="3"/>
+    <px name="tab_underline_width_large" value="3"/>
+    <!-- A zone_tab's light dot (lit, hollow). -->
+    <px name="tab_dot_size_micro" value="8"/>
+    <px name="tab_dot_size_small" value="10"/>
+    <px name="tab_dot_size_medium" value="10"/>
+    <px name="tab_dot_size_large" value="12"/>
+    <px name="tab_dot_ring_width_small" value="2"/>
+    <px name="tab_dot_ring_width_medium" value="2"/>
+    <px name="tab_dot_ring_width_large" value="2"/>
+    <px name="tab_dot_unknown_opacity" value="90"/>
+    <!-- The two-column color picker modal. Small keeps 470 (a 480-wide panel
+         cannot host more); the core tiers widen so the preset grid's 6 columns
+         of touch-target-sized cells fit beside the 190px HSV column as the
+         space_* padding grows. -->
+    <px name="color_picker_modal_width_small" value="470"/>
+    <px name="color_picker_modal_width_medium" value="500"/>
+    <px name="color_picker_modal_width_large" value="500"/>
+    <px name="color_picker_modal_width_xlarge" value="510"/>
+    <px name="color_picker_modal_width_xxlarge" value="520"/>
+    <!-- The 6-column, 30-swatch preset grids (color_swatch_grid, either palette):
+         swatch, gap, half the gap (each swatch's hit reach), and the grid width,
+         six swatches and five gaps, so the 30 always form 5 even rows. Every
+         class keeps each swatch's whole touch target at least 7mm on its
+         panel: swatch + 2*half is the pitch, 44px at 160 dpi or less, 46px on
+         the tiny class's 3.5" 480x320 at 165 dpi. gap == 2*half so
+         neighbouring targets abut without overlapping (LVGL gives an overlap
+         to the topmost widget, which makes taps unpredictable). Every grid
+         that uses them, the AMS editor's included, takes them from here. -->
+    <px name="swatch_grid_size_micro" value="26"/>
+    <px name="swatch_grid_size_tiny" value="28"/>
+    <px name="swatch_grid_size_small" value="28"/>
+    <px name="swatch_grid_size_medium" value="32"/>
+    <px name="swatch_grid_size_large" value="32"/>
+    <px name="swatch_grid_gap_micro" value="18"/>
+    <px name="swatch_grid_gap_tiny" value="18"/>
+    <px name="swatch_grid_gap_small" value="16"/>
+    <px name="swatch_grid_gap_medium" value="12"/>
+    <px name="swatch_grid_gap_large" value="12"/>
+    <px name="swatch_grid_gap_half_micro" value="9"/>
+    <px name="swatch_grid_gap_half_tiny" value="9"/>
+    <px name="swatch_grid_gap_half_small" value="8"/>
+    <px name="swatch_grid_gap_half_medium" value="6"/>
+    <px name="swatch_grid_gap_half_large" value="6"/>
+    <px name="swatch_grid_width_micro" value="246"/>
+    <px name="swatch_grid_width_tiny" value="258"/>
+    <px name="swatch_grid_width_small" value="248"/>
+    <px name="swatch_grid_width_medium" value="252"/>
+    <px name="swatch_grid_width_large" value="252"/>
+    <!-- The grids' ring: 2px wide with a 1px gap, a reach of 3. -->
+    <px name="swatch_grid_ring_width_small" value="2"/>
+    <px name="swatch_grid_ring_width_medium" value="2"/>
+    <px name="swatch_grid_ring_width_large" value="2"/>
+    <px name="swatch_grid_ring_reach_small" value="3"/>
+    <px name="swatch_grid_ring_reach_medium" value="3"/>
+    <px name="swatch_grid_ring_reach_large" value="3"/>
+    <!-- The tabbed picker (micro, tiny) gives its presets the whole tab: larger
+         swatches, and the column count follows from the tab's width. Only those
+         two tiers ever show the tab; the core tiers mirror them. -->
+    <px name="picker_tab_swatch_size_micro" value="40"/>
+    <px name="picker_tab_swatch_size_small" value="40"/>
+    <px name="picker_tab_swatch_size_medium" value="40"/>
+    <px name="picker_tab_swatch_size_large" value="40"/>
+    <px name="picker_tab_swatch_gap_small" value="6"/>
+    <px name="picker_tab_swatch_gap_medium" value="6"/>
+    <px name="picker_tab_swatch_gap_large" value="6"/>
+    <px name="picker_tab_swatch_gap_half_small" value="3"/>
+    <px name="picker_tab_swatch_gap_half_medium" value="3"/>
+    <px name="picker_tab_swatch_gap_half_large" value="3"/>
+    <px name="border_radius_sm" value="4"/>
+
+    <!-- Unified Responsive Spacing System (space_*)                         -->
+    <!-- ===================================================================== -->
+    <!-- Runtime selects appropriate variant via ui_theme_register_responsive_spacing()
+         based on screen height: MICRO (≤272), TINY (273-390), SMALL (391-460),
+         MEDIUM (461-550), LARGE (551-700), XLARGE (701-1000), XXLARGE (>1000)
+         Target hardware: 480x272 (MICRO), 480x320 (TINY), 480x400 (SMALL),
+         800x480 (MEDIUM), 1024x600 (LARGE), 1280x720 (XLARGE), 1440p+ (XXLARGE)
+         _tiny, _xlarge and _xxlarge variants are optional — they fall back to
+         _small, _large, and _xlarge respectively.
+
+         CRITICAL: Base constants (space_xxs, space_xs, etc.) are registered at
+         runtime by ui_theme.cpp - do NOT define them here or responsive overrides
+         will be silently ignored due to LVGL's lv_xml_register_const() behavior.
+
+         The same ordering applies to <style> elements: globals.xml is parsed
+         BEFORE theme_manager_init() registers the base #space_*/#color consts,
+         so a style here that references one registers EMPTY (property silently
+         skipped). Define such styles in ui_xml/styles.xml when more than one
+         file uses them (borrowed by dotted name, styles.<name>), otherwise in
+         the consuming component's own <styles> block. Both parse after theme
+         init. -->
+    <!-- space_xxs: Tiny spacing (keypad rows, compact icon gaps) -->
+    <px name="space_xxs_tiny" value="1"/>
+    <px name="space_xxs_small" value="2"/>
+    <px name="space_xxs_medium" value="3"/>
+    <px name="space_xxs_large" value="4"/>
+    <px name="space_xxs_xlarge" value="5"/>
+    <px name="space_xxs_xxlarge" value="6"/>
+    <!-- space_xs: Extra small (button icon+text, dense info) -->
+    <px name="space_xs_tiny" value="2"/>
+    <px name="space_xs_small" value="4"/>
+    <px name="space_xs_medium" value="5"/>
+    <px name="space_xs_large" value="6"/>
+    <px name="space_xs_xlarge" value="8"/>
+    <px name="space_xs_xxlarge" value="10"/>
+    <!-- home_grid_gap: gap between the home widget grid's tracks. Matches space_xs up to
+         medium; wider from large up, where cells are big enough to want the air. -->
+    <px name="home_grid_gap_tiny" value="2"/>
+    <px name="home_grid_gap_small" value="4"/>
+    <px name="home_grid_gap_medium" value="5"/>
+    <px name="home_grid_gap_large" value="10"/>
+    <px name="home_grid_gap_xlarge" value="10"/>
+    <px name="home_grid_gap_xxlarge" value="12"/>
+    <!-- space_sm: Small (tight layouts, minor separations) -->
+    <px name="space_sm_tiny" value="4"/>
+    <px name="space_sm_small" value="6"/>
+    <px name="space_sm_medium" value="7"/>
+    <px name="space_sm_large" value="8"/>
+    <px name="space_sm_xlarge" value="10"/>
+    <px name="space_sm_xxlarge" value="12"/>
+    <!-- space_md: Medium (standard flex gaps, compact padding) -->
+    <px name="space_md_tiny" value="6"/>
+    <px name="space_md_small" value="8"/>
+    <px name="space_md_medium" value="10"/>
+    <px name="space_md_large" value="12"/>
+    <px name="space_md_xlarge" value="16"/>
+    <px name="space_md_xxlarge" value="20"/>
+    <!-- space_lg: Large (container padding, major sections) -->
+    <px name="space_lg_tiny" value="8"/>
+    <px name="space_lg_small" value="12"/>
+    <px name="space_lg_medium" value="16"/>
+    <px name="space_lg_large" value="20"/>
+    <px name="space_lg_xlarge" value="24"/>
+    <px name="space_lg_xxlarge" value="32"/>
+    <!-- space_xl: Extra large (emphasis cards, major separations) -->
+    <px name="space_xl_tiny" value="8"/>
+    <px name="space_xl_small" value="16"/>
+    <px name="space_xl_medium" value="20"/>
+    <px name="space_xl_large" value="24"/>
+    <px name="space_xl_xlarge" value="32"/>
+    <px name="space_xl_xxlarge" value="40"/>
+    <!-- space_2xl: Double extra large (toast/overlay offsets, large separations) -->
+    <px name="space_2xl_small" value="24"/>
+    <px name="space_2xl_medium" value="32"/>
+    <px name="space_2xl_large" value="40"/>
+    <px name="space_2xl_xlarge" value="48"/>
+    <px name="space_2xl_xxlarge" value="64"/>
+    <!-- space_2xl_neg: Negative variant for positioning (e.g., toast right offset) -->
+    <px name="space_2xl_neg_small" value="-24"/>
+    <px name="space_2xl_neg_medium" value="-32"/>
+    <px name="space_2xl_neg_large" value="-40"/>
+    <px name="space_2xl_neg_xlarge" value="-48"/>
+    <px name="space_2xl_neg_xxlarge" value="-64"/>
+    <!-- space_md_neg / space_xxs_neg: an inward offset from a right or bottom
+         edge. An attribute cannot negate a token ("-#space_md" is dropped), so
+         the negated tier lives here. -->
+    <px name="space_md_neg_tiny" value="-6"/>
+    <px name="space_md_neg_small" value="-8"/>
+    <px name="space_md_neg_medium" value="-10"/>
+    <px name="space_md_neg_large" value="-12"/>
+    <px name="space_md_neg_xlarge" value="-16"/>
+    <px name="space_md_neg_xxlarge" value="-20"/>
+    <px name="space_xxs_neg_tiny" value="-1"/>
+    <px name="space_xxs_neg_small" value="-2"/>
+    <px name="space_xxs_neg_medium" value="-3"/>
+    <px name="space_xxs_neg_large" value="-4"/>
+    <px name="space_xxs_neg_xlarge" value="-5"/>
+    <px name="space_xxs_neg_xxlarge" value="-6"/>
+
+    <!-- ===================================================================== -->
+    <!-- Responsive Icon Sizes (icon_size)                                    -->
+    <!-- ===================================================================== -->
+    <!-- Runtime selects appropriate variant via ui_theme_register_responsive_fonts()
+         Unified icon size for cards, nav bar, and other standard icons
+         Values: xs(16), sm(24), md(32), lg(48), xl(64) -->
+    <!-- These are the NOMINAL size names above; the pixel face each one resolves to
+         also varies per tier (see icon_font_<size>_<tier> below), so "md" is 32px at
+         tiny but 24px at micro. Read both ladders together before changing either.
+
+         The rung is chosen so the glyph lands at 40-50% of the home grid's cell, which
+         is what keeps a tile's icon and its caption both inside the box. Cell edge is
+         2 * GridLayout::GRID_CELL[tier] = 68/80/80/120/120/144/192.
+
+         micro is the deliberate exception at 24px (35%): its 68px cell cannot host a
+         40% glyph AND a caption. "md" reads as 32px from the nominal list, but micro
+         demotes it to 24 - which is the size this comment used to reject as illegible,
+         so the value is right and the reasoning behind it was not. Measured: raising
+         micro to 32px (via "xl") clips 7 widgets on BOTH micro geometries. Leave it. -->
+    <string name="icon_size_micro" value="md"/>
+    <string name="icon_size_tiny" value="md"/>
+    <string name="icon_size_small" value="md"/>
+    <string name="icon_size_medium" value="lg"/>
+    <!-- large/xlarge/xxlarge sit on "lg" rather than "xl": GRID_CELL repeats 60 for
+         medium and large, so an "xl" here grew the glyph 48->64 with no more room and
+         put the tier at 53% - it clipped 10 widget/geometry pairs. -->
+    <string name="icon_size_large" value="lg"/>
+    <string name="icon_size_xlarge" value="lg"/>
+    <string name="icon_size_xxlarge" value="lg"/>
+
+    <!-- Chamber card header glyph: sm everywhere except tiny, whose one-row
+         header needs the 16px xs face (sm is 24px at tiny, 16px at micro, so
+         micro is unchanged and only tiny shrinks). xlarge/xxlarge fall back
+         to _large. -->
+    <string name="chamber_icon_size_micro" value="sm"/>
+    <string name="chamber_icon_size_tiny" value="xs"/>
+    <string name="chamber_icon_size_small" value="sm"/>
+    <string name="chamber_icon_size_medium" value="sm"/>
+    <string name="chamber_icon_size_large" value="sm"/>
+
+    <!-- Literal text that begins with '#'. resolve_consts() treats a leading
+         '#' as a const reference on EVERY attribute, and only lets a value
+         through unchanged when it is exactly 6 hex digits (is_hex_color), so
+         placeholder_text="#RRGGBB" was looked up as a const, missed, and the
+         attribute was dropped — the hex field showed no hint at all. A const's
+         VALUE is not re-scanned, so routing the literal through one works. -->
+    <string name="hex_placeholder" value="#RRGGBB"/>
+
+    <!-- ===================================================================== -->
+    <!-- Responsive Badge Sizes (badge_size)                                   -->
+    <!-- ===================================================================== -->
+    <!-- Small round badge for tool numbers, counts, etc. overlaid on icons.
+         These only make sense on a roomy icon (size="lg"/"xl"); a call site using
+         a smaller icon must pass an explicit badge size.
+
+         Hold each rung near a third of the icon it sits on. The xl icon rung is
+         NOT constant across breakpoints - icon_font_xl runs 64 at large, 80 at
+         xlarge and 96 at xxlarge - so a badge ladder that climbs more slowly
+         than the icon ladder shrinks in proportion as the screen grows.
+         Changing icon_font_xl_* means revisiting the matching rung here. -->
+    <px name="badge_size_tiny" value="10"/>
+    <px name="badge_size_small" value="16"/>
+    <px name="badge_size_medium" value="18"/>
+    <px name="badge_size_large" value="20"/>
+    <px name="badge_size_xlarge" value="24"/>
+    <px name="badge_size_xxlarge" value="32"/>
+
+    <!-- ===================================================================== -->
+    <!-- Tile badge rungs (tile_badge_*)                                       -->
+    <!-- ===================================================================== -->
+    <!-- A count badge sitting on a home-tile glyph that follows the tile icon
+         rung (bind_tile_rung ladder="icon"). The badge must follow the same rung or it
+         covers the glyph on the small rungs: a fixed badge_size is 10px against
+         a 16-24px bell. Each value is 2/5 of the matching icon_font_* rung
+         face at that tier (round to nearest), the proportion the AMS lane
+         badge uses on its spool. Changing an icon_font_* rung means revisiting
+         the matching column here. -->
+    <px name="tile_badge_xs_small" value="6"/>
+    <px name="tile_badge_xs_medium" value="6"/>
+    <px name="tile_badge_xs_large" value="6"/>
+    <px name="tile_badge_xs_xlarge" value="10"/>
+    <px name="tile_badge_xs_xxlarge" value="13"/>
+
+    <px name="tile_badge_sm_micro" value="6"/>
+    <px name="tile_badge_sm_small" value="10"/>
+    <px name="tile_badge_sm_medium" value="10"/>
+    <px name="tile_badge_sm_large" value="10"/>
+    <px name="tile_badge_sm_xlarge" value="13"/>
+    <px name="tile_badge_sm_xxlarge" value="19"/>
+
+    <px name="tile_badge_md_micro" value="10"/>
+    <px name="tile_badge_md_small" value="13"/>
+    <px name="tile_badge_md_medium" value="13"/>
+    <px name="tile_badge_md_large" value="13"/>
+    <px name="tile_badge_md_xlarge" value="19"/>
+    <px name="tile_badge_md_xxlarge" value="26"/>
+
+    <px name="tile_badge_lg_micro" value="10"/>
+    <px name="tile_badge_lg_tiny" value="13"/>
+    <px name="tile_badge_lg_small" value="19"/>
+    <px name="tile_badge_lg_medium" value="19"/>
+    <px name="tile_badge_lg_large" value="19"/>
+    <px name="tile_badge_lg_xlarge" value="26"/>
+    <px name="tile_badge_lg_xxlarge" value="32"/>
+
+    <px name="tile_badge_xl_micro" value="13"/>
+    <px name="tile_badge_xl_tiny" value="19"/>
+    <px name="tile_badge_xl_small" value="26"/>
+    <px name="tile_badge_xl_medium" value="26"/>
+    <px name="tile_badge_xl_large" value="26"/>
+    <px name="tile_badge_xl_xlarge" value="32"/>
+    <px name="tile_badge_xl_xxlarge" value="38"/>
+
+    <!-- xxl follows #tile_icon_xxl_size, the size that rung's glyph draws at. -->
+    <px name="tile_badge_xxl_micro" value="26"/>
+    <px name="tile_badge_xxl_tiny" value="38"/>
+    <px name="tile_badge_xxl_small" value="51"/>
+    <px name="tile_badge_xxl_medium" value="51"/>
+    <px name="tile_badge_xxl_large" value="51"/>
+    <px name="tile_badge_xxl_xlarge" value="64"/>
+    <px name="tile_badge_xxl_xxlarge" value="77"/>
+
+    <!-- ===================================================================== -->
+    <!-- Responsive Spinner Sizes (spinner_*)                                  -->
+    <!-- ===================================================================== -->
+    <!-- Runtime selects appropriate variant via ui_theme_register_responsive_spacing()
+         Spinner component uses these for consistent, responsive loading indicators -->
+    <!-- spinner_lg: Large modal spinners (preparing overlay, calibration, WiFi connect) -->
+    <px name="spinner_lg_small" value="48"/>
+    <px name="spinner_lg_medium" value="56"/>
+    <px name="spinner_lg_large" value="64"/>
+    <px name="spinner_lg_xlarge" value="80"/>
+    <px name="spinner_lg_xxlarge" value="96"/>
+    <!-- spinner_md: Standard loading indicators -->
+    <px name="spinner_md_small" value="24"/>
+    <px name="spinner_md_medium" value="28"/>
+    <px name="spinner_md_large" value="32"/>
+    <px name="spinner_md_xlarge" value="40"/>
+    <px name="spinner_md_xxlarge" value="48"/>
+    <!-- spinner_sm: Inline status indicators (WiFi test rows) -->
+    <px name="spinner_sm_small" value="16"/>
+    <px name="spinner_sm_medium" value="18"/>
+    <px name="spinner_sm_large" value="20"/>
+    <px name="spinner_sm_xlarge" value="24"/>
+    <px name="spinner_sm_xxlarge" value="28"/>
+    <!-- spinner_xs: Compact UI elements -->
+    <px name="spinner_xs_small" value="12"/>
+    <px name="spinner_xs_medium" value="14"/>
+    <px name="spinner_xs_large" value="16"/>
+    <px name="spinner_xs_xlarge" value="18"/>
+    <px name="spinner_xs_xxlarge" value="20"/>
+
+    <!-- meter_track_h: the bar a horizontal meter is drawn in — the FlowGuard
+         scale (clog_bar_body.xml). Thin enough to read as a scale rather than a
+         panel, and it climbs with the type ladder so the value marker and peak
+         tick stay visible next to the labels either side of it. -->
+    <px name="meter_track_h_micro" value="8"/>
+    <px name="meter_track_h_tiny" value="10"/>
+    <px name="meter_track_h_small" value="12"/>
+    <px name="meter_track_h_medium" value="12"/>
+    <px name="meter_track_h_large" value="14"/>
+    <px name="meter_track_h_xlarge" value="16"/>
+    <px name="meter_track_h_xxlarge" value="20"/>
+
+    <!-- loaded_swatch_narrow_w: the loaded-spool card's colour bar below the medium
+         breakpoint, where the material name needs the width more than the bar. -->
+    <px name="loaded_swatch_narrow_w_micro" value="14"/>
+    <px name="loaded_swatch_narrow_w_tiny" value="14"/>
+    <px name="loaded_swatch_narrow_w_small" value="14"/>
+    <px name="loaded_swatch_narrow_w_medium" value="14"/>
+    <px name="loaded_swatch_narrow_w_large" value="14"/>
+
+    <!-- buffer_tile_pad: the Filament Buffer tile's padding. space_sm, but held at
+         the medium value at tiny and small, where space_sm leaves the 2x1 trace
+         and caption on the tile's edges; micro keeps space_sm, which the 1x1
+         tile needs to fit at 272x480. -->
+    <px name="buffer_tile_pad_micro" value="4"/>
+    <px name="buffer_tile_pad_tiny" value="7"/>
+    <px name="buffer_tile_pad_small" value="7"/>
+    <px name="buffer_tile_pad_medium" value="7"/>
+    <px name="buffer_tile_pad_large" value="8"/>
+    <px name="buffer_tile_pad_xlarge" value="10"/>
+    <px name="buffer_tile_pad_xxlarge" value="12"/>
+
+    <!-- buffer_slider_w: the width of the upright filament buffer slider's housing
+         (UiBufferSlider) on the home widget and in the Buffer Status modal. -->
+    <px name="buffer_slider_w_micro" value="14"/>
+    <px name="buffer_slider_w_tiny" value="16"/>
+    <px name="buffer_slider_w_small" value="18"/>
+    <px name="buffer_slider_w_medium" value="20"/>
+    <px name="buffer_slider_w_large" value="24"/>
+    <px name="buffer_slider_w_xlarge" value="28"/>
+    <px name="buffer_slider_w_xxlarge" value="32"/>
+    <!-- buffer_mini_h: the loaded-spool card's small buffer slider, about the
+         height of the clog arc beside it. -->
+    <px name="buffer_mini_h_micro" value="38"/>
+    <px name="buffer_mini_h_tiny" value="42"/>
+    <px name="buffer_mini_h_small" value="46"/>
+    <px name="buffer_mini_h_medium" value="54"/>
+    <px name="buffer_mini_h_large" value="58"/>
+    <px name="buffer_mini_h_xlarge" value="66"/>
+    <px name="buffer_mini_h_xxlarge" value="78"/>
+    <!-- buffer_graph_h: the Buffer Status modal's slider and trace, as tall as the
+         dialog can spare at each size. -->
+    <px name="buffer_graph_h_micro" value="88"/>
+    <px name="buffer_graph_h_tiny" value="104"/>
+    <px name="buffer_graph_h_small" value="124"/>
+    <px name="buffer_graph_h_medium" value="148"/>
+    <px name="buffer_graph_h_large" value="176"/>
+    <px name="buffer_graph_h_xlarge" value="196"/>
+    <px name="buffer_graph_h_xxlarge" value="216"/>
+    <!-- buffer_slider_tall_w: the Buffer Status modal's slider housing, wide
+         enough to stay chunky at buffer_graph_h. -->
+    <px name="buffer_slider_tall_w_micro" value="22"/>
+    <px name="buffer_slider_tall_w_tiny" value="26"/>
+    <px name="buffer_slider_tall_w_small" value="28"/>
+    <px name="buffer_slider_tall_w_medium" value="34"/>
+    <px name="buffer_slider_tall_w_large" value="38"/>
+    <px name="buffer_slider_tall_w_xlarge" value="42"/>
+    <px name="buffer_slider_tall_w_xxlarge" value="48"/>
+    <!-- buffer_trace_h: the Buffer Status modal's trace panel, beside the
+         slider under the reading. -->
+    <px name="buffer_trace_h_micro" value="46"/>
+    <px name="buffer_trace_h_tiny" value="54"/>
+    <px name="buffer_trace_h_small" value="66"/>
+    <px name="buffer_trace_h_medium" value="82"/>
+    <px name="buffer_trace_h_large" value="98"/>
+    <px name="buffer_trace_h_xlarge" value="112"/>
+    <px name="buffer_trace_h_xxlarge" value="122"/>
+    <!-- text_small_line_h: one line of <text_small> (font_small's line height on
+         the same ladder), for a label that must truncate to a single line. -->
+    <px name="text_small_line_h_micro" value="15"/>
+    <px name="text_small_line_h_tiny" value="15"/>
+    <px name="text_small_line_h_small" value="18"/>
+    <px name="text_small_line_h_medium" value="22"/>
+    <px name="text_small_line_h_large" value="24"/>
+    <px name="text_small_line_h_xlarge" value="27"/>
+    <px name="text_small_line_h_xxlarge" value="34"/>
+    <!-- belt_tune_hero_h: the Belt Tension tuning hero (instruction, turn
+         stepper, gap, round facts). Fixed, so the chart below keeps its height
+         whatever the hero says. Each value is the tallest column's measured
+         height, the stepper column in ADJUST. Only landscape medium and up show
+         this hero; below medium and in portrait the panel uses its one-line
+         hero, so _small only completes the required triplet. -->
+    <px name="belt_tune_hero_h_small" value="94"/>
+    <px name="belt_tune_hero_h_medium" value="94"/>
+    <px name="belt_tune_hero_h_large" value="101"/>
+    <px name="belt_tune_hero_h_xlarge" value="119"/>
+    <px name="belt_tune_hero_h_xxlarge" value="158"/>
+    <!-- belt_sidebar_w: on ultrawide screens the Belt Tension chart grows on
+         the left and everything else sits in a sidebar this wide. Its tier
+         follows the short axis, so a 1920x440 panel reads _small. Sized so the
+         four RESULTS buttons and the tuning buttons fit in every locale. -->
+    <px name="belt_sidebar_w_small" value="640"/>
+    <px name="belt_sidebar_w_medium" value="720"/>
+    <px name="belt_sidebar_w_large" value="800"/>
+    <px name="belt_sidebar_w_xlarge" value="960"/>
+    <px name="belt_sidebar_w_xxlarge" value="1280"/>
+    <!-- belt_chart_max_h: in portrait the Belt Tension chart grows into the
+         spare height only up to about its own width. Portrait tiers follow the
+         screen width, so each value sits a little under that tier's content
+         width. -->
+    <px name="belt_chart_max_h_small" value="400"/>
+    <px name="belt_chart_max_h_medium" value="440"/>
+    <px name="belt_chart_max_h_large" value="560"/>
+    <px name="belt_chart_max_h_xlarge" value="680"/>
+    <px name="belt_chart_max_h_xxlarge" value="960"/>
+
+    <!-- Spinner arc widths - proportional to size -->
+    <px name="spinner_arc_lg_small" value="3"/>
+    <px name="spinner_arc_lg_medium" value="4"/>
+    <px name="spinner_arc_lg_large" value="4"/>
+    <px name="spinner_arc_lg_xlarge" value="5"/>
+    <px name="spinner_arc_lg_xxlarge" value="6"/>
+    <px name="spinner_arc_md_small" value="2"/>
+    <px name="spinner_arc_md_medium" value="3"/>
+    <px name="spinner_arc_md_large" value="3"/>
+    <px name="spinner_arc_md_xlarge" value="4"/>
+    <px name="spinner_arc_md_xxlarge" value="4"/>
+    <px name="spinner_arc_sm" value="2"/>
+    <px name="spinner_arc_xs" value="2"/>
+
+    <!-- Fan card tokens (fan_*) live in fan_tokens.xml -->
+
+    <!-- AMS tokens (ams_*) live in ams_tokens.xml -->
+
+    <!-- ===================================================================== -->
+    <!-- Responsive Keypad Sizes (keypad_*)                                    -->
+    <!-- ===================================================================== -->
+    <!-- Runtime selects appropriate variant via ui_theme_register_responsive_spacing() -->
+
+    <!-- printer_img_size moved to home_panel.xml -->
+    <!-- accent_bar_width moved to home_panel.xml -->
+    <!-- accent_bar_height moved to home_panel.xml -->
+    <!-- accent_bar_gap moved to home_panel.xml -->
+    <!-- Controls > Calibration & Tools: the smallest tile that still holds its
+         icon over a one-line label. fit_tile_grid picks the grid shape whose
+         tiles clear this by the most, and drops labels when none can. -->
+    <px name="calib_tile_min_width_micro" value="64"/>
+    <px name="calib_tile_min_width_tiny" value="66"/>
+    <px name="calib_tile_min_width_small" value="64"/>
+    <px name="calib_tile_min_width_medium" value="76"/>
+    <px name="calib_tile_min_width_large" value="88"/>
+    <px name="calib_tile_min_width_xlarge" value="100"/>
+    <px name="calib_tile_min_height_micro" value="40"/>
+    <px name="calib_tile_min_height_tiny" value="40"/>
+    <px name="calib_tile_min_height_small" value="44"/>
+    <px name="calib_tile_min_height_medium" value="56"/>
+    <px name="calib_tile_min_height_large" value="76"/>
+    <px name="calib_tile_min_height_xlarge" value="88"/>
+    <!-- Motors Off beside Motion on the Controls position card: at least 40px
+         wide to tap, with the glyph sized to the one-button-tall row -->
+    <!-- Motion + Motors Off row on a portrait Controls panel: Motion is inline
+         there, so the row only has to hold the Motors Off icon over its label -->
+    <px name="controls_action_row_portrait_tiny" value="40"/>
+    <px name="controls_action_row_portrait_small" value="48"/>
+    <px name="controls_action_row_portrait_medium" value="48"/>
+    <px name="controls_action_row_portrait_large" value="60"/>
+    <px name="controls_action_row_portrait_xlarge" value="64"/>
+    <string name="controls_toggle_icon_size_micro" value="xs"/>
+    <string name="controls_toggle_icon_size_tiny" value="sm"/>
+    <string name="controls_toggle_icon_size_small" value="sm"/>
+    <string name="controls_toggle_icon_size_medium" value="sm"/>
+    <string name="controls_toggle_icon_size_large" value="md"/>
+    <string name="controls_toggle_icon_size_xlarge" value="md"/>
+    <px name="controls_toggle_width_micro" value="40"/>
+    <px name="controls_toggle_width_tiny" value="40"/>
+    <px name="controls_toggle_width_small" value="64"/>
+    <px name="controls_toggle_width_medium" value="80"/>
+    <px name="controls_toggle_width_large" value="96"/>
+    <px name="controls_toggle_width_xlarge" value="112"/>
+    <!-- Pre-print option tiles (option_tile.xml): fixed-height pills of the
+         2-column grid on the print file detail view, tall enough for a
+         two-line font_small label. -->
+    <px name="option_tile_height_micro" value="40"/>
+    <px name="option_tile_height_tiny" value="40"/>
+    <px name="option_tile_height_small" value="48"/>
+    <px name="option_tile_height_medium" value="48"/>
+    <px name="option_tile_height_large" value="56"/>
+    <px name="option_tile_height_xlarge" value="64"/>
+    <!-- Filament chip row on the print file detail view (filament_swatch is
+         height="100%" of it): a header band over a body band, each tall enough
+         for its label. -->
+    <px name="filament_chip_row_height_micro" value="34"/>
+    <px name="filament_chip_row_height_tiny" value="32"/>
+    <px name="filament_chip_row_height_small" value="40"/>
+    <px name="filament_chip_row_height_medium" value="40"/>
+    <px name="filament_chip_row_height_large" value="40"/>
+    <px name="filament_chip_row_height_xlarge" value="48"/>
+    <!-- Width of one filament chip (filament_swatch.xml). Four fit the 274px
+         chip row at 800x480; the narrower ladders keep three on the 181px row
+         at 480x272. -->
+    <px name="filament_chip_width_micro" value="52"/>
+    <px name="filament_chip_width_tiny" value="52"/>
+    <px name="filament_chip_width_small" value="60"/>
+    <px name="filament_chip_width_medium" value="64"/>
+    <px name="filament_chip_width_large" value="64"/>
+    <px name="filament_chip_width_xlarge" value="80"/>
+    <!-- Calibration tiles: the glyph a tile's share of the card holds above a
+         one-line label -->
+    <string name="calib_icon_size_micro" value="sm"/>
+    <string name="calib_icon_size_tiny" value="sm"/>
+    <string name="calib_icon_size_small" value="md"/>
+    <string name="calib_icon_size_medium" value="md"/>
+    <string name="calib_icon_size_large" value="lg"/>
+    <string name="calib_icon_size_xlarge" value="lg"/>
+    <percentage name="card_width" value="45%"/>
+    <percentage name="card_height" value="80%"/>
+
+    <!-- Panel gradient paths are hardcoded in XML files that use them -->
+
+    <!-- Preview/thumbnail vertical offset to account for metadata overlays -->
+    <!-- Shifts content up to prevent overlap with bottom metadata areas -->
+    <percentage name="preview_offset_y" value="-12%"/>
+
+    <px name="button_padding" value="12"/>
+
+    <!-- Icon buttons, back buttons -->
+    <!-- _micro variants for 480x272 screen (15% shorter than TINY 480x320) -->
+    <px name="button_height_sm_micro" value="24"/>
+    <px name="button_height_sm_tiny" value="28"/>
+    <px name="button_height_sm_small" value="40"/>
+    <px name="button_height_sm_medium" value="40"/>
+    <px name="button_height_sm_large" value="40"/>
+    <px name="button_height_sm_xlarge" value="48"/>
+    <px name="button_height_sm_xxlarge" value="56"/>
+
+    <!-- jog_mode_h / jog_mode_w: a jog mode key in the pad layout (icon over
+         label). The height holds touch_target_min; the width cap keeps the key
+         within 1.4x its height, so a wide row centres its keys instead of
+         stretching them into bars. -->
+    <px name="jog_mode_h_micro" value="48"/>
+    <px name="jog_mode_h_tiny" value="48"/>
+    <px name="jog_mode_h_small" value="56"/>
+    <px name="jog_mode_h_medium" value="64"/>
+    <px name="jog_mode_h_large" value="80"/>
+    <px name="jog_mode_h_xlarge" value="88"/>
+    <px name="jog_mode_h_xxlarge" value="104"/>
+    <px name="jog_mode_w_micro" value="67"/>
+    <px name="jog_mode_w_tiny" value="67"/>
+    <px name="jog_mode_w_small" value="78"/>
+    <px name="jog_mode_w_medium" value="90"/>
+    <px name="jog_mode_w_large" value="112"/>
+    <px name="jog_mode_w_xlarge" value="123"/>
+    <px name="jog_mode_w_xxlarge" value="145"/>
+
+    <!-- touch_target_min: the least height a tappable control may have, whatever
+         the breakpoint; a compact layout trades width or rows, never this.
+         One exception: an action prompt's swatch grid keeps every color visible,
+         so its tiles hold this width but let height drop toward button_height
+         before the grid scrolls (prestonbrown/helixscreen#1806). -->
+    <px name="touch_target_min" value="48"/>
+
+    <!-- button_height is responsive: _small/_medium/_large registered as button_height based on screen size -->
+    <px name="button_height_micro" value="26"/>
+    <px name="button_height_tiny" value="44"/>
+    <px name="button_height_small" value="48"/>
+    <px name="button_height_medium" value="52"/>
+    <px name="button_height_large" value="72"/>
+    <px name="button_height_xlarge" value="80"/>
+    <px name="button_height_xxlarge" value="96"/>
+
+    <!-- Chamber preset buttons (temp overlay, landscape column). The tallest
+         fixed height that fits the widest strip state - faulted with the
+         External marker shown and the fan device-driven - with the column's
+         last child inside the strip and at least #space_xs of spacer left
+         above the buttons. The strip is not scrollable, so "fits" is an edge
+         comparison, not a scroll reading. Measured spare above the buttons
+         in that state is 3/2/9/6 px for micro/tiny/medium/large, shared
+         across the three rows (medium is 54, one under its exact fit: 55
+         equals unrelated width literals elsewhere and would trip the
+         hardcoded-pixels ratchet). No shipped landscape panel renders small or
+         above; small keeps the ladder monotone and xlarge/xxlarge fall back
+         to _large. -->
+    <px name="chamber_preset_h_micro" value="26"/>
+    <px name="chamber_preset_h_tiny" value="43"/>
+    <px name="chamber_preset_h_small" value="52"/>
+    <px name="chamber_preset_h_medium" value="54"/>
+    <px name="chamber_preset_h_large" value="79"/>
+
+    <!-- Chamber card header row gap: the space_xs ladder with tiny demoted
+         to xxs, so the one-row header (xs icon + sm readout + status) fits
+         the tiny card's content width. xlarge/xxlarge fall back to _large. -->
+    <px name="chamber_header_gap_micro" value="2"/>
+    <px name="chamber_header_gap_tiny" value="1"/>
+    <px name="chamber_header_gap_small" value="4"/>
+    <px name="chamber_header_gap_medium" value="5"/>
+    <px name="chamber_header_gap_large" value="6"/>
+
+    <px name="button_height_lg_micro" value="34"/>
+    <px name="button_height_lg_tiny" value="40"/>
+    <px name="button_height_lg_small" value="64"/>
+    <px name="button_height_lg_medium" value="70"/>
+    <px name="button_height_lg_large" value="96"/>
+    <px name="button_height_lg_xlarge" value="112"/>
+    <px name="button_height_lg_xxlarge" value="128"/>
+
+    <!-- Print status strip buttons beside the progress: square at this size
+         each way, narrower where four do not fit the row's share. -->
+    <px name="ps_strip_button_micro" value="58"/>
+    <px name="ps_strip_button_tiny" value="66"/>
+    <px name="ps_strip_button_small" value="76"/>
+    <px name="ps_strip_button_medium" value="90"/>
+    <px name="ps_strip_button_large" value="112"/>
+    <px name="ps_strip_button_xlarge" value="120"/>
+    <px name="ps_strip_button_xxlarge" value="144"/>
+
+    <!-- components/progress_bar.xml's height, read by the print status layout
+         fitter to estimate the strip before it is laid out. -->
+    <px name="progress_bar_height" value="12"/>
+
+    <!-- Other component dimensions -->
+    <!-- header_height is responsive: _small/_medium/_large registered as header_height based on screen height -->
+    <px name="header_height_micro" value="28"/>
+    <px name="header_height_tiny" value="33"/>
+    <px name="header_height_small" value="48"/>
+    <px name="header_height_medium" value="56"/>
+    <px name="header_height_large" value="60"/>
+    <px name="header_height_xlarge" value="68"/>
+    <px name="header_height_xxlarge" value="80"/>
+
+    <!-- NOTE: spool_row_min_height_* and spool_swatch_size_* are component-scoped
+         in ui_xml/spoolman_spool_item.xml (their only consumer). -->
+
+    <!-- ===================================================================== -->
+    <!-- Responsive Panel Heights (print status, file detail, history)         -->
+    <!-- ===================================================================== -->
+    <!-- temp_card_height: Temperature card height in print status panel -->
+    <px name="temp_card_height_micro" value="42"/>
+    <px name="temp_card_height_tiny" value="48"/>
+    <px name="temp_card_height_small" value="64"/>
+    <px name="temp_card_height_medium" value="72"/>
+    <px name="temp_card_height_large" value="80"/>
+    <px name="temp_card_height_xlarge" value="96"/>
+    <px name="temp_card_height_xxlarge" value="112"/>
+
+    <!-- dialog_content_max: max scrollable content area inside modal_dialog.
+         Bound below the (header + divider + button row + 85% dialog cap)
+         budget on each breakpoint, so the dialog never exceeds 85% screen
+         and the OK/Cancel row stays on-screen even with long messages. -->
+    <!-- dialog_content_pinned_max: for modals that keep ONE extra block pinned
+         BELOW the scroll area (a diagram, a status row) instead of letting it
+         scroll. dialog_content_max budgets header + divider + button row only, so
+         such a modal overruns the 85% card cap and its button row falls off the
+         bottom. Each value reserves that block's height on top of the standard
+         chrome. Prefer moving the block inside the scroll container and using
+         dialog_content_max — this ladder is the escape hatch for cases where the
+         block must stay visible while the text scrolls.
+         Values are MEASURED, not derived: the modal was rendered at each
+         breakpoint and the card's clamp plus its button-row overhang gave the
+         true chrome height, so the cap is (85% cap - chrome) with ~8px spare.
+         Measured chrome / headroom per breakpoint:
+           micro  480x272  chrome 102  max 129
+           tiny   480x320  chrome 125  max 147
+           small  640x400  chrome 168  max 172
+           medium 800x480  chrome 193  max 215
+           large 1024x600  chrome 230  max 280
+           xxlarge 1280x1024 chrome 448 max 422
+         An earlier hand-derived ladder was wrong at five of seven breakpoints
+         (medium clipped by 33px, large by 72px), which is why these are
+         measurements rather than arithmetic. -->
+    <px name="dialog_content_pinned_max_micro" value="121"/>
+    <px name="dialog_content_pinned_max_tiny" value="139"/>
+    <px name="dialog_content_pinned_max_small" value="164"/>
+    <px name="dialog_content_pinned_max_medium" value="207"/>
+    <px name="dialog_content_pinned_max_large" value="272"/>
+    <px name="dialog_content_pinned_max_xlarge" value="330"/>
+    <px name="dialog_content_pinned_max_xxlarge" value="414"/>
+
+    <!-- dialog_content_recovery_max: klipper_recovery_dialog's message cap
+          (header with icon, title, error code and close X; divider; scroll area;
+          one button row). dialog_content_max leaves less room for chrome than
+          this card needs at six of seven breakpoints, so its restart row would
+          fall off the clamped card. Values are MEASURED: the card rendered with
+          its scroll area pinned at 10px gives chrome = card - scroll, and the
+          cap is (85% cap - chrome) with 8px spare:
+            micro   480x272   chrome  70  cap 231
+            tiny    480x320   chrome  97  cap 272
+            small   640x400   chrome 114  cap 340
+            medium  800x480   chrome 124  cap 408
+            large  1024x600   chrome 150  cap 510
+            xlarge 1200x900   chrome 174  cap 765
+            xxlarge 1280x1024 chrome 220  cap 870 -->
+    <px name="dialog_content_recovery_max_micro" value="153"/>
+    <px name="dialog_content_recovery_max_tiny" value="167"/>
+    <px name="dialog_content_recovery_max_small" value="218"/>
+    <px name="dialog_content_recovery_max_medium" value="276"/>
+    <px name="dialog_content_recovery_max_large" value="352"/>
+    <px name="dialog_content_recovery_max_xlarge" value="583"/>
+    <px name="dialog_content_recovery_max_xxlarge" value="642"/>
+
+    <px name="dialog_content_max_micro" value="140"/>
+    <px name="dialog_content_max_tiny" value="170"/>
+    <px name="dialog_content_max_small" value="260"/>
+    <px name="dialog_content_max_medium" value="320"/>
+    <px name="dialog_content_max_large" value="440"/>
+    <px name="dialog_content_max_xlarge" value="600"/>
+    <px name="dialog_content_max_xxlarge" value="800"/>
+
+
+    <!-- The widget catalog's narrowest portrait width: the panel an 800x480
+         landscape screen gives it (70% of 800). -->
+    <px name="catalog_min_width" value="560"/>
+
+    <!-- input_height: standard height for all input fields (textareas, dropdowns,
+         icon toggles). A responsive ladder, so inputs scale up on bigger screens.
+         Micro (480x272) matches its 12px body font and 26px buttons; tiny and small
+         keep 48 for the cramped 480x320 panels. -->
+    <px name="input_height_micro" value="32"/>
+    <px name="input_height_tiny" value="48"/>
+    <px name="input_height_small" value="48"/>
+    <px name="input_height_medium" value="52"/>
+    <px name="input_height_large" value="56"/>
+    <px name="input_height_xlarge" value="60"/>
+    <px name="input_height_xxlarge" value="64"/>
+    <!-- Standard slider track height -->
+    <px name="slider_height" value="8"/>
+    <!-- Icon-only buttons (close, edit, etc.) -->
+    <px name="icon_button_size" value="32"/>
+    <!-- icon_button_size_lg: the larger icon-only touch target, used where the
+         button floats over content (canvas overlays) or sits alone in a panel
+         header rather than in a dense row. Follows the existing
+         <name>_<variant> convention of button_height_sm / button_height_lg.
+         Flat, not a breakpoint ladder — every consumer was a literal 36 on all
+         screens, so this is a lift-and-name, not a resize. icon_button_radius_lg
+         is half the size and MUST track it, otherwise the round variants
+         (print_status overlay buttons, exclude_object close) go oval. -->
+    <px name="icon_button_size_lg" value="36"/>
+    <px name="icon_button_radius_lg" value="18"/>
+    <!-- plate_label_max_width: the widest the print-file detail's plate name
+         may grow before it ends in an ellipsis. The preview card's top row on
+         the narrowest landscape card of each size, less the two
+         icon_button_size_lg arrows, a two-digit "12/12" plate position and the
+         strip's three space_xs gaps, so the position and the arrows never
+         leave the preview. -->
+    <px name="plate_label_max_width_micro" value="102"/>
+    <px name="plate_label_max_width_tiny" value="96"/>
+    <px name="plate_label_max_width_small" value="72"/>
+    <px name="plate_label_max_width_medium" value="212"/>
+    <px name="plate_label_max_width_large" value="300"/>
+    <px name="plate_label_max_width_xlarge" value="270"/>
+
+    <!-- icon_badge: the circular container holding a single status icon at the
+         top of an overlay or on a home-screen widget. NOT badge_size_* — that
+         family tops out at 28 and means the small count chip overlaid on an
+         icon, which is a different component. icon_badge_radius is half the
+         size and MUST track it.
+
+         Responsive because the glyph inside it is: icon_font_md runs 32 / 48 /
+         64 across large / xlarge / xxlarge, so one flat size cannot hold every
+         rung. xxlarge clears its 64px glyph while still leaving room for the
+         status label beneath it in a two-row home widget — that label is what
+         caps it at 1.25x rather than the ~1.5x the smaller rungs carry.
+         xlarge stays at 48, where the glyph exactly fills the badge. -->
+    <px name="icon_badge_size_small" value="48"/>
+    <px name="icon_badge_size_medium" value="48"/>
+    <px name="icon_badge_size_large" value="48"/>
+    <px name="icon_badge_size_xlarge" value="48"/>
+    <px name="icon_badge_size_xxlarge" value="80"/>
+    <px name="icon_badge_radius_small" value="24"/>
+    <px name="icon_badge_radius_medium" value="24"/>
+    <px name="icon_badge_radius_large" value="24"/>
+    <px name="icon_badge_radius_xlarge" value="24"/>
+    <px name="icon_badge_radius_xxlarge" value="40"/>
+
+    <!-- button_width_action: fixed width for a standalone action button that
+         must not stretch to fill its row (Done/Retry/Close in calibration
+         flows, the Bluetooth scan/pair/forget triplet). Rows that instead want
+         equal-width buttons should use flex_grow="1" and not this token. -->
+    <px name="button_width_action" value="140"/>
+
+    <!-- ===================================================================== -->
+    <!-- Typography - Responsive Semantic Fonts                              -->
+    <!-- ===================================================================== -->
+    <!-- Base constants (font_heading, font_body, font_small) are registered at
+         runtime by ui_theme_register_responsive_fonts() - do NOT define them
+         here or responsive overrides will be silently ignored. -->
+    <!-- font_heading variants (section headings, large text) -->
+    <string name="font_heading_micro" value="noto_sans_14"/>
+    <string name="font_heading_tiny" value="noto_sans_16"/>
+    <string name="font_heading_small" value="noto_sans_20"/>
+    <string name="font_heading_medium" value="noto_sans_26"/>
+    <string name="font_heading_large" value="noto_sans_28"/>
+    <string name="font_heading_xlarge" value="noto_sans_32"/>
+    <string name="font_heading_xxlarge" value="noto_sans_40"/>
+    <!-- NO BASE font_heading - registered at runtime -->
+    <!-- font_xl variants (extra-large display text, e.g. clock digits) - uses Bold weight -->
+    <string name="font_xl_micro" value="noto_sans_bold_16"/>
+    <string name="font_xl_tiny" value="noto_sans_bold_18"/>
+    <string name="font_xl_small" value="noto_sans_bold_20"/>
+    <string name="font_xl_medium" value="noto_sans_bold_28"/>
+    <string name="font_xl_large" value="noto_sans_bold_28"/>
+    <string name="font_xl_xlarge" value="noto_sans_bold_32"/>
+    <string name="font_xl_xxlarge" value="noto_sans_bold_40"/>
+    <!-- NO BASE font_xl - registered at runtime -->
+    <!-- font_display variants: ONE number that is the whole point of a screen.
+         Reserved for a readout the user has to carry off the machine by eye -
+         the measured pressure advance, which is transcribed into a slicer with
+         no clipboard to help. Everywhere else font_xl is the display face; this
+         exists because 28px in the middle of an otherwise empty card does not
+         read as "this is the answer", and bitmap fonts cannot be scaled up.
+         40px is the largest bold face that exists, so this is the ceiling
+         rather than a preference. Below MEDIUM there is no room for it and the
+         token falls back to the font_xl ladder. -->
+    <string name="font_display_micro" value="noto_sans_bold_16"/>
+    <string name="font_display_tiny" value="noto_sans_bold_18"/>
+    <string name="font_display_small" value="noto_sans_bold_20"/>
+    <string name="font_display_medium" value="noto_sans_bold_40"/>
+    <string name="font_display_large" value="noto_sans_bold_40"/>
+    <string name="font_display_xlarge" value="noto_sans_bold_40"/>
+    <string name="font_display_xxlarge" value="noto_sans_bold_40"/>
+    <!-- NO BASE font_display - registered at runtime -->
+    <!-- font_body_bold variants (bold weight at body size, e.g. markdown strong/section
+         headers). Sizes track font_body but step up to the nearest available bold glyph
+         (noto_sans_bold ships 14/16/18/20/24/28 always, 32 at xlarge tier, 40 at xxlarge). -->
+    <string name="font_body_bold_micro" value="noto_sans_bold_14"/>
+    <string name="font_body_bold_tiny" value="noto_sans_bold_14"/>
+    <string name="font_body_bold_small" value="noto_sans_bold_14"/>
+    <string name="font_body_bold_medium" value="noto_sans_bold_18"/>
+    <string name="font_body_bold_large" value="noto_sans_bold_20"/>
+    <string name="font_body_bold_xlarge" value="noto_sans_bold_24"/>
+    <string name="font_body_bold_xxlarge" value="noto_sans_bold_32"/>
+    <!-- NO BASE font_body_bold - registered at runtime -->
+    <!-- font_body variants (standard body text) -->
+    <string name="font_body_micro" value="noto_sans_12"/>
+    <string name="font_body_tiny" value="noto_sans_12"/>
+    <string name="font_body_small" value="noto_sans_14"/>
+    <string name="font_body_medium" value="noto_sans_18"/>
+    <string name="font_body_large" value="noto_sans_20"/>
+    <string name="font_body_xlarge" value="noto_sans_24"/>
+    <string name="font_body_xxlarge" value="noto_sans_32"/>
+    <!-- NO BASE font_body - registered at runtime -->
+    <!-- font_jog_key variants: the Axis Rows jog keys. Body text where the keys
+         are small; the heading face from large up, where a body label leaves
+         most of a key empty. Each value is a face its tier already links. -->
+    <string name="font_jog_key_micro" value="noto_sans_12"/>
+    <string name="font_jog_key_tiny" value="noto_sans_12"/>
+    <string name="font_jog_key_small" value="noto_sans_14"/>
+    <string name="font_jog_key_medium" value="noto_sans_18"/>
+    <string name="font_jog_key_large" value="noto_sans_28"/>
+    <string name="font_jog_key_xlarge" value="noto_sans_32"/>
+    <string name="font_jog_key_xxlarge" value="noto_sans_40"/>
+    <!-- NO BASE font_jog_key - registered at runtime -->
+    <!-- font_small variants (hints, helpers, chart labels) - uses Light weight -->
+    <string name="font_small_micro" value="noto_sans_light_10"/>
+    <string name="font_small_tiny" value="noto_sans_light_11"/>
+    <string name="font_small_small" value="noto_sans_light_12"/>
+    <string name="font_small_medium" value="noto_sans_light_16"/>
+    <string name="font_small_large" value="noto_sans_light_18"/>
+    <string name="font_small_xlarge" value="noto_sans_light_20"/>
+    <string name="font_small_xxlarge" value="noto_sans_light_26"/>
+    <!-- NO BASE font_small - registered at runtime -->
+    <!-- font_xs variants (compact metadata, card overlays, badges) - uses Light weight -->
+    <string name="font_xs_micro" value="noto_sans_light_10"/>
+    <string name="font_xs_tiny" value="noto_sans_light_10"/>
+    <string name="font_xs_small" value="noto_sans_light_10"/>
+    <string name="font_xs_medium" value="noto_sans_light_12"/>
+    <string name="font_xs_large" value="noto_sans_light_14"/>
+    <string name="font_xs_xlarge" value="noto_sans_light_16"/>
+    <string name="font_xs_xxlarge" value="noto_sans_light_20"/>
+    <!-- NO BASE font_xs - registered at runtime -->
+    <!-- font_chip_material variants (a FILAMENTS-card chip's material header) - Bold where the
+         chip is wide enough to hold "ABS-GF" in it, Light below that -->
+    <string name="font_chip_material_micro" value="noto_sans_light_10"/>
+    <string name="font_chip_material_tiny" value="noto_sans_light_10"/>
+    <string name="font_chip_material_small" value="noto_sans_light_10"/>
+    <string name="font_chip_material_medium" value="noto_sans_bold_14"/>
+    <string name="font_chip_material_large" value="noto_sans_bold_14"/>
+    <string name="font_chip_material_xlarge" value="noto_sans_bold_16"/>
+    <string name="font_chip_material_xxlarge" value="noto_sans_bold_20"/>
+    <!-- NO BASE font_chip_material - registered at runtime -->
+    <!-- font_mono variants (monospace for console/terminal displays) - Source Code Pro -->
+    <string name="font_mono_micro" value="source_code_pro_10"/>
+    <string name="font_mono_tiny" value="source_code_pro_10"/>
+    <string name="font_mono_small" value="source_code_pro_12"/>
+    <string name="font_mono_medium" value="source_code_pro_14"/>
+    <string name="font_mono_large" value="source_code_pro_16"/>
+    <string name="font_mono_xlarge" value="source_code_pro_18"/>
+    <string name="font_mono_xxlarge" value="source_code_pro_24"/>
+    <!-- NO BASE font_mono - registered at runtime -->
+    <!-- ===================================================================== -->
+    <!-- Icon Typography - Responsive Material Design Icon Fonts               -->
+    <!-- ===================================================================== -->
+    <!-- icon_font_xs: Extra-small icons (compact badges, minimal UI elements) -->
+    <string name="icon_font_xs_micro" value="mdi_icons_16"/>
+    <string name="icon_font_xs_tiny" value="mdi_icons_16"/>
+    <string name="icon_font_xs_small" value="mdi_icons_16"/>
+    <string name="icon_font_xs_medium" value="mdi_icons_16"/>
+    <string name="icon_font_xs_large" value="mdi_icons_16"/>
+    <string name="icon_font_xs_xlarge" value="mdi_icons_24"/>
+    <string name="icon_font_xs_xxlarge" value="mdi_icons_32"/>
+    <!-- NO BASE icon_font_xs - registered at runtime -->
+    <!-- icon_font_jog_key: the Axis Rows jog-key arrows, sized with
+         font_jog_key (ui_button icon_size="jog_key"). -->
+    <string name="icon_font_jog_key_micro" value="mdi_icons_16"/>
+    <string name="icon_font_jog_key_tiny" value="mdi_icons_24"/>
+    <string name="icon_font_jog_key_small" value="mdi_icons_24"/>
+    <string name="icon_font_jog_key_medium" value="mdi_icons_24"/>
+    <string name="icon_font_jog_key_large" value="mdi_icons_32"/>
+    <string name="icon_font_jog_key_xlarge" value="mdi_icons_48"/>
+    <string name="icon_font_jog_key_xxlarge" value="mdi_icons_64"/>
+    <!-- NO BASE icon_font_jog_key - registered at runtime -->
+    <!-- icon_font_sm: Small inline icons (metadata, hints, small indicators) -->
+    <string name="icon_font_sm_micro" value="mdi_icons_16"/>
+    <string name="icon_font_sm_tiny" value="mdi_icons_24"/>
+    <string name="icon_font_sm_small" value="mdi_icons_24"/>
+    <string name="icon_font_sm_medium" value="mdi_icons_24"/>
+    <string name="icon_font_sm_large" value="mdi_icons_24"/>
+    <string name="icon_font_sm_xlarge" value="mdi_icons_32"/>
+    <string name="icon_font_sm_xxlarge" value="mdi_icons_48"/>
+    <!-- NO BASE icon_font_sm - registered at runtime -->
+    <!-- icon_font_md: Standard UI icons (buttons, status, notifications) -->
+    <string name="icon_font_md_micro" value="mdi_icons_24"/>
+    <string name="icon_font_md_tiny" value="mdi_icons_32"/>
+    <string name="icon_font_md_small" value="mdi_icons_32"/>
+    <string name="icon_font_md_medium" value="mdi_icons_32"/>
+    <string name="icon_font_md_large" value="mdi_icons_32"/>
+    <string name="icon_font_md_xlarge" value="mdi_icons_48"/>
+    <string name="icon_font_md_xxlarge" value="mdi_icons_64"/>
+    <!-- NO BASE icon_font_md - registered at runtime -->
+    <!-- icon_font_lg: Large icons (cards, status panels, emphasis) -->
+    <string name="icon_font_lg_micro" value="mdi_icons_24"/>
+    <string name="icon_font_lg_tiny" value="mdi_icons_32"/>
+    <string name="icon_font_lg_small" value="mdi_icons_48"/>
+    <string name="icon_font_lg_medium" value="mdi_icons_48"/>
+    <string name="icon_font_lg_large" value="mdi_icons_48"/>
+    <string name="icon_font_lg_xlarge" value="mdi_icons_64"/>
+    <string name="icon_font_lg_xxlarge" value="mdi_icons_80"/>
+    <!-- NO BASE icon_font_lg - registered at runtime -->
+    <!-- icon_font_xl: Navigation/hero icons (nav bar, large displays) -->
+    <string name="icon_font_xl_micro" value="mdi_icons_32"/>
+    <string name="icon_font_xl_tiny" value="mdi_icons_48"/>
+    <string name="icon_font_xl_small" value="mdi_icons_64"/>
+    <string name="icon_font_xl_medium" value="mdi_icons_64"/>
+    <string name="icon_font_xl_large" value="mdi_icons_64"/>
+    <string name="icon_font_xl_xlarge" value="mdi_icons_80"/>
+    <string name="icon_font_xl_xxlarge" value="mdi_icons_96"/>
+    <!-- NO BASE icon_font_xl - registered at runtime -->
+    <!-- tile_icon_xxl_size: the home tiles' top icon rung, twice the tier's xl
+         glyph, so a tile only reaches it past a cell and a half. It names a
+         size, not a face: src/ui/ui_tile_rung.cpp draws it in the largest MDI
+         face this build links at or below it, scaled up to at most 2x. -->
+    <px name="tile_icon_xxl_size_micro" value="64"/>
+    <px name="tile_icon_xxl_size_tiny" value="96"/>
+    <px name="tile_icon_xxl_size_small" value="128"/>
+    <px name="tile_icon_xxl_size_medium" value="128"/>
+    <px name="tile_icon_xxl_size_large" value="128"/>
+    <px name="tile_icon_xxl_size_xlarge" value="160"/>
+    <px name="tile_icon_xxl_size_xxlarge" value="192"/>
+    <!-- icon_font_hero: Card-filling empty-state icons (thumbnail placeholders etc.) -->
+    <!-- mdi_icons_96/128 live only in the xxlarge font tier (mk/fonts.mk). On -->
+    <!-- devices whose FONT_TIERS excludes xxlarge (CC1 = micro+tiny, AD5M = -->
+    <!-- medium+large, pi32 = small+medium, etc.) the theme can't register -->
+    <!-- icon_font_hero and every XML consumer spams "No constant was found" + -->
+    <!-- "lv_xml_get_image: No image was found with name ''" warnings every -->
+    <!-- time the placeholder cube renders. Cap each tier at a font size the -->
+    <!-- tier actually ships with: CORE stops at mdi_icons_64 (always linked), -->
+    <!-- XLARGE adds 80, XXLARGE adds 96/128. Hero size converges with xl on -->
+    <!-- sub-xxlarge tiers — acceptable trade vs shipping ~200 KB of oversized -->
+    <!-- glyphs in every build. -->
+    <string name="icon_font_hero_micro" value="mdi_icons_64"/>
+    <string name="icon_font_hero_tiny" value="mdi_icons_64"/>
+    <string name="icon_font_hero_small" value="mdi_icons_64"/>
+    <string name="icon_font_hero_medium" value="mdi_icons_64"/>
+    <string name="icon_font_hero_large" value="mdi_icons_64"/>
+    <string name="icon_font_hero_xlarge" value="mdi_icons_80"/>
+    <string name="icon_font_hero_xxlarge" value="mdi_icons_128"/>
+    <!-- NO BASE icon_font_hero - registered at runtime -->
+
+    <!-- Belt Tension path colors: Path A and Path B wherever the panel names them
+         (sketch arrows, chart curves, hero numbers), so the two stay recognisable. -->
+    <color name="belt_path_a_dark" value="#4FA3F7"/>
+    <color name="belt_path_a_light" value="#1F6FC5"/>
+    <color name="belt_path_b_dark" value="#F2994A"/>
+    <color name="belt_path_b_light" value="#C0601A"/>
+    <!-- Step progress colors (wizard steps) -->
+    <color name="step_pending" value="#4c566a"/>
+    <!-- nord3 -->
+    <color name="step_active" value="#5e81ac"/>
+    <!-- nord10 -->
+    <color name="step_completed" value="#a3be8c"/>
+    <!-- nord14 -->
+    <color name="step_label_inactive_light" value="#4c566a"/>
+    <!-- nord3 -->
+    <color name="step_label_inactive_dark" value="#d8dee9"/>
+    <!-- nord4 -->
+    <!-- Filament path visualization colors -->
+    <color name="filament_idle_light" value="#d8dee9"/>
+    <!-- nord4 -->
+    <color name="filament_idle_dark" value="#4c566a"/>
+    <!-- nord3 -->
+    <color name="filament_error" value="#bf616a"/>
+    <!-- nord11 -->
+    <color name="filament_hub_bg_light" value="#e5e9f0"/>
+    <!-- nord5 -->
+    <color name="filament_hub_bg_dark" value="#3b4252"/>
+    <!-- nord1 -->
+    <color name="filament_hub_border_light" value="#d8dee9"/>
+    <!-- nord4 -->
+    <color name="filament_hub_border_dark" value="#4c566a"/>
+    <!-- nord9 -->
+    <color name="filament_metal" value="#808890"/>
+    <!-- Faceted toolhead base color (static - Voron-style red) -->
+    <color name="toolhead_body" value="#E53935"/>
+    <!-- AMS slot colors (static - 3D visualization) -->
+    <color name="ams_badge_bg" value="#505050"/>
+    <!-- Spool canvas colors (static - 3D visualization) -->
+    <color name="spool_body" value="#666666"/>
+    <color name="spool_body_shade" value="#444444"/>
+    <color name="spool_hub_top" value="#050505"/>
+    <color name="spool_hub_bottom" value="#404040"/>
+
+    <!-- Light icon colors (static - same in light/dark) -->
+    <color name="light_icon_off" value="#808080"/>
+    <color name="light_icon_on" value="#FFD700"/>
+    <!-- Temperature gradient colors (for heating progress indicator) -->
+    <color name="temp_gradient_cold" value="#88c0d0"/>
+    <!-- nord8 - cold -->
+    <color name="temp_gradient_warm" value="#ebcb8b"/>
+    <!-- nord13 - warming -->
+    <color name="temp_gradient_hot" value="#bf616a"/>
+    <!-- nord11 - hot -->
+    <!-- ===================================================================== -->
+    <!-- Nord Theme Color Reference (https://www.nordtheme.com)                -->
+    <!-- ===================================================================== -->
+    <!-- POLAR NIGHT (dark backgrounds, dark mode base)
+         nord0: #2e3440 - darkest, main dark background
+         nord1: #3b4252 - elevated surfaces (cards, modals)
+         nord2: #434c5e - selection/highlight backgrounds
+         nord3: #4c566a - comments, inactive text, borders
+    -->
+    <!-- SNOW STORM (light backgrounds, light mode base)
+         nord4: #d8dee9 - main light text on dark, secondary bg on light
+         nord5: #e5e9f0 - elevated surfaces in light mode
+         nord6: #eceff4 - brightest, main light background
+    -->
+    <!-- FROST (accent colors, interactive elements)
+         nord7:  #8fbcbb - highlighted accent (teal/cyan)
+         nord8:  #88c0d0 - primary info, links, cold indicators
+         nord9:  #81a1c1 - secondary color/accent
+         nord10: #5e81ac - tertiary color/accent (blue)
+    -->
+    <!-- AURORA (semantic/status colors)
+         nord11: #bf616a - error, hot, danger (red)
+         nord12: #d08770 - danger, attention/advanced (orange)
+         nord13: #ebcb8b - warning (yellow)
+         nord14: #a3be8c - success, positive (green)
+         nord15: #b48ead - special, unusual (purple)
+    -->
+    <!-- ===================================================================== -->
+
+    <!-- Overlay colors (preparing state, info boxes, progress bars) -->
+    <color name="overlay_bg_dark" value="#1E1E1E"/>
+    <color name="overlay_bg_light" value="#E0E0E0"/>
+    <color name="overlay_text_dark" value="#E0E0E0"/>
+    <color name="overlay_text_light" value="#2E3440"/>
+    <!-- nord0 -->
+
+    <!-- Static colors not derived from palette -->
+    <color name="section_bg_color" value="#434c5e"/>
+    <!-- nord2 -->
+
+    <!-- Object color palette for exclude-object map view -->
+    <!-- 8 distinct colors distinguishable on dark thumbnail backgrounds -->
+    <color name="object_color_1" value="#7c8aff"/>
+    <!-- periwinkle blue -->
+    <color name="object_color_2" value="#4ecdc4"/>
+    <!-- teal -->
+    <color name="object_color_3" value="#f9c74f"/>
+    <!-- golden yellow -->
+    <color name="object_color_4" value="#a78bfa"/>
+    <!-- soft purple -->
+    <color name="object_color_5" value="#f472b6"/>
+    <!-- pink -->
+    <color name="object_color_6" value="#fb923c"/>
+    <!-- orange -->
+    <color name="object_color_7" value="#34d399"/>
+    <!-- emerald -->
+    <color name="object_color_8" value="#60a5fa"/>
+    <!-- sky blue -->
+
+    <!-- ===================================================================== -->
+    <!-- Material Design Icon constants - MDI codepoints (U+F0000 range)       -->
+    <!-- Source: https://pictogrammers.com/library/mdi/                        -->
+    <!-- Generated from ui_icon_codepoints.h - DO NOT EDIT MANUALLY            -->
+    <!-- Run: python3 scripts/gen_icon_consts.py                               -->
+    <!-- ===================================================================== -->
+    <!-- BEGIN GENERATED ICON CONSTS -->
+    <str name="icon_alert" value="󰀦"/>
+    <str name="icon_alert_circle" value="󰀨"/>
+    <str name="icon_alert_octagon" value="󰀩"/>
+    <str name="icon_alpha_a_circle" value="󰯬"/>
+    <str name="icon_animation" value="󰗘"/>
+    <str name="icon_animation_play" value="󰤺"/>
+    <str name="icon_archive_arrow_down" value="󱉙"/>
+    <str name="icon_arrow_down" value="󰁅"/>
+    <str name="icon_arrow_down_bold" value="󰜮"/>
+    <str name="icon_arrow_expand_down" value="󰞖"/>
+    <str name="icon_arrow_expand_up" value="󰞙"/>
+    <str name="icon_arrow_left" value="󰁍"/>
+    <str name="icon_arrow_left_bold" value="󰜱"/>
+    <str name="icon_arrow_left_right" value="󰹳"/>
+    <str name="icon_arrow_left_thick" value="󰁎"/>
+    <str name="icon_arrow_right" value="󰁔"/>
+    <str name="icon_arrow_right_bold" value="󰜴"/>
+    <str name="icon_arrow_up" value="󰁝"/>
+    <str name="icon_arrow_up_bold_circle" value="󰁟"/>
+    <str name="icon_arrow_up_circle" value="󰳡"/>
+    <str name="icon_arrow_up_down" value="󰹹"/>
+    <str name="icon_arrow_up_right" value="󱞿"/>
+    <str name="icon_axis_arrow" value="󰵉"/>
+    <str name="icon_axis_x_arrow" value="󰵌"/>
+    <str name="icon_axis_y_arrow" value="󰵑"/>
+    <str name="icon_axis_z_arrow" value="󰵕"/>
+    <str name="icon_back" value="󰅁"/>
+    <str name="icon_backspace" value="󰭜"/>
+    <str name="icon_bed" value="󰋣"/>
+    <str name="icon_bell" value="󰂚"/>
+    <str name="icon_block_helper" value="󰂭"/>
+    <str name="icon_bluetooth" value="󰂯"/>
+    <str name="icon_bluetooth_connect" value="󰂱"/>
+    <str name="icon_book" value="󰗚"/>
+    <str name="icon_bug" value="󰃤"/>
+    <str name="icon_camera_timer" value="󰄉"/>
+    <str name="icon_cancel" value="󰜺"/>
+    <str name="icon_chart_line" value="󰄪"/>
+    <str name="icon_check" value="󰄬"/>
+    <str name="icon_check_bold" value="󰸞"/>
+    <str name="icon_check_box" value="󰄲"/>
+    <str name="icon_check_box_outline_blank" value="󰄱"/>
+    <str name="icon_check_circle" value="󰗡"/>
+    <str name="icon_chevron_down" value="󰅀"/>
+    <str name="icon_chevron_left" value="󰅁"/>
+    <str name="icon_chevron_right" value="󰅂"/>
+    <str name="icon_chevron_up" value="󰅃"/>
+    <str name="icon_clock" value="󰅐"/>
+    <str name="icon_close" value="󰅖"/>
+    <str name="icon_close_circle" value="󰅙"/>
+    <str name="icon_code_braces" value="󰅩"/>
+    <str name="icon_code_tags" value="󰅴"/>
+    <str name="icon_cog" value="󰒓"/>
+    <str name="icon_cog_outline" value="󰢻"/>
+    <str name="icon_cog_refresh" value="󱑞"/>
+    <str name="icon_console" value="󰆍"/>
+    <str name="icon_content_copy" value="󰆏"/>
+    <str name="icon_coolant_temperature" value="󰏈"/>
+    <str name="icon_cooldown" value="󰜗"/>
+    <str name="icon_crosshairs_gps" value="󰆤"/>
+    <str name="icon_cube" value="󰆧"/>
+    <str name="icon_cube_outline" value="󰆧"/>
+    <str name="icon_cursor_move" value="󰆾"/>
+    <str name="icon_dashboard" value="󰕮"/>
+    <str name="icon_database" value="󰆼"/>
+    <str name="icon_debug_step_over" value="󰆷"/>
+    <str name="icon_delete" value="󰆴"/>
+    <str name="icon_dots_vertical" value="󰇙"/>
+    <str name="icon_download" value="󰇚"/>
+    <str name="icon_eject" value="󰇪"/>
+    <str name="icon_electric_switch" value="󰺟"/>
+    <str name="icon_engine" value="󰇺"/>
+    <str name="icon_engine_off" value="󰩆"/>
+    <str name="icon_ethernet" value="󰈀"/>
+    <str name="icon_expand_all" value="󰁌"/>
+    <str name="icon_eye" value="󰈈"/>
+    <str name="icon_eye_off" value="󰈉"/>
+    <str name="icon_fan" value="󰈐"/>
+    <str name="icon_fan_off" value="󰠝"/>
+    <str name="icon_filament" value="󾀁"/>
+    <str name="icon_filament_alert" value="󾀃"/>
+    <str name="icon_filament_outline" value="󾀂"/>
+    <str name="icon_filament_sensor" value="󰹛"/>
+    <str name="icon_filament_sensor_alert" value="󱇀"/>
+    <str name="icon_filter" value="󰈲"/>
+    <str name="icon_fine_tune" value="󰘮"/>
+    <str name="icon_fire" value="󰈸"/>
+    <str name="icon_flash" value="󰉁"/>
+    <str name="icon_folder" value="󰉋"/>
+    <str name="icon_folder_arrow_up" value="󱧰"/>
+    <str name="icon_folder_home" value="󱂵"/>
+    <str name="icon_folder_open" value="󰝰"/>
+    <str name="icon_folder_upload" value="󰉙"/>
+    <str name="icon_fridge_industrial" value="󱗮"/>
+    <str name="icon_gauge" value="󰊚"/>
+    <str name="icon_grid_large" value="󰝘"/>
+    <str name="icon_grid_off" value="󰋂"/>
+    <str name="icon_grid_view" value="󰕰"/>
+    <str name="icon_heat_wave" value="󱩅"/>
+    <str name="icon_heater" value="󱢸"/>
+    <str name="icon_help" value="󰘥"/>
+    <str name="icon_help_circle" value="󰋗"/>
+    <str name="icon_home" value="󰋜"/>
+    <str name="icon_home_import" value="󰾜"/>
+    <str name="icon_home_outline" value="󰚡"/>
+    <str name="icon_home_thermometer" value="󰽔"/>
+    <str name="icon_hourglass" value="󰔟"/>
+    <str name="icon_image_area" value="󰋫"/>
+    <str name="icon_image_broken_variant" value="󰋮"/>
+    <str name="icon_inbox_outline" value="󱉴"/>
+    <str name="icon_infinity" value="󰛤"/>
+    <str name="icon_info" value="󰋼"/>
+    <str name="icon_info_circle" value="󰋼"/>
+    <str name="icon_info_outline" value="󰋽"/>
+    <str name="icon_inputshaper" value="󰥛"/>
+    <str name="icon_inventory" value="󰏖"/>
+    <str name="icon_keyboard" value="󰌌"/>
+    <str name="icon_lan" value="󰌗"/>
+    <str name="icon_layers" value="󰌨"/>
+    <str name="icon_leaf" value="󰌪"/>
+    <str name="icon_led_strip" value="󰟖"/>
+    <str name="icon_light" value="󰌵"/>
+    <str name="icon_light_off" value="󰹏"/>
+    <str name="icon_lightbulb_on" value="󰛨"/>
+    <str name="icon_lightbulb_on_10" value="󱩎"/>
+    <str name="icon_lightbulb_on_20" value="󱩏"/>
+    <str name="icon_lightbulb_on_30" value="󱩐"/>
+    <str name="icon_lightbulb_on_40" value="󱩑"/>
+    <str name="icon_lightbulb_on_50" value="󱩒"/>
+    <str name="icon_lightbulb_on_60" value="󱩓"/>
+    <str name="icon_lightbulb_on_70" value="󱩔"/>
+    <str name="icon_lightbulb_on_80" value="󱩕"/>
+    <str name="icon_lightbulb_on_90" value="󱩖"/>
+    <str name="icon_lightbulb_outline" value="󰌶"/>
+    <str name="icon_limit" value="󰹏"/>
+    <str name="icon_link" value="󰌹"/>
+    <str name="icon_list" value="󰉹"/>
+    <str name="icon_lock" value="󰌾"/>
+    <str name="icon_lock_open" value="󰿆"/>
+    <str name="icon_magnet" value="󰍇"/>
+    <str name="icon_magnify" value="󰍉"/>
+    <str name="icon_magnify_scan" value="󱉶"/>
+    <str name="icon_message" value="󰍩"/>
+    <str name="icon_minus" value="󰍴"/>
+    <str name="icon_move" value="󰁌"/>
+    <str name="icon_network" value="󰈀"/>
+    <str name="icon_notifications" value="󰂚"/>
+    <str name="icon_nozzle" value="󰹛"/>
+    <str name="icon_nozzle_alert" value="󱇀"/>
+    <str name="icon_nozzle_outline" value="󰹜"/>
+    <str name="icon_palette" value="󰏘"/>
+    <str name="icon_pause" value="󰏤"/>
+    <str name="icon_pencil" value="󰏫"/>
+    <str name="icon_play" value="󰐊"/>
+    <str name="icon_play_circle" value="󰐌"/>
+    <str name="icon_plus" value="󰐕"/>
+    <str name="icon_power" value="󰐥"/>
+    <str name="icon_power_cycle" value="󰤁"/>
+    <str name="icon_power_off" value="󰤂"/>
+    <str name="icon_power_on" value="󰤃"/>
+    <str name="icon_power_plug" value="󰚥"/>
+    <str name="icon_power_plug_battery" value="󱰻"/>
+    <str name="icon_power_plug_off" value="󰚦"/>
+    <str name="icon_power_plug_outline" value="󱐥"/>
+    <str name="icon_power_socket" value="󰐧"/>
+    <str name="icon_power_socket_au" value="󰤅"/>
+    <str name="icon_power_socket_ch" value="󰾳"/>
+    <str name="icon_power_socket_de" value="󱄇"/>
+    <str name="icon_power_socket_eu" value="󰟧"/>
+    <str name="icon_power_socket_fr" value="󱄈"/>
+    <str name="icon_power_socket_it" value="󱓿"/>
+    <str name="icon_power_socket_jp" value="󱄉"/>
+    <str name="icon_power_socket_uk" value="󰟨"/>
+    <str name="icon_power_socket_us" value="󰟩"/>
+    <str name="icon_power_standby" value="󰤆"/>
+    <str name="icon_print" value="󰐪"/>
+    <str name="icon_printer" value="󰐪"/>
+    <str name="icon_printer_3d" value="󰐫"/>
+    <str name="icon_progress_clock" value="󰦖"/>
+    <str name="icon_prohibited" value="󰂭"/>
+    <str name="icon_puzzle_outline" value="󰩦"/>
+    <str name="icon_qrcode_scan" value="󰐳"/>
+    <str name="icon_question_circle" value="󰋗"/>
+    <str name="icon_rabbit" value="󰤇"/>
+    <str name="icon_radiator" value="󰐸"/>
+    <str name="icon_redo" value="󰑎"/>
+    <str name="icon_refresh" value="󰑐"/>
+    <str name="icon_remote_desktop" value="󰢹"/>
+    <str name="icon_restart" value="󰜉"/>
+    <str name="icon_resume" value="󰐌"/>
+    <str name="icon_robot" value="󰚩"/>
+    <str name="icon_rotate_3d" value="󰻇"/>
+    <str name="icon_rotate_left" value="󰑥"/>
+    <str name="icon_rotate_right" value="󰑧"/>
+    <str name="icon_router" value="󰑩"/>
+    <str name="icon_ruler" value="󰑭"/>
+    <str name="icon_script_text" value="󰯂"/>
+    <str name="icon_sd" value="󰑹"/>
+    <str name="icon_send" value="󰒊"/>
+    <str name="icon_sensor" value="󰶑"/>
+    <str name="icon_settings" value="󰒓"/>
+    <str name="icon_settings_outline" value="󰢻"/>
+    <str name="icon_sine_wave" value="󰥛"/>
+    <str name="icon_sleep" value="󰒲"/>
+    <str name="icon_source_branch" value="󰘬"/>
+    <str name="icon_speed" value="󰓅"/>
+    <str name="icon_speed_down" value="󰾆"/>
+    <str name="icon_speed_up" value="󰾅"/>
+    <str name="icon_spirit_level" value="󱓱"/>
+    <str name="icon_spoolman" value="󾀀"/>
+    <str name="icon_star" value="󰓎"/>
+    <str name="icon_stop" value="󰓛"/>
+    <str name="icon_swap_horizontal" value="󰓡"/>
+    <str name="icon_swap_vertical" value="󰓢"/>
+    <str name="icon_sync" value="󰓦"/>
+    <str name="icon_sysinfo" value="󰋼"/>
+    <str name="icon_target" value="󰓾"/>
+    <str name="icon_television_classic" value="󰟴"/>
+    <str name="icon_thermometer" value="󰔏"/>
+    <str name="icon_thermometer_lines" value="󰔐"/>
+    <str name="icon_thermometer_minus" value="󰸄"/>
+    <str name="icon_thermometer_off" value="󱔱"/>
+    <str name="icon_thermometer_plus" value="󰸅"/>
+    <str name="icon_thermometer_probe" value="󱬫"/>
+    <str name="icon_toolbox_outline" value="󰦭"/>
+    <str name="icon_tortoise" value="󰴻"/>
+    <str name="icon_toy_brick_outline" value="󱊍"/>
+    <str name="icon_train_flatbed" value="󱬵"/>
+    <str name="icon_translate" value="󰗊"/>
+    <str name="icon_trash_can_outline" value="󰩺"/>
+    <str name="icon_tray_arrow_up" value="󰄝"/>
+    <str name="icon_triangle_exclamation" value="󰀦"/>
+    <str name="icon_tune" value="󰘮"/>
+    <str name="icon_tune_variant" value="󱕂"/>
+    <str name="icon_tune_vertical_variant" value="󱕃"/>
+    <str name="icon_undo" value="󰕌"/>
+    <str name="icon_update" value="󰚰"/>
+    <str name="icon_usb" value="󰕓"/>
+    <str name="icon_vibrate" value="󰕦"/>
+    <str name="icon_video" value="󰕧"/>
+    <str name="icon_video_off" value="󰕨"/>
+    <str name="icon_view_dashboard" value="󰕮"/>
+    <str name="icon_view_grid" value="󰕰"/>
+    <str name="icon_view_list" value="󰕲"/>
+    <str name="icon_volume_high" value="󰕾"/>
+    <str name="icon_volume_low" value="󰖀"/>
+    <str name="icon_volume_off" value="󰖁"/>
+    <str name="icon_water" value="󰖌"/>
+    <str name="icon_waveform" value="󱑽"/>
+    <str name="icon_webcam" value="󰖠"/>
+    <str name="icon_weight" value="󰖡"/>
+    <str name="icon_wifi" value="󰖩"/>
+    <str name="icon_wifi_alert" value="󱚵"/>
+    <str name="icon_wifi_check" value="󱚽"/>
+    <str name="icon_wifi_lock" value="󱚿"/>
+    <str name="icon_wifi_off" value="󰖪"/>
+    <str name="icon_wifi_strength_1" value="󰤟"/>
+    <str name="icon_wifi_strength_1_alert" value="󰤠"/>
+    <str name="icon_wifi_strength_1_lock" value="󰤡"/>
+    <str name="icon_wifi_strength_2" value="󰤢"/>
+    <str name="icon_wifi_strength_2_lock" value="󰤤"/>
+    <str name="icon_wifi_strength_3" value="󰤥"/>
+    <str name="icon_wifi_strength_3_lock" value="󰤧"/>
+    <str name="icon_wifi_strength_4" value="󰤨"/>
+    <str name="icon_wifi_strength_4_lock" value="󰤪"/>
+    <str name="icon_wrench" value="󱌣"/>
+    <str name="icon_xmark" value="󰅖"/>
+    <str name="icon_z_closer" value="󰜮"/>
+    <str name="icon_z_farther" value="󰜷"/>
+    <!-- END GENERATED ICON CONSTS -->
+  </consts>
+  <view extends="lv_obj"/>
+</component>

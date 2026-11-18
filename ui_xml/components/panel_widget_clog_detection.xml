@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2025-2026 356C LLC -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <!--
+    Clog Detection home widget: the FlowGuard bar (clog_bar_body), driven by
+    UiClogBar from the clog_meter_* subjects. Clog detectors only; the filament
+    buffer has its own widget.
+  -->
+  <view name="panel_widget_clog_detection"
+        extends="lv_obj" width="100%" height="100%" flex_grow="1" style_pad_hor="#space_sm" style_pad_ver="#space_xs"
+        style_pad_row="#space_xs" style_pad_column="0" flex_flow="column" style_flex_main_place="center"
+        style_flex_cross_place="center" scrollable="false">
+    <event_cb trigger="clicked" callback="on_clog_detection_widget_clicked"/>
+    <clog_bar_body/>
+  </view>
+</component>

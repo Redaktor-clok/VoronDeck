@@ -1,0 +1,410 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "ui_container_delete_net.h"
+#include "ui_observer_guard.h"
+#include "ui_timer_guard.h"
+#include "ui_virtual_list.h"
+#include "ui_widget_ref.h"
+
+#if defined(HELIX_PLATFORM_ESP32)
+#include "esp_psram_thumbnail.h"
+#endif
+
+#include <functional>
+#include <lvgl.h>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+// Forward declarations
+struct PrintFileData;
+struct CardDimensions;
+
+namespace helix::ui {
+
+/**
+ * @file ui_print_select_card_view.h
+ * @brief Virtualized card grid view for print file selection
+ *
+ * Manages a fixed pool of card widgets that are recycled as the user scrolls.
+ * This enables displaying thousands of files without creating thousands of widgets.
+ *
+ * ## Key Features:
+ * - Widget pool sized to the visible window, grown when scrolling needs more
+ * - Spacer-based virtualization for smooth scrolling
+ * - Per-card subjects for declarative text binding
+ * - Observer cleanup in destructor prevents crashes
+ *
+ * ## Usage:
+ * @code
+ * PrintSelectCardView card_view;
+ * card_view.setup(container, file_click_callback);
+ * card_view.populate(file_list, calculate_dimensions_callback);
+ * // On scroll:
+ * card_view.update_visible(file_list, dimensions);
+ * @endcode
+ */
+
+/**
+ * @brief Per-card widget data for declarative text binding
+ *
+ * Stored with each pooled card widget. Subjects are bound to labels once
+ * at pool creation, then updated via lv_subject_copy_string() when card is recycled.
+ */
+struct CardWidgetData {
+    lv_subject_t filename_subject{};
+    char filename_buf[128] = {0};
+
+    lv_subject_t time_subject{};
+    char time_buf[32] = {0};
+
+    lv_subject_t filament_subject{};
+    char filament_buf[32] = {0};
+
+    /// Folder type for declarative binding: 0=file, 1=directory, 2=parent directory (..)
+    lv_subject_t folder_type_subject{};
+
+    /// Thumbnail state: 0=real thumbnail, 1=placeholder (show icon), 2=directory (hide both)
+    lv_subject_t thumbnail_state_subject{};
+
+    // Observer handles (saved for cleanup before DELETE)
+    lv_observer_t* filename_observer = nullptr;
+    lv_observer_t* time_observer = nullptr;
+    lv_observer_t* filament_observer = nullptr;
+    lv_observer_t* metadata_row_observer = nullptr;    ///< Hides metadata for directories
+    lv_observer_t* folder_icon_observer = nullptr;     ///< Shows folder icon for directories
+    lv_observer_t* parent_dir_icon_observer = nullptr; ///< Shows parent dir icon for ".."
+    lv_observer_t* thumbnail_observer = nullptr;       ///< Shows thumbnail when state==0
+    lv_observer_t* no_thumb_icon_observer = nullptr;   ///< Shows placeholder icon when state==1
+
+#if defined(HELIX_PLATFORM_ESP32)
+    /// Keeps the PSRAM thumbnail buffer alive for as long as this card's
+    /// `thumbnail` image widget's `src` still points at its lv_image_dsc_t,
+    /// independent of the source PrintFileData entry's own lifetime (which
+    /// may be replaced by a list refresh/sort while this widget still shows
+    /// the old image). See esp_psram_thumbnail.h.
+    std::shared_ptr<helix::ui::EspPsramThumbnail> esp_thumbnail;
+#endif
+};
+
+/**
+ * @brief Callback for file/directory clicks
+ * @param file_index Index into file list
+ */
+using FileClickCallback = std::function<void(size_t file_index)>;
+
+/**
+ * @brief Callback for file long-press (destructive action arming)
+ * @param file_index Index into file list
+ *
+ * Only fires for regular files (not directories or ".."). The card view
+ * plays the `button_tap` sound before invoking the callback, and ends the
+ * press (helix::ui::end_press) so the file is not also selected when the user
+ * lifts their finger. A hold on a directory or ".." declines and ends in the
+ * card's tap.
+ */
+using FileLongPressCallback = std::function<void(size_t file_index)>;
+
+/**
+ * @brief Callback to trigger metadata fetch for visible range
+ * @param start Start index (inclusive)
+ * @param end End index (exclusive)
+ */
+using MetadataFetchCallback = std::function<void(size_t start, size_t end)>;
+
+/**
+ * @brief Virtualized card grid view with widget pooling
+ */
+class PrintSelectCardView : public ContainerDeleteNet {
+  public:
+    PrintSelectCardView();
+    ~PrintSelectCardView();
+
+    // Non-copyable, movable
+    PrintSelectCardView(const PrintSelectCardView&) = delete;
+    PrintSelectCardView& operator=(const PrintSelectCardView&) = delete;
+    // Non-movable: the container's LV_EVENT_DELETE net is keyed to this
+    // instance, so a move would strand it on the moved-from object. The
+    // views are held by unique_ptr and never moved; the compiler enforces
+    // that staying true.
+    PrintSelectCardView(PrintSelectCardView&&) = delete;
+    PrintSelectCardView& operator=(PrintSelectCardView&&) = delete;
+
+    // === Configuration ===
+
+    static constexpr int kBufferRows = 0;      ///< Extra rows above/below viewport
+    static constexpr int MIN_WIDTH = 150;      ///< Minimum card width
+    static constexpr int MAX_WIDTH = 230;      ///< Maximum card width
+    static constexpr int kDefaultHeight = 245; ///< Default card height
+    static constexpr int kRow3MinHeight = 520; ///< Min height for 3-row layout
+
+    static constexpr const char* kComponentName = "print_file_card";
+    static constexpr const char* kFolderIcon = "A:assets/images/folder.png";
+
+    /**
+     * @brief Sentinel thumbnail path for files without an embedded thumbnail
+     *
+     * Returns an empty string. The card and detail views hide their lv_image
+     * and show the cube_outline icon whenever this sentinel is used.
+     */
+    static std::string get_default_thumbnail();
+
+    /**
+     * @brief Check whether a path is the empty-placeholder sentinel
+     *
+     * @param path Thumbnail path to check
+     * @return true if path is empty (no real thumbnail yet)
+     */
+    static bool is_placeholder_thumbnail(const std::string& path);
+
+    /**
+     * @brief Check if a thumbnail path points to a real, existing file
+     *
+     * Validates that the path is non-empty, not a placeholder, and the
+     * underlying file exists on disk. Handles LVGL "A:" drive prefix
+     * stripping for the filesystem check.
+     *
+     * @param path Thumbnail path (may include LVGL "A:" prefix)
+     * @return true if path points to an existing non-placeholder file
+     */
+    static bool has_real_thumbnail(const std::string& path);
+
+    // === Setup ===
+
+    /**
+     * @brief Initialize the card view with container and callbacks
+     * @param container Scrollable container widget for cards
+     * @param on_file_click Callback when card is clicked
+     * @param on_metadata_fetch Callback to fetch metadata for visible range
+     * @return true if setup succeeded
+     */
+    bool setup(lv_obj_t* container, FileClickCallback on_file_click,
+               MetadataFetchCallback on_metadata_fetch);
+
+    /**
+     * @brief Set the long-press callback (optional; no long-press handling if unset)
+     * @param on_file_long_press Callback invoked when a file card is long-pressed
+     */
+    void set_on_file_long_press(FileLongPressCallback on_file_long_press) {
+        on_file_long_press_ = std::move(on_file_long_press);
+    }
+
+    /**
+     * @brief Clean up resources (observers, spacers)
+     *
+     * Called automatically by destructor. Safe to call multiple times.
+     */
+    void cleanup();
+
+    // === Population ===
+
+    /**
+     * @brief Populate view with file list
+     * @param file_list Reference to file data vector
+     * @param dims Card dimensions for layout
+     * @param preserve_scroll If true, preserve scroll position; otherwise reset to top
+     *
+     * Resets scroll position and visible range, then updates visible cards.
+     */
+    void populate(const std::vector<PrintFileData>& file_list, const CardDimensions& dims,
+                  bool preserve_scroll = false);
+
+    /**
+     * @brief Update visible cards based on scroll position
+     * @param file_list Reference to file data vector
+     * @param dims Card dimensions for layout
+     *
+     * Called on scroll events. Recycles cards that scrolled out of view.
+     */
+    void update_visible(const std::vector<PrintFileData>& file_list, const CardDimensions& dims);
+
+    /**
+     * @brief Refresh content of visible cards without repositioning
+     * @param file_list Reference to file data vector
+     * @param dims Card dimensions for layout
+     *
+     * Called when metadata/thumbnails update asynchronously.
+     */
+    void refresh_content(const std::vector<PrintFileData>& file_list, const CardDimensions& dims);
+
+    /**
+     * @brief Build the cards the first screen needs, one per timer tick
+     *
+     * Building a card costs tens of ms on slow hardware, so building a whole
+     * window inside the listing's fill blocks the UI for all of them at once.
+     * Started while the listing is still on its way, the pool is ready when it
+     * lands; a populate() that comes first builds whatever is still missing.
+     *
+     * @param expected_files File count the window is sized for
+     */
+    void prebuild(const CardDimensions& dims, size_t expected_files);
+
+    /// Stops a prebuild in progress. Cards already built stay in the pool.
+    void stop_prebuild();
+
+    [[nodiscard]] bool is_prebuilding() const {
+        return static_cast<bool>(prebuild_timer_);
+    }
+
+    /// The prebuild's periodic timer, which the unit-test harness does not run
+    /// unless a test gives it a finite repeat count.
+    [[nodiscard]] lv_timer_t* prebuild_timer_for_test() const {
+        return prebuild_timer_.get();
+    }
+
+    /**
+     * @brief Shows @p file's thumbnail on the one card bound to @p file_index
+     *
+     * A thumbnail arriving changes one card; rebinding the whole window for it
+     * repaints every visible card. Nothing happens when no card shows the file.
+     *
+     * @return true when a card was updated
+     */
+    bool update_thumbnail(size_t file_index, const PrintFileData& file);
+
+    // === State Queries ===
+
+    /**
+     * @brief Check if pool has been initialized
+     */
+    [[nodiscard]] bool is_initialized() const {
+        return pool_initialized_;
+    }
+
+    /// Card widgets built so far: the most any window has needed.
+    [[nodiscard]] size_t pool_size() const {
+        return card_pool_.size();
+    }
+
+    /**
+     * @brief Get current visible row range
+     * @param start_row Output: first visible row (-1 if uninitialized)
+     * @param end_row Output: last visible row (exclusive)
+     */
+    void get_visible_range(int& start_row, int& end_row) const {
+        start_row = visible_start_row_;
+        end_row = visible_end_row_;
+    }
+
+    /**
+     * @brief Get cards per row for current layout
+     */
+    [[nodiscard]] int get_cards_per_row() const {
+        return cards_per_row_;
+    }
+
+  private:
+    // === Widget References ===
+    helix::ui::WidgetRef container_;
+    lv_obj_t* leading_spacer_ = nullptr;
+    lv_obj_t* trailing_spacer_ = nullptr;
+
+    // === Pool State ===
+    std::vector<helix::ui::WeakWidget> card_pool_;
+    std::vector<ssize_t> card_pool_indices_;
+    std::vector<std::unique_ptr<CardWidgetData>> card_data_pool_;
+    bool pool_initialized_ = false; ///< Gradient + theme observer set up
+
+    // === Visible Range ===
+    int cards_per_row_ = 3;
+    int visible_start_row_ = -1;
+    int visible_end_row_ = -1;
+    int total_items_ = 0;
+
+    // === Cached Spacer Heights (avoid redundant lv_obj_set_height → relayout) ===
+    int last_leading_height_ = -1;
+    int last_trailing_height_ = -1;
+
+    // === Cached Gradient Buffer (shared across all cards) ===
+    lv_draw_buf_t* cached_gradient_ = nullptr;
+    int32_t cached_gradient_w_ = 0;
+    int32_t cached_gradient_h_ = 0;
+    bool cached_gradient_dark_ = true;
+    uint32_t cached_gradient_behind_ = 0; ///< solid color the corners are flattened onto, 0 = none
+
+    /// Ensure gradient buffer matches current card dimensions and theme
+    void ensure_gradient_cache(int32_t card_width, int32_t card_height);
+
+    /// Apply cached gradient to a card's gradient_bg image
+    void apply_gradient_to_card(lv_obj_t* card);
+
+    // === Theme Observer (re-renders gradient on dark/light switch) ===
+    ObserverGuard theme_observer_;
+
+    // === Callbacks ===
+    FileClickCallback on_file_click_;
+    FileLongPressCallback on_file_long_press_;
+    MetadataFetchCallback on_metadata_fetch_;
+
+    // === Internal Methods ===
+
+    /**
+     * @brief Set up what every pool card shares (gradient, theme observer)
+     * @param dims Initial card dimensions
+     */
+    void init_pool(const CardDimensions& dims);
+
+    /// Build cards until the pool holds @p count.
+    void grow_pool(size_t count, const CardDimensions& dims);
+
+    /// The rows a window at @p scroll_y shows for @p file_count files
+    [[nodiscard]] VirtualWindow window_at(int32_t scroll_y, size_t file_count,
+                                          const CardDimensions& dims) const;
+
+    LvglTimerGuard prebuild_timer_;
+    std::unique_ptr<CardDimensions> prebuild_dims_;
+    size_t prebuild_target_ = 0;
+    static void on_prebuild_tick(lv_timer_t* timer);
+
+    /**
+     * @brief Configure a pool card to display a specific file
+     * @param card Pool card widget
+     * @param pool_index Index into card_pool_
+     * @param file_index Index into file_list
+     * @param file File data to display
+     * @param dims Card dimensions
+     */
+    void configure_card(lv_obj_t* card, size_t pool_index, size_t file_index,
+                        const PrintFileData& file, const CardDimensions& dims);
+
+    /// Points a card's image at @p file's thumbnail, or its placeholder state.
+    static void apply_thumbnail(lv_obj_t* card, CardWidgetData& data, const PrintFileData& file);
+
+#if defined(HELIX_PLATFORM_ESP32)
+    /// Drops a card's thumbnail, so the window's budget is all that holds them.
+    static void release_esp_thumbnail(lv_obj_t* card, CardWidgetData& data);
+
+  public:
+    /// Drops every card's thumbnail; cards show the placeholder until rebound.
+    void release_esp_thumbnails();
+
+  private:
+#endif
+
+    /**
+     * @brief Create spacers for virtualization
+     */
+    void create_spacers();
+
+    // === Static Callbacks ===
+    static void on_card_clicked(lv_event_t* e);
+    static void on_card_long_pressed(lv_event_t* e);
+
+    /// Drop every cached pointer/counter WITHOUT touching any widget. Safe to
+    /// run while the tree those pointers refer to is mid-deletion.
+    void clear_cached_state();
+
+    /// ContainerDeleteNet: the watched tree died — drop the pool
+    /// before its pointers dangle.
+    void on_netted_container_destroyed() override;
+
+    /// LV_EVENT_DELETE net on the container: the tree the pool was built under
+    /// is being deleted (panel rebuild, teardown, shutdown). The pool must not
+    /// outlive it (prestonbrown/helixscreen#1396).
+};
+
+} // namespace helix::ui

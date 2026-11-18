@@ -1,0 +1,739 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "ui_filament_catalog_selector.h"
+#include "ui_update_queue.h"
+
+#include "../test_fixtures.h"
+#include "config.h"
+#include "filament_favorites.h"
+#include "filament_variants.h"
+
+#include <algorithm>
+#include <sstream>
+
+#include "../catch_amalgamated.hpp"
+
+using helix::printer::EffectiveFilament;
+using helix::ui::FilamentCatalogSelector;
+
+namespace {
+lv_obj_t* make_fragment() {
+    FilamentCatalogSelector::register_callbacks();
+    lv_xml_register_component_from_file("A:ui_xml/components/filament_catalog_selector.xml");
+    return static_cast<lv_obj_t*>(
+        lv_xml_create(lv_screen_active(), "filament_catalog_selector", nullptr));
+}
+
+/// The star toggle writes the Config singleton shared by every test in the
+/// shard; snapshot and restore the id list so a starred product cannot leak
+/// into another test's vendor-view ordering.
+struct FavoriteIdsGuard {
+    std::vector<std::string> saved;
+
+    FavoriteIdsGuard() {
+        Config* cfg = Config::get_instance();
+        saved = cfg->get_string_array(helix::filament_favorites::kFavoriteIdsPath);
+    }
+    ~FavoriteIdsGuard() {
+        Config* cfg = Config::get_instance();
+        cfg->set(helix::filament_favorites::kFavoriteIdsPath, saved);
+    }
+};
+} // namespace
+
+TEST_CASE_METHOD(XMLTestFixture, "selector populates and reports a highlighted product",
+                 "[filament_picker][catalog_selector]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::string("PLA"), std::nullopt);
+    sel.populate();
+
+    REQUIRE(sel.current_vendor() == "Generic");
+    REQUIRE(sel.current_type() == "PLA");
+    REQUIRE(sel.highlighted() == nullptr);
+
+    const EffectiveFilament* got = nullptr;
+    sel.set_selection_changed([&](const EffectiveFilament* ef) { got = ef; });
+    sel.select_first_product_for_test();
+    REQUIRE(sel.highlighted() != nullptr);
+    REQUIRE(got != nullptr);
+    CHECK(got->type == "PLA");
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture,
+                 "selector merges host additional vendors and seeds a Spoolman-only one",
+                 "[filament_picker][catalog_selector][preselect][spoolman]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    // Seed the vendor to a brand absent from the bundled catalog. The seed is
+    // the slot's own brand, so it lists itself before any merge arrives.
+    sel.configure(std::nullopt, std::nullopt, std::string("PolyTerra"));
+    sel.populate();
+    REQUIRE(sel.current_vendor() == "PolyTerra");
+
+    // The host supplies the live (e.g. Spoolman) vendor list; the seed still
+    // resolves.
+    sel.set_additional_vendors({"PolyTerra"});
+    CHECK(sel.current_vendor() == "PolyTerra");
+
+    // Generic stays pinned right after the Favorites pseudo-vendor — the merge
+    // appends, never reorders.
+    sel.change_vendor_for_test(1);
+    CHECK(sel.current_vendor() == "Generic");
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture,
+                 "selector additional-vendor merge dedups against the catalog case-insensitively",
+                 "[filament_picker][catalog_selector][spoolman]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::nullopt, std::nullopt);
+    sel.populate();
+
+    // "Overture" is a catalog brand; a differently-cased duplicate must NOT be
+    // appended, and "Generic" (already pinned) must not double up either.
+    sel.set_additional_vendors({"overture", "Generic", "PolyTerra"});
+
+    // Walk the dropdown and count occurrences via the index-aligned order.
+    lv_obj_t* dd = lv_obj_find_by_name(root, "vendor_dropdown");
+    REQUIRE(dd != nullptr);
+    std::string opts = lv_dropdown_get_options(dd);
+    auto count_token = [&](const std::string& name) {
+        int n = 0;
+        std::string line;
+        std::stringstream ss(opts);
+        while (std::getline(ss, line)) {
+            if (line == name)
+                ++n;
+        }
+        return n;
+    };
+    CHECK(count_token("Overture") == 1);  // catalog entry kept, dup dropped
+    CHECK(count_token("overture") == 0);  // lowercased dup not appended
+    CHECK(count_token("Generic") == 1);   // pinned once
+    CHECK(count_token("PolyTerra") == 1); // genuinely new -> appended
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture, "selector allowed_types filter is case-insensitive",
+                 "[filament_picker][catalog_selector]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::nullopt, std::vector<std::string>{"pla"});
+    sel.populate();
+
+    CHECK(sel.type_options() == "PLA");
+
+    sel.detach();
+}
+
+TEST_CASE_METHOD(XMLTestFixture,
+                 "selector allowed_types appends whitelist entries missing from catalog",
+                 "[filament_picker][catalog_selector][whitelist]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    // PEEK has no Generic-vendor catalog product at all, so a subtract-only filter
+    // would silently drop it, locking users out of a firmware-supported material.
+    // PLA and PETG both exist for Generic and are intersected as before.
+    sel.configure(std::nullopt, std::vector<std::string>{"PLA", "PEEK", "PETG"});
+    sel.populate();
+
+    // Sorted family headings (PETG, PLA) first, then whitelist-only entries appended
+    // in whitelist order, preserving whitelist spelling.
+    CHECK(sel.type_options() == "PETG\nPLA\nPEEK");
+
+    sel.detach();
+}
+
+TEST_CASE_METHOD(XMLTestFixture,
+                 "selector folds a whitelisted variant type into its family heading",
+                 "[filament_picker][catalog_selector][whitelist][family]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    // SILK's only Generic product is "Silk PLA" — it is stocked, so it is NOT an
+    // absent-whitelist append. It folds under the PLA family heading instead of
+    // standing as its own top-level entry, while still emitting type "SILK".
+    sel.configure(std::nullopt, std::vector<std::string>{"PLA", "SILK", "PETG"});
+    sel.populate();
+
+    CHECK(sel.type_options() == "PETG\nPLA");
+
+    sel.detach();
+}
+
+TEST_CASE_METHOD(XMLTestFixture, "selector clears highlight when vendor changes",
+                 "[filament_picker][catalog_selector]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::string("PLA"), std::nullopt);
+    sel.populate();
+    sel.select_first_product_for_test();
+    REQUIRE(sel.highlighted() != nullptr);
+
+    sel.change_vendor_for_test(2); // first catalog brand after Favorites + Generic
+    CHECK(sel.highlighted() == nullptr);
+
+    sel.detach();
+}
+
+TEST_CASE_METHOD(XMLTestFixture, "preselect_on_change keeps a checked product across a type change",
+                 "[filament_picker][catalog_selector][preselect]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.set_preselect_on_change(true);
+    // Constrain the type dropdown to a known, sorted set so indices are stable:
+    // catalog intersection is alphabetical -> "PETG\nPLA" (index 0 = PETG, 1 = PLA).
+    sel.configure(std::string("PLA"), std::vector<std::string>{"PLA", "PETG"});
+    sel.populate();
+    sel.preselect_first();
+    REQUIRE(sel.type_options() == "PETG\nPLA");
+    REQUIRE(sel.current_type() == "PLA");
+    const EffectiveFilament* pla = sel.highlighted();
+    REQUIRE(pla != nullptr);
+    CHECK(pla->type == "PLA");
+    std::string pla_id = pla->id;
+
+    // Change type to PETG: the rebuilt list must auto-highlight a PETG product
+    // (invariant: never an all-unchecked list under preselect_on_change).
+    sel.change_type_for_test(0);
+    CHECK(sel.current_type() == "PETG");
+    const EffectiveFilament* petg = sel.highlighted();
+    REQUIRE(petg != nullptr);
+    CHECK(petg->type == "PETG");
+
+    // Navigate back to PLA: the original (anchor) product is restored, not just
+    // whatever happens to be first.
+    sel.change_type_for_test(1);
+    CHECK(sel.current_type() == "PLA");
+    REQUIRE(sel.highlighted() != nullptr);
+    CHECK(sel.highlighted()->id == pla_id);
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture, "preselect_on_change leaves an empty product list unchecked",
+                 "[filament_picker][catalog_selector][preselect]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.set_preselect_on_change(true);
+    // PEEK is whitelisted but has no Generic catalog product -> appended heading,
+    // empty product list. Nothing to check; the host decides Save semantics.
+    sel.configure(std::nullopt, std::vector<std::string>{"PEEK"});
+    sel.populate();
+    CHECK(sel.current_type() == "PEEK");
+    CHECK(sel.highlighted() == nullptr);
+
+    sel.detach();
+}
+
+TEST_CASE_METHOD(XMLTestFixture, "product list follows the catalog display order",
+                 "[filament_picker][catalog_selector][ordering]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::string("PLA"), std::nullopt);
+    sel.populate();
+    REQUIRE(sel.current_vendor() == "Generic");
+    REQUIRE(sel.current_type() == "PLA");
+
+    // The catalog's shared display order (sort_for_display): the product named
+    // exactly the family first, then names extending it with no space (PLA+,
+    // PLA-CF, PLA-GF), then the base-type run with "Support for PLA" last, then
+    // each variant type's own run. The decorative PLAs carry their own type, so
+    // display_family() files them under PLA as single-product runs; rPLA files
+    // there as the Recycled variant.
+    auto names = sel.product_names_for_test();
+    REQUIRE(names == std::vector<std::string>{"PLA", "PLA+", "PLA-CF", "PLA-GF", "PLA High Speed",
+                                              "PLA Matte", "PLA Silk", "Support for PLA",
+                                              "Glow PLA", "Marble PLA", "Matte PLA", "Metal PLA",
+                                              "rPLA", "Silk PLA", "Wood PLA"});
+
+    sel.detach();
+}
+
+TEST_CASE_METHOD(XMLTestFixture,
+                 "type-change auto-preselect lands on the plain material, not Support",
+                 "[filament_picker][catalog_selector][preselect][ordering]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.set_preselect_on_change(true);
+    // Constrain to a known, sorted type set so indices are stable:
+    // catalog intersection is alphabetical -> "ABS\nPLA" (index 0 = ABS, 1 = PLA).
+    sel.configure(std::string("ABS"), std::vector<std::string>{"PLA", "ABS"});
+    sel.populate();
+    REQUIRE(sel.type_options() == "ABS\nPLA");
+    REQUIRE(sel.current_type() == "ABS");
+
+    // Switching to PLA (no anchor carried over from ABS) must auto-highlight
+    // the plain "PLA" product per preselect_after_change()'s front() fallback
+    // now walking the ranked list, not raw catalog/file order.
+    sel.change_type_for_test(1);
+    CHECK(sel.current_type() == "PLA");
+    const EffectiveFilament* picked = sel.highlighted();
+    REQUIRE(picked != nullptr);
+    CHECK(picked->name == "PLA");
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture, "preselect_first checks the first product but keeps a prior pick",
+                 "[filament_picker][catalog_selector]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::string("ABS"), std::nullopt);
+    sel.populate();
+    REQUIRE(sel.highlighted() == nullptr);
+
+    sel.preselect_first();
+    const EffectiveFilament* first = sel.highlighted();
+    REQUIRE(first != nullptr);
+    CHECK(first->type == "ABS");
+
+    // Idempotent: a second call must not clobber the existing selection.
+    std::string kept_id = first->id;
+    sel.preselect_first();
+    REQUIRE(sel.highlighted() != nullptr);
+    CHECK(sel.highlighted()->id == kept_id);
+
+    sel.detach();
+}
+
+// preselect_first() can only ever pick ordered_products_for().front(), which for
+// SUNLU PLA is "PLA+". Seeding by the stored catalog id is the only thing that
+// can land on any other row, such as a saved "PLA+ 2.0" (bundle TDQCCQB3).
+TEST_CASE_METHOD(XMLTestFixture, "preselect_product_id lands on the exact product, not the first",
+                 "[filament_picker][catalog_selector][preselect]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::nullopt, std::nullopt);
+    sel.populate();
+
+    // Baseline: navigating to SUNLU/PLA by hand and taking the first row gives
+    // the WRONG product. This is the failure mode the id seed has to beat.
+    sel.change_vendor_for_test(1); // reset to Generic so the seed does real work
+    REQUIRE(sel.preselect_product_id("sunlu-pla-marble"));
+    REQUIRE(sel.highlighted() != nullptr);
+    REQUIRE(sel.current_vendor() == "SUNLU");
+    REQUIRE(sel.current_type() == "PLA");
+    CHECK(sel.product_names_for_test().front() == "PLA+");
+
+    // Now the real assertion: the id seed must reach a NON-first product.
+    CHECK(sel.preselect_product_id("sunlu-pla-plus-2-0"));
+    REQUIRE(sel.highlighted() != nullptr);
+    CHECK(sel.highlighted()->id == "sunlu-pla-plus-2-0");
+    CHECK(sel.highlighted()->name == "PLA+ 2.0");
+    // The dropdowns were navigated to the product's own vendor + family, not
+    // left wherever they happened to be.
+    CHECK(sel.current_vendor() == "SUNLU");
+    CHECK(sel.current_type() == "PLA");
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture, "preselect_product_id reports failure for an unresolvable id",
+                 "[filament_picker][catalog_selector][preselect]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::string("PLA"), std::nullopt);
+    sel.populate();
+    sel.select_first_product_for_test();
+    REQUIRE(sel.highlighted() != nullptr);
+    const std::string kept = sel.highlighted()->id;
+    const std::string kept_vendor = sel.current_vendor();
+
+    // A product the user deleted from their overlay, or an id retired by an app
+    // update. The host needs a false so it can fall back to preselect_first();
+    // silently doing nothing and returning true would strand it.
+    CHECK_FALSE(sel.preselect_product_id("no-such-product-id"));
+    CHECK_FALSE(sel.preselect_product_id("")); // empty id is never a resolve
+
+    // A failed seed must not disturb what is already selected.
+    REQUIRE(sel.highlighted() != nullptr);
+    CHECK(sel.highlighted()->id == kept);
+    CHECK(sel.current_vendor() == kept_vendor);
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+// preselect_first() records its pick as the preselect anchor so a dropdown
+// round-trip restores it. An id seed is a stronger statement of the same
+// intent, so it must set the anchor too — otherwise a user who switches type
+// away and back loses the variant they had saved.
+TEST_CASE_METHOD(XMLTestFixture, "preselect_product_id survives a dropdown round-trip",
+                 "[filament_picker][catalog_selector][preselect]") {
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.set_preselect_on_change(true);
+    sel.configure(std::nullopt, std::vector<std::string>{"PLA", "PETG"});
+    sel.populate();
+
+    REQUIRE(sel.preselect_product_id("sunlu-pla-plus-2-0"));
+    REQUIRE(sel.type_options() == "PETG\nPLA");
+    REQUIRE(sel.current_type() == "PLA");
+
+    // Away to PETG and back: the anchor restores the saved variant, not the
+    // alphabetically-first "PLA Marble".
+    sel.change_type_for_test(0);
+    CHECK(sel.current_type() == "PETG");
+    sel.change_type_for_test(1);
+    CHECK(sel.current_type() == "PLA");
+    REQUIRE(sel.highlighted() != nullptr);
+    CHECK(sel.highlighted()->id == "sunlu-pla-plus-2-0");
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture, "a Spoolman-only vendor still offers material types",
+                 "[filament_picker][catalog_selector]") {
+    // K2 Plus, 2026-08-24: lanes 2 and 3 held Ambrosia ASA-GF. The vendor
+    // dropdown offers every live Spoolman vendor, but the bundled catalog
+    // carries 21 brands and "Ambrosia" is not one, so types_for_brand() came
+    // back empty and the Type dropdown rendered with ZERO rows — the material
+    // could not be set at all.
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    // Mirrors AmsEditOverlay: configure() deliberately clears the extra vendor
+    // list, and the host re-supplies it AFTER populate() once the async Spoolman
+    // vendor fetch lands. set_additional_vendors() rebuilds both dropdowns.
+    // TEST_MIRROR_OK: what is mirrored is the HOST's call ORDER, and the three
+    //                 calls below are the real FilamentCatalogSelector methods.
+    //                 The selector's own logic is never reimplemented here.
+    sel.configure(std::nullopt, std::nullopt, std::string("Ambrosia"));
+    sel.populate();
+    sel.set_additional_vendors({"Ambrosia"});
+
+    REQUIRE(sel.current_vendor() == "Ambrosia");
+    CHECK_FALSE(sel.current_type().empty());
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture, "an off-catalog vendor still seeds the slot's material family",
+                 "[filament_picker][catalog_selector]") {
+    // The slot claims ASA-GF. Headings are FAMILIES by design (PLA-CF shows
+    // under "PLA"), so the dropdown lands on ASA and the variant stays selectable
+    // in the product list underneath — what matters is that it is no longer
+    // stranded on an empty dropdown with no family at all.
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::string("ASA-GF"), std::nullopt, std::string("Ambrosia"));
+    sel.populate();
+    sel.set_additional_vendors({"Ambrosia"});
+
+    CHECK(sel.current_type() == filament::display_family("ASA-GF"));
+    CHECK_FALSE(sel.current_type().empty());
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture, "a material no catalog product carries is still offered",
+                 "[filament_picker][catalog_selector]") {
+    // A family the fallback list cannot supply -- free-text Spoolman materials
+    // reduce to nothing -- must still be appended, or reopening the editor
+    // silently reassigns the slot's material to whatever sorts first.
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::string("Ambrosia House Blend"), std::nullopt, std::string("Ambrosia"));
+    sel.populate();
+    sel.set_additional_vendors({"Ambrosia"});
+
+    CHECK(sel.current_type() == "Ambrosia House Blend");
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+// === Favorites / starred filaments (#1100) ===
+
+TEST_CASE_METHOD(XMLTestFixture, "starring a product floats it to the top of its vendor view",
+                 "[filament_picker][catalog_selector][favorites]") {
+    FavoriteIdsGuard guard;
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::string("PLA"), std::nullopt);
+    sel.populate();
+
+    const auto before = sel.product_names_for_test();
+    REQUIRE(before.size() > 2);
+    // "Matte PLA" is a variant-run row, mid-list in the baseline order pinned
+    // by the ranking test above — a floater has real work to do.
+    REQUIRE(std::find(before.begin(), before.end(), "Matte PLA") != before.end());
+    REQUIRE(before.front() != "Matte PLA");
+
+    const auto products = sel.products_for_test();
+    const auto matte =
+        std::find_if(products.begin(), products.end(),
+                     [](const EffectiveFilament* p) { return p->name == "Matte PLA"; });
+    REQUIRE(matte != products.end());
+    const std::string matte_id = (*matte)->id;
+    REQUIRE_FALSE(matte_id.empty());
+
+    // The row's star toggle is the user-facing entry point; drive it by id.
+    sel.toggle_star_for_test(matte_id);
+    auto after = sel.product_names_for_test();
+    CHECK(after.front() == "Matte PLA");
+    // Everything below the starred row keeps the existing display ranking.
+    std::vector<std::string> expected;
+    std::copy_if(before.begin(), before.end(), std::back_inserter(expected),
+                 [](const std::string& n) { return n != "Matte PLA"; });
+    expected.insert(expected.begin(), "Matte PLA");
+    CHECK(after == expected);
+
+    // Unstarring restores the pre-star order.
+    sel.toggle_star_for_test(matte_id);
+    CHECK(sel.product_names_for_test() == before);
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture,
+                 "favorites pseudo-vendor lists starred products across brands in one flat list",
+                 "[filament_picker][catalog_selector][favorites]") {
+    FavoriteIdsGuard guard;
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::nullopt, std::nullopt);
+    sel.populate();
+
+    // Star one Generic ABS and one SUNLU PLA — different vendors, different
+    // material families, both reachable only by drilling down normally.
+    CHECK(helix::filament_favorites::toggle_favorite("generic-abs"));
+    CHECK(helix::filament_favorites::toggle_favorite("sunlu-pla-plus-2-0"));
+
+    // Favorites is the FIRST vendor entry, ahead of Generic.
+    sel.change_vendor_for_test(0);
+    CHECK(FilamentCatalogSelector::is_favorites_vendor(sel.current_vendor()));
+
+    // The Type dropdown is bypassed (hidden) in the favorites view.
+    lv_obj_t* type_group = lv_obj_find_by_name(root, "type_group");
+    REQUIRE(type_group != nullptr);
+    CHECK(lv_obj_has_flag(type_group, LV_OBJ_FLAG_HIDDEN));
+
+    // One flat list, alphabetical by display name, spanning both brands.
+    CHECK(sel.product_names_for_test() == std::vector<std::string>{"ABS", "PLA+ 2.0"});
+
+    // Rows stay selectable; the host Save path reads highlighted() as usual.
+    sel.select_product_for_test("sunlu-pla-plus-2-0");
+    REQUIRE(sel.highlighted() != nullptr);
+    CHECK(sel.highlighted()->name == "PLA+ 2.0");
+
+    // Leaving the favorites view restores the Type dropdown.
+    sel.change_vendor_for_test(1);
+    CHECK_FALSE(lv_obj_has_flag(type_group, LV_OBJ_FLAG_HIDDEN));
+    CHECK(sel.current_vendor() == "Generic");
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture, "browsing to favorites leaves an unstarred entry pick unchecked",
+                 "[filament_picker][catalog_selector][favorites]") {
+    FavoriteIdsGuard guard;
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::nullopt, std::nullopt);
+    sel.populate();
+
+    // One starred product the slot never used; the slot's own product stays
+    // unstarred, so it does not survive into the flat favorites list.
+    CHECK(helix::filament_favorites::toggle_favorite("generic-abs"));
+
+    // Host entry state: a specific product highlighted and anchored, and
+    // preselect-on-change enabled, the way the spool editor hosts the
+    // selector (the standalone picker keeps the opt-out default).
+    REQUIRE(sel.preselect_product_id("generic-pla"));
+    REQUIRE(sel.highlighted() != nullptr);
+    REQUIRE(sel.highlighted()->id == "generic-pla");
+    sel.set_preselect_on_change(true);
+
+    sel.change_vendor_for_test(0);
+    REQUIRE(FilamentCatalogSelector::is_favorites_vendor(sel.current_vendor()));
+    // The favorites list is non-empty (the starred ABS is there) and does not
+    // contain the anchored product.
+    CHECK(sel.product_names_for_test() == std::vector<std::string>{"ABS"});
+
+    // Browsing is not picking: nothing may be highlighted, so a Save keeps
+    // the slot's identity instead of adopting whichever favorite sorts first.
+    CHECK(sel.highlighted() == nullptr);
+
+    // An explicit tap still selects, and that pick is the user's to save.
+    sel.select_product_for_test("generic-abs");
+    REQUIRE(sel.highlighted() != nullptr);
+    CHECK(sel.highlighted()->name == "ABS");
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture, "favorites view hides types the backend whitelist rejects",
+                 "[filament_picker][catalog_selector][favorites][whitelist]") {
+    FavoriteIdsGuard guard;
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    // The AMS edit overlay host passes backend->get_supported_materials() in as
+    // allowed_types; the favorites view must filter on it exactly as a normal
+    // vendor+type view does.
+    sel.configure(std::nullopt, std::vector<std::string>{"PLA"});
+    sel.populate();
+
+    CHECK(helix::filament_favorites::toggle_favorite("generic-pla"));
+    CHECK(helix::filament_favorites::toggle_favorite("generic-abs")); // ABS starred but not allowed
+
+    sel.change_vendor_for_test(0);
+    REQUIRE(FilamentCatalogSelector::is_favorites_vendor(sel.current_vendor()));
+    CHECK(sel.product_names_for_test() == std::vector<std::string>{"PLA"});
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture,
+                 "unstarring from the favorites view drops the row and clears the highlight",
+                 "[filament_picker][catalog_selector][favorites]") {
+    FavoriteIdsGuard guard;
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::nullopt, std::nullopt);
+    sel.populate();
+    CHECK(helix::filament_favorites::toggle_favorite("generic-pla"));
+
+    sel.change_vendor_for_test(0);
+    REQUIRE(sel.product_names_for_test() == std::vector<std::string>{"PLA"});
+
+    bool notified_clear = false;
+    sel.set_selection_changed(
+        [&](const EffectiveFilament* ef) { notified_clear = (ef == nullptr); });
+    sel.select_product_for_test("generic-pla");
+    REQUIRE(sel.highlighted() != nullptr);
+    REQUIRE_FALSE(notified_clear); // the select fired with a product, not a clear
+
+    // Unstar the row the user is on: it disappears, the highlight goes with it,
+    // and the host hears the clearance. An empty favorites view shows the
+    // empty-state row instead of a bare add-custom row.
+    sel.toggle_star_for_test("generic-pla");
+    CHECK(sel.product_names_for_test().empty());
+    CHECK(lv_obj_find_by_name(root, "empty_label") != nullptr);
+    CHECK(sel.highlighted() == nullptr);
+    CHECK(notified_clear);
+    // Persisted off immediately — no separate save step.
+    CHECK_FALSE(helix::filament_favorites::is_favorite("generic-pla"));
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}
+
+TEST_CASE_METHOD(XMLTestFixture, "a starred product stays starred for a later selector instance",
+                 "[filament_picker][catalog_selector][favorites]") {
+    FavoriteIdsGuard guard;
+    lv_obj_t* root = make_fragment();
+    REQUIRE(root != nullptr);
+
+    // First open: star "PLA+ 2.0" from its SUNLU view.
+    {
+        FilamentCatalogSelector sel;
+        sel.attach(root);
+        sel.configure(std::nullopt, std::nullopt);
+        sel.populate();
+        sel.toggle_star_for_test("sunlu-pla-plus-2-0");
+        CHECK(helix::filament_favorites::is_favorite("sunlu-pla-plus-2-0"));
+        sel.detach();
+    }
+
+    // A later open (fresh selector + fresh catalog load) still sees the star:
+    // navigating to the SUNLU PLA view floats "PLA+ 2.0" above the
+    // alphabetically-first "PLA Marble" that normally wins the front row.
+    FilamentCatalogSelector sel;
+    sel.attach(root);
+    sel.configure(std::nullopt, std::nullopt);
+    sel.populate();
+    REQUIRE(sel.preselect_product_id("sunlu-pla-plus-2-0"));
+    REQUIRE(sel.current_vendor() == "SUNLU");
+    CHECK(sel.product_names_for_test().front() == "PLA+ 2.0");
+
+    sel.detach();
+    helix::ui::UpdateQueue::instance().drain();
+}

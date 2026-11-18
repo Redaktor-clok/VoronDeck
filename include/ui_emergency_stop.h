@@ -1,0 +1,449 @@
+// Copyright (C) 2025-2026 356C LLC
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#pragma once
+
+#include "ui_observer_guard.h"
+
+#include "i_moonraker_api.h"
+#include "lvgl.h"
+#include "printer_state.h"
+#include "subject_managed_panel.h"
+
+#include <atomic>
+#include <chrono>
+#include <string>
+
+/**
+ * @brief Reason the recovery dialog is being shown
+ *
+ * Tracks which error condition(s) triggered the dialog so the message
+ * and available actions can adapt. Multiple reasons can be active
+ * simultaneously (e.g., SHUTDOWN then DISCONNECTED in sequence).
+ */
+enum class RecoveryReason {
+    NONE,         ///< No active recovery
+    SHUTDOWN,     ///< Klipper entered SHUTDOWN state (e-stop, thermal runaway, config error)
+    ERROR,        ///< Klipper entered ERROR state (MCU connection failure, config error)
+    DISCONNECTED, ///< Klipper firmware disconnected from Moonraker
+};
+
+/// Recovery dialog suppression durations (milliseconds)
+namespace helix::recovery_suppression {
+static constexpr uint32_t SHORT = 5000;   ///< Brief operations (settings switch)
+static constexpr uint32_t NORMAL = 10000; ///< Standard restarts (firmware restart, power toggle)
+/// Extended operations (calibration, service install).
+///
+/// Sized to cover one ordinary config-write restart and no more. A K2 Plus
+/// takes ~17s from SAVE_CONFIG to klippy READY, which is the longest such
+/// restart measured on the fleet; below that the user gets a "Printer Shutdown"
+/// dialog in the middle of a Save that succeeded.
+///
+/// It deliberately does NOT cover a printer that chains a second config write
+/// (Creality K2 + CFS writes the CFS Tn_data via CXSAVE_CONFIG tens of seconds
+/// after SAVE_CONFIG), and must not be widened until it does: every second here
+/// is a second a genuine unrecoverable shutdown sits unreported, and one has
+/// been seen landing 57s after SAVE_CONFIG. Prefer a spurious dialog over a
+/// hidden one.
+///
+/// That preference is enforced now, not merely aimed at by keeping the window
+/// short: a suppressed reason is latched and re-checked when the window expires
+/// (EmergencyStopOverlay::arm_recovery_recheck), so a shutdown covered by any of
+/// these durations is delayed by at most the window rather than dropped. It had
+/// to be, because both producers of the dialog fire once on an edge - the
+/// klippy_state observer on a transition, MoonrakerEventRoute::RecoveryShutdown
+/// on an event - and a host that goes down and stays down produces exactly one
+/// of each. Widening a duration is no longer a way to lose a real shutdown, but
+/// it is still a way to make the user wait for one, so the reasoning above
+/// stands.
+static constexpr uint32_t LONG = 20000;
+static constexpr uint32_t EXTRA = 30000; ///< Multi-step operations (PID→MPC migration)
+
+/// Backstop on a user-initiated restart being treated as still in flight.
+///
+/// EXTRA rather than a number of its own: it is the longest klippy outage this
+/// file already accepts as expected, so nothing here widens what the project
+/// calls a normal restart. A platform recovery sequence is not instant (the K2
+/// bounces its klipper_mcu daemon before klippy reconnects), and 30s clears that
+/// comfortably.
+///
+/// Erring short is cheap and erring long is not, which is why this is not
+/// widened "to be safe": expiring early costs a recovery dialog during a slow
+/// restart, and the klippy-READY handler dismisses that one itself with a
+/// "Printer ready" toast. Expiring late - or never, which is what a bare flag
+/// did - hides every subsequent shutdown for the life of the process. Same
+/// preference as the LONG comment above: a spurious dialog over a silently-eaten
+/// shutdown.
+static constexpr uint32_t kRestartFlagTimeout = EXTRA;
+} // namespace helix::recovery_suppression
+
+/**
+ * @brief Emergency stop visibility coordinator
+ *
+ * Manages the estop_visible subject that drives the E-Stop button on the
+ * navbar, plus the ones on screens that cover the navbar (lock screen,
+ * fullscreen camera). Buttons are shown while a job holds the machine, via
+ * XML subject binding. The button triggers an M112 emergency stop
+ * command via Moonraker.
+ *
+ * Features:
+ * - Single-tap activation (default) or confirmation dialog (optional setting)
+ * - Automatic visibility based on print state (via estop_visible subject)
+ * - Klipper recovery dialog auto-popup on SHUTDOWN state
+ * - Visual feedback via toast notifications
+ *
+ * Usage:
+ *   // In main.cpp after LVGL and subjects initialized:
+ *   EmergencyStopOverlay::instance().init(printer_state, api);
+ *   EmergencyStopOverlay::instance().create();
+ *
+ * @see klipper_recovery_dialog.xml for post-shutdown recovery flow
+ */
+class EmergencyStopOverlay {
+  public:
+    /**
+     * @brief Get singleton instance
+     * @return Reference to the global EmergencyStopOverlay instance
+     */
+    static EmergencyStopOverlay& instance();
+
+    /**
+     * @brief Initialize with dependencies
+     *
+     * Must be called before create(). Sets up references to printer state
+     * and API for operation.
+     *
+     * @param printer_state Reference to helix::PrinterState for print job state
+     * @param api Pointer to IMoonrakerAPI for emergency_stop() calls
+     */
+    void init(helix::PrinterState& printer_state, helix::IMoonrakerAPI* api);
+
+    /**
+     * @brief Initialize subjects for XML binding
+     *
+     * Registers the estop_visible subject used by XML binding.
+     * Must be called during subject initialization phase (before XML creation).
+     */
+    void init_subjects();
+
+    /**
+     * @brief Deinitialize subjects for clean shutdown
+     *
+     * Must be called before lv_deinit() to prevent observer corruption.
+     */
+    void deinit_subjects();
+
+    /**
+     * @brief Initialize visibility coordination
+     *
+     * Sets up observers to update the estop_visible subject based on print
+     * state. The navbar's E-Stop and the ones on navbar-covering screens bind to
+     * this subject for reactive visibility.
+     *
+     * Must be called after:
+     * - init() with valid dependencies
+     * - init_subjects() for XML binding
+     */
+    void create();
+
+    /**
+     * @brief Force visibility update
+     *
+     * Recalculates and applies estop_visible subject based on current
+     * print state. Called automatically by state observers, but can be
+     * called manually if needed.
+     */
+    void update_visibility();
+
+    /**
+     * @brief Set whether confirmation dialog is required
+     *
+     * When enabled, clicking E-Stop shows a confirmation dialog before
+     * executing. When disabled (default), E-Stop executes immediately.
+     *
+     * @param require true to require confirmation, false for immediate action
+     */
+    void set_require_confirmation(bool require);
+
+    /**
+     * @brief Show recovery dialog for a specific reason
+     *
+     * Called for both SHUTDOWN state and KLIPPY_DISCONNECTED events.
+     * If the dialog is already showing, updates the content to reflect
+     * the combined error state (e.g., SHUTDOWN + DISCONNECTED).
+     *
+     * Safe to call from any thread — callers include MoonrakerClient's event
+     * handler on the libhv event-loop thread and AbortManager. Only the atomic
+     * suppression check runs on the caller's thread; the rest is marshalled.
+     *
+     * @param reason Why the recovery dialog is being shown
+     */
+    void show_recovery_for(RecoveryReason reason);
+
+    /**
+     * @brief Suppress recovery dialog for a duration
+     *
+     * Unified suppression for both SHUTDOWN and DISCONNECTED modals.
+     * Used before expected restarts (SAVE_CONFIG, PID calibration).
+     *
+     * @param duration_ms How long to suppress (default LONG)
+     */
+    void suppress_recovery_dialog(uint32_t duration_ms = helix::recovery_suppression::LONG);
+
+    /**
+     * @brief Check if recovery dialog suppression is active
+     * @return true if suppression window is still active
+     */
+    bool is_recovery_suppressed() const;
+
+    /**
+     * @brief Whether Klipper is expected to bounce through a transient SHUTDOWN.
+     *
+     * True while a SAVE_CONFIG-style suppression window is active
+     * (is_recovery_suppressed()) or a user-initiated restart is in flight
+     * (restart_in_progress()). UI consumers of klippy_state use this to treat
+     * the transient SHUTDOWN as a restart rather than an error — no red status
+     * icon, no navigate-to-home, no firmware_restart widget injection.
+     *
+     * Both halves are deadline-backed, so this goes false on its own if the
+     * restart never reports READY.
+     *
+     * @return true if a SHUTDOWN right now should be read as an expected restart
+     */
+    bool is_expected_restart() const;
+
+  private:
+    EmergencyStopOverlay() = default;
+
+    // Not `= default`, and defined out of line in ui_emergency_stop.cpp: an armed
+    // re-check timer must not outlive this object, because
+    // StaticPanelRegistry::destroy_all() runs before lv_deinit() and a timer left
+    // armed here fires on freed memory (CLAUDE.md § Threading rule 5). Out of
+    // line so the cancel is visible in the same TU as the lv_timer_create() that
+    // pairs with it - check_timer_destructor_cancel.py reads the TU, and an
+    // inline body here looks to it exactly like no destructor at all.
+    ~EmergencyStopOverlay();
+
+    // Non-copyable
+    EmergencyStopOverlay(const EmergencyStopOverlay&) = delete;
+    EmergencyStopOverlay& operator=(const EmergencyStopOverlay&) = delete;
+
+    // Dependencies (set via init())
+    helix::PrinterState* printer_state_ = nullptr;
+    helix::IMoonrakerAPI* api_ = nullptr;
+
+    // Confirmation requirement (set via set_require_confirmation())
+    bool require_confirmation_ = false;
+
+    // Dialog widget references (created on-demand)
+    lv_obj_t* confirmation_dialog_ = nullptr;
+    lv_obj_t* recovery_dialog_ = nullptr;
+
+    // Restart operation tracking - prevents recovery dialog during expected
+    // SHUTDOWN. Deadline (lv_tick_get() ms) past which the restart stops
+    // counting as in flight, 0 when none is.
+    //
+    // A deadline rather than a bool because the only thing that ever cleared the
+    // bool was the klippy-READY handler: a printer whose MCU comes back up in a
+    // hard shutdown never delivers a READY - a Klipper RESTART cannot clear an
+    // MCU shutdown - so the flag stayed true for the life of the process and
+    // every later shutdown was dropped at the guard in show_recovery_for_main().
+    // Expiry is enforced on the READ side (restart_in_progress()) rather than by
+    // a timer that clears it: a timer is one more thing a teardown path can
+    // skip, and a read cannot be skipped.
+    //
+    // Atomic for the same reason as suppress_recovery_until_: armed from the
+    // restart paths, cleared by the klippy_state observer (which may run on the
+    // WebSocket thread), read on the LVGL main thread.
+    std::atomic<uint32_t> restart_expires_at_{0};
+
+    // Klippy reported STARTUP since the restart window opened, so a SHUTDOWN or
+    // ERROR now is where the restart landed, not the stop on its way down.
+    std::atomic<bool> restart_saw_startup_{false};
+
+    // Skip the first klippy_state observer fire — it carries the subject's
+    // default (SHUTDOWN) before Moonraker has reported real state. A real
+    // shutdown at startup is delivered separately via the
+    // MoonrakerEventType::KLIPPY_SHUTDOWN event in MoonrakerManager.
+    bool klippy_state_initial_seen_ = false;
+
+    // Recovery dialog state
+    RecoveryReason recovery_reason_ = RecoveryReason::NONE;
+
+    // Time-based suppression for expected restarts (SAVE_CONFIG, PID calibration).
+    // Atomic: suppress_recovery_dialog() is called from Moonraker gcode callbacks
+    // that run on the WebSocket background thread (e.g. z_offset_utils.cpp), while
+    // is_recovery_suppressed() / is_expected_restart() read it from the LVGL main
+    // thread. Plain uint32_t here was a data race.
+    std::atomic<uint32_t> suppress_recovery_until_{0};
+
+    // The recovery reason held back by an active suppression window, so the
+    // window can hand it back when it expires instead of dropping it.
+    //
+    // Both producers of the dialog are edge- or event-driven: the klippy_state
+    // observer fires on a transition and MoonrakerEventRoute::RecoveryShutdown
+    // on an event. A host that goes down and STAYS down produces exactly one of
+    // each, so a suppression window covering them did not delay the dialog, it
+    // removed it - which is the "silently-eaten shutdown" recovery_suppression's
+    // own comment says to prefer a spurious dialog over. Atomic for the same
+    // reason as suppress_recovery_until_: latched from whichever thread called
+    // show_recovery_for(), read on the main thread.
+    std::atomic<int> pending_recovery_reason_{static_cast<int>(RecoveryReason::NONE)};
+
+    // One-shot timer that re-checks the latch when the window expires. Raw
+    // pointer rather than a guard because it is armed from a queued callback and
+    // cancelled from both cleanup and the destructor; see
+    // cancel_recovery_recheck_timer().
+    lv_timer_t* recovery_recheck_timer_ = nullptr;
+
+    // Consecutive re-checks show_recovery_for_main() declined for the currently
+    // latched reason. Bounds the retry loop that follows a decline: the setup
+    // wizard can hold its guard true for as long as the user takes over it, and
+    // a timer cycling for the rest of the process is not a useful way to say so.
+    // Plain int, not atomic: only arm_recovery_recheck(), recovery_recheck_cb()
+    // and deinit_subjects() touch it, all on the main thread.
+    int recovery_recheck_retries_ = 0;
+
+    // Visibility subject (1=visible, 0=hidden) - drives XML bindings
+    lv_subject_t estop_visible_{};
+
+    // Recovery dialog subjects (drive XML bindings in klipper_recovery_dialog.xml)
+    lv_subject_t recovery_title_subject_{};
+    char recovery_title_buf_[64]{};
+    lv_subject_t recovery_message_subject_{};
+    char recovery_message_buf_[512]{};
+    lv_subject_t recovery_can_restart_{}; // 1=show restart buttons, 0=hide (disconnected)
+    // Klipper error code split out of a JSON state_message (e.g. "key1"). Rendered
+    // dim in the dialog header; recovery_has_code_ drives its visibility, since
+    // bind_flag_if_eq compares ints and cannot test a string for emptiness.
+    lv_subject_t recovery_code_subject_{};
+    char recovery_code_buf_[64]{};
+    lv_subject_t recovery_has_code_{}; // 1=code present, 0=none (hides the label)
+
+    bool subjects_initialized_ = false;
+
+    // RAII subject manager for automatic cleanup
+    SubjectManager subjects_;
+
+    // State observers
+    ObserverGuard print_state_observer_;
+    ObserverGuard klippy_state_observer_;
+    ObserverGuard klippy_message_observer_;
+
+    // Event handlers
+    void handle_click();
+    void execute_emergency_stop();
+    void confirm_emergency_stop(); ///< Close the confirmation, then stop
+    void show_confirmation_dialog();
+    void dismiss_confirmation_dialog();
+    friend class EmergencyStopOverlayTestAccess;
+
+    void show_recovery_dialog();
+
+    /// Start treating klippy's next SHUTDOWN as a user-initiated restart, for
+    /// recovery_suppression::kRestartFlagTimeout or until klippy reports READY,
+    /// whichever comes first. Safe from any thread - one atomic store.
+    void begin_restart_window();
+
+    /// Whether a user-initiated restart is still in flight. Deadline-backed, so
+    /// a restart that never reports READY stops counting on its own rather than
+    /// suppressing every recovery dialog for the rest of the process.
+    bool restart_in_progress() const;
+
+    /// Stop treating a restart as in flight. Safe from any thread.
+    void end_restart_window();
+
+    /// Arm the one-shot re-check for the current suppression deadline, and reset
+    /// the decline budget. Main thread only - it calls lv_timer_create().
+    void arm_recovery_recheck();
+
+    /// Arm the one-shot re-check a fixed delay from now, leaving the decline
+    /// budget alone. The retry half of arm_recovery_recheck(), which cannot use
+    /// the deadline arithmetic: after a decline the window has already expired,
+    /// so that would compute a 1ms period and spin. Main thread only.
+    void arm_recovery_recheck_in(uint32_t delay_ms);
+
+    /// Cancel the re-check timer via lv_timer_cancel_safe(), which self-guards
+    /// on lv_is_initialized() and neuters rather than unlinking, so this is safe
+    /// from the destructor and from inside lv_timer_handler.
+    void cancel_recovery_recheck_timer();
+
+    static void recovery_recheck_cb(lv_timer_t* timer);
+    /// Main-thread half of show_recovery_for(). Reads and writes
+    /// recovery_dialog_/recovery_reason_ and queries ModalStack, none of which
+    /// may be touched from the libhv thread.
+    ///
+    /// @return false when a guard declined - setup wizard, restart in flight, or
+    ///         AbortManager handling the shutdown. All three are states the user
+    ///         is expected to leave, so a caller that took the reason out of
+    ///         pending_recovery_reason_ to get here must put it back rather than
+    ///         treat the decline as delivery. true when the dialog was shown,
+    ///         queued, or is already up.
+    bool show_recovery_for_main(RecoveryReason reason);
+    void dismiss_recovery_dialog();
+    void update_recovery_dialog_content();
+    /// While a restart is in flight, toast that one is and return true, so the
+    /// caller sends nothing. Main thread only.
+    bool refuse_restart_in_flight();
+    void restart_klipper();
+
+  public:
+    /// Restart Klipper firmware: the platform-correct sequence (a plain
+    /// printer.firmware_restart where that is right), guarded against a
+    /// restart already in flight, with the recovery dialogs suppressed for
+    /// the restart window. The restart is machine-moving, so a caller offers
+    /// it behind its own confirmation - the home panel's Firmware Restart
+    /// row is the shape to follow.
+    void firmware_restart();
+
+  private:
+    // Static callbacks
+    static void emergency_stop_clicked(lv_event_t* e);
+    static void lock_screen_estop_clicked(lv_event_t* e);
+    static void estop_dialog_cancel_clicked(lv_event_t* e);
+    static void estop_dialog_confirm_clicked(lv_event_t* e);
+    static void recovery_restart_klipper_clicked(lv_event_t* e);
+    static void recovery_firmware_restart_clicked(lv_event_t* e);
+    static void recovery_dismiss_clicked(lv_event_t* e);
+    static void advanced_estop_clicked(lv_event_t* e);
+    static void advanced_restart_klipper_clicked(lv_event_t* e);
+    static void advanced_firmware_restart_clicked(lv_event_t* e);
+    static void home_firmware_restart_clicked(lv_event_t* e);
+};
+
+namespace helix {
+namespace ui {
+
+/// Disconnect-modal suppression window armed by begin_expected_klippy_restart().
+/// Mirrors recovery_suppression::LONG - the reconnect blip from a klippy restart
+/// resolves in roughly the same span as the recovery-dialog window. 15 s is the
+/// value input-shaper armed before the helper existed; it is uniform now.
+constexpr uint32_t kExpectedRestartDisconnectModalMs = 15000;
+
+/**
+ * @brief Initiate an action that will restart Klipper
+ *
+ * The initiation counterpart of the klippy_state READY observer's completion
+ * in this file's .cpp: arms the recovery-dialog suppression window and the
+ * api-level disconnect-modal window, then shows one INFO toast so the user
+ * knows a restart is coming. The READY observer completes the contract -
+ * dismissing the recovery dialog with a "Printer ready" success toast, or
+ * firing that toast directly when the dialog was suppressed by the flow that
+ * initiated the restart. Mutual coverage: if the recovery window expires
+ * before klippy returns, the recovery dialog shows and the dialog path
+ * completes instead.
+ *
+ * The toast is a direct ToastManager call (no ui_notification_* severity, so
+ * no notification-history row) and hops through the update queue, which makes
+ * this safe from any thread - callers include Moonraker gcode callbacks that
+ * run on the WebSocket thread (z_offset_utils.cpp).
+ *
+ * @param message UNTRANSLATED source string; translated on the main thread
+ *                when the toast is shown. Taken by value because that happens
+ *                on a later tick - the previous const char* form kept only the
+ *                pointer, which outlived any caller-owned buffer.
+ */
+void begin_expected_klippy_restart(std::string message);
+
+} // namespace ui
+} // namespace helix

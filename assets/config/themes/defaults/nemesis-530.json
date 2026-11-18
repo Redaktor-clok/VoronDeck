@@ -1,0 +1,27 @@
+{
+  "name": "NEMESIS 530 CNC",
+  "dark": {
+    "screen_bg": "#151719",
+    "overlay_bg": "#24282B",
+    "card_bg": "#202427",
+    "elevated_bg": "#2A2F32",
+    "border": "#454D51",
+    "text": "#FFFFFF",
+    "text_muted": "#E2E7E8",
+    "text_subtle": "#B3BDC0",
+    "primary": "#B8E62E",
+    "secondary": "#A4BF58",
+    "tertiary": "#80BEC8",
+    "info": "#6BA9D5",
+    "success": "#5CB85C",
+    "warning": "#E8A83A",
+    "danger": "#EF4F59",
+    "focus": "#D5FF63"
+  },
+  "border_radius_size": 2,
+  "border_width": 1,
+  "border_opacity": 40,
+  "shadow_intensity": 0,
+  "shadow_opa": 0,
+  "shadow_offset_y": 2
+}
