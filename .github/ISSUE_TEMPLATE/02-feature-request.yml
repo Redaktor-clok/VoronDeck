@@ -1,0 +1,68 @@
+{
+  "name": "Предложение · VoronDeck",
+  "description": "Идея новой функции или улучшения интерфейса экрана.",
+  "title": "[Предложение] ",
+  "body": [
+    {
+      "type": "markdown",
+      "attributes": {
+        "value": "## VoronDeck · Предложить улучшение\nРасскажите, какую задачу должен решать экран. Одно предложение — одно обращение. Проверьте [существующие идеи](https://github.com/Redaktor-clok/VoronDeck/issues) перед отправкой."
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "problem",
+      "attributes": {
+        "label": "Какую задачу нужно решить",
+        "description": "Что сейчас неудобно или чего не хватает? Опишите конкретный сценарий."
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "solution",
+      "attributes": {
+        "label": "Предлагаемое поведение",
+        "description": "Как это должно выглядеть и работать для пользователя?"
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "context",
+      "attributes": {
+        "label": "Где это нужно",
+        "description": "Раздел экрана, ориентация, оборудование или AMS, если это влияет на предложение."
+      },
+      "validations": {
+        "required": false
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "references",
+      "attributes": {
+        "label": "Примеры и макет",
+        "description": "Можно приложить рисунок, скриншот или ссылку. Не публикуйте секреты и чужие личные данные."
+      },
+      "validations": {
+        "required": false
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "alternatives",
+      "attributes": {
+        "label": "Другие варианты",
+        "description": "Как решаете задачу сейчас? Какие альтернативы рассматривали?"
+      },
+      "validations": {
+        "required": false
+      }
+    }
+  ]
+}

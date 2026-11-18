@@ -1,0 +1,15 @@
+{
+  "blank_issues_enabled": false,
+  "contact_links": [
+    {
+      "name": "Установка и возможности VoronDeck",
+      "url": "https://github.com/Redaktor-clok/VoronDeck#readme",
+      "about": "Инструкция установки и описание экрана."
+    },
+    {
+      "name": "Сообщить об уязвимости приватно",
+      "url": "https://github.com/Redaktor-clok/VoronDeck/security/advisories/new",
+      "about": "Для проблем безопасности. Сообщение не публикуется в открытых Issues."
+    }
+  ]
+}

@@ -1,0 +1,155 @@
+{
+  "name": "Ошибка · VoronDeck",
+  "description": "Что-то работает неправильно? Помогите нам воспроизвести и исправить проблему.",
+  "title": "[Ошибка] ",
+  "body": [
+    {
+      "type": "markdown",
+      "attributes": {
+        "value": "## VoronDeck · Сообщить об ошибке\nОпишите одну проблему в одном обращении. Сначала проверьте [существующие обращения](https://github.com/Redaktor-clok/VoronDeck/issues).\n\nНе прикладывайте пароли, API-токены, SSH-ключи и полные конфигурации с секретами. Об уязвимости сообщите [приватно](https://github.com/Redaktor-clok/VoronDeck/security/advisories/new)."
+      }
+    },
+    {
+      "type": "input",
+      "id": "version",
+      "attributes": {
+        "label": "Версия VoronDeck",
+        "description": "Укажите номер из «О программе». Если экран не запускается — версию установленного пакета.",
+        "placeholder": "Например: 1.0.0"
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "dropdown",
+      "id": "channel",
+      "attributes": {
+        "label": "Канал обновлений",
+        "options": [
+          "Стабильный",
+          "Бета",
+          "Сборка из исходников",
+          "Не знаю"
+        ]
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "dropdown",
+      "id": "area",
+      "attributes": {
+        "label": "Где возникла ошибка",
+        "options": [
+          "Установка или обновление",
+          "Первый запуск",
+          "Главный экран и плитки",
+          "Управление и калибровки",
+          "Филамент / AMS / катушки",
+          "Файлы и предпросмотр",
+          "Экран печати",
+          "Настройки / сеть / дисплей",
+          "Восстановление печати",
+          "Другое"
+        ]
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "hardware",
+      "attributes": {
+        "label": "Оборудование и система",
+        "description": "Модель хоста, Linux и принтер; версии Klipper/Moonraker, если известны.",
+        "placeholder": "Хост и ОС:\nПринтер:\nKlipper / Moonraker:"
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "input",
+      "id": "display",
+      "attributes": {
+        "label": "Экран и ориентация",
+        "description": "Для ошибок интерфейса укажите модель, разрешение и ориентацию.",
+        "placeholder": "Например: BTT HDMI 7, 1024×600, горизонтально"
+      },
+      "validations": {
+        "required": false
+      }
+    },
+    {
+      "type": "input",
+      "id": "ams",
+      "attributes": {
+        "label": "Мультифиламент и учёт пластика",
+        "description": "Если связано с проблемой: система AMS, число блоков и катушек, наличие Spoolman.",
+        "placeholder": "Например: без AMS; или AFC, 2 блока по 4 катушки, Spoolman"
+      },
+      "validations": {
+        "required": false
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "actual",
+      "attributes": {
+        "label": "Что происходит",
+        "description": "Опишите фактическое поведение и текст ошибки."
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "steps",
+      "attributes": {
+        "label": "Как повторить",
+        "description": "Перечислите действия по порядку. Если ошибка случайная — укажите частоту.",
+        "placeholder": "1. Открыть…\n2. Нажать…\n3. Появляется…"
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "expected",
+      "attributes": {
+        "label": "Как должно работать",
+        "description": "Какой результат вы ожидали?"
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "evidence",
+      "attributes": {
+        "label": "Скриншоты, видео и журнал",
+        "description": "Перетащите файлы сюда. Пришлите только относящийся к ошибке фрагмент журнала, предварительно удалив секреты."
+      },
+      "validations": {
+        "required": false
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "regression",
+      "attributes": {
+        "label": "Когда появилась проблема",
+        "description": "Работало ли раньше? Что изменилось перед ошибкой? Необязательное поле."
+      },
+      "validations": {
+        "required": false
+      }
+    }
+  ]
+}
