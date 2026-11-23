@@ -1,0 +1,158 @@
+name: VoronDeck CI
+
+on:
+  push:
+    branches: [main, codex/github-actions]
+    paths-ignore: ['**/*.md', 'assets/presentation/**']
+  pull_request:
+    branches: [main]
+    paths-ignore: ['**/*.md', 'assets/presentation/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  HELIX_PATCHES_FROM_CLEAN: '1'
+  DBGLEVEL: '0'
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  checks:
+    name: Installer, updates and source checks
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Workflow, XML and translation checks
+        run: |
+          python scripts/check_workflow_submodules.py
+          python scripts/check_translation_format_specifiers.py --verbose
+          python scripts/ci/check-source.py
+          bash -n install.sh scripts/ci/build-arm64.sh
+      - name: Installer and updater regressions
+        run: |
+          mkdir -p build/ci-reports
+          python -m pytest -q --junitxml=build/ci-reports/python.xml \
+            tests/test_vorondeck_update_check.py \
+            tests/test_vorondeck_updates_setup.py \
+            tests/test_moonraker_vorondeck.py \
+            tests/python/test_vorondeck_distribution.py \
+            tests/python/test_vorondeck_installer_linux.py \
+            moonraker-plugin/tests/
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: checks-${{ github.sha }}
+          path: build/ci-reports/
+          retention-days: 14
+
+  linux:
+    name: Linux build, C++ tests and UI
+    needs: checks
+    runs-on: ubuntu-22.04
+    timeout-minutes: 300
+    env:
+      CC: ccache clang
+      CXX: ccache clang++
+      CCACHE_DIR: ${{ github.workspace }}/.ccache-linux
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
+      SDL_RENDER_DRIVER: software
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/init-submodules
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev clang make python3-venv npm libssl-dev \
+            pkg-config libfmt-dev libcairo2-dev libpango1.0-dev libpng-dev \
+            libjpeg-dev libnl-3-dev libnl-genl-3-dev libxml2-utils \
+            libusb-1.0-0-dev libsystemd-dev libbluetooth-dev ccache
+          make venv-setup
+          ccache --max-size=2G
+      - uses: actions/cache@v5
+        with:
+          path: .ccache-linux
+          key: linux-clang-${{ runner.os }}-${{ hashFiles('.gitmodules', 'mk/**', 'Makefile') }}-${{ github.sha }}
+          restore-keys: linux-clang-${{ runner.os }}-${{ hashFiles('.gitmodules', 'mk/**', 'Makefile') }}-
+      - name: Build application and tests
+        run: |
+          mkdir -p build/ci-reports
+          make SKIP_OPTIONAL_DEPS=1 2>&1 | tee build/ci-reports/build.log
+          make test SKIP_OPTIONAL_DEPS=1 2>&1 | tee build/ci-reports/test-build.log
+      - name: Run C++ tests (non-hidden, non-slow)
+        timeout-minutes: 50
+        run: |
+          for shard in {0..7}; do
+            timeout --kill-after=15s 300s build/bin/helix-tests '~[.] ~[slow]' \
+              --shard-count 8 --shard-index "$shard" \
+              --reporter JUnit --out "build/ci-reports/cpp-$shard.xml"
+          done
+      - name: Navigation and display matrix
+        timeout-minutes: 20
+        run: |
+          test -x build/bin/helix-screen
+          .venv/bin/python -m pytest -q tests/ui/test_navigation.py \
+            --junitxml=build/ci-reports/navigation.xml
+          .venv/bin/python scripts/ci/ui-matrix.py
+      - name: Native build provenance
+        run: |
+          git rev-parse HEAD > build/ci-reports/source-commit.txt
+          sha256sum build/bin/helix-screen build/bin/helix-tests > build/ci-reports/SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: linux-tests-${{ github.sha }}
+          path: build/ci-reports/
+          retention-days: 14
+
+  arm64:
+    name: ARM64 production package
+    needs: checks
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/init-submodules
+      - uses: actions/cache@v5
+        with:
+          path: build/.ccache-arm
+          key: arm64-${{ hashFiles('docker/Dockerfile.pi', 'mk/**', 'Makefile', '.gitmodules') }}-${{ github.sha }}
+          restore-keys: arm64-${{ hashFiles('docker/Dockerfile.pi', 'mk/**', 'Makefile', '.gitmodules') }}-
+      - name: Cross compiler
+        run: docker build -f docker/Dockerfile.pi -t vorondeck/toolchain-arm64 docker
+      - name: Build and verify package
+        run: bash scripts/ci/build-arm64.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: VoronDeck-arm64-${{ github.sha }}
+          path: build/ci-package/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: arm64-build-log-${{ github.sha }}
+          path: build/ci-reports/
+          retention-days: 14
