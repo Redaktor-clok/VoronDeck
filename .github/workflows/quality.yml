@@ -2,7 +2,7 @@ name: Проверка качества кода / Code quality
 
 on:
   push:
-    branches: [main, actions-maintenance, github-actions]
+    branches-ignore: [stable-packages, 'release-*-review']
   pull_request:
     branches: [main]
   schedule:
