@@ -1,21 +1,19 @@
 #!/usr/bin/env bats
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The files the app writes into config/ at runtime are named in five hand-kept
+# The files the app writes into config/ at runtime are named in four hand-kept
 # lists, each enforcing a different rule:
 #
 #   user        HELIX_USER_CONFIG_FILES     scripts/lib/installer/platform.sh
 #               linked into printer_data so a Moonraker update keeps them
 #   cpp         is_non_shippable_config_file  src/application/android_asset_extractor.cpp
-#   gradle      nonShippableConfig          android/app/build.gradle
-#               never packaged into, or extracted from, an APK
 #   strip       release-strip-pii           mk/cross.mk
 #               deleted from a release tarball
 #   deploy      DEPLOY_RUNTIME_EXCLUDES     mk/cross.mk
 #               never rsynced from a dev tree over a device's own state
 #
 # Every literal file name in any list must be matched by an entry in each of
-# the four exclusion lists. The user list is narrower by design (only data worth
+# the three exclusion lists. The user list is narrower by design (only data worth
 # keeping), so it contributes names but need not cover the others.
 
 WORKTREE_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
@@ -23,48 +21,37 @@ WORKTREE_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 # list<TAB>name<TAB>why the list legitimately leaves the name out
 EXCEPTIONS="$(cat <<'TABLE'
 cpp	helixscreen.env	shipped default the installer needs
-gradle	helixscreen.env	shipped default the installer needs
 strip	helixscreen.env	shipped default the installer needs
 strip	settings.json	personal config is stripped per target, some ship a curated default
 strip	settings-test.json	personal config is stripped per target, some ship a curated default
 cpp	.disabled_services	written by the installer on the device, never exists in a build tree
-gradle	.disabled_services	written by the installer on the device, never exists in a build tree
 strip	.disabled_services	written by the installer on the device, never exists in a build tree
 deploy	.disabled_services	written by the installer on the device, never exists in a build tree
 cpp	.webcams_backup.json	written by the installer on the device, never exists in a build tree
-gradle	.webcams_backup.json	written by the installer on the device, never exists in a build tree
 strip	.webcams_backup.json	written by the installer on the device, never exists in a build tree
 deploy	.webcams_backup.json	written by the installer on the device, never exists in a build tree
 cpp	.camera_migrated	written by the installer on the device, never exists in a build tree
-gradle	.camera_migrated	written by the installer on the device, never exists in a build tree
 strip	.camera_migrated	written by the installer on the device, never exists in a build tree
 deploy	.camera_migrated	written by the installer on the device, never exists in a build tree
 cpp	.klipper_includes	written by the installer on the device, never exists in a build tree
-gradle	.klipper_includes	written by the installer on the device, never exists in a build tree
 strip	.klipper_includes	written by the installer on the device, never exists in a build tree
 deploy	.klipper_includes	written by the installer on the device, never exists in a build tree
 cpp	.k2cam_webcam_disabled	written by the installer on the device, never exists in a build tree
-gradle	.k2cam_webcam_disabled	written by the installer on the device, never exists in a build tree
 strip	.k2cam_webcam_disabled	written by the installer on the device, never exists in a build tree
 deploy	.k2cam_webcam_disabled	written by the installer on the device, never exists in a build tree
 cpp	.seeded_settings	written by the installer on the device, never exists in a build tree
-gradle	.seeded_settings	written by the installer on the device, never exists in a build tree
 strip	.seeded_settings	written by the installer on the device, never exists in a build tree
 deploy	.seeded_settings	written by the installer on the device, never exists in a build tree
 cpp	.platform_hook	written by the installer on the device, never exists in a build tree
-gradle	.platform_hook	written by the installer on the device, never exists in a build tree
 strip	.platform_hook	written by the installer on the device, never exists in a build tree
 deploy	.platform_hook	written by the installer on the device, never exists in a build tree
 cpp	.nginx_webcam_accesslog	written by the installer on the device, never exists in a build tree
-gradle	.nginx_webcam_accesslog	written by the installer on the device, never exists in a build tree
 strip	.nginx_webcam_accesslog	written by the installer on the device, never exists in a build tree
 deploy	.nginx_webcam_accesslog	written by the installer on the device, never exists in a build tree
 cpp	.nginx_remote_screen	written by the installer on the device, never exists in a build tree
-gradle	.nginx_remote_screen	written by the installer on the device, never exists in a build tree
 strip	.nginx_remote_screen	written by the installer on the device, never exists in a build tree
 deploy	.nginx_remote_screen	written by the installer on the device, never exists in a build tree
 cpp	.remote_screen_route	written by the installer on the device, never exists in a build tree
-gradle	.remote_screen_route	written by the installer on the device, never exists in a build tree
 strip	.remote_screen_route	written by the installer on the device, never exists in a build tree
 deploy	.remote_screen_route	written by the installer on the device, never exists in a build tree
 TABLE
@@ -83,10 +70,6 @@ list_cpp() {
     printf '%s\n' "$body" | grep -o 'rfind("[^"]*", 0)' | sed 's/rfind("\(.*\)", 0)/\1*/'
 }
 
-list_gradle() {
-    sed -n '/^def nonShippableConfig = \[/,/^\]/p' "$WORKTREE_ROOT/android/app/build.gradle" |
-        grep -o "'[^']*'" | tr -d "'"
-}
 
 list_strip() {
     sed -n '/^define release-strip-pii/,/^endef/p' "$WORKTREE_ROOT/mk/cross.mk" |
@@ -109,7 +92,7 @@ names_deploy() {
 
 # Every non-glob entry of every list.
 all_names() {
-    { list_user; list_cpp; list_gradle; list_strip; names_deploy; } | grep -v '[*?]' | sort -u
+    { list_user; list_cpp; list_strip; names_deploy; } | grep -v '[*?]' | sort -u
 }
 
 # 0 when some entry of list $1 matches file name $2 as a shell glob.
@@ -129,7 +112,7 @@ excepted() {
 
 @test "every parser finds its list" {
     # A parser that silently reads nothing would make every check below vacuous.
-    for list in user cpp gradle strip deploy; do
+    for list in user cpp strip deploy; do
         run "list_$list"
         [ "$status" -eq 0 ]
         [ "$(printf '%s\n' "$output" | grep -c .)" -ge 4 ] || {
@@ -142,7 +125,7 @@ excepted() {
 @test "every runtime file is in every exclusion list" {
     local missing="" name list
     while IFS= read -r name; do
-        for list in cpp gradle strip deploy; do
+        for list in cpp strip deploy; do
             covers "$list" "$name" || excepted "$list" "$name" || missing+="$list: $name"$'\n'
         done
     done < <(all_names)

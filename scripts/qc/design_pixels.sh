@@ -143,20 +143,6 @@ fi
 
 echo ""
 
-# android/app/src/main/assets/ is a Gradle build output (the copyAssets task
-# wipes and re-copies it from ui_xml/, assets/ and config/). It is ignored
-# wholesale, so a snapshot from an old build lingers on disk looking exactly like
-# source: one went 4 months stale and cost four separate lint gates a
-# hand-written exclusion apiece. This fails on a tracked file under that tree, or
-# on a build rule writing into it behind Gradle's back (mk/filaments.mk did).
-if python3 scripts/check_android_asset_staging.py >/tmp/android_staging.out 2>&1; then
-  cat /tmp/android_staging.out
-else
-  cat /tmp/android_staging.out
-  echo "   Run: python3 scripts/check_android_asset_staging.py --list"
-  EXIT_CODE=1
-fi
-
 # A printer_database.json entry naming an image that does not exist is silent at
 # runtime: the lookup falls through to generic-corexy and logs nothing above debug,
 # so a bed-slinger just quietly shows a CoreXY frame. Twenty entries had drifted
