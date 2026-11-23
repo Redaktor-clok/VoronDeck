@@ -3,6 +3,7 @@
 
 #include "../lvgl_test_fixture.h"
 #include "config.h"
+#include "display_idle_decision.h"
 #include "display_settings_manager.h"
 #include "gcode_preview_setup.h"
 #include "gcode_render_mode_policy.h"
@@ -18,6 +19,54 @@
 #include "../catch_amalgamated.hpp"
 
 using namespace helix;
+
+TEST_CASE_METHOD(LVGLTestFixture, "Screensaver timer is independent of disabled dim and sleep",
+                 "[display_settings][screensaver-delay]") {
+    auto* config = Config::get_instance();
+    auto& mgr = DisplaySettingsManager::instance();
+    const auto saved = config->get_json("/display");
+    mgr.deinit_subjects();
+    config->set<int>("/display/dim_sec", 0);
+    config->set<int>("/display/sleep_sec", 0);
+    config->set<std::string>("/display/screensaver_type", "starfield");
+    config->get_json("/display").erase("screensaver_sec");
+    mgr.init_subjects();
+    CHECK(mgr.get_screensaver_delay_sec() == 60);
+    CHECK(mgr.get_display_dim_sec() == 0);
+    CHECK(mgr.get_display_sleep_sec() == 0);
+
+    IdleInputs in;
+    in.has_screensaver = true;
+    in.dim_timeout_sec = mgr.get_screensaver_delay_sec();
+    in.inactive_ms = 59999;
+    CHECK(decide_idle(in).action == IdleAction::None);
+    in.inactive_ms = 60000;
+    CHECK(decide_idle(in).action == IdleAction::StartSaver);
+
+    mgr.set_screensaver_delay_sec(120);
+    mgr.deinit_subjects();
+    mgr.init_subjects();
+    CHECK(mgr.get_screensaver_delay_sec() == 120);
+    CHECK(mgr.get_display_dim_sec() == 0);
+    CHECK(mgr.get_display_sleep_sec() == 0);
+    mgr.set_screensaver_delay_sec(0);
+    in.dim_timeout_sec = mgr.get_screensaver_delay_sec();
+    CHECK(decide_idle(in).action == IdleAction::None);
+
+    mgr.set_screensaver_delay_sec(60);
+    mgr.set_display_sleep_sec(60);
+    CHECK(mgr.get_display_sleep_sec() == 300);
+    mgr.set_screensaver_delay_sec(120);
+    mgr.deinit_subjects();
+    mgr.init_subjects();
+    CHECK(mgr.get_display_sleep_sec() == 300);
+    mgr.set_screensaver_delay_sec(600);
+    CHECK(mgr.get_display_sleep_sec() == 1200);
+
+    config->set<nlohmann::json>("/display", saved);
+    mgr.deinit_subjects();
+    mgr.init_subjects();
+}
 
 // ============================================================================
 // DisplaySettingsManager Tests
@@ -41,7 +90,7 @@ TEST_CASE("DisplaySettingsManager::animations_default policy", "[display_setting
 // the row stays reachable under that name; with neither, it would set nothing.
 TEST_CASE("DisplaySettingsManager::dim_row_kind policy", "[display_settings]") {
     using Kind = DisplaySettingsManager::DimRowKind;
-    CHECK(DisplaySettingsManager::dim_row_kind(true, true) == Kind::ScreenDim);
+    CHECK(DisplaySettingsManager::dim_row_kind(true, true) == Kind::ScreensaverAfter);
     CHECK(DisplaySettingsManager::dim_row_kind(true, false) == Kind::ScreenDim);
     CHECK(DisplaySettingsManager::dim_row_kind(false, true) == Kind::ScreensaverAfter);
     CHECK(DisplaySettingsManager::dim_row_kind(false, false) == Kind::Hidden);
@@ -169,6 +218,7 @@ TEST_CASE_METHOD(LVGLTestFixture, "DisplaySettingsManager set/get round trips",
     }
 
     SECTION("display_sleep set/get") {
+        DisplaySettingsManager::instance().set_screensaver_delay_sec(30);
         DisplaySettingsManager::instance().set_display_sleep_sec(600);
         REQUIRE(DisplaySettingsManager::instance().get_display_sleep_sec() == 600);
 
@@ -364,6 +414,7 @@ TEST_CASE_METHOD(LVGLTestFixture, "DisplaySettingsManager subject values match g
     }
 
     SECTION("display_sleep subject reflects setter") {
+        DisplaySettingsManager::instance().set_screensaver_delay_sec(30);
         DisplaySettingsManager::instance().set_display_sleep_sec(600);
         REQUIRE(lv_subject_get_int(DisplaySettingsManager::instance().subject_display_sleep()) ==
                 600);

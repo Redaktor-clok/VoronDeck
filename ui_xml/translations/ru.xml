@@ -2606,6 +2606,7 @@
   <translation tag="Object {}" ru="Объект {}"/>
   <translation tag="Objects" ru="Объекты"/>
   <translation tag="Objects in the print, with a tap to open the skip map" ru="Объекты печати, касание открывает карту пропуска"/>
+  <translation tag="Obtaining IP address..." ru="Получение IP-адреса…"/>
   <translation tag="Off" ru="Выкл"/>
   <translation tag="Off:" ru="Выкл:"/>
   <translation tag="Off: runs with these values without asking" ru="Выкл.: запуск с этими значениями без запроса"/>
@@ -2641,6 +2642,7 @@
   <translation tag="Open the .3mf in Print Files to print this plate again." ru="Откройте .3mf в разделе «Файлы Gcode», чтобы снова напечатать эту пластину."/>
   <translation tag="Open the CFS unit and remove the broken filament from the slot" ru="Откройте блок CFS и извлеките сломанный филамент из слота"/>
   <translation tag="Open the slot editor when you load a new spool" ru="Открывать редактор слота при установке новой катушки"/>
+  <translation tag="Open updates" ru="К обновлениям"/>
   <translation tag="Opened" ru="Открыта"/>
   <translation tag="Operation already in progress" ru="Операция уже выполняется"/>
   <translation tag="Operation timed out" ru="Время ожидания операции истекло"/>
@@ -4405,6 +4407,7 @@
   <translation tag="VoronDeck user guide is being updated" ru="Руководство VoronDeck обновляется"/>
   <translation tag="VoronDeck will integrate with your filament changer for multi-spool/color print operations." ru="VoronDeck интегрируется с вашим сменщиком филамента для многокатушечной/многоцветной печати."/>
   <translation tag="VoronDeck writes this to printer.cfg and restarts Klipper. The printer will briefly disconnect." ru="VoronDeck записывает это в printer.cfg и перезапускает Klipper. Принтер ненадолго отключится."/>
+  <translation tag="VoronDeck {} is available ({})" ru="Доступен VoronDeck {} ({})"/>
   <translation tag="VoronDeck {} is available — tap Update" ru="Доступен VoronDeck {} — нажмите «Обновить»"/>
   <translation tag="VoronDeck&apos;s Moonraker plugin is installed, which it uses to run pre-print options. Manage it on the Advanced screen." ru="Плагин Moonraker для VoronDeck установлен; он нужен для параметров перед печатью. Управляйте им на экране «Дополнительно»."/>
   <translation tag="VoronDeck&apos;s helper macros are installed in the printer&apos;s config. Install updates on the Advanced screen." ru="Вспомогательные макросы VoronDeck установлены в конфигурации принтера. Устанавливайте обновления на экране «Дополнительно»."/>

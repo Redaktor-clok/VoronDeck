@@ -19,6 +19,9 @@
  */
 class NetworkSettingsOverlayTestAccess {
   public:
+    static bool retrying_address(NetworkSettingsOverlay& o) {
+        return o.address_retry_timer_ != nullptr;
+    }
     static helix::ui::WidgetRef& password_modal(NetworkSettingsOverlay& o) {
         return o.password_modal_;
     }

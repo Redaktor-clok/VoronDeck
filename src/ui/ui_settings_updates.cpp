@@ -8,6 +8,10 @@
 #include "ui_modal.h"
 #include "ui_toast_manager.h"
 #include "ui_settings_printer_maintenance.h"
+#include "app_globals.h"
+#include "config.h"
+#include "printer_state.h"
+#include "print_lifecycle_state.h"
 
 #include "helix_version.h"
 #include "http_executor.h"
@@ -173,22 +177,31 @@ void UpdatesSettingsOverlay::publish_vorondeck_status() {
     }
 }
 
-void UpdatesSettingsOverlay::check_vorondeck_updates() {
+void UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
     if (vorondeck_check_busy_) return;
+    const int selected_channel = SystemSettingsManager::instance().get_update_channel();
+    if (selected_channel != 0 && selected_channel != 1) return;
+    if (background && (is_wizard_active() ||
+        job_holds_machine(get_printer_state().print_state().get_print_lifecycle())))
+        return;
     auto& worker = helix::http::HttpExecutor::slow();
     if (!worker.running()) return;
     vorondeck_check_busy_ = true;
     vorondeck_update_text_ = lv_tr("Checking VoronDeck updates...");
     publish_vorondeck_status();
-    auto token = lifetime_.token();
-    worker.submit([this, token]() {
+    // Finish the object-owned check even if its overlay is closed meanwhile.
+    auto token = object_lifetime_.token();
+    worker.submit([this, token, background, selected_channel]() {
         json result = {{"status", "error"}};
         try {
             int exit_code = -1;
             // Constant shipped path: no user data or shell substitutions. The helper
             // bounds git/SSH timeouts and never installs a fetched artifact.
             auto output = helix::run_capture(
-                "python3 assets/updates/check-vorondeck-update.py 2>/dev/null", exit_code);
+                selected_channel == 1
+                    ? "python3 assets/updates/check-vorondeck-update.py --channel beta 2>/dev/null"
+                    : "python3 assets/updates/check-vorondeck-update.py --channel stable 2>/dev/null",
+                exit_code);
             if (exit_code == 0 && output.size() < 8192) {
                 auto parsed = json::parse(output);
                 if (parsed.is_object()) result = std::move(parsed);
@@ -196,8 +209,13 @@ void UpdatesSettingsOverlay::check_vorondeck_updates() {
         } catch (const std::exception&) {
             // The UI gets a bounded generic error, never Git/SSH diagnostics.
         }
-        token.defer("UpdatesSettings::vorondeck_check", [this, result]() {
+        token.defer("UpdatesSettings::vorondeck_check", [this, result, background, selected_channel]() {
             vorondeck_check_busy_ = false;
+            if (selected_channel != SystemSettingsManager::instance().get_update_channel()) {
+                vorondeck_update_text_ = std::string("VoronDeck ") + HELIX_VERSION;
+                publish_vorondeck_status();
+                return;
+            }
             const auto state = result.value("status", std::string("error"));
             if (state == "current" || state == "available") {
                 const auto installed = result.value("installed_version", std::string{});
@@ -225,6 +243,23 @@ void UpdatesSettingsOverlay::check_vorondeck_updates() {
                 }
             }
             publish_vorondeck_status();
+            // The helper authenticates the active channel and excludes downgrades.
+            const auto notice = result.value("notification_id", std::string{});
+            auto* config = Config::get_instance();
+            if (background && !notice.empty() && config && !is_wizard_active() &&
+                !job_holds_machine(get_printer_state().print_state().get_print_lifecycle()) &&
+                config->get<std::string>("/update/vorondeck_notified_package", "") != notice) {
+                const auto channel = result.value("active_channel", std::string{});
+                const auto message = fmt::format(lv_tr("VoronDeck {} is available ({})"),
+                    result.value("available_version", std::string{}),
+                    lv_tr(channel == "beta" ? "Beta" : "Stable"));
+                ToastManager::instance().show_with_action(ToastSeverity::INFO, message.c_str(),
+                    lv_tr("Open updates"), [](void*) {
+                        get_updates_settings_overlay().show(lv_screen_active());
+                    }, nullptr, 0);
+                config->set<std::string>("/update/vorondeck_notified_package", notice);
+                config->save();
+            }
         });
     });
 }

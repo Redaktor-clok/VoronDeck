@@ -139,6 +139,7 @@ WizardWifiStep::~WizardWifiStep() {
     // change after teardown would defer apply_wifi_backend_state() into a freed
     // `this`. Invalidate before releasing the manager.
     cleanup_called_ = true;
+    address_retry_timer_.reset();
     lifetime_.invalidate();
 
     // Release references to managers - shared WiFiManager continues running
@@ -204,6 +205,8 @@ void WizardWifiStep::update_wifi_status(const char* status) {
 }
 
 void WizardWifiStep::update_wifi_ip(const char* ip, const std::string& mac) {
+    // Clearing/replacing the address also ends a previous DHCP wait.
+    address_retry_timer_.reset();
     spdlog::debug("[{}] Updating WiFi IP: {}", get_name(), ip ? ip : "(none)");
     lv_subject_copy_string(&wifi_ip_, ip ? ip : "");
 
@@ -221,6 +224,41 @@ void WizardWifiStep::update_wifi_ip(const char* ip, const std::string& mac) {
     }
 }
 
+void WizardWifiStep::apply_wifi_address(const WifiBackend::ConnectionStatus& status) {
+    update_wifi_ip(status.awaiting_ip() ? lv_tr("Obtaining IP address...")
+                                       : (status.connected ? status.ip_address.c_str() : ""),
+                   status.mac_address);
+    if (status.awaiting_ip() && !cleanup_called_) {
+        // wpa_supplicant reports association before DHCP completes, with no
+        // second connected event. Poll only while this visible step needs an IP.
+        address_retry_timer_.reset(lv_timer_create(
+            [](lv_timer_t* timer) {
+                static_cast<WizardWifiStep*>(lv_timer_get_user_data(timer))->retry_wifi_address();
+            },
+            2000, this));
+    }
+}
+
+void WizardWifiStep::retry_wifi_address() {
+    if (cleanup_called_ || !address_retry_timer_ || !wifi_manager_ ||
+        address_read_in_flight_) {
+        return;
+    }
+    address_read_in_flight_ = true;
+    wifi_manager_->get_status_async(
+        lifetime_.token(),
+        [this, gen = status_generation_](const WifiBackend::ConnectionStatus& status) {
+            address_read_in_flight_ = false;
+            if (gen != status_generation_ || !address_retry_timer_) {
+                return;
+            }
+            apply_wifi_address(status);
+            if (!status.connected) {
+                update_wifi_status(get_status_text("enabled"));
+            }
+        });
+}
+
 void WizardWifiStep::announce_connected() {
     char msg[128];
     snprintf(msg, sizeof(msg), "%s%s", get_status_text("connected"), current_ssid_);
@@ -232,7 +270,7 @@ void WizardWifiStep::announce_connected() {
                 if (gen != status_generation_) {
                     return;
                 }
-                update_wifi_ip(status.ip_address.c_str(), status.mac_address);
+                apply_wifi_address(status);
             });
     }
     spdlog::info("[{}] Connected to {}", get_name(), helix::redact::ssid(current_ssid_));
@@ -427,7 +465,7 @@ void WizardWifiStep::populate_network_list(const std::vector<WiFiNetwork>& netwo
             // update here when the scan reveals a connected network.
             std::string status_msg = std::string(get_status_text("connected")) + connected_ssid;
             update_wifi_status(status_msg.c_str());
-            update_wifi_ip(status.ip_address.c_str(), status.mac_address);
+            apply_wifi_address(status);
         }
 
         // Store network data for click handler (callback registered via XML event_cb)
@@ -551,6 +589,7 @@ void WizardWifiStep::handle_wifi_toggle_changed(lv_event_t* e) {
     bool checked = lv_obj_get_state(toggle) & LV_STATE_CHECKED;
     spdlog::debug("[{}] WiFi toggle changed: {}", get_name(), checked ? "ON" : "OFF");
     ++status_generation_;
+    address_retry_timer_.reset();
 
     lv_subject_set_int(&wifi_enabled_, checked ? 1 : 0);
 
@@ -649,6 +688,7 @@ void WizardWifiStep::handle_network_item_clicked(lv_event_t* e) {
     current_ssid_[sizeof(current_ssid_) - 1] = '\0';
     current_network_is_secured_ = network.is_secured;
     ++status_generation_;
+    address_retry_timer_.reset();
 
     char status_buf[128];
     snprintf(status_buf, sizeof(status_buf), "%s%s", get_status_text("connecting"),
@@ -731,6 +771,7 @@ void WizardWifiStep::handle_modal_connect_clicked() {
 
     lv_subject_set_int(&wifi_connecting_, 1);
     ++status_generation_;
+    address_retry_timer_.reset();
 
     lv_obj_t* connect_btn = lv_obj_find_by_name(password_modal_, "modal_connect_btn");
     if (connect_btn) {
@@ -1028,9 +1069,10 @@ void WizardWifiStep::apply_wifi_backend_state() {
                     // Update status and IP display
                     std::string status_msg = std::string(lv_tr("Connected to ")) + status.ssid;
                     update_wifi_status(status_msg.c_str());
-                    update_wifi_ip(status.ip_address.c_str(), status.mac_address);
+                    apply_wifi_address(status);
                 } else {
                     update_wifi_status(get_status_text("enabled"));
+                    update_wifi_ip("");
                 }
             });
 
@@ -1062,6 +1104,7 @@ void WizardWifiStep::apply_wifi_backend_state() {
         }
     } else {
         crash_handler::breadcrumb::note("wifi", "apply_state_disabled");
+        update_wifi_ip("");
 
         // The managed backend isn't enabled/connected — but the link may still
         // be up under system management (e.g. a Qidi Q2 boots already connected
@@ -1153,6 +1196,8 @@ void WizardWifiStep::cleanup() {
 
     // Mark as cleaned up FIRST to invalidate any pending async callbacks
     cleanup_called_ = true;
+    address_retry_timer_.reset();
+    address_read_in_flight_ = false;
     lifetime_.invalidate(); // Expire all outstanding tokens
     ++status_generation_;
 

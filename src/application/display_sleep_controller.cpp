@@ -408,6 +408,9 @@ void DisplaySleepController::tick() {
     m_remote_viewer_seen = in.remote_viewer;
 #if HELIX_ENABLE_SCREENSAVER
     in.has_screensaver = ScreensaverManager::configured_type() != ScreensaverType::OFF;
+    if (in.has_screensaver) {
+        in.dim_timeout_sec = DisplaySettingsManager::instance().get_screensaver_delay_sec();
+    }
     in.saver_running = m_screensaver_active;
     in.is_preview = m_screensaver_is_preview;
     in.preview_elapsed_ms = DisplayManager::get_ticks() - m_preview_start_tick_ms;
@@ -466,7 +469,7 @@ void DisplaySleepController::tick() {
             spdlog::info("[DisplaySleep] Screensaver started in place of sleep (remote viewer)");
         } else {
             spdlog::info("[DisplaySleep] Screensaver started after {}s inactivity",
-                         m_dim_timeout_sec);
+                         in.dim_timeout_sec);
         }
 #endif
         break;

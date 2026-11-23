@@ -23,6 +23,15 @@ WifiBackendMock::WifiBackendMock()
     if (const char* country = std::getenv("HELIX_MOCK_WIFI_COUNTRY")) {
         country_ = helix::wifi::country::normalize(country);
     }
+    // A lease arriving without another CONNECTED event exercises UI retry paths.
+    if (const char* delay = std::getenv("HELIX_MOCK_WIFI_DHCP_DELAY")) {
+        char* end = nullptr;
+        const long seconds = std::strtol(delay, &end, 10);
+        if (end != delay && *end == '\0' && seconds > 0 && seconds <= 300) {
+            set_connected_state(true, "DHCP test", "", 70);
+            dhcp_ready_at_ = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+        }
+    }
 }
 
 WifiBackendMock::~WifiBackendMock() {
@@ -368,6 +377,12 @@ void WifiBackendMock::connect_thread_func() {
 WifiBackend::ConnectionStatus WifiBackendMock::get_status() {
     ConnectionStatus status = {};
     std::unique_lock<std::mutex> lock(status_mutex_);
+    if (dhcp_ready_at_ && std::chrono::steady_clock::now() >= *dhcp_ready_at_) {
+        if (connected_) {
+            connected_ip_ = "192.168.1.77";
+        }
+        dhcp_ready_at_.reset();
+    }
     status_callers_.push_back(std::this_thread::get_id());
     status.connected = connected_;
     status.ssid = connected_ssid_;

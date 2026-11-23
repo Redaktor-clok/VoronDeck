@@ -9,10 +9,14 @@
 #include <spdlog/spdlog.h>
 
 #include <cstring>
+#include <cstdlib>
 #include <vector>
 
 EthernetBackendMock::EthernetBackendMock() {
     spdlog::debug("[EthernetMock] Mock backend created");
+    if (const char* enabled = std::getenv("HELIX_MOCK_ETHERNET")) {
+        connected_ = std::strcmp(enabled, "0") != 0;
+    }
 
     // Try to get real MAC address from system for realistic demo display
     std::vector<ifconfig_t> interfaces;

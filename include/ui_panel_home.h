@@ -182,6 +182,7 @@ class HomePanel : public PanelBase {
     std::unique_ptr<EthernetManager> header_ethernet_;
     uint64_t header_network_generation_ = 0;
     bool header_has_ethernet_ = false;
+    lv_timer_t* header_ip_retry_ = nullptr;
     void init_panel_subjects();
     void set_header_network(const std::string& text);
     void update_page_badge();

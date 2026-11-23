@@ -198,3 +198,60 @@ TEST_CASE_METHOD(WizardWifiStatusFixture,
     helix::ui::UpdateQueue::instance().drain();
     CHECK(ran);
 }
+
+TEST_CASE_METHOD(WizardWifiStatusFixture,
+                 "wizard wifi: DHCP completion refreshes without another connected event",
+                 "[wizard_wifi][wifi_status_async][ip-wait]") {
+    wifi->set_connected_state(true, kSsid, "", 70);
+    SECTION("backend state") {
+        Access::apply_backend_state(step());
+    }
+    SECTION("network list") {
+        Access::refresh_list(step(), {WiFiNetwork(kSsid, 70, true)});
+    }
+    SECTION("successful join") {
+        Access::set_current_ssid(step(), kSsid);
+        Access::announce_connected(step());
+    }
+    REQUIRE(wait_until([&]() { return Access::retrying_address(step()); }));
+    CHECK(Access::ip(step()) == lv_tr("Obtaining IP address..."));
+    wifi->set_connected_state(true, kSsid, kIp, 70);
+    Access::enable_address_timer_in_fixture(step());
+    // Let the real retry timer drive the production async callback.
+    REQUIRE(wait_until([&]() { return Access::ip(step()) == kIp; }));
+    CHECK_FALSE(Access::retrying_address(step()));
+    CHECK(no_read_on_this_thread());
+}
+
+TEST_CASE_METHOD(WizardWifiStatusFixture,
+                 "wizard wifi: pending address retries stop on disconnect or cleanup",
+                 "[wizard_wifi][wifi_status_async][ip-wait]") {
+    wifi->set_connected_state(true, kSsid, "0.0.0.0", 70);
+    Access::set_current_ssid(step(), kSsid);
+    Access::announce_connected(step());
+    REQUIRE(wait_until([&]() { return Access::retrying_address(step()); }));
+    wifi->clear_status_callers();
+    wifi->hold_next_status();
+    Access::retry_address(step());
+    REQUIRE(wait_until([&]() { return !wifi->status_callers().empty(); }));
+    Access::retry_address(step());
+    Access::retry_address(step());
+    CHECK(wifi->status_callers().size() == 1);
+
+    SECTION("disconnect after the held answer") {
+        wifi->release_held_status();
+        await_earlier_answers();
+        wifi->set_connected_state(false, "", "", 0);
+        Access::enable_address_timer_in_fixture(step());
+        REQUIRE(wait_until([&]() { return !Access::retrying_address(step()); }));
+        CHECK(Access::ip(step()).empty());
+    }
+    SECTION("cleanup rejects the held answer") {
+        const auto before = Access::ip(step());
+        step().cleanup();
+        wifi->release_held_status();
+        await_earlier_answers();
+        CHECK_FALSE(Access::retrying_address(step()));
+        CHECK(Access::ip(step()) == before);
+    }
+}

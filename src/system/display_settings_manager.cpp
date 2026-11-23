@@ -69,6 +69,19 @@ static const int kDimOptionsCount = sizeof(kDimOptions) / sizeof(kDimOptions[0])
 static const int kSleepOptions[] = {0, 60, 300, 600, 1200, 1800, 3600};
 static const int kSleepOptionsCount = sizeof(kSleepOptions) / sizeof(kSleepOptions[0]);
 
+// Sleep wins an idle tick, so the saver needs a strictly earlier deadline.
+static int minimum_sleep_after(int idle_sec, bool screensaver) {
+    if (!screensaver || idle_sec <= 0) {
+        return idle_sec;
+    }
+    for (int seconds : kSleepOptions) {
+        if (seconds > idle_sec) {
+            return seconds;
+        }
+    }
+    return kSleepOptions[kSleepOptionsCount - 1];
+}
+
 // Timezone options: curated list of IANA timezones with friendly display names
 struct TimezoneEntry {
     const char* display_name;
@@ -411,17 +424,25 @@ void DisplaySettingsManager::init_subjects() {
                            static_cast<int>(dim_row_kind(has_dimming, screensaver_enabled())),
                            "settings_dim_row_kind", subjects_);
 
+    // Keep the old positive delay; a selected saver must also work with dim=Never.
+    if (!config->exists("/display/screensaver_sec")) {
+        config->set<int>("/display/screensaver_sec", dim_sec > 0 ? dim_sec : 60);
+        config->save();
+    }
+    const int idle_sec = minimum_sleep_after(
+        screensaver_enabled() ? get_screensaver_delay_sec() : dim_sec, screensaver_enabled());
+
     // Cross-validate: sleep must be >= dim when the device dims OR a screensaver
     // provides the dim-stage visual (#1049). This runs AFTER screensaver_type is
     // initialized so should_couple_sleep_to_dim() sees it. Critical for the field
     // config in bundle 3VDWMLYQ (no backlight, screensaver on, persisted
     // sleep=60 < dim=600) — it self-corrects on next launch instead of starving
     // the screensaver. Config can also be inconsistent from manual edits.
-    if (should_couple_sleep_to_dim() && dim_sec > 0 && sleep_sec > 0 && sleep_sec < dim_sec) {
+    if (should_couple_sleep_to_dim() && idle_sec > 0 && sleep_sec > 0 && sleep_sec < idle_sec) {
         spdlog::warn("[DisplaySettingsManager] Config inconsistency: sleep {}s < dim {}s, "
                      "clamping sleep to dim",
-                     sleep_sec, dim_sec);
-        sleep_sec = dim_sec;
+                     sleep_sec, idle_sec);
+        sleep_sec = idle_sec;
         lv_subject_set_int(&display_sleep_subject_, sleep_sec);
         config->set<int>("/display/sleep_sec", sleep_sec);
         config->save();
@@ -585,6 +606,21 @@ int DisplaySettingsManager::get_display_dim_sec() const {
     return lv_subject_get_int(const_cast<lv_subject_t*>(&display_dim_subject_));
 }
 
+int DisplaySettingsManager::get_screensaver_delay_sec() const {
+    return validate_timeout_option(Config::get_instance()->get<int>("/display/screensaver_sec", 60),
+                                   kDimOptions, 60, "screensaver_sec");
+}
+
+void DisplaySettingsManager::set_screensaver_delay_sec(int seconds) {
+    seconds = validate_timeout_option(seconds, kDimOptions, 60, "screensaver_sec");
+    auto* config = Config::get_instance();
+    config->set<int>("/display/screensaver_sec", seconds);
+    config->save();
+    if (screensaver_enabled()) {
+        set_display_sleep_sec(get_display_sleep_sec());
+    }
+}
+
 void DisplaySettingsManager::set_display_dim_sec(int seconds) {
     spdlog::info("[DisplaySettingsManager] set_display_dim_sec({})", seconds);
 
@@ -603,7 +639,8 @@ void DisplaySettingsManager::set_display_dim_sec(int seconds) {
     // Enforce when the device dims OR a screensaver provides the dim-stage visual
     // (#1049) — same rationale as the sleep setter.
     int sleep_sec = get_display_sleep_sec();
-    if (should_couple_sleep_to_dim() && seconds > 0 && sleep_sec > 0 && sleep_sec < seconds) {
+    if (!screensaver_enabled() && should_couple_sleep_to_dim() && seconds > 0 &&
+        sleep_sec > 0 && sleep_sec < seconds) {
         spdlog::info("[DisplaySettingsManager] Bumping sleep {}s up to match dim {}s", sleep_sec,
                      seconds);
         lv_subject_set_int(&display_sleep_subject_, seconds);
@@ -630,7 +667,9 @@ void DisplaySettingsManager::set_display_sleep_sec(int seconds) {
     // screensaver (e.g. AD5M/AD5X) the dim UI is hidden and dim_sec retains a
     // default that should NOT block short sleep times — hence the gate.
     if (seconds > 0 && should_couple_sleep_to_dim()) {
-        int dim_sec = get_display_dim_sec();
+        int dim_sec = minimum_sleep_after(
+            screensaver_enabled() ? get_screensaver_delay_sec() : get_display_dim_sec(),
+            screensaver_enabled());
         if (dim_sec > 0 && seconds < dim_sec) {
             spdlog::info("[DisplaySettingsManager] Clamping sleep {}s to dim {}s", seconds,
                          dim_sec);
@@ -993,6 +1032,7 @@ void DisplaySettingsManager::set_screensaver_type(int type) {
     config->set<std::string>(helix::ui::kScreensaverSettingPath,
                              helix::ui::screensaver_name(static_cast<ScreensaverType>(type)));
     config->save();
+    set_display_sleep_sec(get_display_sleep_sec());
 }
 #endif
 
@@ -1024,10 +1064,10 @@ bool DisplaySettingsManager::get_bed_mesh_show_zero_plane() const {
 
 DisplaySettingsManager::DimRowKind DisplaySettingsManager::dim_row_kind(bool has_dimming,
                                                                         bool screensaver_enabled) {
-    if (has_dimming) {
-        return DimRowKind::ScreenDim;
+    if (screensaver_enabled) {
+        return DimRowKind::ScreensaverAfter;
     }
-    return screensaver_enabled ? DimRowKind::ScreensaverAfter : DimRowKind::Hidden;
+    return has_dimming ? DimRowKind::ScreenDim : DimRowKind::Hidden;
 }
 
 int DisplaySettingsManager::dim_seconds_to_index(int seconds) {

@@ -3613,7 +3613,7 @@ void UpdateChecker::start_auto_check() {
                      suppression_reason());
     }
 
-    spdlog::info("[UpdateChecker] Starting auto-check (15s initial delay, 24h periodic)");
+    spdlog::info("[UpdateChecker] Starting VoronDeck package check (15s initial delay, hourly)");
 
     // One-shot 15s timer for initial check after startup
     auto_check_timer_ = lv_timer_create(
@@ -3622,56 +3622,10 @@ void UpdateChecker::start_auto_check() {
             if (self->shutting_down_.load())
                 return;
 
-            spdlog::info("[UpdateChecker] Auto-check: performing initial check");
+            // VoronDeck packages use their authenticated index, not upstream releases.
+            helix::settings::get_updates_settings_overlay().check_vorondeck_updates(true);
 
-            // Perform check with notification callback
-            self->check_for_updates([self](Status status, std::optional<ReleaseInfo> info) {
-                if (status != Status::UpdateAvailable || !info) {
-                    return;
-                }
-
-                // Never raise a downgrade unprompted. It is only actionable
-                // because the user chose this channel; interrupting them with
-                // "go back to an older build" is noise at best, and a transient
-                // bad manifest would push it to the whole fleet at once.
-                if (info->is_downgrade) {
-                    spdlog::info("[UpdateChecker] Auto-check: {} is a downgrade, not notifying",
-                                 info->version);
-                    return;
-                }
-
-                // Skip if version is dismissed
-                if (self->is_version_dismissed(info->version)) {
-                    spdlog::info("[UpdateChecker] Auto-check: version {} is dismissed",
-                                 info->version);
-                    return;
-                }
-
-                // Skip while a job owns the machine, Preparing included.
-                const auto lifecycle = get_printer_state().print_state().get_print_lifecycle();
-                if (job_holds_machine(lifecycle)) {
-                    spdlog::info("[UpdateChecker] Auto-check: skipping notification during print");
-                    return;
-                }
-
-                // Guard against shutdown race (callback queued before shutdown)
-                if (self->shutting_down_.load()) {
-                    return;
-                }
-
-                // Populate release notes subject
-                if (self->subjects_initialized_) {
-                    lv_subject_copy_string(&self->release_notes_subject_,
-                                           info->release_notes.c_str());
-                    lv_subject_set_int(&self->changelog_visible_subject_, 0);
-                }
-
-                // Show notification modal
-                self->show_update_notification();
-            });
-
-            // Convert to 24h periodic timer
-            lv_timer_set_period(timer, 24u * 60u * 60u * 1000u);
+            lv_timer_set_period(timer, 60u * 60u * 1000u);
             lv_timer_reset(timer);
         },
         15000, this);

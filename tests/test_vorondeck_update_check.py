@@ -92,6 +92,41 @@ class SshCommand(unittest.TestCase):
 
 class Channels(unittest.TestCase):
     setUp = ReleaseCheck.setUp
+    def test_selected_stable_overrides_installed_beta(self):
+        stable = copy.deepcopy(self.index)
+        stable.update(channel='stable', version='1.0.0')
+        result = checker.check_channels(self.installed, self.name, 'glibc', True,
+                                       lambda channel: stable if channel == 'stable' else self.index,
+                                       selected_channel='stable')
+        self.assertEqual(result['active_channel'], 'stable')
+        self.assertEqual(result['notification_id'], 'stable:1.0.0:aaaaaaaa')
+
+    def test_selected_authorized_beta_overrides_installed_stable(self):
+        self.installed['version'] = '1.0.0'
+        self.index['version'] = '1.0.1-beta.1'
+        result = checker.check_channels(self.installed, self.name, 'glibc', True,
+                                       lambda channel: self.index, selected_channel='beta')
+        self.assertEqual(result['active_channel'], 'beta')
+        self.assertEqual(result['notification_id'], 'beta:1.0.1-beta.1:aaaaaaaa')
+
+    def test_selected_beta_without_key_does_not_fetch_or_notify(self):
+        self.installed['version'] = '1.0.0'
+        calls = []
+        def fetch(channel):
+            calls.append(channel)
+            raise ValueError('No stable index')
+        result = checker.check_channels(self.installed, self.name, 'glibc', False,
+                                       fetch, selected_channel='beta')
+        self.assertEqual(calls, ['stable'])
+        self.assertEqual(result['active_channel'], 'beta')
+        self.assertEqual(result['status'], 'access_required')
+        self.assertEqual(result['notification_id'], '')
+
+    def test_invalid_selected_channel_is_rejected_before_fetch(self):
+        with self.assertRaises(ValueError):
+            checker.check_channels(self.installed, self.name, 'glibc', True,
+                                   lambda channel: self.fail('must not fetch'), selected_channel='dev')
+
     def test_beta_install_keeps_active_channel_when_stable_exists(self):
         stable = copy.deepcopy(self.index)
         stable.update(channel='stable', version='1.0.0')
@@ -120,6 +155,45 @@ class Channels(unittest.TestCase):
         self.assertEqual(calls, ['stable'])
         self.assertEqual(result['status'], 'access_required')
         self.assertEqual(result['channels']['beta']['status'], 'access_required')
+
+
+class Notifications(unittest.TestCase):
+    def result(self):
+        return dict(status='available', active_channel='stable', installed_version='1.0.0',
+                    available_version='1.0.1', available_build='a' * 8)
+
+    def test_new_stable_has_persistent_identity(self):
+        result = self.result()
+        self.assertEqual(checker.notification_id(result), 'stable:1.0.1:aaaaaaaa')
+        self.assertEqual(checker.notification_id(dict(result)), checker.notification_id(result))
+
+    def test_errors_current_and_unauthorized_beta_do_not_notify(self):
+        for status in ('current', 'error', 'access_required', 'not_installed'):
+            result = self.result()
+            result['status'] = status
+            self.assertEqual(checker.notification_id(result), '')
+
+    def test_beta_cannot_be_announced_as_stable(self):
+        result = self.result()
+        result['available_version'] = '1.0.1-beta.1'
+        self.assertEqual(checker.notification_id(result), '')
+        result['active_channel'] = 'beta'
+        self.assertEqual(checker.notification_id(result), 'beta:1.0.1-beta.1:aaaaaaaa')
+
+    def test_downgrade_is_not_a_new_update(self):
+        result = self.result()
+        result.update(installed_version='1.0.10', available_version='1.0.9')
+        self.assertEqual(checker.notification_id(result), '')
+        result.update(active_channel='beta', installed_version='1.0.0-beta.10',
+                      available_version='1.0.0-beta.9')
+        self.assertEqual(checker.notification_id(result), '')
+
+    def test_rebuilt_package_is_a_distinct_notice(self):
+        result = self.result()
+        result['available_version'] = result['installed_version']
+        old = checker.notification_id(result)
+        result['available_build'] = 'b' * 8
+        self.assertNotEqual(checker.notification_id(result), old)
 
 
 if __name__ == '__main__':

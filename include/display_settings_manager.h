@@ -94,6 +94,9 @@ class DisplaySettingsManager {
     /** @brief Get display dim timeout in seconds (0 = disabled) */
     int get_display_dim_sec() const;
 
+    int get_screensaver_delay_sec() const;
+    void set_screensaver_delay_sec(int seconds);
+
     /** @brief Set display dim timeout (updates subject + persists + notifies DisplayManager) */
     void set_display_dim_sec(int seconds);
 

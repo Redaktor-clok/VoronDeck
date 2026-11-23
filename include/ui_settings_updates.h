@@ -38,7 +38,7 @@ class UpdatesSettingsOverlay : public OverlayBase {
 
     void register_callbacks() override;
     void on_activate() override;
-    void check_vorondeck_updates();
+    void check_vorondeck_updates(bool background = false);
 
     /**
      * @brief Point both Update Channel rows at the channel the updater is using

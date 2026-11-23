@@ -120,7 +120,7 @@ void spoolman_sync_step(DiscoveryContext& ctx) {
     spoolman_sync::attach(ctx.client, ctx.api.spoolman());
 }
 
-// Start automatic update checks (15s initial delay, then every 24h).
+// Start automatic package checks (15s initial delay, then hourly).
 void auto_update_check_step(DiscoveryContext&) {
     UpdateChecker::instance().start_auto_check();
 }

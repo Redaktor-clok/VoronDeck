@@ -218,7 +218,7 @@ class NetworkSettingsOverlay : public OverlayBase {
 
     // String buffers (subjects need stable char* pointers)
     char ssid_buffer_[64];
-    char ip_buffer_[32];
+    char ip_buffer_[96];
     char mac_buffer_[32];
     char count_buffer_[16];
     char eth_ip_buffer_[32];
@@ -266,6 +266,8 @@ class NetworkSettingsOverlay : public OverlayBase {
     // status answer issued under an older value describes a state the user has
     // since replaced, so it is dropped.
     uint32_t status_generation_ = 0;
+    lv_timer_t* address_retry_timer_ = nullptr;
+    void cancel_address_retry();
     // A Forget tap's status read is in flight: further taps issue none, so one
     // tap opens at most one confirm dialog. Cleared by the answer, and by
     // on_activate() since deactivation drops an answer still in flight.

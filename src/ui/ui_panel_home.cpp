@@ -14,6 +14,7 @@
 #include "ui_overlay_network_settings.h"
 #include "ui_panel_ams.h"
 #include "ui_printer_manager_overlay.h"
+#include "ui_timer_guard.h"
 #include "ui_update_queue.h"
 #include "ui_utils.h"
 
@@ -168,6 +169,10 @@ void HomePanel::init_subjects() {
 }
 
 void HomePanel::deinit_subjects() {
+    if (header_ip_retry_) {
+        helix::ui::lv_timer_cancel_safe(header_ip_retry_);
+        header_ip_retry_ = nullptr;
+    }
     ++header_network_generation_; // Reject outstanding shared-header replies before subject
                                   // teardown.
     // Panel subjects are construction-registered in their own manager, so
@@ -216,17 +221,31 @@ void HomePanel::set_header_network(const std::string& text) {
 void HomePanel::refresh_header_network() {
     if (!subjects_initialized_)
         return;
+    if (header_ip_retry_) {
+        helix::ui::lv_timer_cancel_safe(header_ip_retry_);
+        header_ip_retry_ = nullptr;
+    }
     const uint64_t generation = ++header_network_generation_;
     header_has_ethernet_ = false;
     set_header_network("");
     if (header_wifi_) {
         header_wifi_->get_status_async(
-            lifetime_.token(), [this, generation](const WifiBackend::ConnectionStatus& status) {
+            object_lifetime_.token(), [this, generation](const WifiBackend::ConnectionStatus& status) {
                 if (generation != header_network_generation_ || header_has_ethernet_) {
                     return;
                 }
-                if (status.connected && !status.ip_address.empty()) {
-                    set_header_network(status.ip_address + " \xC2\xB7 Wi-Fi");
+                if (status.connected) {
+                    const std::string ip = status.awaiting_ip() ? lv_tr("Obtaining IP address...")
+                                                               : status.ip_address;
+                    set_header_network(ip + " \xC2\xB7 Wi-Fi");
+                    if (status.awaiting_ip() && !header_ip_retry_) {
+                        header_ip_retry_ = lv_timer_create([](lv_timer_t* timer) {
+                            auto* self = static_cast<HomePanel*>(lv_timer_get_user_data(timer));
+                            self->header_ip_retry_ = nullptr;
+                            self->refresh_header_network();
+                        }, 2000, this);
+                        lv_timer_set_repeat_count(header_ip_retry_, 1);
+                    }
                 }
             });
     }
@@ -234,12 +253,16 @@ void HomePanel::refresh_header_network() {
         header_ethernet_ = std::make_unique<EthernetManager>();
     }
     header_ethernet_->get_info_async(
-        lifetime_.bg_cb("HomePanel::header_network", [this, generation](const EthernetInfo& info) {
+        object_lifetime_.bg_cb("HomePanel::header_network", [this, generation](const EthernetInfo& info) {
             if (generation != header_network_generation_ || !info.connected ||
                 info.ip_address.empty()) {
                 return;
             }
             header_has_ethernet_ = true;
+            if (header_ip_retry_) {
+                helix::ui::lv_timer_cancel_safe(header_ip_retry_);
+                header_ip_retry_ = nullptr;
+            }
             set_header_network(info.ip_address + " \xC2\xB7 Ethernet");
         }));
 }
@@ -1080,7 +1103,7 @@ void HomePanel::on_activate() {
     if (header_wifi_ != wifi) {
         header_wifi_ = std::move(wifi);
         if (header_wifi_)
-            header_wifi_->add_state_observer(lifetime_.token(),
+            header_wifi_->add_state_observer(object_lifetime_.token(),
                                              [this] { refresh_header_network(); });
     }
     refresh_header_network();

@@ -94,10 +94,17 @@ void DisplaySettingsOverlay::register_callbacks() {
              DisplaySettingsManager::instance().set_display_dim_sec(
                  DisplaySettingsManager::index_to_dim_seconds(event_selected(e)));
          }},
+        {"on_screensaver_delay_changed",
+         [](lv_event_t* e) {
+             DisplaySettingsManager::instance().set_screensaver_delay_sec(
+                 DisplaySettingsManager::index_to_dim_seconds(event_selected(e)));
+             get_display_settings_overlay().init_sleep_dropdown();
+         }},
         {"on_sleep_changed",
          [](lv_event_t* e) {
              DisplaySettingsManager::instance().set_display_sleep_sec(
                  DisplaySettingsManager::index_to_sleep_seconds(event_selected(e)));
+             get_display_settings_overlay().init_sleep_dropdown();
          }},
         {"on_sleep_while_printing_changed",
          [](lv_event_t* e) {
@@ -173,14 +180,18 @@ void DisplaySettingsOverlay::init_brightness_controls() {
     }
 }
 
-// Both rows edit the dim timeout; settings_dim_row_kind shows at most one of them.
+// Screensaver and backlight retain separate delays; only the active mode is shown.
 void DisplaySettingsOverlay::init_dim_dropdown() {
     int current_sec = DisplaySettingsManager::instance().get_display_dim_sec();
     int index = DisplaySettingsManager::dim_seconds_to_index(current_sec);
     for (const char* row_name : {"row_display_dim", "row_screensaver_after"}) {
         lv_obj_t* row = helix::ui::find_required(overlay_root_, row_name, get_name());
         if (lv_obj_t* dropdown = helix::ui::find_required(row, "dropdown", get_name())) {
-            lv_dropdown_set_selected(dropdown, index);
+            const int selected = std::string(row_name) == "row_screensaver_after"
+                                     ? DisplaySettingsManager::dim_seconds_to_index(
+                                           DisplaySettingsManager::instance().get_screensaver_delay_sec())
+                                     : index;
+            lv_dropdown_set_selected(dropdown, selected);
         }
     }
     spdlog::debug("[{}] Dim dropdowns initialized to index {} ({}s)", get_name(), index,
@@ -320,6 +331,8 @@ void DisplaySettingsOverlay::handle_screensaver_changed(int index) {
         return;
     }
     DisplaySettingsManager::instance().set_screensaver_type(static_cast<int>(*type));
+    init_dim_dropdown();
+    init_sleep_dropdown();
     // A choice can change what the list offers: Off drops a too-slow stored saver.
     init_screensaver_dropdown();
 #endif

@@ -4,6 +4,7 @@
 #pragma once
 
 #include "ui_widget_ref.h"
+#include "ui_timer_guard.h"
 
 #include "async_lifetime_guard.h"
 #include "lvgl/lvgl.h"
@@ -175,7 +176,7 @@ class WizardWifiStep : public helix::wizard::Step {
 
     // String buffers (must be persistent)
     char wifi_status_buffer_[64];
-    char wifi_ip_buffer_[32];
+    char wifi_ip_buffer_[96];
     char wifi_mac_buffer_[32];
     char ethernet_status_buffer_[64];
     char ethernet_mac_buffer_[32];
@@ -193,6 +194,8 @@ class WizardWifiStep : public helix::wizard::Step {
     bool subjects_initialized_ = false;
     bool cleanup_called_ = false; // Set true in cleanup() to invalidate pending callbacks
     bool scan_started_ = false;   // Ensures the bringup scan is kicked exactly once
+    helix::ui::LvglTimerGuard address_retry_timer_;
+    bool address_read_in_flight_ = false;
 
     // Async callback safety — tokens expire when cleanup() invalidates lifetime
     helix::AsyncLifetimeGuard lifetime_;
@@ -213,6 +216,8 @@ class WizardWifiStep : public helix::wizard::Step {
     void update_wifi_status(const char* status);
     // Shows what a status read returned; never reads the backend itself.
     void update_wifi_ip(const char* ip, const std::string& mac = "");
+    void apply_wifi_address(const WifiBackend::ConnectionStatus& status);
+    void retry_wifi_address();
     // "Connected to <current_ssid_>", then the address from one async read.
     void announce_connected();
     void update_ethernet_status();

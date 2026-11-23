@@ -1,7 +1,10 @@
 locale: ru
 translations:
+  "Obtaining IP address...": "Получение IP-адреса…"
   "All Fans": "Все вентиляторы"
   "Update available": "Доступно обновление"
+  "VoronDeck {} is available ({})": "Доступен VoronDeck {} ({})"
+  "Open updates": "К обновлениям"
   "Please wait...": "Подождите…"
   "Check for updates": "Проверить обновления"
   "Printer reset": "Сброс принтера"

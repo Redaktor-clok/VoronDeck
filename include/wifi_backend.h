@@ -274,6 +274,10 @@ class WifiBackend {
         /// Set by WiFiManager, never by a backend: the control interface has
         /// stopped answering, and the fields above are the last answer it gave.
         bool unresponsive{false};
+
+        bool awaiting_ip() const {
+            return connected && (ip_address.empty() || ip_address == "0.0.0.0" || ip_address == "::");
+        }
     };
 
     // ========================================================================

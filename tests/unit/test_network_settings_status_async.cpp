@@ -137,6 +137,41 @@ class OverlayStatusFixture : public LVGLUITestFixture {
 } // namespace
 
 TEST_CASE_METHOD(OverlayStatusFixture,
+                 "network settings: association without an address shows DHCP progress",
+                 "[network_settings][wifi_status_async][ip-wait]") {
+    for (const auto* ip : {"", "0.0.0.0", "::"}) {
+        wifi->set_connected_state(true, kSsid, ip, 70);
+        Access::update_wifi_status(overlay());
+        await_earlier_answers();
+        REQUIRE(wait_until([&]() {
+            return Access::ip(overlay()) == lv_tr("Obtaining IP address...");
+        }));
+        CHECK(lv_subject_get_int(&Access::wifi_connected(overlay())) == 1);
+        CHECK(Access::ssid(overlay()) == kSsid);
+    }
+    wifi->set_connected_state(true, kSsid, kIp, 70);
+    // The real DHCP retry must deliver the lease, without another event or refresh click.
+    REQUIRE(wait_until([&]() { return shows_connection(); }, 4000));
+    CHECK_FALSE(Access::retrying_address(overlay()));
+    wifi->set_connected_state(false);
+    Access::update_wifi_status(overlay());
+    REQUIRE(wait_until([&]() {
+        return lv_subject_get_int(&Access::wifi_connected(overlay())) == 0;
+    }));
+    CHECK(Access::ip(overlay()).empty());
+    CHECK(Access::ssid(overlay()).empty());
+}
+
+TEST_CASE_METHOD(OverlayStatusFixture, "network settings: closing cancels the DHCP retry",
+                 "[network_settings][wifi_status_async][ip-wait]") {
+    wifi->set_connected_state(true, kSsid, "", 70);
+    Access::update_wifi_status(overlay());
+    REQUIRE(wait_until([&]() { return Access::retrying_address(overlay()); }));
+    overlay().cleanup();
+    CHECK_FALSE(Access::retrying_address(overlay()));
+}
+
+TEST_CASE_METHOD(OverlayStatusFixture,
                  "network settings: the WiFi status comes from an async read off the UI thread",
                  "[network_settings][wifi_status_async]") {
     Access::update_wifi_status(overlay());

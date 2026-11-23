@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <chrono>
 #include <mutex>
 #include <optional>
 #include <random>
@@ -141,6 +142,7 @@ class WifiBackendMock : public WifiBackend {
     bool connected_;
     std::string connected_ssid_;
     std::string connected_ip_;
+    std::optional<std::chrono::steady_clock::time_point> dhcp_ready_at_;
     int connected_signal_;
     bool radio_enabled_{true};
     bool join_displaces_wired_link_{false};

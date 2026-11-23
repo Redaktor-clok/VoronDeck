@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Check the authenticated beta package index. Never install or execute fetched files."""
 from contextlib import contextmanager
+import argparse
 import json
 import os
 from pathlib import Path
@@ -118,9 +119,11 @@ def fetch_index(channel):
         return index
 
 
-def check_channels(installed, release_name, libc, has_beta_key, fetch=None):
+def check_channels(installed, release_name, libc, has_beta_key, fetch=None, selected_channel=None):
     fetch = fetch or fetch_index
-    active = 'beta' if '-beta.' in installed.get('version', '') else 'stable'
+    if selected_channel is not None and selected_channel not in CHANNELS:
+        raise ValueError('Unknown release channel')
+    active = selected_channel or ('beta' if '-beta.' in installed.get('version', '') else 'stable')
     channels, results = {}, {}
     for channel in ('stable', 'beta'):
         if channel == 'beta' and not has_beta_key:
@@ -134,10 +137,33 @@ def check_channels(installed, release_name, libc, has_beta_key, fetch=None):
         channels[channel] = {'status': result['status'],
                              'version': result.get('available_version', ''),
                              'build': result.get('available_build', '')}
-    return dict(results[active], active_channel=active, channels=channels)
+    result = dict(results[active], active_channel=active, channels=channels)
+    result['notification_id'] = notification_id(result)
+    return result
 
 
-def check():
+def notification_id(result):
+    """Only the authorized active channel may announce a non-older package."""
+    channel = result.get('active_channel')
+    installed = result.get('installed_version', '')
+    available = result.get('available_version', '')
+    build = result.get('available_build', '')
+    if (result.get('status') != 'available' or channel not in CHANNELS
+            or not VERSION.fullmatch(installed) or not VERSION.fullmatch(available)
+            or not re.fullmatch(r'[a-f0-9]{8}', build)
+            or ('-beta.' in available) != (channel == 'beta')):
+        return ''
+
+    def order(version):
+        base, _, beta = version.partition('-beta.')
+        return tuple(map(int, base.split('.'))) + (0 if beta else 1, int(beta or 0))
+
+    if order(available) < order(installed):
+        return ''
+    return ':'.join((channel, available, build))
+
+
+def check(selected_channel=None):
     root = Path(__file__).resolve().parents[2]
     manifest = root / 'vorondeck-release.json'
     if not manifest.is_file():
@@ -154,13 +180,16 @@ def check():
     home = Path.home()
     has_beta_key = ((home / '.ssh/vorondeck_beta_readonly').is_file()
                     and (home / '.ssh/known_hosts_vorondeck').is_file())
-    # An installed beta may use the user's normal SSH key or agent, as the clone does.
-    return check_channels(installed, root.name, libc, has_beta_key or '-beta.' in installed.get('version', ''))
+    return check_channels(installed, root.name, libc, has_beta_key,
+                          selected_channel=selected_channel)
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--channel', choices=tuple(CHANNELS))
+    args = parser.parse_args()
     try:
-        print(json.dumps(check()))
+        print(json.dumps(check(args.channel)))
     except (OSError, ValueError, TypeError, subprocess.SubprocessError):
         # No Git stderr/configuration/SSH credentials in the UI or logs.
         print(json.dumps({'status': 'error'}))

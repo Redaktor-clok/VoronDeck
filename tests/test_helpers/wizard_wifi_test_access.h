@@ -20,6 +20,13 @@
  */
 class WizardWifiStepTestAccess {
   public:
+    static void enable_address_timer_in_fixture(WizardWifiStep& step) {
+        // process_lvgl() runs only finite timers. Preserve the production callback,
+        // period and ownership while allowing this periodic timer to fire in tests.
+        if (auto* timer = step.address_retry_timer_.get()) {
+            lv_timer_set_repeat_count(timer, INT32_MAX);
+        }
+    }
     static helix::ui::WidgetRef& password_modal(WizardWifiStep& step) {
         return step.password_modal_;
     }
@@ -67,6 +74,12 @@ class WizardWifiStepTestAccess {
     }
     static std::string ip(WizardWifiStep& step) {
         return text(step.wifi_ip_);
+    }
+    static bool retrying_address(WizardWifiStep& step) {
+        return static_cast<bool>(step.address_retry_timer_);
+    }
+    static void retry_address(WizardWifiStep& step) {
+        step.retry_wifi_address();
     }
     static std::string mac(WizardWifiStep& step) {
         return text(step.wifi_mac_);
