@@ -340,7 +340,10 @@ TEST_CASE_METHOD(PagingFixture, "Unit tabs select physical AMS with continuous s
             CHECK(lv_obj_get_parent(view_chip()) == named("ams_detail_climate_slot"));
         const std::string caption = "AMS " + std::to_string(unit + 1) + "\n" +
             std::to_string(unit * lanes + 1) + "–" + std::to_string((unit + 1) * lanes);
-        CHECK(std::string(lv_label_get_text(lv_obj_find_by_name(tab, "unit_tab_label"))) == caption);
+        const std::string label_name = "unit_tab_label_" + std::to_string(unit);
+        lv_obj_t* label = lv_obj_find_by_name(tab, label_name.c_str());
+        REQUIRE(label != nullptr);
+        CHECK(std::string(lv_label_get_text(label)) == caption);
         lv_obj_t* grid = named("slot_grid");
         REQUIRE(lv_obj_get_child_count(grid) == static_cast<uint32_t>(lanes));
         auto inside = [](lv_obj_t* child, lv_obj_t* parent) {
