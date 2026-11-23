@@ -2,16 +2,16 @@
   "schema": 1,
   "project": "VoronDeck",
   "channel": "stable",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "packages": [
     {
       "architecture": "aarch64",
-      "sha256": "0acaba77bf48efbfe7791857b9026e6e8c3c824fa458213401b8f3123b0bff92",
-      "size": 70653013,
-      "source_commit": "d25b5326a0deec4f67ba6ca1a7fe2a1a0f4628aa",
-      "binary_sha256": "e64fd2d89876f94164221b39f1f7455888d114b320de8d0b5281482b417ab523",
+      "sha256": "2b8a015a04fb6f050510a7ab2a1886e11f39f48e6f8e143e16a0d0ee0c452af5",
+      "size": 70657617,
+      "source_commit": "d4da58e4f3e3ee210e7a2d3fcaa24dd4e0880b05",
+      "binary_sha256": "a358fef29292320e3914470e897e1ef3c400de6c0f55f3046e24fe190551d4ae",
       "libc": "glibc",
-      "path": "packages/VoronDeck-1.0.0-aarch64-glibc.tar.gz"
+      "path": "packages/VoronDeck-1.0.1-aarch64-glibc.tar.gz"
     }
   ]
 }
