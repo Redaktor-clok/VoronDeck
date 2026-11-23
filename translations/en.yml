@@ -1,5 +1,8 @@
 locale: en
 translations:
+  "Obtaining IP address...": "Obtaining IP address..."
+  "VoronDeck {} is available ({})": "VoronDeck {} is available ({})"
+  "Open updates": "Open updates"
   "All Fans": "All Fans"
   "Update available": "Update available"
   "Please wait...": "Please wait..."

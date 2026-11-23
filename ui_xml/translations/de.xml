@@ -2477,6 +2477,7 @@
   <translation tag="Object {}" de="Objekt {}"/>
   <translation tag="Objects" de="Objekte"/>
   <translation tag="Objects in the print, with a tap to open the skip map" de="Objekte des Drucks, per Tipp zur Überspringen-Karte"/>
+  <translation tag="Obtaining IP address..." de="IP-Adresse wird bezogen…"/>
   <translation tag="Off" de="Aus"/>
   <translation tag="Off:" de="Aus:"/>
   <translation tag="Off: runs with these values without asking" de="Aus: führt diese Werte aus, ohne zu fragen"/>
@@ -2509,6 +2510,7 @@
   <translation tag="Open the .3mf in Print Files to print this plate again." de="Öffne die .3mf in Druckdateien, um diese Platte erneut zu drucken."/>
   <translation tag="Open the CFS unit and remove the broken filament from the slot" de="CFS-Einheit öffnen und das gebrochene Filament aus dem Slot entfernen"/>
   <translation tag="Open the slot editor when you load a new spool" de="Slot-Editor öffnen, wenn eine neue Spule eingelegt wird"/>
+  <translation tag="Open updates" de="Zu Updates"/>
   <translation tag="Opened" de="Geöffnet"/>
   <translation tag="Operation already in progress" de="Vorgang läuft bereits"/>
   <translation tag="Operation timed out" de="Zeitüberschreitung beim Vorgang"/>
@@ -4177,6 +4179,7 @@
   <translation tag="VoronDeck removes its [include helix-plr/*.cfg] lines from printer.cfg. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect. A resume then uses the printer&apos;s default mesh profile." de="VoronDeck entfernt seine [include helix-plr/*.cfg]-Zeilen aus printer.cfg. Neben printer.cfg wird eine Sicherung aufbewahrt, und Klipper muss neu gestartet werden, damit die Änderung wirksam wird. Ein Fortsetzen verwendet dann das Standard-Bettnetzprofil des Druckers."/>
   <translation tag="VoronDeck will integrate with your filament changer for multi-spool/color print operations." de="VoronDeck wird sich mit Ihrem Filamentwechsler für Multi-Spulen/Farb-Druckoperationen integrieren."/>
   <translation tag="VoronDeck writes this to printer.cfg and restarts Klipper. The printer will briefly disconnect." de="VoronDeck schreibt dies in die printer.cfg und startet Klipper neu. Der Drucker wird kurz getrennt."/>
+  <translation tag="VoronDeck {} is available ({})" de="VoronDeck {} ist verfügbar ({})"/>
   <translation tag="VoronDeck {} is available — tap Update" de="VoronDeck {} ist verfügbar — auf Aktualisieren tippen"/>
   <translation tag="VoronDeck&apos;s Moonraker plugin is installed, which it uses to run pre-print options. Manage it on the Advanced screen." de="Das Moonraker-Plugin von VoronDeck ist installiert; damit laufen die Druckvorbereitungsoptionen. Verwalten Sie es im Bildschirm Erweitert."/>
   <translation tag="VoronDeck&apos;s helper macros are installed in the printer&apos;s config. Install updates on the Advanced screen." de="Die Hilfsmakros von VoronDeck sind in der Druckerkonfiguration installiert. Installieren Sie Updates im Bildschirm Erweitert."/>

@@ -1,5 +1,8 @@
 locale: zh
 translations:
+  "Obtaining IP address...": "正在获取 IP 地址…"
+  "VoronDeck {} is available ({})": "VoronDeck {} 可用 ({})"
+  "Open updates": "查看更新"
   '%d-%d': '%d-%d'
   '%d-%d°C': '%d-%d°C'
   ' (timed out)': （超时）

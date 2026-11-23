@@ -2477,6 +2477,7 @@
   <translation tag="Object {}" ja="オブジェクト {}"/>
   <translation tag="Objects" ja="オブジェクト"/>
   <translation tag="Objects in the print, with a tap to open the skip map" ja="印刷中のオブジェクト。タップでスキップマップを開きます"/>
+  <translation tag="Obtaining IP address..." ja="IPアドレスを取得中…"/>
   <translation tag="Off" ja="オフ"/>
   <translation tag="Off:" ja="オフ:"/>
   <translation tag="Off: runs with these values without asking" ja="オフ: これらの値で確認なしに実行"/>
@@ -2509,6 +2510,7 @@
   <translation tag="Open the .3mf in Print Files to print this plate again." ja="このプレートを再印刷するには、印刷ファイルで .3mf を開いてください。"/>
   <translation tag="Open the CFS unit and remove the broken filament from the slot" ja="CFS ユニットを開け、スロットから折れたフィラメントを取り除いてください"/>
   <translation tag="Open the slot editor when you load a new spool" ja="新しいスプールを装填したときにスロットエディタを開く"/>
+  <translation tag="Open updates" ja="更新を開く"/>
   <translation tag="Opened" ja="開"/>
   <translation tag="Operation already in progress" ja="操作がすでに進行中です"/>
   <translation tag="Operation timed out" ja="操作がタイムアウトしました"/>
@@ -4177,6 +4179,7 @@
   <translation tag="VoronDeck removes its [include helix-plr/*.cfg] lines from printer.cfg. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect. A resume then uses the printer&apos;s default mesh profile." ja="VoronDeck は printer.cfg から [include helix-plr/*.cfg] の行を削除します。printer.cfg の横にバックアップが保存され、反映には Klipper の再起動が必要です。再開時にはプリンターのデフォルトのメッシュプロファイルが使われます。"/>
   <translation tag="VoronDeck will integrate with your filament changer for multi-spool/color print operations." ja="VoronDeck はマルチスプール/カラー印刷操作のためにフィラメントチェンジャーと連携します。"/>
   <translation tag="VoronDeck writes this to printer.cfg and restarts Klipper. The printer will briefly disconnect." ja="VoronDeckがこれをprinter.cfgに書き込み、Klipperを再起動します。プリンターは一時的に切断されます。"/>
+  <translation tag="VoronDeck {} is available ({})" ja="VoronDeck {} が利用可能です ({})"/>
   <translation tag="VoronDeck {} is available — tap Update" ja="VoronDeck {} が利用可能です — 「更新」をタップ"/>
   <translation tag="VoronDeck&apos;s Moonraker plugin is installed, which it uses to run pre-print options. Manage it on the Advanced screen." ja="VoronDeckのMoonrakerプラグインがインストールされており、印刷前オプションの実行に使われます。詳細設定画面で管理できます。"/>
   <translation tag="VoronDeck&apos;s helper macros are installed in the printer&apos;s config. Install updates on the Advanced screen." ja="VoronDeckの補助マクロがプリンター設定にインストールされています。更新は詳細設定画面でインストールできます。"/>

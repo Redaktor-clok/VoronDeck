@@ -1,5 +1,8 @@
 locale: it
 translations:
+  "Obtaining IP address...": "Acquisizione indirizzo IP…"
+  "VoronDeck {} is available ({})": "VoronDeck {} disponibile ({})"
+  "Open updates": "Apri aggiornamenti"
   '%d-%d': '%d-%d'
   '%d-%d°C': '%d-%d°C'
   ' (timed out)': ' (tempo scaduto)'

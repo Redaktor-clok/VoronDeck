@@ -2531,6 +2531,7 @@
   <translation tag="Object {}" en="Object {}"/>
   <translation tag="Objects" en="Objects"/>
   <translation tag="Objects in the print, with a tap to open the skip map" en="Objects in the print, with a tap to open the skip map"/>
+  <translation tag="Obtaining IP address..." en="Obtaining IP address..."/>
   <translation tag="Off" en="Off"/>
   <translation tag="Off:" en="Off:"/>
   <translation tag="Off: runs with these values without asking" en="Off: runs with these values without asking"/>
@@ -2565,6 +2566,7 @@
   <translation tag="Open the .3mf in Print Files to print this plate again." en="Open the .3mf in Print Files to print this plate again."/>
   <translation tag="Open the CFS unit and remove the broken filament from the slot" en="Open the CFS unit and remove the broken filament from the slot"/>
   <translation tag="Open the slot editor when you load a new spool" en="Open the slot editor when you load a new spool"/>
+  <translation tag="Open updates" en="Open updates"/>
   <translation tag="Opened" en="Opened"/>
   <translation tag="Operation already in progress" en="Operation already in progress"/>
   <translation tag="Operation timed out" en="Operation timed out"/>
@@ -4297,6 +4299,7 @@
   <translation tag="VoronDeck user guide is being updated" en="VoronDeck user guide is being updated"/>
   <translation tag="VoronDeck will integrate with your filament changer for multi-spool/color print operations." en="VoronDeck will integrate with your filament changer for multi-spool/color print operations."/>
   <translation tag="VoronDeck writes this to printer.cfg and restarts Klipper. The printer will briefly disconnect." en="VoronDeck writes this to printer.cfg and restarts Klipper. The printer will briefly disconnect."/>
+  <translation tag="VoronDeck {} is available ({})" en="VoronDeck {} is available ({})"/>
   <translation tag="VoronDeck {} is available — tap Update" en="VoronDeck {} is available — tap Update"/>
   <translation tag="VoronDeck&apos;s Moonraker plugin is installed, which it uses to run pre-print options. Manage it on the Advanced screen." en="VoronDeck&apos;s Moonraker plugin is installed, which it uses to run pre-print options. Manage it on the Advanced screen."/>
   <translation tag="VoronDeck&apos;s helper macros are installed in the printer&apos;s config. Install updates on the Advanced screen." en="VoronDeck&apos;s helper macros are installed in the printer&apos;s config. Install updates on the Advanced screen."/>

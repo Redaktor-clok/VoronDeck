@@ -1,5 +1,8 @@
 locale: ja
 translations:
+  "Obtaining IP address...": "IPアドレスを取得中…"
+  "VoronDeck {} is available ({})": "VoronDeck {} が利用可能です ({})"
+  "Open updates": "更新を開く"
   '%d-%d': '%d〜%d'
   '%d-%d°C': '%d〜%d°C'
   ' (timed out)': （タイムアウト）
