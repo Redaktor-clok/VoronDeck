@@ -41,8 +41,12 @@ jobs:
             command: python scripts/check_translation_format_specifiers.py --verbose
           - check: Безопасность JSON / JSON safety
             command: python scripts/check_subscription_null_safety.py --max-allowed 0 --summary
-          - check: XML и AMS / XML and AMS
-            command: python scripts/check_duplicate_xml_names.py --summary && python scripts/check_xml_create_registered.py && python scripts/check_ams_xml_mirror.py
+          - check: Имена XML / XML names
+            command: python scripts/check_duplicate_xml_names.py --summary
+          - check: Компоненты XML / XML components
+            command: python scripts/check_xml_create_registered.py
+          - check: Регистрация AMS / AMS registrations
+            command: python scripts/check_ams_xml_mirror.py
           - check: Аудит C++ / C++ pattern audit
             command: bash scripts/audit_codebase.sh
           - check: Формат C++ / C++ formatting

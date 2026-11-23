@@ -1,0 +1,16 @@
+name: Initialize pinned submodules
+description: Fetch the recorded submodule revisions, retrying transient clone failures.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        for attempt in 1 2 3; do
+          if git submodule update --init --recursive --jobs 4; then
+            git submodule status --recursive
+            exit 0
+          fi
+          sleep 5
+        done
+        echo '::error::Could not initialize pinned submodules'
+        exit 1
