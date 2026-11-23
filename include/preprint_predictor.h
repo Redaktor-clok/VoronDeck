@@ -274,7 +274,7 @@ class PreprintPredictor {
     static bool measured_time_enabled();
     static void set_measured_time_enabled(bool enabled);
     static int measured_total_from_config(int bucket, PreprintWindow window,
-                                         const std::string& printer_prefix = "");
+                                          const std::string& printer_prefix = "");
     static void record_measured_total(const PreprintEntry& entry,
                                       const std::string& printer_prefix);
 

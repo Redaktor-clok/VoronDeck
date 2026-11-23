@@ -500,7 +500,8 @@ void draw_nozzle_glyph(const RenderCtx& ctx, const LinearHubFrame& f) {
         noz_color =
             (f.has_error && f.error_seg == PathSegment::NOZZLE) ? f.error_color : f.active_color;
     }
-    draw_schematic_toolhead(ctx.layer, f.center_x, f.nozzle_y, noz_color, data->theme.extruder_scale);
+    draw_schematic_toolhead(ctx.layer, f.center_x, f.nozzle_y, noz_color,
+                            data->theme.extruder_scale);
 }
 
 // LINEAR/HUB renderer: frame → plan → tubes → boxes and glyphs. Hit-rect

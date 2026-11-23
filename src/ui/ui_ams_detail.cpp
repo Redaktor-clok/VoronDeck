@@ -502,8 +502,8 @@ AmsDetailSlotResult ams_detail_create_slots(AmsDetailWidgets& w,
     // Create slot widgets via XML system
     const char* simple_attrs[] = {"simple_rings", "true", nullptr};
     for (int i = 0; i < count; ++i) {
-        lv_obj_t* slot = static_cast<lv_obj_t*>(lv_xml_create(
-            w.slot_grid, "ams_slot", w.simple_rings ? simple_attrs : nullptr));
+        lv_obj_t* slot = static_cast<lv_obj_t*>(
+            lv_xml_create(w.slot_grid, "ams_slot", w.simple_rings ? simple_attrs : nullptr));
         if (!slot) {
             spdlog::error("[AmsDetail] Failed to create ams_slot for index {}", i);
             continue;
@@ -529,7 +529,7 @@ AmsDetailSlotResult ams_detail_create_slots(AmsDetailWidgets& w,
     lv_obj_update_layout(slot_area);
     int32_t available_width = lv_obj_get_content_width(slot_area);
     result.layout = w.simple_rings ? calculate_ams_ring_layout(available_width, count)
-                                  : helix::ui::ams_detail_slot_layout(available_width, count);
+                                   : helix::ui::ams_detail_slot_layout(available_width, count);
 
     if (w.simple_rings) {
         const bool wrapped = count * result.layout.slot_width > available_width;

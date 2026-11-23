@@ -3,6 +3,7 @@
 
 #include "observer_factory.h"
 #include "subject_managed_panel.h"
+
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -28,7 +29,9 @@ class CalibrationReceipt {
         notify();
         return event_.ticket;
     }
-    Ticket ticket() const { return event_.ticket; }
+    Ticket ticket() const {
+        return event_.ticket;
+    }
     bool current(const Ticket& ticket, const std::string& printer) const {
         return event_.phase == Phase::Running && ticket.attempt != 0 &&
                ticket.attempt == event_.ticket.attempt && ticket.printer == event_.ticket.printer &&
@@ -36,7 +39,8 @@ class CalibrationReceipt {
     }
     bool succeed(const Ticket& ticket, const std::string& printer) {
         if (!current(ticket, printer)) {
-            if (ticket.attempt == event_.ticket.attempt && ticket.printer != printer) cancel();
+            if (ticket.attempt == event_.ticket.attempt && ticket.printer != printer)
+                cancel();
             return false;
         }
         event_.phase = Phase::Succeeded;
@@ -44,7 +48,8 @@ class CalibrationReceipt {
         return true;
     }
     void cancel() {
-        if (event_.phase != Phase::Running) return;
+        if (event_.phase != Phase::Running)
+            return;
         event_.phase = Phase::Cancelled;
         notify();
     }
@@ -59,19 +64,22 @@ class CalibrationReceipt {
         subjects_.deinit_all();
         initialized_ = false;
     }
-    const Event& event() const { return event_; }
+    const Event& event() const {
+        return event_;
+    }
 
     template <typename Owner, typename Handler>
     ObserverGuard observe(Owner* owner, Handler handler) const {
         initialize();
-        return ui::observe<int>(&changed_, owner,
-            [this, handler](Owner* self, int) mutable { handler(self, event_); },
+        return ui::observe<int>(
+            &changed_, owner, [this, handler](Owner* self, int) mutable { handler(self, event_); },
             subjects_.get_subjects_lifetime(), ui::Dispatch::Immediate);
     }
 
   private:
     void initialize() const {
-        if (initialized_) return;
+        if (initialized_)
+            return;
         lv_subject_init_int(&changed_, 0);
         subjects_.register_subject(&changed_);
         initialized_ = true;
@@ -79,7 +87,8 @@ class CalibrationReceipt {
     void notify() {
         initialize();
         const int previous = lv_subject_get_int(&changed_);
-        lv_subject_set_int(&changed_, previous == std::numeric_limits<int>::max() ? 0 : previous + 1);
+        lv_subject_set_int(&changed_,
+                           previous == std::numeric_limits<int>::max() ? 0 : previous + 1);
     }
     uint64_t generation_ = 0;
     Event event_;

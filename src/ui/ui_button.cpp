@@ -1530,7 +1530,8 @@ void ui_button_set_stacked(lv_obj_t* btn, bool stacked) {
         if (data->label_inherit_font)
             lv_obj_remove_local_style_prop(data->label, LV_STYLE_TEXT_FONT, LV_PART_MAIN);
         else
-            lv_obj_set_style_text_font(data->label, theme_manager_get_font("font_small"), LV_PART_MAIN);
+            lv_obj_set_style_text_font(data->label, theme_manager_get_font("font_small"),
+                                       LV_PART_MAIN);
         lv_obj_set_style_pad_top(data->label, theme_manager_get_spacing("space_xxs"), LV_PART_MAIN);
         if (data->label_bounded)
             apply_label_bound(data, false);

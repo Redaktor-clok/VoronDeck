@@ -1755,9 +1755,10 @@ void AmsEditOverlay::handle_initial_weight_tap() {
         .unit_label = "g",
         .allow_decimal = false,
         .allow_negative = false,
-        .callback = [](float value, void* user_data) {
-            static_cast<AmsEditOverlay*>(user_data)->apply_initial_weight(value);
-        },
+        .callback =
+            [](float value, void* user_data) {
+                static_cast<AmsEditOverlay*>(user_data)->apply_initial_weight(value);
+            },
         .user_data = this};
     ui_keypad_show(&config);
 }

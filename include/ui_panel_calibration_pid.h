@@ -7,15 +7,15 @@
 #include "ui_observer_guard.h"
 #include "ui_temp_graph.h"
 
+#include "calibration_receipt.h"
 #include "klipper_config_editor.h"
 #include "moonraker_advanced_api.h"
 #include "overlay_base.h"
-#include "pid_progress_tracker.h"
 #include "pid_heater_request.h"
+#include "pid_progress_tracker.h"
 #include "save_config_restart.h"
 #include "static_panel_registry.h"
 #include "subject_managed_panel.h"
-#include "calibration_receipt.h"
 
 #include <lvgl.h>
 #include <string>
@@ -57,7 +57,9 @@ class PIDCalibrationPanel : public OverlayBase {
     friend struct helix::ui::PIDCalibrationPanelTestAccess;
 
   public:
-    const helix::CalibrationReceipt& calibration_receipt() const { return calibration_receipt_; }
+    const helix::CalibrationReceipt& calibration_receipt() const {
+        return calibration_receipt_;
+    }
 
     /**
      * @brief Calibration state machine states

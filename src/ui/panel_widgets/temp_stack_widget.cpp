@@ -195,9 +195,8 @@ void TempStackWidget::attach_carousel(lv_obj_t* widget_obj) {
     lv_obj_t* page_parent = carousel;
 
     // Helper to create a carousel page with icon + temp_display
-    auto create_temp_page = [&](const char* icon_component,
-                                const char* bind_current, const char* bind_target,
-                                const char* page_name) -> lv_obj_t* {
+    auto create_temp_page = [&](const char* icon_component, const char* bind_current,
+                                const char* bind_target, const char* page_name) -> lv_obj_t* {
         // Create page container
         lv_obj_t* page = lv_obj_create(page_parent); // reparented by ui_carousel_add_item
         lv_obj_set_size(page, LV_PCT(100), LV_PCT(100));
@@ -266,8 +265,7 @@ void TempStackWidget::attach_carousel(lv_obj_t* widget_obj) {
     // finds it directly (it is a leaf label; there is no wrapper child to dig
     // into, unlike the old lv_obj_get_child(bed_glyph, 0) attempt).
     if (home_visible(HeaterType::Bed)) {
-        lv_obj_t* bed_page =
-            create_temp_page("home_bed_icon", "bed_temp", "bed_target", "bed");
+        lv_obj_t* bed_page = create_temp_page("home_bed_icon", "bed_temp", "bed_target", "bed");
         ui_carousel_add_item(carousel, bed_page);
         bed_icon_binder_.bind(bed_page, printer_state_, HeaterType::Bed);
     }
@@ -279,9 +277,8 @@ void TempStackWidget::attach_carousel(lv_obj_t* widget_obj) {
     lv_subject_t* chamber_gate = lv_xml_get_subject(nullptr, "printer_has_chamber");
     if (chamber_gate && lv_subject_get_int(chamber_gate) != 0 &&
         home_visible(HeaterType::Chamber)) {
-        lv_obj_t* chamber_page =
-            create_temp_page("home_chamber_icon", "chamber_temp",
-                             "chamber_effective_target", "chamber");
+        lv_obj_t* chamber_page = create_temp_page("home_chamber_icon", "chamber_temp",
+                                                  "chamber_effective_target", "chamber");
         ui_carousel_add_item(carousel, chamber_page);
         chamber_icon_binder_.bind(chamber_page, printer_state_, HeaterType::Chamber);
     }

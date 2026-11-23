@@ -989,12 +989,14 @@ void register_server_handlers(std::unordered_map<std::string, MethodHandler>& re
            helix::SharedCallback<void(const MoonrakerError&)> /*error_cb*/) -> bool {
         if (std::getenv("HELIX_MOCK_COMPONENT_UPDATES") && self->mock_update_components().empty()) {
             self->mock_update_components() = {
-                {"klipper",{{"version","v0.13.0"},{"remote_version","v0.13.1"},{"is_valid",true}}},
-                {"moonraker",{{"version","v0.9.3"},{"remote_version","v0.9.3"},{"is_valid",true}}},
-                {"mainsail",{{"version","v2.14.0"},{"remote_version","v2.15.0"},{"is_valid",true}}},
-                {"system",{{"package_count",3}}},
-                {"vorondeck",{{"version","dev"},{"remote_version","dev"},{"is_valid",true}}}
-            };
+                {"klipper",
+                 {{"version", "v0.13.0"}, {"remote_version", "v0.13.1"}, {"is_valid", true}}},
+                {"moonraker",
+                 {{"version", "v0.9.3"}, {"remote_version", "v0.9.3"}, {"is_valid", true}}},
+                {"mainsail",
+                 {{"version", "v2.14.0"}, {"remote_version", "v2.15.0"}, {"is_valid", true}}},
+                {"system", {{"package_count", 3}}},
+                {"vorondeck", {{"version", "dev"}, {"remote_version", "dev"}, {"is_valid", true}}}};
         }
         json response = {{"jsonrpc", "2.0"},
                          {"result",
@@ -1003,8 +1005,10 @@ void register_server_handlers(std::unordered_map<std::string, MethodHandler>& re
                            {"version_info", self->mock_update_components()}}}};
         if (std::getenv("HELIX_MOCK_RECOVERY_CONTROL")) {
             response["result"]["version_info"]["vorondeck_recovery"] = {
-                {"version", "1.0.0-beta.1+toggle-1"}, {"remote_version", "1.0.0-beta.1+toggle-1"},
-                {"is_valid", true}, {"restart_required", false}};
+                {"version", "1.0.0-beta.1+toggle-1"},
+                {"remote_version", "1.0.0-beta.1+toggle-1"},
+                {"is_valid", true},
+                {"restart_required", false}};
         }
         if (success_cb) {
             success_cb(response);
@@ -1014,22 +1018,27 @@ void register_server_handlers(std::unordered_map<std::string, MethodHandler>& re
 
     registry["machine.update.refresh"] = registry["machine.update.status"];
     for (const std::string name : {"klipper", "moonraker", "system", "client"}) {
-        registry["machine.update."+name] =
+        registry["machine.update." + name] =
             [name](MoonrakerClientMock* self, const json& params,
                    helix::SharedCallback<void(const json&)> success_cb,
                    helix::SharedCallback<void(const MoonrakerError&)> error_cb) -> bool {
-            const auto target=name=="client" ? params.value("name","") : name;
-            auto& components=self->mock_update_components();
+            const auto target = name == "client" ? params.value("name", "") : name;
+            auto& components = self->mock_update_components();
             if (self->update_manager_busy() || !components.contains(target)) {
                 if (error_cb) {
-                    MoonrakerError error; error.type=MoonrakerErrorType::VALIDATION_ERROR;
-                    error.message="Unknown or busy mock updater"; error_cb(error);
+                    MoonrakerError error;
+                    error.type = MoonrakerErrorType::VALIDATION_ERROR;
+                    error.message = "Unknown or busy mock updater";
+                    error_cb(error);
                 }
                 return true;
             }
-            if (target=="system") components[target]["package_count"]=0;
-            else components[target]["version"]=components[target].value("remote_version","");
-            if (success_cb) success_cb(json{{"result","ok"}});
+            if (target == "system")
+                components[target]["package_count"] = 0;
+            else
+                components[target]["version"] = components[target].value("remote_version", "");
+            if (success_cb)
+                success_cb(json{{"result", "ok"}});
             return true;
         };
     }

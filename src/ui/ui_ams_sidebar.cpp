@@ -394,13 +394,14 @@ void AmsOperationSidebar::place_summary(bool portrait) {
     // The detail's live climate pill follows the status in landscape.
     // Keep the same bindings/click payload and return it above the spools in portrait.
     if (detail_env_indicator_ && detail_env_home_) {
-        lv_obj_t* env_home = portrait ? detail_env_home_
-                            : detail_env_sidebar_home_ ? detail_env_sidebar_home_ : sidebar_root_;
+        lv_obj_t* env_home = portrait                   ? detail_env_home_
+                             : detail_env_sidebar_home_ ? detail_env_sidebar_home_
+                                                        : sidebar_root_;
         if (lv_obj_get_parent(detail_env_indicator_) != env_home)
             lv_obj_set_parent(detail_env_indicator_, env_home);
         if (!portrait)
-            lv_obj_move_to_index(detail_env_sidebar_home_ ? detail_env_sidebar_home_
-                                                          : detail_env_indicator_, 2);
+            lv_obj_move_to_index(
+                detail_env_sidebar_home_ ? detail_env_sidebar_home_ : detail_env_indicator_, 2);
     }
 }
 

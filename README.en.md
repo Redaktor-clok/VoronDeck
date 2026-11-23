@@ -22,7 +22,7 @@ VoronDeck develops the interface for Voron and NEMESIS projects: simplified spoo
 
 **Based on [HelixScreen](https://github.com/prestonbrown/helixscreen), created by Preston Brown and the project's contributors.** Thank you for the open-source foundation. VoronDeck is an independent modification with its own visual design, interface changes and additional features. Author and license notices are preserved in the [credits](docs/VORONDECK-CREDITS.md).
 
-[Installation](#installation) · [Features](#features) · [Multi-material](#multi-material) · [Updates](#updates) · [Getting started (RU)](docs/VORONDECK-GETTING-STARTED.md) · [Roadmap and tests](docs/ROADMAP.md) · [Actions](docs/DEVELOPMENT.md)
+[Installation](#installation) · [Features](#features) · [Multi-material](#multi-material) · [Updates](#updates) · [Getting started (RU)](docs/VORONDECK-GETTING-STARTED.md) · [Roadmap and tests](.github/actions/docs/ROADMAP.md) · [Actions](.github/actions/docs/DEVELOPMENT.md)
 
 ![VoronDeck in landscape and portrait](assets/presentation/vorondeck-two-orientations-v1.png)
 

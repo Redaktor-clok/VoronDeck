@@ -10,6 +10,7 @@
 #include "async_lifetime_guard.h"
 #include "bed_mesh_calibration_plan.h"
 #include "bed_mesh_probe_temp.h"
+#include "calibration_receipt.h"
 #include "i_moonraker_api.h"
 #include "moonraker_types.h" // For BedMeshProfile
 #include "operation_timeout_guard.h"
@@ -17,7 +18,6 @@
 #include "save_config_restart.h"
 #include "static_panel_registry.h"
 #include "subject_managed_panel.h"
-#include "calibration_receipt.h"
 
 #include <array>
 #include <functional>
@@ -61,7 +61,9 @@ class BedMeshPanel : public OverlayBase {
     friend struct helix::ui::BedMeshPanelTestAccess;
 
   public:
-    const helix::CalibrationReceipt& calibration_receipt() const { return calibration_receipt_; }
+    const helix::CalibrationReceipt& calibration_receipt() const {
+        return calibration_receipt_;
+    }
 
     BedMeshPanel();
     ~BedMeshPanel() override;

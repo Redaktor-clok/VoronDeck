@@ -9,7 +9,9 @@ class CooldownWidget : public TiledPanelWidget {
     void attach(lv_obj_t*, lv_obj_t*) override {}
     void detach() override {}
     void on_size_changed(int colspan, int rowspan, int width_px, int height_px) override;
-    const char* id() const override { return "cooldown"; }
+    const char* id() const override {
+        return "cooldown";
+    }
     static void clicked_cb(lv_event_t* e);
 
   private:

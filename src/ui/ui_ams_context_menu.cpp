@@ -308,7 +308,6 @@ void AmsContextMenu::on_created(lv_obj_t* menu_obj) {
             lv_obj_clear_flag(btn_spoolman, LV_OBJ_FLAG_HIDDEN);
         }
 
-
         return;
     }
 

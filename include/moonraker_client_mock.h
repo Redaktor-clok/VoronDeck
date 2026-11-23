@@ -1937,11 +1937,21 @@ class MoonrakerClientMock : public helix::MoonrakerClient {
         return update_manager_busy_;
     }
     // Per-instance maintenance state; no files or real services are modified.
-    bool mock_history_cleared() const { return mock_history_cleared_; }
-    void clear_mock_history() { mock_history_cleared_=true; }
-    bool mock_totals_reset() const { return mock_totals_reset_; }
-    void reset_mock_totals() { mock_totals_reset_=true; }
-    json& mock_update_components() { return mock_update_components_; }
+    bool mock_history_cleared() const {
+        return mock_history_cleared_;
+    }
+    void clear_mock_history() {
+        mock_history_cleared_ = true;
+    }
+    bool mock_totals_reset() const {
+        return mock_totals_reset_;
+    }
+    void reset_mock_totals() {
+        mock_totals_reset_ = true;
+    }
+    json& mock_update_components() {
+        return mock_update_components_;
+    }
     std::atomic<bool> mock_recovery_enabled{true};
     std::atomic<bool> mock_bed_screws_active{false};
     std::atomic<int> mock_bed_screw{0}, mock_bed_screws_accepted{0};
@@ -2119,7 +2129,7 @@ class MoonrakerClientMock : public helix::MoonrakerClient {
     bool update_manager_busy_{false};
     bool mock_history_cleared_{false};
     bool mock_totals_reset_{false};
-    json mock_update_components_=json::object();
+    json mock_update_components_ = json::object();
 
     // Intent of the in-flight send_jsonrpc() dispatch, read by the method
     // handlers via current_send_intent().

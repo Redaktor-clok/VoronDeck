@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "ui_widget_ref.h"
 #include "ui_timer_guard.h"
+#include "ui_widget_ref.h"
 
 #include "async_lifetime_guard.h"
 #include "lvgl/lvgl.h"

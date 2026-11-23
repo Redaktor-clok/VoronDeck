@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "spool_display_picker.h"
+
 #include "helix-xml/src/xml/lv_xml.h"
+
 #include <cstdlib>
 
 namespace helix {

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ui_panel_print_status.h"
-#include "print_eta_estimator.h"
 
 #include "ui_ams_current_tool.h"
 #include "ui_breakpoint.h"
@@ -56,6 +55,7 @@
 #include "non_filament_pause.h"
 #include "observer_factory.h"
 #include "pre_start_exclude.h"
+#include "print_eta_estimator.h"
 #include "print_start_checks.h"
 #include "print_status_layout_decision.h"
 #include "print_status_preview_decision.h"

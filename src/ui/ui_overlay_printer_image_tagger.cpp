@@ -80,8 +80,8 @@ std::string review_chip_shown_subject(CalloutKind k) {
 }
 
 CalloutLayout tagger_callout_layout(const ImageTagSession& session, int natural_w, int natural_h,
-                                   int area_w, int area_h, const CalloutChipWidths& widths,
-                                   int chip_h, int gap) {
+                                    int area_w, int area_h, const CalloutChipWidths& widths,
+                                    int chip_h, int gap) {
     auto regions = session.regions(natural_w, natural_h);
     return review_callout_layout(regions, area_w, area_h, widths, chip_h, gap);
 }
@@ -208,10 +208,9 @@ void PrinterImageTaggerOverlay::place_review_chips() {
         return;
     const ImageRegions regions = session_.regions(target_.natural_w, target_.natural_h);
     const int chip_h = helix::ui::compact_callout_chip_h(probe, regions.light.has_value());
-    const CalloutLayout out =
-        tagger_callout_layout(session_, target_.natural_w, target_.natural_h,
-                              lv_obj_get_width(img), lv_obj_get_height(img), widths,
-                              chip_h, theme_manager_get_spacing("space_xs"));
+    const CalloutLayout out = tagger_callout_layout(
+        session_, target_.natural_w, target_.natural_h, lv_obj_get_width(img),
+        lv_obj_get_height(img), widths, chip_h, theme_manager_get_spacing("space_xs"));
 
     bool shown[kChipCount] = {};
     for (const CalloutChipOut& c : out.chips) {

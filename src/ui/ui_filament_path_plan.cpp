@@ -1014,9 +1014,11 @@ void paint_schematic_tubes(lv_layer_t* layer, const PathPlan& plan, const TubePa
                 const auto& s = strokes[k];
                 const bool active = s.style.wall == TubeWall::Active;
                 const bool error = s.style.wall == TubeWall::Error;
-                if ((active || error) != (active_pass != 0)) continue;
+                if ((active || error) != (active_pass != 0))
+                    continue;
                 pg::FilamentPath sub;
-                for (int i = s.first; i < s.end; ++i) sub.segs[sub.count++] = route.path.segs[i];
+                for (int i = s.first; i < s.end; ++i)
+                    sub.segs[sub.count++] = route.path.segs[i];
                 const lv_color_t color = error ? pal.error : active ? pal.accent : pal.idle_wall;
                 const int32_t width = std::clamp(pal.gauge, 2, 4);
                 TubePass passes[2];

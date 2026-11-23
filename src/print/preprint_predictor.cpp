@@ -625,48 +625,55 @@ void PreprintPredictor::set_measured_time_enabled(bool enabled) {
 }
 
 int PreprintPredictor::measured_total_from_config(int bucket, PreprintWindow window,
-                                                const std::string& printer_prefix) {
+                                                  const std::string& printer_prefix) {
     auto* cfg = Config::get_instance();
     const auto prefix = printer_prefix.empty() ? cfg->df() : printer_prefix;
-    if (!cfg->get<bool>(prefix + "measured_preparation/enabled", false)) return 0;
+    if (!cfg->get<bool>(prefix + "measured_preparation/enabled", false))
+        return 0;
     auto records = cfg->get<json>(prefix + "measured_preparation/entries", json::array());
-    if (!records.is_array()) return 0;
+    if (!records.is_array())
+        return 0;
     std::vector<int> times;
     for (const auto& e : records) {
-        if (!e.is_object()) continue;
+        if (!e.is_object())
+            continue;
         const int seconds = json_util::safe_int(e, "total", 0);
-        if (seconds > 0 && seconds <= 86400 &&
-            json_util::safe_int(e, "bucket", -1) == bucket &&
+        if (seconds > 0 && seconds <= 86400 && json_util::safe_int(e, "bucket", -1) == bucket &&
             json_util::safe_int(e, "window", -1) == static_cast<int>(window)) {
             times.push_back(seconds);
         }
     }
-    if (times.empty()) return 0;
+    if (times.empty())
+        return 0;
     std::sort(times.begin(), times.end());
     const auto mid = times.size() / 2;
     return times.size() % 2 ? times[mid] : (times[mid - 1] + times[mid]) / 2;
 }
 
 void PreprintPredictor::record_measured_total(const PreprintEntry& entry,
-                                             const std::string& printer_prefix) {
+                                              const std::string& printer_prefix) {
     if (printer_prefix.empty() || entry.total_seconds <= 0 || entry.total_seconds > 86400 ||
         entry.window == PreprintWindow::Unknown || entry.temp_bucket < 1 || entry.temp_bucket > 2)
         return;
     auto* cfg = Config::get_instance();
     const auto path = printer_prefix + "measured_preparation/entries";
     auto records = cfg->get<json>(path, json::array());
-    if (!records.is_array()) records = json::array();
-    records.push_back({{"total", entry.total_seconds}, {"bucket", entry.temp_bucket},
+    if (!records.is_array())
+        records = json::array();
+    records.push_back({{"total", entry.total_seconds},
+                       {"bucket", entry.temp_bucket},
                        {"window", static_cast<int>(entry.window)}});
     // Keep recent measurements separately for cold/warm and host/printer starts.
     json kept = json::array();
     int counts[2][2] = {};
     for (auto it = records.rbegin(); it != records.rend(); ++it) {
-        if (!it->is_object()) continue;
+        if (!it->is_object())
+            continue;
         const int bucket = json_util::safe_int(*it, "bucket", -1);
         const int window = json_util::safe_int(*it, "window", -1);
-        const int wi = window == static_cast<int>(PreprintWindow::PrinterEdge) ? 0 :
-                       window == static_cast<int>(PreprintWindow::HostPreStart) ? 1 : -1;
+        const int wi = window == static_cast<int>(PreprintWindow::PrinterEdge)    ? 0
+                       : window == static_cast<int>(PreprintWindow::HostPreStart) ? 1
+                                                                                  : -1;
         if (bucket >= 1 && bucket <= 2 && wi >= 0 && counts[bucket - 1][wi]++ < 8)
             kept.push_back(*it);
     }

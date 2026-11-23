@@ -566,11 +566,13 @@ void NetworkSettingsOverlay::apply_wifi_status(const WifiBackend::ConnectionStat
     if (status.awaiting_ip() && !cleanup_called_) {
         // Association can precede DHCP without a second connection event.
         // Schedule the next read only after this response, keeping one poll in flight.
-        address_retry_timer_ = lv_timer_create([](lv_timer_t* timer) {
-            auto* self = static_cast<NetworkSettingsOverlay*>(lv_timer_get_user_data(timer));
-            self->address_retry_timer_ = nullptr;
-            self->update_wifi_status();
-        }, 2000, this);
+        address_retry_timer_ = lv_timer_create(
+            [](lv_timer_t* timer) {
+                auto* self = static_cast<NetworkSettingsOverlay*>(lv_timer_get_user_data(timer));
+                self->address_retry_timer_ = nullptr;
+                self->update_wifi_status();
+            },
+            2000, this);
         lv_timer_set_repeat_count(address_retry_timer_, 1);
     }
     lv_subject_set_int(&wifi_unresponsive_, status.unresponsive ? 1 : 0);
@@ -579,8 +581,8 @@ void NetworkSettingsOverlay::apply_wifi_status(const WifiBackend::ConnectionStat
 
     if (connected) {
         const std::string& ssid = status.ssid;
-        const std::string ip = status.awaiting_ip() ? lv_tr("Obtaining IP address...")
-                                                     : status.ip_address;
+        const std::string ip =
+            status.awaiting_ip() ? lv_tr("Obtaining IP address...") : status.ip_address;
         const std::string& mac = status.mac_address;
 
         strncpy(ssid_buffer_, ssid.c_str(), sizeof(ssid_buffer_) - 1);

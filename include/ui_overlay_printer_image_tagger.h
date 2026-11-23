@@ -7,8 +7,8 @@
 #include "printer_image_regions.h"
 #include "static_panel_registry.h"
 
-#include <optional>
 #include <functional>
+#include <optional>
 #include <string>
 
 namespace helix::settings {
@@ -39,8 +39,8 @@ std::string review_chip_shown_subject(CalloutKind k);
 
 /// Show only points already placed; the first bed corner is visible immediately.
 CalloutLayout tagger_callout_layout(const ImageTagSession& session, int natural_w, int natural_h,
-                                   int area_w, int area_h, const CalloutChipWidths& widths,
-                                   int chip_h, int gap);
+                                    int area_w, int area_h, const CalloutChipWidths& widths,
+                                    int chip_h, int gap);
 
 /**
  * @brief Full-screen overlay for tapping the parts of the displayed printer image

@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ams_status_widget.h"
+
+#include "ui_ams_mini_status.h"
+
 #include "panel_widget_manager.h"
 #include "panel_widget_registry.h"
-#include "ui_ams_mini_status.h"
 
 namespace helix {
 void register_ams_status_widget() {
-    register_widget_factory("ams", [](const std::string&) {
-        return std::make_unique<AmsStatusWidget>();
-    });
+    register_widget_factory("ams",
+                            [](const std::string&) { return std::make_unique<AmsStatusWidget>(); });
 }
 
 AmsStatusWidget::AmsStatusWidget() {

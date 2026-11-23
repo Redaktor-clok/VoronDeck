@@ -3,6 +3,7 @@
 
 #include "ui_wizard_ams_identify.h"
 #include "ui_wizard_connection.h"
+#include "ui_wizard_devices.h"
 #include "ui_wizard_fan_select.h"
 #include "ui_wizard_filament_sensor_select.h"
 #include "ui_wizard_heater_select.h"
@@ -12,10 +13,9 @@
 #include "ui_wizard_preferences.h"
 #include "ui_wizard_printer_identify.h"
 #include "ui_wizard_summary.h"
-#include "ui_wizard_devices.h"
-#include "ui_wizard_vorondeck.h"
 #include "ui_wizard_telemetry.h"
 #include "ui_wizard_touch_calibration.h"
+#include "ui_wizard_vorondeck.h"
 #include "ui_wizard_wifi.h"
 
 #include "app_globals.h" // get_moonraker_api()
@@ -94,9 +94,9 @@ std::vector<helix::StepSkip> skip_vector(const StepContext& ctx) {
 
 std::vector<helix::StepSkip> short_skip_vector(const StepContext& ctx) {
     std::vector<helix::StepSkip> out;
-    for (const auto id : {StepId::TouchCalibration, StepId::Language, StepId::Wifi,
-                          StepId::Connection, StepId::Devices, StepId::Appearance,
-                          StepId::Checks, StepId::Summary}) {
+    for (const auto id :
+         {StepId::TouchCalibration, StepId::Language, StepId::Wifi, StepId::Connection,
+          StepId::Devices, StepId::Appearance, StepId::Checks, StepId::Summary}) {
         // Even a preconfigured printer gets a final review in the short wizard.
         out.push_back({id, id == StepId::Summary ? false : step_by_id(id)->should_skip(ctx)});
     }
@@ -106,13 +106,19 @@ std::vector<helix::StepSkip> short_skip_vector(const StepContext& ctx) {
 int short_stage(StepId id) {
     switch (id) {
     case StepId::TouchCalibration:
-    case StepId::Language: return 1;
+    case StepId::Language:
+        return 1;
     case StepId::Wifi:
-    case StepId::Connection: return 2;
-    case StepId::Appearance: return 4;
-    case StepId::Checks: return 5;
-    case StepId::Summary: return 6;
-    default: return 3;
+    case StepId::Connection:
+        return 2;
+    case StepId::Appearance:
+        return 4;
+    case StepId::Checks:
+        return 5;
+    case StepId::Summary:
+        return 6;
+    default:
+        return 3;
     }
 }
 

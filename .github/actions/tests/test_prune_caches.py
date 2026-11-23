@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 from urllib.error import HTTPError
 
-spec = importlib.util.spec_from_file_location('prune', Path(__file__).resolve().parents[2] / 'scripts/ci/prune-caches.py')
+spec = importlib.util.spec_from_file_location('prune', Path(__file__).resolve().parents[1] / 'scripts/prune-caches.py')
 prune = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(prune)
 NOW = datetime(2026, 11, 23, tzinfo=timezone.utc)

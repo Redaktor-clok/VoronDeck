@@ -230,20 +230,23 @@ void HomePanel::refresh_header_network() {
     set_header_network("");
     if (header_wifi_) {
         header_wifi_->get_status_async(
-            object_lifetime_.token(), [this, generation](const WifiBackend::ConnectionStatus& status) {
+            object_lifetime_.token(),
+            [this, generation](const WifiBackend::ConnectionStatus& status) {
                 if (generation != header_network_generation_ || header_has_ethernet_) {
                     return;
                 }
                 if (status.connected) {
-                    const std::string ip = status.awaiting_ip() ? lv_tr("Obtaining IP address...")
-                                                               : status.ip_address;
+                    const std::string ip =
+                        status.awaiting_ip() ? lv_tr("Obtaining IP address...") : status.ip_address;
                     set_header_network(ip + " \xC2\xB7 Wi-Fi");
                     if (status.awaiting_ip() && !header_ip_retry_) {
-                        header_ip_retry_ = lv_timer_create([](lv_timer_t* timer) {
-                            auto* self = static_cast<HomePanel*>(lv_timer_get_user_data(timer));
-                            self->header_ip_retry_ = nullptr;
-                            self->refresh_header_network();
-                        }, 2000, this);
+                        header_ip_retry_ = lv_timer_create(
+                            [](lv_timer_t* timer) {
+                                auto* self = static_cast<HomePanel*>(lv_timer_get_user_data(timer));
+                                self->header_ip_retry_ = nullptr;
+                                self->refresh_header_network();
+                            },
+                            2000, this);
                         lv_timer_set_repeat_count(header_ip_retry_, 1);
                     }
                 }
@@ -252,8 +255,8 @@ void HomePanel::refresh_header_network() {
     if (!header_ethernet_) {
         header_ethernet_ = std::make_unique<EthernetManager>();
     }
-    header_ethernet_->get_info_async(
-        object_lifetime_.bg_cb("HomePanel::header_network", [this, generation](const EthernetInfo& info) {
+    header_ethernet_->get_info_async(object_lifetime_.bg_cb(
+        "HomePanel::header_network", [this, generation](const EthernetInfo& info) {
             if (generation != header_network_generation_ || !info.connected ||
                 info.ip_address.empty()) {
                 return;

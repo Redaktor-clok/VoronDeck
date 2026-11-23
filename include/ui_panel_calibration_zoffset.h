@@ -5,13 +5,13 @@
 
 #include "ui_observer_guard.h"
 
+#include "calibration_receipt.h"
 #include "lvgl/lvgl.h"
 #include "operation_timeout_guard.h"
 #include "overlay_base.h"
 #include "save_config_restart.h"
 #include "static_panel_registry.h"
 #include "subject_managed_panel.h"
-#include "calibration_receipt.h"
 #include "z_offset_utils.h"
 
 #include <string>
@@ -48,7 +48,9 @@ class PrinterState;
  */
 class ZOffsetCalibrationPanel : public OverlayBase {
   public:
-    const helix::CalibrationReceipt& calibration_receipt() const { return calibration_receipt_; }
+    const helix::CalibrationReceipt& calibration_receipt() const {
+        return calibration_receipt_;
+    }
 
     /**
      * @brief Calibration state machine states

@@ -1,24 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "wizard_step.h"
-#include "subject_managed_panel.h"
 #include "ui_observer_guard.h"
-#include "calibration_receipt.h"
 #include "ui_widget_ref.h"
+
+#include "calibration_receipt.h"
+#include "subject_managed_panel.h"
+#include "wizard_step.h"
+
 #include <array>
 
 class WizardAppearanceStep : public helix::wizard::Step {
   public:
-    helix::wizard::StepId id() const override { return helix::wizard::StepId::Appearance; }
-    const char* component_name() const override { return "wizard_appearance"; }
-    const char* log_name() const override { return "WizardAppearance"; }
+    helix::wizard::StepId id() const override {
+        return helix::wizard::StepId::Appearance;
+    }
+    const char* component_name() const override {
+        return "wizard_appearance";
+    }
+    const char* log_name() const override {
+        return "WizardAppearance";
+    }
     void init_subjects() override;
     void register_callbacks() override;
     lv_obj_t* create(lv_obj_t* parent) override;
     void cleanup() override;
-    bool is_validated() const override { return true; }
+    bool is_validated() const override {
+        return true;
+    }
     void refresh();
     void rename();
+
   private:
     bool initialized_ = false;
     SubjectManager subjects_;
@@ -29,18 +40,28 @@ class WizardAppearanceStep : public helix::wizard::Step {
 
 class WizardChecksStep : public helix::wizard::Step {
     friend struct WizardChecksTestAccess;
+
   public:
-    helix::wizard::StepId id() const override { return helix::wizard::StepId::Checks; }
-    const char* component_name() const override { return "wizard_checks"; }
-    const char* log_name() const override { return "WizardChecks"; }
+    helix::wizard::StepId id() const override {
+        return helix::wizard::StepId::Checks;
+    }
+    const char* component_name() const override {
+        return "wizard_checks";
+    }
+    const char* log_name() const override {
+        return "WizardChecks";
+    }
     void init_subjects() override;
     void register_callbacks() override;
     lv_obj_t* create(lv_obj_t* parent) override;
     void cleanup() override;
-    bool is_validated() const override { return true; }
+    bool is_validated() const override {
+        return true;
+    }
     enum class Tool { Pid, Mesh, ZOffset, Shaper };
     void watch(Tool tool, const helix::CalibrationReceipt& receipt);
     bool is_completed(Tool tool);
+
   private:
     void begin_session(lv_obj_t* root, const std::string& printer);
     void receive(Tool tool, const helix::CalibrationReceipt::Event& event,

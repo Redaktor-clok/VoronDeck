@@ -1,8 +1,6 @@
 // Copyright (C) 2025-2026 356C LLC
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "nemesis_theme.h"
-#include "nemesis_fonts.h"
 #include "theme_manager.h"
 
 #include "ui_error_reporting.h"
@@ -16,6 +14,8 @@
 #include "layout_manager.h"
 #include "lvgl/lvgl.h"
 #include "lvgl/src/display/lv_display_private.h" // screens[]: LVGL has no screen iterator
+#include "nemesis_fonts.h"
+#include "nemesis_theme.h"
 #include "theme_loader.h"
 #include "theme_manager_internal.h"
 #include "theme_token_table.h"
@@ -140,7 +140,8 @@ static helix::ThemeData theme_manager_load_active_theme() {
         Config* config = Config::get_instance();
         theme_name = config->get<std::string>("/display/theme", helix::kDefaultTheme);
         if (theme_name != helix::kDefaultTheme) {
-            spdlog::info("[Theme] Selecting VoronDeck preset instead of saved theme '{}'", theme_name);
+            spdlog::info("[Theme] Selecting VoronDeck preset instead of saved theme '{}'",
+                         theme_name);
             theme_name = helix::kDefaultTheme;
             config->set<std::string>("/display/theme", theme_name);
             config->save();
@@ -241,8 +242,9 @@ void theme_manager_init(lv_display_t* display, bool use_dark_mode_param) {
     runtime().active_theme = theme_manager_load_active_theme();
     if (runtime().active_theme.get_mode_support() == helix::ThemeModeSupport::DARK_ONLY)
         runtime().dark = true;
-    const bool nemesis = Config::get_instance()->get<std::string>(
-        Config::get_instance()->df() + helix::PRINTER_IMAGE, "") == helix::kNemesisImage;
+    const bool nemesis =
+        Config::get_instance()->get<std::string>(
+            Config::get_instance()->df() + helix::PRINTER_IMAGE, "") == helix::kNemesisImage;
     theme_manager_apply_font_family(nemesis);
     publish_int_subject(subjects().nemesis, subjects().nemesis_ready, nemesis ? 1 : 0,
                         "nemesis_theme");
@@ -470,8 +472,9 @@ void theme_manager_apply_theme(const helix::ThemeData& theme, bool dark_mode) {
 
     runtime().active_theme = theme;
     runtime().dark = effective_dark;
-    const bool nemesis = Config::get_instance()->get<std::string>(
-        Config::get_instance()->df() + helix::PRINTER_IMAGE, "") == helix::kNemesisImage;
+    const bool nemesis =
+        Config::get_instance()->get<std::string>(
+            Config::get_instance()->df() + helix::PRINTER_IMAGE, "") == helix::kNemesisImage;
     theme_manager_apply_font_family(nemesis);
     publish_int_subject(subjects().nemesis, subjects().nemesis_ready, nemesis ? 1 : 0,
                         "nemesis_theme");

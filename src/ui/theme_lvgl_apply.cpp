@@ -282,8 +282,10 @@ static void helix_theme_apply(lv_theme_t* theme, lv_obj_t* obj) {
 #if LV_USE_BUTTON
     if (lv_obj_check_type(obj, &lv_button_class)) {
         lv_obj_add_style(obj, tm.get_style(StyleRole::Button), LV_PART_MAIN);
-        lv_obj_add_style(obj, tm.get_style(StyleRole::ButtonChecked), LV_PART_MAIN | LV_STATE_CHECKED);
-        lv_obj_add_style(obj, tm.get_style(StyleRole::ButtonPressed), LV_PART_MAIN | LV_STATE_PRESSED);
+        lv_obj_add_style(obj, tm.get_style(StyleRole::ButtonChecked),
+                         LV_PART_MAIN | LV_STATE_CHECKED);
+        lv_obj_add_style(obj, tm.get_style(StyleRole::ButtonPressed),
+                         LV_PART_MAIN | LV_STATE_PRESSED);
         lv_obj_add_style(obj, tm.get_style(StyleRole::Focused), LV_STATE_FOCUSED);
     }
 #endif

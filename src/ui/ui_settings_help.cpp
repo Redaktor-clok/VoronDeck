@@ -9,11 +9,11 @@
 #include "ui_settings_help.h"
 
 #include "ui_callback_helpers.h"
-#include "ui_toast_manager.h"
 #include "ui_info_qr_modal.h"
 #include "ui_nav.h"
 #include "ui_next_tick.h"
 #include "ui_settings_about.h"
+#include "ui_toast_manager.h"
 
 #include "first_run_tour.h"
 #include "helix_version.h"
@@ -40,11 +40,13 @@ void HelpSettingsOverlay::register_callbacks() {
         {"on_getting_started_clicked",
          [](lv_event_t*) {
              spdlog::info("[HelpSettingsOverlay] Getting Started clicked");
-             const std::string url = "https://github.com/Redaktor-clok/VoronDeck-beta/blob/main/docs/VORONDECK-GETTING-STARTED.md";
+             const std::string url = "https://github.com/Redaktor-clok/VoronDeck-beta/blob/main/"
+                                     "docs/VORONDECK-GETTING-STARTED.md";
              helix::ui::InfoQrModal::show_owned({
                  .icon = "lightbulb_outline",
                  .title = lv_tr("Getting Started"),
-                 .message = lv_tr("VoronDeck: first setup, controls and recovery. The beta guide requires access to the private repository."),
+                 .message = lv_tr("VoronDeck: first setup, controls and recovery. The beta guide "
+                                  "requires access to the private repository."),
                  .url = url,
                  .url_text = "GitHub · VoronDeck",
              });
@@ -52,8 +54,8 @@ void HelpSettingsOverlay::register_callbacks() {
         {"on_user_guide_clicked",
          [](lv_event_t*) {
              spdlog::info("[HelpSettingsOverlay] User Guide clicked");
-             ToastManager::instance().show(
-                 ToastSeverity::INFO, lv_tr("VoronDeck user guide is being updated"));
+             ToastManager::instance().show(ToastSeverity::INFO,
+                                           lv_tr("VoronDeck user guide is being updated"));
          }},
         {"on_about_clicked",
          [](lv_event_t*) { get_about_settings_overlay().show(lv_screen_active()); }},

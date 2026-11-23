@@ -1052,7 +1052,8 @@ void AmsOverviewPanel::show_current_page(const AmsSystemInfo& info, bool relayou
             unit_tab_labels_.push_back(std::move(label));
         }
         const auto& tab_unit = info.units[pages_[i].unit_index];
-        const std::string text = "AMS " + std::to_string(pages_[i].unit_index + 1) + "\n" +
+        const std::string text =
+            "AMS " + std::to_string(pages_[i].unit_index + 1) + "\n" +
             std::to_string(tab_unit.first_slot_global_index + 1) + "–" +
             std::to_string(tab_unit.first_slot_global_index + tab_unit.slot_count);
         lv_subject_copy_string(&unit_tab_labels_[i]->subject, text.c_str());

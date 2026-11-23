@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ui_panel_input_shaper.h"
-#include "config.h"
 
 #include "ui_callback_helpers.h"
 #include "ui_emergency_stop.h"
@@ -16,6 +15,7 @@
 #include "ui_update_queue.h"
 
 #include "app_globals.h"
+#include "config.h"
 #include "env_knobs.h"
 #include "format_utils.h"
 #include "i_moonraker_api.h"
@@ -99,7 +99,8 @@ static void on_input_shaper_row_clicked(lv_event_t* e) {
     (void)e;
     auto* api = get_moonraker_api();
     if (!api || !api->hardware().has_accelerometer() ||
-        !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject())) return;
+        !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject()))
+        return;
     spdlog::debug("[InputShaper] Input Shaping row clicked");
 
     auto& panel = get_global_input_shaper_panel();
@@ -552,7 +553,8 @@ void InputShaperPanel::on_ui_destroyed() {
 // ============================================================================
 
 void InputShaperPanel::set_state(State new_state) {
-    if (new_state == State::IDLE || new_state == State::ERROR) calibration_receipt_.cancel();
+    if (new_state == State::IDLE || new_state == State::ERROR)
+        calibration_receipt_.cancel();
     spdlog::debug("[InputShaper] State change: {} -> {}", static_cast<int>(state_),
                   static_cast<int>(new_state));
     if (new_state != State::MEASURING) {
@@ -649,7 +651,8 @@ void InputShaperPanel::proceed_with_preflight(char axis) {
             if (cal_tok.expired())
                 return;
             tok.defer([this, cal_tok, noise_level]() {
-                if (!cal_tok.expired()) on_preflight_complete(noise_level);
+                if (!cal_tok.expired())
+                    on_preflight_complete(noise_level);
             });
         },
         [this, tok, cal_tok](const std::string& err) {
@@ -658,7 +661,8 @@ void InputShaperPanel::proceed_with_preflight(char axis) {
             if (cal_tok.expired())
                 return;
             tok.defer([this, cal_tok, err]() {
-                if (!cal_tok.expired()) on_preflight_error(err);
+                if (!cal_tok.expired())
+                    on_preflight_error(err);
             });
         });
 }

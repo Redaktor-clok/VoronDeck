@@ -27,8 +27,8 @@
 #include "helix/ui/shared_font_style.h"
 #include "helix/ui/text_metrics.h"
 #include "layout_manager.h"
-#include "nemesis_fonts.h"
 #include "lvgl.h"
+#include "nemesis_fonts.h"
 #include "observer_factory.h"
 #include "overlay_base.h"
 #include "overlay_class.h"
@@ -71,7 +71,8 @@ void fit_nav_label_fonts(lv_obj_t* navbar) {
         if (!label || lv_obj_get_content_width(label) <= 0)
             continue;
         const lv_font_t* chosen = helix::ui::original_text_font(&noto_sans_10);
-        for (const auto* registered : {&noto_sans_14, &noto_sans_12, &noto_sans_11, &noto_sans_10}) {
+        for (const auto* registered :
+             {&noto_sans_14, &noto_sans_12, &noto_sans_11, &noto_sans_10}) {
             const auto* font = helix::ui::original_text_font(registered);
             if (helix::ui::text_width(lv_label_get_text(label), font) <=
                 lv_obj_get_content_width(label) - 2) {

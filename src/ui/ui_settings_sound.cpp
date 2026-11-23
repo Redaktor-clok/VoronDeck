@@ -62,8 +62,6 @@ void SoundSettingsOverlay::on_activate() {
     init_volume_slider();
     init_sound_theme_dropdown();
     init_audio_device_dropdown();
-
-
 }
 
 // ============================================================================

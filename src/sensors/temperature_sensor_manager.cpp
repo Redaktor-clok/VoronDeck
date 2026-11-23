@@ -259,8 +259,8 @@ bool TemperatureSensorManager::parse_status(const nlohmann::json& status) {
         if (entry.klipper_name.rfind("heater_generic ", 0) == 0) {
             if (auto it = sensor->find("power"); it != sensor->end()) {
                 const float power = it->is_number() ? it->get<float>() : -1.0f;
-                state.power = std::isfinite(power) && power >= 0.0f && power <= 1.0f
-                                  ? power : -1.0f;
+                state.power =
+                    std::isfinite(power) && power >= 0.0f && power <= 1.0f ? power : -1.0f;
             }
         }
 
@@ -290,10 +290,10 @@ void TemperatureSensorManager::refresh_subjects() {
             const auto it = readings_.find(e.klipper_name);
             const TemperatureSensorState state =
                 it != readings_.end() ? it->second : TemperatureSensorState{};
-            readings.push_back({e.klipper_name, helix::units::to_decidegrees(state.temperature),
-                                helix::units::to_decidegrees(state.target),
-                                state.power >= 0.0f ? static_cast<int>(std::lround(state.power * 100))
-                                                    : -1});
+            readings.push_back(
+                {e.klipper_name, helix::units::to_decidegrees(state.temperature),
+                 helix::units::to_decidegrees(state.target),
+                 state.power >= 0.0f ? static_cast<int>(std::lround(state.power * 100)) : -1});
         }
     }
     for (const auto& r : readings) {
@@ -445,7 +445,7 @@ lv_subject_t* TemperatureSensorManager::get_target_subject(const std::string& kl
 }
 
 lv_subject_t* TemperatureSensorManager::get_power_subject(const std::string& klipper_name,
-                                                         SubjectLifetime& lifetime) {
+                                                          SubjectLifetime& lifetime) {
     std::lock_guard<std::recursive_mutex> lock(mutex());
     SubjectLifetime unused;
     lv_subject_t* power = power_subjects_.find(klipper_name, unused);

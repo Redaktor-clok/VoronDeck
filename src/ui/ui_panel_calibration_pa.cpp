@@ -804,8 +804,10 @@ std::string PACalibrationPanel::selected_heater() const {
 // ============================================================================
 
 void open_pa_cal_panel(lv_obj_t* parent_screen) {
-    if (!lv_subject_get_int(get_printer_state().capabilities_state().subject(Capability::HasPaCal)) ||
-        !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject())) return;
+    if (!lv_subject_get_int(
+            get_printer_state().capabilities_state().subject(Capability::HasPaCal)) ||
+        !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject()))
+        return;
     auto& panel = get_global_pa_cal_panel();
     panel.set_api(get_moonraker_api());
     panel.show(parent_screen);

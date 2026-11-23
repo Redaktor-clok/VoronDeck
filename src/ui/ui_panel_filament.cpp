@@ -2,21 +2,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ui_panel_filament.h"
-#include "ui_external_spool_overview.h"
 
 #include "ui_ams_edit_overlay.h"
 #include "ui_callback_helpers.h"
 #include "ui_component_keypad.h"
 #include "ui_error_reporting.h"
 #include "ui_event_safety.h"
+#include "ui_external_spool_overview.h"
 #include "ui_icon.h"
 #include "ui_manual_pull_prompt.h"
 #include "ui_nav.h"
 #include "ui_overlay_temp_graph.h"
 #include "ui_panel_ams.h"
 #include "ui_panel_ams_overview.h"
-#include "ui_spool_canvas.h"
 #include "ui_settings_material_temps.h"
+#include "ui_spool_canvas.h"
 #include "ui_subject_registry.h"
 #include "ui_temperature_utils.h"
 #include "ui_unload_lane_choice.h"
@@ -29,13 +29,13 @@
 #include "config.h"
 #include "display_numbering.h"
 #include "filament_database.h"
-#include "home_spool_summary.h"
 #include "filament_op_dispatch.h"
 #include "filament_op_execute.h"
 #include "filament_op_router.h"
 #include "filament_op_slot_resolver.h"
 #include "filament_sensor_manager.h"
 #include "gcode_unknown_command.h"
+#include "home_spool_summary.h"
 #include "i_moonraker_api.h"
 #include "lvgl.h"
 #include "macro_executor.h"
@@ -153,20 +153,23 @@ FilamentPanel::FilamentPanel(PrinterState& printer_state, IMoonrakerAPI* api)
         {"on_filament_retract",
          [](lv_event_t*) { get_global_filament_panel().handle_retract_button(); }},
         // Selection-only entry: unlike a preset button, this never preheats.
-        {"on_filament_material_selector_changed", [](lv_event_t* e) {
+        {"on_filament_material_selector_changed",
+         [](lv_event_t* e) {
              auto* dropdown = static_cast<lv_obj_t*>(lv_event_get_current_target(e));
              auto* self = static_cast<FilamentPanel*>(lv_obj_get_user_data(dropdown));
              if (self) {
                  self->handle_material_selector_changed(dropdown);
              }
          }},
-        {"on_filament_heat_selected", [](lv_event_t* e) {
+        {"on_filament_heat_selected",
+         [](lv_event_t* e) {
              auto* button = lv_event_get_current_target_obj(e);
              if (!button || lv_obj_has_state(button, LV_STATE_DISABLED))
                  return;
              // Resolve the owner through the native dropdown in this shared group;
              // ui_button user_data belongs to the button implementation.
-             for (auto* parent = lv_obj_get_parent(button); parent; parent = lv_obj_get_parent(parent)) {
+             for (auto* parent = lv_obj_get_parent(button); parent;
+                  parent = lv_obj_get_parent(parent)) {
                  auto* dropdown = lv_obj_find_by_name(parent, "filament_material_selector");
                  if (!dropdown)
                      continue;
@@ -175,7 +178,8 @@ FilamentPanel::FilamentPanel(PrinterState& printer_state, IMoonrakerAPI* api)
                  break;
              }
          }},
-        {"on_filament_material_profiles", [](lv_event_t* e) {
+        {"on_filament_material_profiles",
+         [](lv_event_t* e) {
              auto* button = static_cast<lv_obj_t*>(lv_event_get_current_target(e));
              helix::settings::get_material_temps_overlay().show(lv_obj_get_screen(button));
          }},
@@ -379,8 +383,8 @@ void FilamentPanel::init_subjects() {
                                "filament_material_selector_index", subjects_);
         UI_MANAGED_SUBJECT_INT(material_profile_available_subject_, 0,
                                "filament_material_profile_available", subjects_);
-        UI_MANAGED_SUBJECT_STRING(material_profile_summary_subject_, material_profile_summary_buf_, "",
-                                  "filament_material_profile_summary", subjects_);
+        UI_MANAGED_SUBJECT_STRING(material_profile_summary_subject_, material_profile_summary_buf_,
+                                  "", "filament_material_profile_summary", subjects_);
         UI_MANAGED_SUBJECT_INT(extrusion_allowed_subject_, 0, "filament_extrusion_allowed",
                                subjects_); // false (cold at start)
         UI_MANAGED_SUBJECT_INT(safety_warning_visible_subject_, 1,
@@ -876,8 +880,8 @@ void FilamentPanel::update_status() {
     } else {
         // Choosing a profile previews temperatures without heating. The next
         // action is Heat, not another material selection.
-        status_msg = lv_tr(selected_profile() ? "Tap Heat to start preheating"
-                                              : "Select material to begin");
+        status_msg =
+            lv_tr(selected_profile() ? "Tap Heat to start preheating" : "Select material to begin");
         if (last_status_branch_ == StatusBranch::Cold &&
             std::strcmp(lv_subject_get_string(&status_subject_), status_msg) == 0) {
             return;
@@ -927,8 +931,12 @@ std::optional<FilamentPanel::SelectedProfile> FilamentPanel::selected_profile() 
         const auto material = filament::find_material(choice.name);
         if (!material)
             return std::nullopt;
-        SelectedProfile profile{choice.name, choice.label, material->nozzle_recommended(),
-                                material->bed_temp, material->chamber_temp_c, choice.slot};
+        SelectedProfile profile{choice.name,
+                                choice.label,
+                                material->nozzle_recommended(),
+                                material->bed_temp,
+                                material->chamber_temp_c,
+                                choice.slot};
         if (choice.slot >= 0) {
             if (const auto temperatures = helix::presets::slot_temps(choice.slot)) {
                 profile.nozzle = temperatures->nozzle;
@@ -942,7 +950,8 @@ std::optional<FilamentPanel::SelectedProfile> FilamentPanel::selected_profile() 
 
 void FilamentPanel::sync_material_selector_selection() {
     if (!material_selection_preview_)
-        material_selection_key_ = selected_material_ >= 0 ? "preset:" + std::to_string(selected_material_) : "";
+        material_selection_key_ =
+            selected_material_ >= 0 ? "preset:" + std::to_string(selected_material_) : "";
     int index = 0;
     for (size_t i = 0; i < material_choices_.size(); ++i)
         if (material_choices_[i].key == material_selection_key_)
@@ -958,15 +967,17 @@ void FilamentPanel::refresh_material_selector() {
     std::vector<std::string> plain_slot_names;
     for (int slot = 0; slot < kPresetCount; ++slot) {
         const auto name = helix::presets::name(slot);
-        material_choices_.push_back({"preset:" + std::to_string(slot), name,
-                                     helix::presets::display_label(slot), slot});
+        material_choices_.push_back(
+            {"preset:" + std::to_string(slot), name, helix::presets::display_label(slot), slot});
         const auto branded = MaterialSettingsManager::instance().get_preset_filament(slot);
         if (!branded || !branded->is_branded())
             plain_slot_names.push_back(name);
     }
     for (const auto& material : *filament::materials()) {
-        if (std::find(plain_slot_names.begin(), plain_slot_names.end(), material.name) == plain_slot_names.end())
-            material_choices_.push_back({"material:" + std::string(material.name), material.name, material.name, -1});
+        if (std::find(plain_slot_names.begin(), plain_slot_names.end(), material.name) ==
+            plain_slot_names.end())
+            material_choices_.push_back(
+                {"material:" + std::string(material.name), material.name, material.name, -1});
     }
     std::string options = "—";
     for (const auto& choice : material_choices_) {
@@ -1126,8 +1137,9 @@ void FilamentPanel::update_all_temps() {
 // INSTANCE HANDLERS
 // ============================================================================
 
-std::map<std::string, std::string> FilamentPanel::profile_macro_parameters(
-    const SelectedProfile& profile, const std::string& macro) const {
+std::map<std::string, std::string>
+FilamentPanel::profile_macro_parameters(const SelectedProfile& profile,
+                                        const std::string& macro) const {
     const auto known = MacroParamCache::instance().get(macro);
     auto* controller = get_temperature_controller();
     if (!controller || known.knowledge != MacroParamKnowledge::KNOWN_PARAMS)
@@ -1156,7 +1168,8 @@ std::map<std::string, std::string> FilamentPanel::profile_macro_parameters(
 
 void FilamentPanel::handle_heat_selected() {
     const auto profile = selected_profile();
-    if (!profile || lv_subject_get_int(AmsState::instance().get_nozzle_heat_blocked_subject()) != 0 ||
+    if (!profile ||
+        lv_subject_get_int(AmsState::instance().get_nozzle_heat_blocked_subject()) != 0 ||
         !AmsState::instance().nozzle_heat_blocked_reason().empty())
         return;
     if (auto* enabled = lv_xml_get_subject(nullptr, "nav_buttons_enabled");
@@ -1165,7 +1178,8 @@ void FilamentPanel::handle_heat_selected() {
     const auto& hardware = printer_state_.get_discovery();
     const auto plan = plan_material_preheat(
         MaterialSettingsManager::instance().find_override_for_material(profile->name), hardware);
-    execute_material_preheat(api_, plan,
+    execute_material_preheat(
+        api_, plan,
         [this, profile]() {
             if (auto* controller = get_temperature_controller()) {
                 controller->set_target(HeaterType::Nozzle, profile->nozzle, {.toast = true});
@@ -1175,7 +1189,8 @@ void FilamentPanel::handle_heat_selected() {
                     !printer_state_.temperature_state().chamber_heater_name().empty())
                     controller->set_target(HeaterType::Chamber, profile->chamber, {.toast = true});
             }
-        }, "[FilamentPanel]", hardware, profile_macro_parameters(*profile, plan.macro));
+        },
+        "[FilamentPanel]", hardware, profile_macro_parameters(*profile, plan.macro));
 }
 
 void FilamentPanel::handle_preset_button(int material_id) {
@@ -1469,9 +1484,10 @@ void FilamentPanel::update_material_temp_display() {
     lv_subject_copy_string(&material_nozzle_temp_subject_, material_nozzle_buf_);
     lv_subject_copy_string(&material_bed_temp_subject_, material_bed_buf_);
     lv_subject_set_int(&material_profile_available_subject_, profile ? 1 : 0);
-    const auto summary = profile ? fmt::format("{} · {} {}°C · {} {}°C · {} {}°C",
-        profile->label, lv_tr("Nozzle"), profile->nozzle, lv_tr("Bed"), profile->bed,
-        lv_tr("Chamber"), profile->chamber) : std::string{};
+    const auto summary = profile ? fmt::format("{} · {} {}°C · {} {}°C · {} {}°C", profile->label,
+                                               lv_tr("Nozzle"), profile->nozzle, lv_tr("Bed"),
+                                               profile->bed, lv_tr("Chamber"), profile->chamber)
+                                 : std::string{};
     lv_subject_copy_string(&material_profile_summary_subject_, summary.c_str());
 }
 
@@ -2118,8 +2134,10 @@ void FilamentPanel::update_external_spool_from_state() {
     auto ext = AmsState::instance().get_external_spool_info();
     if (ext.has_value()) {
         helix::ui::spool_canvas_set_filament(external_spool_canvas_, *ext);
-        const double fill = helix::home_spool_fill_level({ext->remaining_weight_g, ext->total_weight_g});
-        ui_spool_canvas_set_fill_level(external_spool_canvas_, fill < 0 ? 0.0f : static_cast<float>(fill));
+        const double fill =
+            helix::home_spool_fill_level({ext->remaining_weight_g, ext->total_weight_g});
+        ui_spool_canvas_set_fill_level(external_spool_canvas_,
+                                       fill < 0 ? 0.0f : static_cast<float>(fill));
 
         // Update labels with material info
         if (external_spool_material_label_) {

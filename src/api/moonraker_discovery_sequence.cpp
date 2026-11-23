@@ -1348,8 +1348,8 @@ json MoonrakerDiscoverySequence::build_subscription_objects(const PrinterDiscove
     // A config-only module may have no get_status(); only subscribe actual objects.
     if (std::find(hw.printer_objects().begin(), hw.printer_objects().end(), "bed_screws") !=
         hw.printer_objects().end()) {
-        subscription_objects["bed_screws"] = json::array(
-            {"is_active", "state", "current_screw", "accepted_screws"});
+        subscription_objects["bed_screws"] =
+            json::array({"is_active", "state", "current_screw", "accepted_screws"});
     }
 
     // Leveling-skip gates and flags (include/preprint_skip_wrappers.h).

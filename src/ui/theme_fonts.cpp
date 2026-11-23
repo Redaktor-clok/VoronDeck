@@ -6,7 +6,6 @@
 // calls.
 
 #include "ui_breakpoint.h"
-#include "nemesis_fonts.h"
 #include "ui_button.h"
 #include "ui_fonts.h"
 #include "ui_icon.h"
@@ -15,6 +14,7 @@
 #include "display_metrics.h"
 #include "helix-xml/src/xml/lv_xml.h"
 #include "lvgl/lvgl.h"
+#include "nemesis_fonts.h"
 #include "theme_manager.h"
 #include "theme_manager_internal.h"
 

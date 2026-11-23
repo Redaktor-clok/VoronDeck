@@ -100,8 +100,7 @@ bool helix::ui::ams_spool_style_3d() {
  *        spool_size + kAmsLaneSpoolBadgeMarginPx, square).
  * @param spool_size Spool graphic size in px; <= 0 uses the "ams_slot_spool_size" token.
  */
-static SpoolVisual create_spool_visual(lv_obj_t* container, int32_t spool_size,
-                                      bool ring = false) {
+static SpoolVisual create_spool_visual(lv_obj_t* container, int32_t spool_size, bool ring = false) {
     SpoolVisual sv;
     if (!container)
         return sv;
@@ -229,7 +228,8 @@ static void spool_visual_set_fill(const SpoolVisual& sv, float fill) {
  */
 struct LaneSpoolData {
     bool ring = false; ///< Per-instance Home presentation; never changes AMS preferences.
-    bool observe_fill = true; ///< A Home summary can supply the same exact weight ratio as its text.
+    bool observe_fill =
+        true; ///< A Home summary can supply the same exact weight ratio as its text.
     int slot_index = -1;
     int backend_index = 0;
     float fill_level = 1.0f; ///< Last applied fill (0.0-1.0), from slot_fill.

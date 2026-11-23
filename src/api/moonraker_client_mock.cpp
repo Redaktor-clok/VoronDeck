@@ -77,8 +77,8 @@ namespace {
 // Common mock commands remain available when a test changes a hardware list
 // or disables MMU. Keep this list shared with initial capability population.
 constexpr const char* kCommonMockMacros[] = {
-    "START_PRINT", "END_PRINT", "PAUSE", "RESUME", "CANCEL_PRINT", "LOAD_FILAMENT",
-    "UNLOAD_FILAMENT", "BED_MESH_CALIBRATE", "G28", "M600", "_SYSTEM_MACRO"};
+    "START_PRINT",     "END_PRINT",          "PAUSE", "RESUME", "CANCEL_PRINT", "LOAD_FILAMENT",
+    "UNLOAD_FILAMENT", "BED_MESH_CALIBRATE", "G28",   "M600",   "_SYSTEM_MACRO"};
 
 /// connect()'s pause before CONNECTED, in simulated ms; see set_connect_delay_ms().
 std::atomic<int> g_connect_delay_ms{250};
@@ -1610,12 +1610,14 @@ void MoonrakerClientMock::populate_capabilities() {
         const long count = std::strtol(value, &end, 10);
         if (end && *end == '\0' && count >= 1 && count <= 6) {
             mock_objects.erase(std::remove_if(mock_objects.begin(), mock_objects.end(),
-                [](const json& object) {
-                    const auto name = object.get<std::string>();
-                    return name == "heater_bed" || name.rfind("extruder", 0) == 0 ||
-                           name.rfind("heater_generic ", 0) == 0 ||
-                           name.rfind("temperature_fan ", 0) == 0;
-                }), mock_objects.end());
+                                              [](const json& object) {
+                                                  const auto name = object.get<std::string>();
+                                                  return name == "heater_bed" ||
+                                                         name.rfind("extruder", 0) == 0 ||
+                                                         name.rfind("heater_generic ", 0) == 0 ||
+                                                         name.rfind("temperature_fan ", 0) == 0;
+                                              }),
+                               mock_objects.end());
             discovery_.heaters() = {"extruder"};
             if (count >= 2)
                 discovery_.heaters().push_back("heater_bed");
@@ -1630,8 +1632,11 @@ void MoonrakerClientMock::populate_capabilities() {
     }
     if (std::getenv("HELIX_MOCK_MANUAL_SCREWS")) {
         mock_objects.push_back("bed_screws");
-        mock_objects.erase(std::remove(mock_objects.begin(), mock_objects.end(), "bed_mesh"), mock_objects.end());
-        mock_objects.erase(std::remove(mock_objects.begin(), mock_objects.end(), "screws_tilt_adjust"), mock_objects.end());
+        mock_objects.erase(std::remove(mock_objects.begin(), mock_objects.end(), "bed_mesh"),
+                           mock_objects.end());
+        mock_objects.erase(
+            std::remove(mock_objects.begin(), mock_objects.end(), "screws_tilt_adjust"),
+            mock_objects.end());
     }
     discovery_.modify_hardware([&](PrinterDiscovery& hw) { hw.parse_objects(mock_objects); });
 
@@ -1648,7 +1653,8 @@ void MoonrakerClientMock::populate_capabilities() {
                                          {"horizontal_move_z", "10"}};
     if (std::getenv("HELIX_MOCK_MANUAL_SCREWS")) {
         mock_config.erase("screws_tilt_adjust");
-        mock_config["bed_screws"] = {{"screw1", "20,20"}, {"screw2", "100,20"}, {"screw3", "60,100"}};
+        mock_config["bed_screws"] = {
+            {"screw1", "20,20"}, {"screw2", "100,20"}, {"screw3", "60,100"}};
     }
     // Provide kinematics so bed_moves detection works
     mock_config["printer"] = {{"kinematics", kinematics()}};

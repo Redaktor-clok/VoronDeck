@@ -295,13 +295,12 @@ json get_mock_mmu_status() {
 void register_object_handlers(std::unordered_map<std::string, MethodHandler>& registry) {
     // Advertise commands implemented by this native mock, not production assumptions.
     registry["printer.gcode.help"] =
-        [](MoonrakerClientMock*, const json&,
-           helix::SharedCallback<void(const json&)> success,
+        [](MoonrakerClientMock*, const json&, helix::SharedCallback<void(const json&)> success,
            helix::SharedCallback<void(const MoonrakerError&)>) -> bool {
-            if (success)
-                success({{"result", {{"PID_CALIBRATE", "Run PID calibration test"}}}});
-            return true;
-        };
+        if (success)
+            success({{"result", {{"PID_CALIBRATE", "Run PID calibration test"}}}});
+        return true;
+    };
     // printer.objects.list - List available printer objects
     // When Klippy is in STARTUP or ERROR state, Klipper returns JSON-RPC error -32601
     registry["printer.objects.list"] =
@@ -372,8 +371,9 @@ void register_object_handlers(std::unordered_map<std::string, MethodHandler>& re
                         {"protocol", 1}, {"version", "1.0.0-beta.1"}, {"build", "toggle-1"}};
                 }
                 if (objects.contains("save_variables")) {
-                    status_obj["save_variables"] = {{"variables", {
-                        {"recovery_enabled", self->mock_recovery_enabled.load() ? 1 : 0}}}};
+                    status_obj["save_variables"] = {
+                        {"variables",
+                         {{"recovery_enabled", self->mock_recovery_enabled.load() ? 1 : 0}}}};
                 }
             }
 
@@ -530,7 +530,8 @@ void register_object_handlers(std::unordered_map<std::string, MethodHandler>& re
                 status_obj["configfile"]["config"].merge_patch(skip_sections);
                 status_obj["configfile"]["config"].merge_patch(chamber_sections);
                 for (const auto& name : {"extruder", "heater_bed"})
-                    status_obj["configfile"]["config"][name] = status_obj["configfile"]["settings"][name];
+                    status_obj["configfile"]["config"][name] =
+                        status_obj["configfile"]["settings"][name];
                 for (const auto& [name, settings] : self->extra_config_settings().items()) {
                     status_obj["configfile"]["settings"][name] = settings;
                     status_obj["configfile"]["config"][name] = settings;
@@ -558,9 +559,9 @@ void register_object_handlers(std::unordered_map<std::string, MethodHandler>& re
             }
 
             if (std::getenv("HELIX_MOCK_MANUAL_SCREWS") && objects.contains("configfile")) {
-                json screws = {{"screw1", "20,20"}, {"screw1_name", "Front left"},
-                    {"screw2", "100,20"}, {"screw2_name", "Front right"},
-                    {"screw3", "60,100"}, {"screw3_name", "Rear"}};
+                json screws = {{"screw1", "20,20"},  {"screw1_name", "Front left"},
+                               {"screw2", "100,20"}, {"screw2_name", "Front right"},
+                               {"screw3", "60,100"}, {"screw3_name", "Rear"}};
                 if (std::getenv("HELIX_MOCK_MANUAL_SCREWS_FINE")) {
                     for (int i = 1; i <= 3; ++i)
                         screws["screw" + std::to_string(i) + "_fine_adjust"] = "50,50";
@@ -1225,7 +1226,8 @@ void register_object_handlers(std::unordered_map<std::string, MethodHandler>& re
                 status_obj["configfile"]["config"].merge_patch(skip_sections);
                 status_obj["configfile"]["config"].merge_patch(chamber_sections);
                 for (const auto& name : {"extruder", "heater_bed"})
-                    status_obj["configfile"]["config"][name] = status_obj["configfile"]["settings"][name];
+                    status_obj["configfile"]["config"][name] =
+                        status_obj["configfile"]["settings"][name];
                 for (const auto& [name, settings] : self->extra_config_settings().items()) {
                     status_obj["configfile"]["settings"][name] = settings;
                     status_obj["configfile"]["config"][name] = settings;

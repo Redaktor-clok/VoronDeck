@@ -18,8 +18,8 @@
 #include "material_settings_manager.h"
 #include "printer_state.h"
 #include "sort_small.h"
-#include "text_io.h"
 #include "temperature_controller.h"
+#include "text_io.h"
 #include "ui/ui_widget_helpers.h"
 
 #include <spdlog/spdlog.h>
@@ -59,7 +59,8 @@ void MaterialTempsOverlay::init_subjects() {
 
 void MaterialTempsOverlay::register_callbacks() {
     register_xml_callbacks({
-        {"on_material_add_profile", [](lv_event_t*) { get_material_temps_overlay().handle_add_profile(); }},
+        {"on_material_add_profile",
+         [](lv_event_t*) { get_material_temps_overlay().handle_add_profile(); }},
         {"on_material_save", [](lv_event_t*) { get_material_temps_overlay().handle_save(); }},
         {"on_material_reset_defaults",
          [](lv_event_t*) { get_material_temps_overlay().handle_reset_defaults(); }},
@@ -86,8 +87,7 @@ lv_obj_t* MaterialTempsOverlay::create(lv_obj_t* parent) {
     edit_view_ = helix::ui::find_required(overlay_root_, "material_edit_view", get_name());
     // Optional compatibility controls for custom XML; the stock editor only edits temperatures.
     macro_dropdown_ = lv_obj_find_by_name(edit_view_, "macro_dropdown");
-    macro_heating_switch_ =
-        lv_obj_find_by_name(edit_view_, "macro_heating_switch");
+    macro_heating_switch_ = lv_obj_find_by_name(edit_view_, "macro_heating_switch");
 
     // Rewire back button to intercept when in edit view
     // Exception to "NO lv_obj_add_event_cb" rule: need to intercept back for view switching
@@ -189,7 +189,8 @@ void MaterialTempsOverlay::show_edit_view(const std::string& material_name) {
     // The shipped row is the default. A user-defined type has none, so its own
     // values stand in and there is nothing to reset to.
     auto shipped = filament::find_shipped_material(material_name);
-    auto base = shipped ? shipped : filament::find_material(creating_profile_ ? "PLA" : material_name);
+    auto base =
+        shipped ? shipped : filament::find_material(creating_profile_ ? "PLA" : material_name);
     int default_nozzle_min = base ? base->nozzle_min : 0;
     int default_nozzle_max = base ? base->nozzle_max : 0;
     int default_bed = base ? base->bed_temp : 0;
@@ -360,8 +361,8 @@ void MaterialTempsOverlay::handle_save() {
     // material definition can carry values the current printer cannot reach -
     // they clamp at send, not at save.
     if (nozzle_min < MaterialSettingsManager::kProfileNozzleMinC ||
-        nozzle_max < MaterialSettingsManager::kProfileNozzleMinC || nozzle_min > kNozzleInputAbsMaxC ||
-        nozzle_max > kNozzleInputAbsMaxC) {
+        nozzle_max < MaterialSettingsManager::kProfileNozzleMinC ||
+        nozzle_min > kNozzleInputAbsMaxC || nozzle_max > kNozzleInputAbsMaxC) {
         char msg[kToastBufBytes];
         snprintf(msg, sizeof(msg), lv_tr("Nozzle temp must be 100-%d°C"), kNozzleInputAbsMaxC);
         ToastManager::instance().show(ToastSeverity::WARNING, msg, 3000);
@@ -401,7 +402,8 @@ void MaterialTempsOverlay::handle_save() {
     // Hidden legacy integration metadata is not part of a temperature-only edit.
     // Custom XML can still supply the native dropdown/switch to edit it explicitly.
     if (!macro_dropdown_ && !creating_profile_) {
-        if (const auto* previous = MaterialSettingsManager::instance().get_override(editing_material_)) {
+        if (const auto* previous =
+                MaterialSettingsManager::instance().get_override(editing_material_)) {
             ovr.preheat_macro = previous->preheat_macro;
             ovr.macro_handles_heating = previous->macro_handles_heating;
         }
@@ -422,11 +424,12 @@ void MaterialTempsOverlay::handle_save() {
     if (user_profile) {
         if (!MaterialSettingsManager::instance().save_user_profile(
                 profile_name, ovr, creating_profile_ ? std::string{} : editing_material_)) {
-            ToastManager::instance().show(ToastSeverity::WARNING, lv_tr("Could not save profile"), 3000);
+            ToastManager::instance().show(ToastSeverity::WARNING, lv_tr("Could not save profile"),
+                                          3000);
             return;
         }
-    } else if (ovr.nozzle_min || ovr.nozzle_max || ovr.bed_temp || ovr.chamber_temp || ovr.preheat_macro ||
-               ovr.macro_handles_heating) {
+    } else if (ovr.nozzle_min || ovr.nozzle_max || ovr.bed_temp || ovr.chamber_temp ||
+               ovr.preheat_macro || ovr.macro_handles_heating) {
         MaterialSettingsManager::instance().set_override(editing_material_, ovr);
     } else {
         // All values match defaults — clear any existing override

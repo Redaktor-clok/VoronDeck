@@ -854,7 +854,8 @@ namespace helix::ui {
 void open_screws_tilt_panel(lv_obj_t* parent_screen) {
     auto* api = get_moonraker_api();
     if (!api || !api->hardware().has_screws_tilt() ||
-        !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject())) return;
+        !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject()))
+        return;
     auto& panel = get_global_screws_tilt_panel();
     panel.set_client(get_moonraker_client(), get_moonraker_api());
     panel.show(parent_screen);

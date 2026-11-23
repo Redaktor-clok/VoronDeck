@@ -85,7 +85,8 @@ void register_history_handlers(std::unordered_map<std::string, MethodHandler>& r
         // Dynamically scan test gcode directory - same source as file list mock
         // This ensures history filenames always match the file list
         auto gcode_files = scan_test_gcode_files();
-        if (self->mock_history_cleared()) gcode_files.clear();
+        if (self->mock_history_cleared())
+            gcode_files.clear();
 
         json jobs = json::array();
         auto now = std::chrono::system_clock::now();
@@ -221,7 +222,8 @@ void register_history_handlers(std::unordered_map<std::string, MethodHandler>& r
 
         auto gcode_files = scan_test_gcode_files();
 
-        if (self->mock_totals_reset()) gcode_files.clear();
+        if (self->mock_totals_reset())
+            gcode_files.clear();
         // Same duration formula as server.history.list
         auto get_duration_minutes = [](size_t idx) -> int {
             return 5 + static_cast<int>((idx * 37 + 13) % 296);
@@ -260,7 +262,8 @@ void register_history_handlers(std::unordered_map<std::string, MethodHandler>& r
         (void)self;
         (void)error_cb;
         std::string job_id = params.value("uid", "");
-        if (params.value("all",false)) self->clear_mock_history();
+        if (params.value("all", false))
+            self->clear_mock_history();
         spdlog::info("[MoonrakerClientMock] Mock delete history job: {}", job_id);
 
         if (success_cb) {
@@ -275,7 +278,11 @@ void register_history_handlers(std::unordered_map<std::string, MethodHandler>& r
            helix::SharedCallback<void(const json&)> success_cb,
            helix::SharedCallback<void(const MoonrakerError&)>) -> bool {
         self->reset_mock_totals();
-        if (success_cb) success_cb(json{{"result",{{"job_totals",{{"total_jobs",0},{"total_time",0},{"total_filament_used",0}}}}}});
+        if (success_cb)
+            success_cb(
+                json{{"result",
+                      {{"job_totals",
+                        {{"total_jobs", 0}, {"total_time", 0}, {"total_filament_used", 0}}}}}});
         return true;
     };
 }

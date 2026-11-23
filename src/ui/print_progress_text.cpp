@@ -83,7 +83,8 @@ void PrintProgressText::show_time_left(int seconds) {
     show_remaining(seconds);
 
     bool use_24h = DisplaySettingsManager::instance().get_time_format() == TimeFormat::HOUR_24;
-    auto eta_str = seconds < 0 ? std::string("—") : helix::format::eta_clock_time(seconds, 0, use_24h);
+    auto eta_str =
+        seconds < 0 ? std::string("—") : helix::format::eta_clock_time(seconds, 0, use_24h);
     std::snprintf(eta_buf_, sizeof(eta_buf_), "%s", eta_str.c_str());
     lv_subject_copy_string(&eta_subject_, eta_buf_);
     spdlog::trace("[PrintProgressText] Time remaining updated: {}s, ETA: {}", seconds, eta_buf_);

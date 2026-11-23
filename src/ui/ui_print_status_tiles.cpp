@@ -593,12 +593,10 @@ void PrintStatusTiles::update_now() {
         // Pinned chips sit on their parts and carry no labels.
         const ChipContent& b = bare[i];
         // Pinned mode hides the device icon, but keeps the heater status glyph.
-        part.compact_icons = is_heater(chip)
-                                 ? m.col_gap + status_glyph + theme_manager_get_spacing("space_xxs")
-                                 : 0;
-        part.w_compact = part.active
-                             ? compact_callout_chip_w(probe, b.text, icons[i]) + part.compact_icons
-                             : 0;
+        part.compact_icons =
+            is_heater(chip) ? m.col_gap + status_glyph + theme_manager_get_spacing("space_xxs") : 0;
+        part.w_compact =
+            part.active ? compact_callout_chip_w(probe, b.text, icons[i]) + part.compact_icons : 0;
         if (const int lines = text_line_count(budget_text[i]); lines > 1) {
             part.h = m.chip_h_for(budget_text[i]);
             part.h_compact = compact_callout_chip_h(

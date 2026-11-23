@@ -180,7 +180,8 @@ void bypass_spool_set_filament(BypassSpoolWidgets& w, const SlotInfo& slot) {
     w.color_painted = false;
     w.cached_color_rgb = slot.color_rgb;
     spool_canvas_set_filament(w.spool_canvas, slot);
-    const double fill = helix::home_spool_fill_level({slot.remaining_weight_g, slot.total_weight_g});
+    const double fill =
+        helix::home_spool_fill_level({slot.remaining_weight_g, slot.total_weight_g});
     ui_spool_canvas_set_fill_level(w.spool_canvas, fill < 0 ? 0.0f : static_cast<float>(fill));
 }
 
@@ -235,7 +236,8 @@ void bypass_spool_set_position(BypassSpoolWidgets& w, int32_t cx, int32_t cy) {
 
     // Measured caption row below the ring: a label above it intersects the HUB
     // controls on short canvases. Clamp the row to its parent, including long materials.
-    const int32_t available = std::max<int32_t>(1, lv_obj_get_content_width(lv_obj_get_parent(w.box)));
+    const int32_t available =
+        std::max<int32_t>(1, lv_obj_get_content_width(lv_obj_get_parent(w.box)));
     const int32_t bypass_w = std::min(available, w.cached_bypass_label_w);
     int32_t mat_w = 0;
     if (w.material_label) {

@@ -7,9 +7,9 @@
 #include "ui_widget_ref.h"
 
 #include "async_lifetime_guard.h"
+#include "spool_display_picker.h"
 #include "src/ui/panel_widgets/tiled_panel_widget.h"
 #include "subject_managed_panel.h"
-#include "spool_display_picker.h"
 
 #include <memory>
 
@@ -24,10 +24,14 @@ class ActiveSpoolWidget : public TiledPanelWidget {
     void attach(lv_obj_t* widget_obj, lv_obj_t* parent_screen) override;
     void detach() override;
     void on_size_changed(int colspan, int rowspan, int width_px, int height_px) override;
-    void on_activate() override { update_spool_display(); }
+    void on_activate() override {
+        update_spool_display();
+    }
     void set_config(const nlohmann::json& config) override;
     std::string get_component_name() const override;
-    bool has_edit_configure() const override { return true; }
+    bool has_edit_configure() const override {
+        return true;
+    }
     bool on_edit_configure() override;
     const char* id() const override {
         return "active_spool";

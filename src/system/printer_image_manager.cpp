@@ -1,7 +1,6 @@
 // Copyright (C) 2025-2026 356C LLC
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "nemesis_theme.h"
 #include "printer_image_manager.h"
 
 #include "ams_backend.h"
@@ -9,18 +8,19 @@
 #include "app_globals.h"
 #include "config.h"
 #include "data_root_resolver.h"
+#include "display_settings_manager.h"
 #include "helix_fs.h"
 #include "lvgl_image_writer.h"
+#include "nemesis_theme.h"
 #include "prerendered_images.h"
 #include "printer_image_regions.h"
 #include "printer_image_variants.h"
 #include "printer_images.h"
 #include "printer_state.h"
 #include "settings_manager.h"
-#include "display_settings_manager.h"
-#include "theme_manager.h"
 #include "static_subject_registry.h"
 #include "text_io.h"
+#include "theme_manager.h"
 #include "wizard_config_paths.h"
 
 #include <spdlog/spdlog.h>
@@ -28,8 +28,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
 #include <set>
 
 // stb headers — implementations are in thumbnail_processor.cpp
@@ -250,23 +250,40 @@ std::string PrinterImageManager::get_displayed_image_path(int screen_width) {
 // =============================================================================
 
 std::string PrinterImageManager::format_display_name(const std::string& stem) {
-    if (stem == "voron-v0") return "Voron 0.1 / 0.2";
-    if (stem == "voron-v2") return "Voron 2.4";
-    if (stem == "voron-trident") return "Voron Trident";
-    if (stem == "voron-trident-cnc-awd") return "Voron Trident CNC AWD";
-    if (stem == "voron-legacy") return "Voron Legacy";
-    if (stem == "voron-switchwire") return "Voron Switchwire";
-    if (stem == "nemesis-stimax-530-550-cnc") return "NEMESIS Stimax 530 / 550 CNC";
-    if (stem == "nemesis-2-4-awd-cnc-530") return "NEMESIS 530 CNC";
-    if (stem == "vzbot") return "VzBot";
-    if (stem == "doron_velta") return "Doron Velta";
-    if (stem == "pfa-micron") return "PFA Micron";
-    if (stem == "pfa-stealthfork") return "PFA StealthFork";
-    if (stem == "rh3d-e3ng") return "RH3D E3NG";
-    if (stem == "zerog-hydra-255") return "ZeroG Hydra 255";
-    if (stem == "zerog-hydra-370") return "ZeroG Hydra 370";
-    if (stem == "zerog-nebula") return "ZeroG Nebula";
-    if (stem == "zerog-nebula-370") return "ZeroG Nebula 370";
+    if (stem == "voron-v0")
+        return "Voron 0.1 / 0.2";
+    if (stem == "voron-v2")
+        return "Voron 2.4";
+    if (stem == "voron-trident")
+        return "Voron Trident";
+    if (stem == "voron-trident-cnc-awd")
+        return "Voron Trident CNC AWD";
+    if (stem == "voron-legacy")
+        return "Voron Legacy";
+    if (stem == "voron-switchwire")
+        return "Voron Switchwire";
+    if (stem == "nemesis-stimax-530-550-cnc")
+        return "NEMESIS Stimax 530 / 550 CNC";
+    if (stem == "nemesis-2-4-awd-cnc-530")
+        return "NEMESIS 530 CNC";
+    if (stem == "vzbot")
+        return "VzBot";
+    if (stem == "doron_velta")
+        return "Doron Velta";
+    if (stem == "pfa-micron")
+        return "PFA Micron";
+    if (stem == "pfa-stealthfork")
+        return "PFA StealthFork";
+    if (stem == "rh3d-e3ng")
+        return "RH3D E3NG";
+    if (stem == "zerog-hydra-255")
+        return "ZeroG Hydra 255";
+    if (stem == "zerog-hydra-370")
+        return "ZeroG Hydra 370";
+    if (stem == "zerog-nebula")
+        return "ZeroG Nebula";
+    if (stem == "zerog-nebula-370")
+        return "ZeroG Nebula 370";
     std::string name = stem;
     for (size_t i = 0; i < name.size(); i++) {
         char c = name[i];

@@ -24,7 +24,7 @@ VoronDeck развивает интерфейс под проекты Voron и N
 
 ![VoronDeck: горизонтальный и вертикальный интерфейс](assets/presentation/vorondeck-two-orientations-v1.png)
 
-[Установка](#установка) · [Возможности](#возможности) · [Мультифиламент](#мультифиламент) · [Обновления](#обновления) · [Начало работы](docs/VORONDECK-GETTING-STARTED.md) · [Планы и тесты](docs/ROADMAP.md) · [Actions](docs/DEVELOPMENT.md)
+[Установка](#установка) · [Возможности](#возможности) · [Мультифиламент](#мультифиламент) · [Обновления](#обновления) · [Начало работы](docs/VORONDECK-GETTING-STARTED.md) · [Планы и тесты](.github/actions/docs/ROADMAP.md) · [Actions](.github/actions/docs/DEVELOPMENT.md)
 
 > **VoronDeck 1.0.1 — стабильный выпуск.** Готовый пакет доступен для Linux `aarch64` с glibc 2.30 или новее. Основной репозиторий и стабильные обновления открыты; бета-канал остаётся закрытым.
 

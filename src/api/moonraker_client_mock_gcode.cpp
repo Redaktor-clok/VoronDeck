@@ -17,8 +17,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
-#include <optional>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -1436,8 +1436,8 @@ int MoonrakerClientMock::gcode_script(const std::string& raw_gcode) {
     GcodeResult r;
 
     if (std::getenv("HELIX_MOCK_MANUAL_SCREWS") &&
-        (g == "BED_SCREWS_ADJUST" || (mock_bed_screws_active.load() &&
-         (g == "ACCEPT" || g == "ADJUSTED" || g == "ABORT")))) {
+        (g == "BED_SCREWS_ADJUST" ||
+         (mock_bed_screws_active.load() && (g == "ACCEPT" || g == "ADJUSTED" || g == "ABORT")))) {
         if (g == "BED_SCREWS_ADJUST") {
             if (mock_bed_screws_active.load() || get_homed_axes() != "xyz") {
                 std::lock_guard<std::mutex> lock(gcode_error_mutex_);
@@ -1451,19 +1451,24 @@ int MoonrakerClientMock::gcode_script(const std::string& raw_gcode) {
         } else if (g == "ABORT") {
             mock_bed_screws_active.store(false);
         } else {
-            if (g == "ADJUSTED") mock_bed_screws_accepted.store(-1);
+            if (g == "ADJUSTED")
+                mock_bed_screws_accepted.store(-1);
             const int accepted = ++mock_bed_screws_accepted;
             if (accepted >= 3) {
                 if (std::getenv("HELIX_MOCK_MANUAL_SCREWS_FINE") && !mock_bed_screws_fine.load()) {
                     mock_bed_screws_fine.store(true);
                     mock_bed_screw.store(0);
                     mock_bed_screws_accepted.store(0);
-                } else mock_bed_screws_active.store(false);
-            } else mock_bed_screw.store((mock_bed_screw.load() + 1) % 3);
+                } else
+                    mock_bed_screws_active.store(false);
+            } else
+                mock_bed_screw.store((mock_bed_screw.load() + 1) % 3);
         }
-        dispatch_status_update({{"bed_screws", {{"is_active", mock_bed_screws_active.load()},
-            {"state", mock_bed_screws_fine.load() ? "fine" : "adjust"},
-            {"current_screw", mock_bed_screw.load()}, {"accepted_screws", mock_bed_screws_accepted.load()}}}});
+        dispatch_status_update({{"bed_screws",
+                                 {{"is_active", mock_bed_screws_active.load()},
+                                  {"state", mock_bed_screws_fine.load() ? "fine" : "adjust"},
+                                  {"current_screw", mock_bed_screw.load()},
+                                  {"accepted_screws", mock_bed_screws_accepted.load()}}}});
         return 0;
     }
 
@@ -1550,8 +1555,7 @@ int MoonrakerClientMock::gcode_script(const std::string& raw_gcode) {
                 break;
             }
         }
-        if (!std::isfinite(percent) || percent < 0.5 ||
-            percent > std::numeric_limits<int>::max()) {
+        if (!std::isfinite(percent) || percent < 0.5 || percent > std::numeric_limits<int>::max()) {
             std::lock_guard<std::mutex> lock(gcode_error_mutex_);
             last_gcode_error_ = "Invalid speed/flow percentage";
             return -1;

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "ui_observer_guard.h"
+
 #include "async_lifetime_guard.h"
 #include "helix/xml/indexed_subject_pool.h"
 #include "panel_widget.h"
 #include "subject_managed_panel.h"
-#include "ui_observer_guard.h"
 
 #include <array>
 #include <string>
@@ -17,7 +18,9 @@ class HomeSensorBankWidget : public PanelWidget {
   public:
     HomeSensorBankWidget();
     ~HomeSensorBankWidget() override;
-    const char* id() const override { return "home_sensor_bank"; }
+    const char* id() const override {
+        return "home_sensor_bank";
+    }
     const char** xml_attrs() const override {
         return const_cast<const char**>(attrs_.data());
     }

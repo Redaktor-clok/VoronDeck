@@ -151,13 +151,13 @@
                   scroll_dir="hor" scrollbar_mode="off" gesture_bubble="false">
             <bind_flag_if_lt subject="ams_page_count" flag="hidden" ref_value="2"/>
             <repeat count="ams_page_count">
-              <lv_obj name="unit_tab" width="#ams_unit_tab_width" height="#ams_unit_tab_height" style_pad_all="0"
+              <lv_obj name="unit_tab_${i}" width="#ams_unit_tab_width" height="#ams_unit_tab_height" style_pad_all="0"
                       style_radius="#border_radius" style_border_width="2" style_bg_color="#card_bg"
                       style_bg_opa="255" scrollable="false" clickable="true">
                 <bind_style_if_not_eq name="unit_tab_idle" subject="ams_page_current" ref_value="$i"/>
                 <bind_style_if_eq name="unit_tab_current" subject="ams_page_current" ref_value="$i"/>
                 <event_cb trigger="clicked" callback="on_ams_unit_tab_clicked"/>
-                <text_small name="unit_tab_label" bind_text="ams_unit_tab_${i}" align="center" style_text_align="center"
+                <text_small name="unit_tab_label_${i}" bind_text="ams_unit_tab_${i}" align="center" style_text_align="center"
                             clickable="false" event_bubble="true"/>
               </lv_obj>
             </repeat>

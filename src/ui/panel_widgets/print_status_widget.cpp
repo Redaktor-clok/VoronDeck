@@ -3,6 +3,7 @@
 
 #include "print_status_widget.h"
 
+#include "ui_button.h"
 #include "ui_callback_helpers.h"
 #include "ui_error_reporting.h"
 #include "ui_event_safety.h"
@@ -36,7 +37,6 @@
 #include "lvgl.h"
 #include "moonraker_api.h"
 #include "nemesis_fonts.h"
-#include "ui_button.h"
 #include "observe_language.h"
 #include "observer_factory.h"
 #include "panel_widget_manager.h"
@@ -429,8 +429,7 @@ void PrintStatusWidget::attach(lv_obj_t* widget_obj, lv_obj_t* parent_screen) {
 
     theme_observer_ = observe<int>(
         theme_manager_get_changed_subject(), this,
-        [](PrintStatusWidget* self, int) { self->schedule_library_fit(); },
-        subject_never_freed());
+        [](PrintStatusWidget* self, int) { self->schedule_library_fit(); }, subject_never_freed());
 
     // Re-run visibility when the breakpoint changes so the 'Print Library' header
     // hides on shrink-to-micro and returns on grow-past-micro.
@@ -1517,8 +1516,7 @@ void PrintStatusWidget::schedule_library_fit() {
             return;
         fit_library_actions();
         auto* actions = lv_obj_find_by_name(widget_obj_, "idle_action_row");
-        if (actions && helix::ui::is_shown(actions) &&
-            helix::ui::is_on_active_screen(actions)) {
+        if (actions && helix::ui::is_shown(actions) && helix::ui::is_on_active_screen(actions)) {
             lv_obj_update_layout(actions);
             const int chrome = 2 * (theme_manager_get_spacing("space_md") + 1);
             const auto needs = measure_idle_card_needs(lv_obj_get_content_width(actions) + chrome);

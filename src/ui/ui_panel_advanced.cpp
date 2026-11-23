@@ -190,7 +190,8 @@ void AdvancedPanel::handle_history_clicked() {
 void AdvancedPanel::handle_pid_tuning_clicked() {
     auto* api = get_moonraker_api();
     if (!api || api->hardware().heaters().empty() ||
-        !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject())) return;
+        !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject()))
+        return;
     spdlog::debug("[{}] PID Tuning clicked - opening calibration panel", get_name());
 
 #if defined(HELIX_PLATFORM_ESP32)
@@ -206,8 +207,10 @@ void AdvancedPanel::handle_pid_tuning_clicked() {
 }
 
 void AdvancedPanel::handle_pa_tuning_clicked() {
-    if (!lv_subject_get_int(get_printer_state().capabilities_state().subject(helix::Capability::HasExtruder)) ||
-        !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject())) return;
+    if (!lv_subject_get_int(
+            get_printer_state().capabilities_state().subject(helix::Capability::HasExtruder)) ||
+        !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject()))
+        return;
 #if defined(HELIX_PLATFORM_ESP32)
     // The tuner is not in the v1 Core+AMS cut, and a reference here would link it.
     helix::ui::show_feature_unavailable_toast();

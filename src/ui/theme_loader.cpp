@@ -1,19 +1,19 @@
 // Copyright (C) 2025-2026 356C LLC
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "nemesis_theme.h"
 #include "theme_loader.h"
 
 #include "border_radius_sizes.h"
 #include "config.h"
-#include "wizard_config_paths.h"
 #include "data_root_resolver.h"
 #include "exception_policy.h"
 #include "helix_fs.h"
 #include "json_utils.h"
+#include "nemesis_theme.h"
 #include "sort_small.h"
 #include "system/sha256_util.h"
 #include "text_io.h"
+#include "wizard_config_paths.h"
 
 #include <spdlog/spdlog.h>
 
@@ -617,12 +617,13 @@ std::vector<ThemeInfo> discover_themes(const std::string& themes_dir) {
 std::vector<ThemeInfo> discover_picker_themes(const std::string& themes_dir) {
     auto themes = discover_themes(themes_dir);
     auto* config = Config::get_instance();
-    const bool nemesis = config->get<std::string>(config->df() + PRINTER_IMAGE, "") == kNemesisImage;
+    const bool nemesis =
+        config->get<std::string>(config->df() + PRINTER_IMAGE, "") == kNemesisImage;
     if (!nemesis) {
-        themes.erase(std::remove_if(themes.begin(), themes.end(), [](const ThemeInfo& theme) {
-                         return theme.filename == kNemesisTheme;
-                     }),
-                     themes.end());
+        themes.erase(
+            std::remove_if(themes.begin(), themes.end(),
+                           [](const ThemeInfo& theme) { return theme.filename == kNemesisTheme; }),
+            themes.end());
         if (!themes.empty()) {
             return themes;
         }

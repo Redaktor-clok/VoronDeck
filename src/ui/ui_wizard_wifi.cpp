@@ -226,7 +226,7 @@ void WizardWifiStep::update_wifi_ip(const char* ip, const std::string& mac) {
 
 void WizardWifiStep::apply_wifi_address(const WifiBackend::ConnectionStatus& status) {
     update_wifi_ip(status.awaiting_ip() ? lv_tr("Obtaining IP address...")
-                                       : (status.connected ? status.ip_address.c_str() : ""),
+                                        : (status.connected ? status.ip_address.c_str() : ""),
                    status.mac_address);
     if (status.awaiting_ip() && !cleanup_called_) {
         // wpa_supplicant reports association before DHCP completes, with no
@@ -240,8 +240,7 @@ void WizardWifiStep::apply_wifi_address(const WifiBackend::ConnectionStatus& sta
 }
 
 void WizardWifiStep::retry_wifi_address() {
-    if (cleanup_called_ || !address_retry_timer_ || !wifi_manager_ ||
-        address_read_in_flight_) {
+    if (cleanup_called_ || !address_retry_timer_ || !wifi_manager_ || address_read_in_flight_) {
         return;
     }
     address_read_in_flight_ = true;

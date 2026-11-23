@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "cjk_font_manager.h"
-#include "nemesis_fonts.h"
 
 #include "ui_fonts.h"
 
+#include "nemesis_fonts.h"
 #include "spdlog/spdlog.h"
 
 #ifndef HELIX_MAX_FONT_TIER

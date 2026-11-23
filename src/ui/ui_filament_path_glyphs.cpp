@@ -402,8 +402,7 @@ void draw_schematic_toolhead(lv_layer_t* layer, int32_t cx, int32_t cy,
     rect.border_color = theme_manager_get_color("text_muted");
     rect.border_width = 2;
     rect.radius = std::max(3, scale / 2);
-    lv_area_t area = {cx - scale * 2, cy - scale * 5 / 4,
-                      cx + scale * 2, cy + scale * 5 / 4};
+    lv_area_t area = {cx - scale * 2, cy - scale * 5 / 4, cx + scale * 2, cy + scale * 5 / 4};
     lv_draw_rect(layer, &rect, &area);
     rect.radius = LV_RADIUS_CIRCLE;
     rect.bg_opa = LV_OPA_TRANSP;

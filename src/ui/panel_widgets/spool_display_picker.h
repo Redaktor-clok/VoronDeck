@@ -10,9 +10,14 @@ class SpoolDisplayPicker : public ui::ContextMenu {
     HELIX_CONTEXT_MENU_KIND(SpoolDisplayPicker)
   public:
     SpoolDisplayPicker();
+
   protected:
-    const char* xml_component_name() const override { return "spool_display_picker"; }
-    CardWidth card_width() const override { return {40, 220, 300}; }
+    const char* xml_component_name() const override {
+        return "spool_display_picker";
+    }
+    CardWidth card_width() const override {
+        return {40, 220, 300};
+    }
 };
 
 } // namespace helix

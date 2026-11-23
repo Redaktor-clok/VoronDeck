@@ -871,8 +871,9 @@ void PrintSelectPanel::setup(lv_obj_t* panel, lv_obj_t* parent_screen) {
                 self->plugin_self_heal_.on_plugin_reported();
             },
             printer_state_.get_subjects_lifetime());
-        spdlog::trace("[{}] Registered observer on helix_plugin_installed for installed-plugin repair",
-                      get_name());
+        spdlog::trace(
+            "[{}] Registered observer on helix_plugin_installed for installed-plugin repair",
+            get_name());
     }
 
     // Register observer on PrintHistoryManager to update file status when history changes

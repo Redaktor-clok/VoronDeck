@@ -333,9 +333,10 @@ void PrintPreparationManager::recalculate_estimate(const FileMetadata* file_meta
     const int bucket = helix::PreprintPredictor::temp_bucket_for(bed_temp);
     const auto* scan = scan_result_for(file_key);
     const auto window = pre_start_block(collect_macro_skip_params(), file_key, scan).gcode.empty()
-        ? helix::PreprintWindow::PrinterEdge : helix::PreprintWindow::HostPreStart;
+                            ? helix::PreprintWindow::PrinterEdge
+                            : helix::PreprintWindow::HostPreStart;
     lv_subject_set_int(&preprint_estimate_subject_,
-        helix::PreprintPredictor::measured_total_from_config(bucket, window));
+                       helix::PreprintPredictor::measured_total_from_config(bucket, window));
 }
 
 helix::PreprintPhaseOverrides PrintPreparationManager::preprint_phase_overrides() const {

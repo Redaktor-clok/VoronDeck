@@ -8,6 +8,7 @@
 #include "ui_nav.h"
 #include "ui_next_tick.h"
 #include "ui_panel_home.h"
+#include "ui_settings_display.h"
 #include "ui_subject_registry.h"
 #include "ui_timer_guard.h"
 #include "ui_update_queue.h"
@@ -23,7 +24,6 @@
 #include "ui_wizard_led_select.h"
 #include "ui_wizard_printer_identify.h"
 #include "ui_wizard_summary.h"
-#include "ui_settings_display.h"
 #include "ui_wizard_telemetry.h"
 #include "ui_wizard_touch_calibration.h"
 #include "ui_wizard_wifi.h"
@@ -305,8 +305,8 @@ void ui_wizard_open_device_editor(helix::wizard::StepId step) {
     if (navigating || !g_step_subset.empty() ||
         lv_subject_get_int(&current_step) != static_cast<int>(StepId::Devices))
         return;
-    if (step != StepId::HeaterSelect && step != StepId::FanSelect &&
-        step != StepId::AmsIdentify && step != StepId::LedSelect && step != StepId::FilamentSensor)
+    if (step != StepId::HeaterSelect && step != StepId::FanSelect && step != StepId::AmsIdentify &&
+        step != StepId::LedSelect && step != StepId::FilamentSensor)
         return;
     g_device_editor = true;
     navigating = true;

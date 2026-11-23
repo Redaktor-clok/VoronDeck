@@ -20,7 +20,8 @@ namespace helix::settings {
  * @brief Overlay for browsing and selecting printer images
  *
  * Displays shipped and custom printer images as responsive visual cards.
- * Users can select an image or choose auto-detect mode. Cards use the existing display-sized preview assets.
+ * Users can select an image or choose auto-detect mode. Cards use the existing display-sized
+ * preview assets.
  *
  * ## Usage:
  *
@@ -80,8 +81,8 @@ class PrinterImageOverlay : public OverlayBase {
         SubjectManager subjects;
     };
     void append_card(std::vector<std::unique_ptr<ImageCard>>& cards, const char* group,
-                     const std::string& id, const std::string& name,
-                     const std::string& path, bool valid);
+                     const std::string& id, const std::string& name, const std::string& path,
+                     bool valid);
     std::vector<std::unique_ptr<ImageCard>> shipped_cards_, custom_cards_;
     lv_subject_t shipped_count_{}, custom_count_{}, current_printer_{};
     char current_printer_buf_[128]{};

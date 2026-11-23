@@ -410,8 +410,7 @@ void LedSettingsOverlay::rebuild_macro_edit_controls(lv_obj_t* container, int in
     lv_obj_set_style_pad_right(type_help, help_pad_hor, 0);
     switch (macro.type) {
     case helix::led::MacroLedType::ON_OFF:
-        lv_label_set_text(type_help,
-                          lv_tr("Separate on/off macros. VoronDeck tracks the state."));
+        lv_label_set_text(type_help, lv_tr("Separate on/off macros. VoronDeck tracks the state."));
         break;
     case helix::led::MacroLedType::TOGGLE:
         lv_label_set_text(type_help, lv_tr("Single toggle macro. State is not tracked."));

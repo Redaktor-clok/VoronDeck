@@ -226,7 +226,8 @@ void CalloutPresenter::place_chip(const CalloutChipOut& c, const Chip& part, boo
                          lv_obj_get_style_pad_right(obj, LV_PART_MAIN) +
                          2 * lv_obj_get_style_border_width(obj, LV_PART_MAIN);
     const int around_text = chrome_w + part.icons + lv_obj_get_style_pad_column(obj, LV_PART_MAIN);
-    const int label_max = std::max(0, c.rect.w - (compact ? chrome_w + part.compact_icons : around_text));
+    const int label_max =
+        std::max(0, c.rect.w - (compact ? chrome_w + part.compact_icons : around_text));
     if (label && lv_obj_get_style_max_width(label, LV_PART_MAIN) != label_max) {
         // DECLARATIVE_OK: measured callout layout
         lv_obj_set_style_max_width(label, label_max, 0);

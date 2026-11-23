@@ -18,20 +18,20 @@
 #include "ui_settings_macro_buttons.h"
 #include "ui_settings_material_temps.h"
 #include "ui_settings_motion.h"
+#include "ui_settings_printer_maintenance.h"
 #include "ui_toast_manager.h"
 #include "ui_update_queue.h"
 
 #include "app_globals.h"
+#include "config.h"
 #include "i_moonraker_api.h"
+#include "i_moonraker_client.h"
 #include "plr_backend.h"
 #include "plr_plugin_rpc.h"
 #include "post_op_cooldown_manager.h"
 #include "safety_settings_manager.h"
 #include "settings_manager.h"
-#include "config.h"
-#include "i_moonraker_client.h"
 #include "static_subject_registry.h"
-#include "ui_settings_printer_maintenance.h"
 
 #include <spdlog/spdlog.h>
 
@@ -109,17 +109,21 @@ void apply_plr_mesh_include(bool add) {
 
 } // namespace
 
-PrintingSettingsOverlay::~PrintingSettingsOverlay() { deinit_subjects(); }
+PrintingSettingsOverlay::~PrintingSettingsOverlay() {
+    deinit_subjects();
+}
 
 void PrintingSettingsOverlay::init_subjects() {
     if (!init_subjects_guarded([this] {
-        UI_MANAGED_SUBJECT_INT(recovery_enabled_, 0, "macro_recovery_enabled", subjects_);
-        UI_MANAGED_SUBJECT_INT(recovery_disabled_, 1, "macro_recovery_disabled", subjects_);
-        UI_MANAGED_SUBJECT_STRING(recovery_status_, recovery_status_buf_, "",
-                                 "macro_recovery_status", subjects_);
-    })) return;
+            UI_MANAGED_SUBJECT_INT(recovery_enabled_, 0, "macro_recovery_enabled", subjects_);
+            UI_MANAGED_SUBJECT_INT(recovery_disabled_, 1, "macro_recovery_disabled", subjects_);
+            UI_MANAGED_SUBJECT_STRING(recovery_status_, recovery_status_buf_, "",
+                                      "macro_recovery_status", subjects_);
+        }))
+        return;
     StaticSubjectRegistry::instance().register_deinit("PrintingSettingsOverlay", [] {
-        if (auto* overlay = lazy_global_if_exists<PrintingSettingsOverlay>()) overlay->deinit_subjects();
+        if (auto* overlay = lazy_global_if_exists<PrintingSettingsOverlay>())
+            overlay->deinit_subjects();
     });
 }
 
@@ -144,121 +148,141 @@ void PrintingSettingsOverlay::recovery_request(const std::string& method, const 
         recovery_status(lv_tr("Printer is disconnected"));
         return;
     }
-    if (recovery_busy_) return;
+    if (recovery_busy_)
+        return;
     recovery_busy_ = true;
     lv_subject_set_int(&recovery_disabled_, 1);
     recovery_status(lv_tr("Please wait..."));
     const auto generation = ++recovery_generation_;
     const auto printer = Config::get_instance()->get_active_printer_id();
     auto token = lifetime_.token();
-    client->send_jsonrpc(method, params,
+    client->send_jsonrpc(
+        method, params,
         [this, token, generation, printer, client, done](const json& response) {
-            token.defer("PrintingSettings::recovery", [this, generation, printer, client, done, response] {
-                if (!subjects_initialized_ || generation != recovery_generation_ ||
-                    client != get_moonraker_client() || client->get_connection_state() != ConnectionState::CONNECTED ||
-                    printer != Config::get_instance()->get_active_printer_id()) return;
-                recovery_busy_ = false;
-                try {
-                    // The mock's successful G-code acknowledgement is an empty object;
-                    // state reads still require their complete status/version payload.
-                    done(response.contains("result") ? response.at("result") : response);
-                    lv_subject_set_int(&recovery_disabled_, recovery_supported_ && !recovery_busy_ ? 0 : 1);
-                } catch (const json::exception&) {
-                    recovery_supported_ = false;
-                    lv_subject_set_int(&recovery_disabled_, 1);
-                    recovery_status(lv_tr("Invalid Moonraker response"));
-                }
-            });
+            token.defer(
+                "PrintingSettings::recovery", [this, generation, printer, client, done, response] {
+                    if (!subjects_initialized_ || generation != recovery_generation_ ||
+                        client != get_moonraker_client() ||
+                        client->get_connection_state() != ConnectionState::CONNECTED ||
+                        printer != Config::get_instance()->get_active_printer_id())
+                        return;
+                    recovery_busy_ = false;
+                    try {
+                        // The mock's successful G-code acknowledgement is an empty object;
+                        // state reads still require their complete status/version payload.
+                        done(response.contains("result") ? response.at("result") : response);
+                        lv_subject_set_int(&recovery_disabled_,
+                                           recovery_supported_ && !recovery_busy_ ? 0 : 1);
+                    } catch (const json::exception&) {
+                        recovery_supported_ = false;
+                        lv_subject_set_int(&recovery_disabled_, 1);
+                        recovery_status(lv_tr("Invalid Moonraker response"));
+                    }
+                });
         },
         [this, token, generation, printer, client](const MoonrakerError&) {
             token.defer("PrintingSettings::recovery_error", [this, generation, printer, client] {
                 if (!subjects_initialized_ || generation != recovery_generation_ ||
                     client != get_moonraker_client() ||
-                    printer != Config::get_instance()->get_active_printer_id()) return;
+                    printer != Config::get_instance()->get_active_printer_id())
+                    return;
                 recovery_busy_ = false;
                 recovery_supported_ = false;
                 lv_subject_set_int(&recovery_disabled_, 1);
-                recovery_status(lv_tr("Recovery request failed. Reopen this page to refresh its state."));
+                recovery_status(
+                    lv_tr("Recovery request failed. Reopen this page to refresh its state."));
             });
-        }, timeout);
+        },
+        timeout);
 }
 
 void PrintingSettingsOverlay::query_macro_recovery() {
-    recovery_request("printer.objects.query", {{"objects", {
-        {"save_variables", json::array({"variables"})},
-        {"gcode_macro RECOVERY_SET_ENABLED", nullptr}}}}, [this](const json& result) {
-        const auto& status = result.at("status");
-        const auto macro = status.value("gcode_macro RECOVERY_SET_ENABLED", json::object());
-        recovery_supported_ = macro.value("protocol", 0) == 1;
-        if (!recovery_supported_) {
-            recovery_status(lv_tr("Update recovery macros to enable this switch, then restart Klipper."));
-            return;
-        }
-        const auto variables = status.at("save_variables").at("variables");
-        const int enabled = variables.value("recovery_enabled", 1);
-        if (enabled != 0 && enabled != 1) {
-            recovery_supported_ = false;
-            recovery_status(lv_tr("Invalid Moonraker response"));
-            return;
-        }
-        lv_subject_set_int(&recovery_enabled_, enabled);
-        lv_subject_notify(&recovery_enabled_);
-        const auto version = macro.value("version", std::string{});
-        const auto text = std::string("VoronDeck Recovery ") + version + "\n" +
-            lv_tr(enabled ? "Recovery checkpoints enabled" : "Recovery checkpoints disabled");
-        recovery_status(text.c_str());
-    });
+    recovery_request(
+        "printer.objects.query",
+        {{"objects",
+          {{"save_variables", json::array({"variables"})},
+           {"gcode_macro RECOVERY_SET_ENABLED", nullptr}}}},
+        [this](const json& result) {
+            const auto& status = result.at("status");
+            const auto macro = status.value("gcode_macro RECOVERY_SET_ENABLED", json::object());
+            recovery_supported_ = macro.value("protocol", 0) == 1;
+            if (!recovery_supported_) {
+                recovery_status(
+                    lv_tr("Update recovery macros to enable this switch, then restart Klipper."));
+                return;
+            }
+            const auto variables = status.at("save_variables").at("variables");
+            const int enabled = variables.value("recovery_enabled", 1);
+            if (enabled != 0 && enabled != 1) {
+                recovery_supported_ = false;
+                recovery_status(lv_tr("Invalid Moonraker response"));
+                return;
+            }
+            lv_subject_set_int(&recovery_enabled_, enabled);
+            lv_subject_notify(&recovery_enabled_);
+            const auto version = macro.value("version", std::string{});
+            const auto text =
+                std::string("VoronDeck Recovery ") + version + "\n" +
+                lv_tr(enabled ? "Recovery checkpoints enabled" : "Recovery checkpoints disabled");
+            recovery_status(text.c_str());
+        });
 }
 
 void PrintingSettingsOverlay::set_macro_recovery(bool enabled) {
     // The switch displays confirmed printer state, never the optimistic tap.
     lv_subject_notify(&recovery_enabled_);
-    if (recovery_busy_ || !recovery_supported_) return;
+    if (recovery_busy_ || !recovery_supported_)
+        return;
     if (lv_subject_get_int(get_printer_state().print_state().get_job_holds_machine_subject()) ||
         get_printer_state().is_paused()) {
         recovery_status(lv_tr("Stop printing before changing recovery settings."));
         return;
     }
-    recovery_request("printer.gcode.script",
-                     {{"script", enabled ? "RECOVERY_SET_ENABLED ENABLE=1" : "RECOVERY_SET_ENABLED ENABLE=0"}},
-                     [this](const json&) { query_macro_recovery(); });
+    recovery_request(
+        "printer.gcode.script",
+        {{"script", enabled ? "RECOVERY_SET_ENABLED ENABLE=1" : "RECOVERY_SET_ENABLED ENABLE=0"}},
+        [this](const json&) { query_macro_recovery(); });
 }
 
 void PrintingSettingsOverlay::check_recovery_updates() {
-    recovery_request("machine.update.refresh", {{"name", "vorondeck_recovery"}}, [this](const json& result) {
-        const auto versions = result.value("version_info", json::object());
-        const auto component = versions.value("vorondeck_recovery", json::object());
-        if (component.empty()) {
-            recovery_status(lv_tr("Recovery update component is not configured."));
-            return;
-        }
-        const auto version = component.value("version", std::string{});
-        const auto remote = component.value("remote_version", std::string{});
-        std::string text = "VoronDeck Recovery " + version + "\n";
-        if (component.value("restart_required", false)) {
-            text += lv_tr("Recovery updated. Restart Klipper to activate it.");
-        } else if (!component.value("is_valid", false) || remote.empty() ||
-                   !component.value("last_error", std::string{}).empty()) {
-            text += lv_tr("Recovery update check failed. Check the network and repository access.");
-        } else {
-            text += lv_tr(version == remote ? "Up to date" : "Update available");
-            if (version != remote) text += " · " + remote;
-        }
-        recovery_status(text.c_str());
-    }, 360000);
+    recovery_request(
+        "machine.update.refresh", {{"name", "vorondeck_recovery"}},
+        [this](const json& result) {
+            const auto versions = result.value("version_info", json::object());
+            const auto component = versions.value("vorondeck_recovery", json::object());
+            if (component.empty()) {
+                recovery_status(lv_tr("Recovery update component is not configured."));
+                return;
+            }
+            const auto version = component.value("version", std::string{});
+            const auto remote = component.value("remote_version", std::string{});
+            std::string text = "VoronDeck Recovery " + version + "\n";
+            if (component.value("restart_required", false)) {
+                text += lv_tr("Recovery updated. Restart Klipper to activate it.");
+            } else if (!component.value("is_valid", false) || remote.empty() ||
+                       !component.value("last_error", std::string{}).empty()) {
+                text +=
+                    lv_tr("Recovery update check failed. Check the network and repository access.");
+            } else {
+                text += lv_tr(version == remote ? "Up to date" : "Update available");
+                if (version != remote)
+                    text += " · " + remote;
+            }
+            recovery_status(text.c_str());
+        },
+        360000);
 }
 
 void PrintingSettingsOverlay::register_callbacks() {
     register_xml_callbacks({
-        {"on_macro_recovery_changed", [](lv_event_t* e) {
-            get_printing_settings_overlay().set_macro_recovery(event_checked(e));
-        }},
-        {"on_recovery_check_updates", [](lv_event_t*) {
-            get_printing_settings_overlay().check_recovery_updates();
-        }},
-        {"on_recovery_component_updates", [](lv_event_t*) {
-            get_printer_maintenance_overlay().open(lv_screen_active(), true);
-        }},
+        {"on_macro_recovery_changed",
+         [](lv_event_t* e) {
+             get_printing_settings_overlay().set_macro_recovery(event_checked(e));
+         }},
+        {"on_recovery_check_updates",
+         [](lv_event_t*) { get_printing_settings_overlay().check_recovery_updates(); }},
+        {"on_recovery_component_updates",
+         [](lv_event_t*) { get_printer_maintenance_overlay().open(lv_screen_active(), true); }},
         {"on_enclosure_style_changed",
          [](lv_event_t* e) {
              SettingsManager::instance().set_enclosure_style(
@@ -365,19 +389,25 @@ void PrintingSettingsOverlay::register_callbacks() {
             lv_subject_set_int(&self->recovery_disabled_, 1);
             if (state != 1) {
                 self->recovery_status(lv_tr("Printer is disconnected"));
-            } else if (self->visible_ && lv_subject_get_int(get_printer_state().capabilities_state().subject(helix::Capability::HasRecoveryMacros))) {
+            } else if (self->visible_ &&
+                       lv_subject_get_int(get_printer_state().capabilities_state().subject(
+                           helix::Capability::HasRecoveryMacros))) {
                 self->query_macro_recovery();
             }
-        }, get_printer_state().get_subjects_lifetime());
+        },
+        get_printer_state().get_subjects_lifetime());
     recovery_capability_observer_ = helix::ui::observe<int>(
-        get_printer_state().capabilities_state().subject(helix::Capability::HasRecoveryMacros), this,
+        get_printer_state().capabilities_state().subject(helix::Capability::HasRecoveryMacros),
+        this,
         [](PrintingSettingsOverlay* self, int present) {
             ++self->recovery_generation_;
             self->recovery_busy_ = false;
             self->recovery_supported_ = false;
             lv_subject_set_int(&self->recovery_disabled_, 1);
-            if (present && self->visible_) self->query_macro_recovery();
-        }, get_printer_state().get_subjects_lifetime());
+            if (present && self->visible_)
+                self->query_macro_recovery();
+        },
+        get_printer_state().get_subjects_lifetime());
 }
 
 void PrintingSettingsOverlay::on_activate() {
@@ -387,7 +417,8 @@ void PrintingSettingsOverlay::on_activate() {
     recovery_busy_ = false;
     recovery_supported_ = false;
     lv_subject_set_int(&recovery_disabled_, 1);
-    if (lv_subject_get_int(get_printer_state().capabilities_state().subject(helix::Capability::HasRecoveryMacros))) {
+    if (lv_subject_get_int(get_printer_state().capabilities_state().subject(
+            helix::Capability::HasRecoveryMacros))) {
         query_macro_recovery();
     }
 }

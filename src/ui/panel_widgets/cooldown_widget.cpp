@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "cooldown_widget.h"
 
-#include "app_globals.h"
-#include "i_moonraker_api.h"
-#include "panel_widget_registry.h"
-#include "printer_state.h"
 #include "ui_error_reporting.h"
 #include "ui_event_safety.h"
 #include "ui_temperature_utils.h"
 
+#include "app_globals.h"
+#include "i_moonraker_api.h"
+#include "panel_widget_registry.h"
+#include "printer_state.h"
+
 namespace helix {
 void register_cooldown_widget() {
-    register_widget_factory("cooldown", [](const std::string&) {
-        return std::make_unique<CooldownWidget>();
-    });
+    register_widget_factory("cooldown",
+                            [](const std::string&) { return std::make_unique<CooldownWidget>(); });
     lv_xml_register_event_cb(nullptr, "cooldown_widget_clicked_cb", CooldownWidget::clicked_cb);
 }
 

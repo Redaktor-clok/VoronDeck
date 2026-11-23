@@ -5,12 +5,12 @@
 
 #include "ui_ams_edit_follow_up.h"
 #include "ui_ams_edit_overlay.h"
-#include "ui_external_spool_overview.h"
 #include "ui_color_picker.h"
 #include "ui_error_reporting.h"
 #include "ui_event_safety.h"
-#include "ui_spool_canvas.h"
+#include "ui_external_spool_overview.h"
 #include "ui_fonts.h"
+#include "ui_spool_canvas.h"
 #include "ui_tile_rung.h"
 #include "ui_toast_manager.h"
 #include "ui_utils.h"
@@ -33,8 +33,8 @@
 
 #include <spdlog/spdlog.h>
 
-#include <optional>
 #include <algorithm>
+#include <optional>
 
 namespace helix {
 
@@ -60,7 +60,8 @@ ActiveSpoolWidget::ActiveSpoolWidget(IMoonrakerAPI* api)
     UI_MANAGED_SUBJECT_STRING(summary_subject_, summary_buf_, "", "active_spool_summary",
                               subjects_);
     UI_MANAGED_SUBJECT_INT(has_summary_subject_, 0, "active_spool_has_summary", subjects_);
-    UI_MANAGED_SUBJECT_STRING(percent_subject_, percent_buf_, "", "active_spool_percent", subjects_);
+    UI_MANAGED_SUBJECT_STRING(percent_subject_, percent_buf_, "", "active_spool_percent",
+                              subjects_);
     UI_MANAGED_SUBJECT_INT(has_percent_subject_, 0, "active_spool_has_percent", subjects_);
     UI_MANAGED_SUBJECT_STRING(badge_subject_, badge_buf_, "1", "active_spool_badge", subjects_);
     display_picker_.set_action_callback([this](int action, int) {
@@ -212,8 +213,7 @@ void ActiveSpoolWidget::resize_spool_canvases() {
         const int target = simplified_ ? 58 : wide_spool_edge();
         const int width = granted_width_ > 0 ? granted_width_ : lv_obj_get_width(widget_obj_);
         const int height = lv_obj_get_content_height(lv_obj_get_parent(spool_wide_));
-        const int edge = std::min({target, std::max(24, width / 3),
-                                  height > 0 ? height : target});
+        const int edge = std::min({target, std::max(24, width / 3), height > 0 ? height : target});
         ui_spool_canvas_set_size(spool_wide_, edge);
     }
     if (spool_compact_) {
@@ -332,7 +332,8 @@ void ActiveSpoolWidget::update_spool_display() {
         auto* config = Config::get_instance();
         const auto units = config ? HomeScreenPreferences(*config).spool_units()
                                   : HomeScreenPreferences::SpoolUnits{};
-        auto* number_label = widget_obj_ ? lv_obj_find_by_name(widget_obj_, "spoolman_weight") : nullptr;
+        auto* number_label =
+            widget_obj_ ? lv_obj_find_by_name(widget_obj_, "spoolman_weight") : nullptr;
         const int text_width = number_label ? lv_obj_get_width(number_label) : 0;
         const lv_font_t* number_font = theme_manager_get_font("font_xs");
         const auto measured_width = [](const std::string& text, const lv_font_t* font) {
@@ -341,8 +342,9 @@ void ActiveSpoolWidget::update_spool_display() {
             return static_cast<int>(size.x);
         };
         const std::string full_summary = home_spool_summary(amount, units);
-        const bool condensed = simplified_ || (is_wide_ && text_width > 0 &&
-            measured_width(full_summary, number_font) > text_width);
+        const bool condensed =
+            simplified_ ||
+            (is_wide_ && text_width > 0 && measured_width(full_summary, number_font) > text_width);
         if (condensed) {
             percent = home_spool_summary(amount, {units.percent, false, false}, false);
             summary = home_spool_summary(amount, {false, units.grams, units.metres}, false);
@@ -356,12 +358,14 @@ void ActiveSpoolWidget::update_spool_display() {
             }
             const double fill = home_spool_fill_level(amount);
             if (active_spool)
-                ui_spool_canvas_set_fill_level(active_spool, fill >= 0 ? static_cast<float>(fill) : 0.0f);
+                ui_spool_canvas_set_fill_level(active_spool,
+                                               fill >= 0 ? static_cast<float>(fill) : 0.0f);
         } else {
             summary = full_summary;
         }
         if (number_label && is_wide_ && text_width > 0) {
-            const lv_font_t* candidates[] = {number_font, &noto_sans_12, &noto_sans_11, &noto_sans_10};
+            const lv_font_t* candidates[] = {number_font, &noto_sans_12, &noto_sans_11,
+                                             &noto_sans_10};
             for (const auto* font : candidates) {
                 number_font = font;
                 if (measured_width(summary, font) <= text_width)

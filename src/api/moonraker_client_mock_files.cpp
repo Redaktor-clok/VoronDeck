@@ -381,20 +381,20 @@ void register_file_handlers(std::unordered_map<std::string, MethodHandler>& regi
            helix::SharedCallback<void(const json&)> success_cb,
            helix::SharedCallback<void(const MoonrakerError&)> /*error_cb*/) -> bool {
         if (success_cb) {
-            success_cb(json{{"result", json::array({
-                                          {{"name", "gcodes"},
-                                           {"path", "/mock/printer_data/gcodes"},
-                                           {"permissions", "rw"}},
-                                          {{"name", "config"},
-                                           {"path", "/mock/printer_data/config"},
-                                           {"permissions", "rw"}},
-                                          {{"name", "logs"},
-                                           {"path", "/mock/printer_data/logs"},
-                                           {"permissions", "r"}},
-                                          {{"name", "timelapse"},
-                                           {"path", "/mock/printer_data/timelapse"},
-                                           {"permissions", "rw"}},
-                                      })}});
+            success_cb(json{
+                {"result",
+                 json::array({
+                     {{"name", "gcodes"},
+                      {"path", "/mock/printer_data/gcodes"},
+                      {"permissions", "rw"}},
+                     {{"name", "config"},
+                      {"path", "/mock/printer_data/config"},
+                      {"permissions", "rw"}},
+                     {{"name", "logs"}, {"path", "/mock/printer_data/logs"}, {"permissions", "r"}},
+                     {{"name", "timelapse"},
+                      {"path", "/mock/printer_data/timelapse"},
+                      {"permissions", "rw"}},
+                 })}});
         }
         return true;
     };

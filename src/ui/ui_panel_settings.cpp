@@ -20,9 +20,8 @@
 #include "ui_settings_hardware_health.h"
 #include "ui_settings_help.h"
 #include "ui_settings_home_screen.h"
-#include "ui_settings_printer_maintenance.h"
-#include "preprint_predictor.h"
 #include "ui_settings_language_time.h"
+#include "ui_settings_printer_maintenance.h"
 #include "ui_settings_printing.h"
 #include "ui_settings_safety.h"
 #include "ui_settings_sound.h"
@@ -49,6 +48,7 @@
 #include "lvgl.h"
 #include "moonraker_manager.h"
 #include "platform_info.h"
+#include "preprint_predictor.h"
 #include "printer_hardware.h"
 #include "printer_state.h"
 #include "settings_manager.h"
@@ -98,8 +98,8 @@ void SettingsPanel::init_subjects() {
     }
 
     UI_MANAGED_SUBJECT_INT(measured_preparation_subject_,
-        helix::PreprintPredictor::measured_time_enabled() ? 1 : 0,
-        "settings_measured_preparation", subjects_);
+                           helix::PreprintPredictor::measured_time_enabled() ? 1 : 0,
+                           "settings_measured_preparation", subjects_);
 
     // Initialize visibility subjects (controls which settings are shown)
     // Note: show_beta_features subject is initialized globally in app_globals.cpp
@@ -222,7 +222,7 @@ std::string status_string_subject(const char* name, const char* fallback) {
 void SettingsPanel::refresh_status_lines() {
     using namespace helix::settings::status;
     lv_subject_set_int(&measured_preparation_subject_,
-        helix::PreprintPredictor::measured_time_enabled() ? 1 : 0);
+                       helix::PreprintPredictor::measured_time_enabled() ? 1 : 0);
 
     // Formatted here rather than once at init, so it is in the language of the
     // latest return to the settings root.
@@ -366,11 +366,13 @@ void register_settings_panel_callbacks() {
 
     using namespace helix::settings;
     register_xml_callbacks({
-        {"on_measured_preparation_changed", [](lv_event_t* e) {
-            const bool enabled = helix::ui::event_checked(e);
-            helix::PreprintPredictor::set_measured_time_enabled(enabled);
-            lv_subject_set_int(&get_global_settings_panel().measured_preparation_subject_, enabled ? 1 : 0);
-        }},
+        {"on_measured_preparation_changed",
+         [](lv_event_t* e) {
+             const bool enabled = helix::ui::event_checked(e);
+             helix::PreprintPredictor::set_measured_time_enabled(enabled);
+             lv_subject_set_int(&get_global_settings_panel().measured_preparation_subject_,
+                                enabled ? 1 : 0);
+         }},
         // Root rows
         {"on_display_clicked", nav_row<get_display_settings_overlay>()},
         {"on_home_screen_clicked", nav_row<get_home_screen_settings_overlay>()},
@@ -378,8 +380,10 @@ void register_settings_panel_callbacks() {
         {"on_sound_clicked", nav_row<get_sound_settings_overlay>()},
         {"on_language_time_clicked", nav_row<get_language_time_settings_overlay>()},
         {"on_printer_clicked", nav_row<get_printer_manager_overlay>()},
-        {"on_printer_reset_clicked", [](lv_event_t*) { get_printer_maintenance_overlay().open(settings_screen(),false); }},
-        {"on_printer_component_updates_clicked", [](lv_event_t*) { get_printer_maintenance_overlay().open(settings_screen(),true); }},
+        {"on_printer_reset_clicked",
+         [](lv_event_t*) { get_printer_maintenance_overlay().open(settings_screen(), false); }},
+        {"on_printer_component_updates_clicked",
+         [](lv_event_t*) { get_printer_maintenance_overlay().open(settings_screen(), true); }},
         {"on_printing_clicked", nav_row<get_printing_settings_overlay>()},
         {"on_devices_clicked", nav_row<get_hardware_settings_overlay>()},
         {"on_safety_clicked", nav_row<get_safety_settings_overlay>()},

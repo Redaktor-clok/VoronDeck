@@ -8,8 +8,8 @@
 
 #include <spdlog/spdlog.h>
 
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 EthernetBackendMock::EthernetBackendMock() {

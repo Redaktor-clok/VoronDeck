@@ -183,8 +183,8 @@ void SpoolmanListView::configure_row(RowWidgets& rw, const SpoolInfo& spool, int
         helix::ui::spool_canvas_set_filament(rw.canvas, rgb, spool.multi_color_hexes,
                                              helix::ui::swatch_finish(spool.finish()));
 
-        const double fill = helix::home_spool_fill_level(
-            {spool.remaining_weight_g, spool.initial_weight_g});
+        const double fill =
+            helix::home_spool_fill_level({spool.remaining_weight_g, spool.initial_weight_g});
         ui_spool_canvas_set_fill_level(rw.canvas, fill < 0 ? 0.0f : static_cast<float>(fill));
         ui_spool_canvas_redraw(rw.canvas);
     }

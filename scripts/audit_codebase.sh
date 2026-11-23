@@ -142,6 +142,8 @@ section() {
     echo -e "${CYAN}=== $1 ===${NC}"
 }
 
+LVGL_CLEANUP_CHECK="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check_lvgl_cleanup.py"
+
 # Change to repo root
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
@@ -295,32 +297,11 @@ if [ "$FILE_MODE" = true ]; then
                 continue
             fi
 
-            # Check for manual lv_display_delete (lv_deinit iterates and deletes all displays)
-            # Exclude comments: // style, Doxygen * style, and @tag documentation
-            set +e
-            display_delete=$(grep -n 'lv_display_delete' "$f" 2>/dev/null | grep -v '//' | grep -v '^\s*\*' | grep -v '@')
-            set -e
-            if [ -n "$display_delete" ]; then
-                error "$fname: uses lv_display_delete() - lv_deinit() handles this, causes double-free"
-                echo "$display_delete" | head -3
-            fi
-
-            # Check for manual lv_group_delete (lv_deinit calls lv_group_deinit)
-            set +e
-            group_delete=$(grep -n 'lv_group_delete' "$f" 2>/dev/null | grep -v '//' | grep -v '^\s*\*' | grep -v '@')
-            set -e
-            if [ -n "$group_delete" ]; then
-                error "$fname: uses lv_group_delete() - lv_deinit() handles this, causes crash on dangling pointers"
-                echo "$group_delete" | head -3
-            fi
-
-            # Check for manual lv_indev_delete (also managed by lv_deinit)
-            set +e
-            indev_delete=$(grep -n 'lv_indev_delete' "$f" 2>/dev/null | grep -v '//' | grep -v '^\s*\*' | grep -v '@')
-            set -e
-            if [ -n "$indev_delete" ]; then
-                error "$fname: uses lv_indev_delete() - lv_deinit() handles this, causes double-free"
-                echo "$indev_delete" | head -3
+            if cleanup_report=$(python3 "$LVGL_CLEANUP_CHECK" "$f"); then
+                :
+            else
+                error "$fname: manual LVGL cleanup requires a lifecycle justification"
+                echo "$cleanup_report"
             fi
         done
 
@@ -673,31 +654,12 @@ fi
 #
 section "P2c: LVGL Shutdown Safety"
 
-echo "Checking for dangerous manual LVGL cleanup calls:"
-# Exclude comments: // line comments, NOTE: documentation, Doxygen * style
-set +e
-lv_display_delete_count=$(grep -rn 'lv_display_delete' src/ --include='*.cpp' 2>/dev/null | grep -v 'NOTE:' | grep -v ' \* @' | grep -v ':\s*//' | wc -l | tr -d ' ')
-lv_group_delete_count=$(grep -rn 'lv_group_delete' src/ --include='*.cpp' 2>/dev/null | grep -v 'NOTE:' | grep -v ' \* @' | grep -v ':\s*//' | wc -l | tr -d ' ')
-lv_indev_delete_count=$(grep -rn 'lv_indev_delete' src/ --include='*.cpp' 2>/dev/null | grep -v 'NOTE:' | grep -v ' \* @' | grep -v ':\s*//' | wc -l | tr -d ' ')
-set -e
-
-echo "  lv_display_delete: $lv_display_delete_count (should be 0)"
-echo "  lv_group_delete:   $lv_group_delete_count (should be 0)"
-echo "  lv_indev_delete:   $lv_indev_delete_count (should be 0)"
-
-total_dangerous=$((lv_display_delete_count + lv_group_delete_count + lv_indev_delete_count))
-if [ "$total_dangerous" -gt 0 ]; then
-    error "Found $total_dangerous dangerous LVGL cleanup calls - these cause double-free crashes!"
-    echo ""
-    echo "EXPLANATION: lv_deinit() already cleans up all displays, groups, and input devices."
-    echo "Manually calling these functions causes double-free or dangling pointer crashes."
-    echo ""
-    echo "Violations:"
-    set +e
-    grep -rn 'lv_display_delete\|lv_group_delete\|lv_indev_delete' src/ --include='*.cpp' 2>/dev/null | head -10
-    set -e
+echo "Checking manual LVGL cleanup ownership:"
+if cleanup_report=$(python3 "$LVGL_CLEANUP_CHECK"); then
+    success "$cleanup_report"
 else
-    success "No dangerous LVGL cleanup calls found"
+    error "Manual LVGL cleanup requires a lifecycle justification"
+    echo "$cleanup_report"
 fi
 
 #

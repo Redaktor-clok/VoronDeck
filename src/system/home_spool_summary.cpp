@@ -31,8 +31,9 @@ std::string home_spool_summary(const HomeSpoolAmount& amount,
         append(fmt::format("{:.0f}%", fill * 100));
     }
     if (units.grams && has_weight) {
-        append(has_total && show_total ? fmt::format("{:.0f} / {:.0f} g", amount.remaining_g, amount.total_g)
-                         : fmt::format("{:.0f} g", amount.remaining_g));
+        append(has_total && show_total
+                   ? fmt::format("{:.0f} / {:.0f} g", amount.remaining_g, amount.total_g)
+                   : fmt::format("{:.0f} g", amount.remaining_g));
     }
     if (units.metres) {
         if (known(amount.reported_metres)) {

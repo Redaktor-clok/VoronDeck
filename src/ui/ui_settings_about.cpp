@@ -46,8 +46,12 @@ namespace helix::settings {
 namespace {
 class SourceLicensesOverlay : public OverlayBase {
   public:
-    const char* get_name() const override { return "Source Licenses"; }
-    const char* xml_component() const override { return "source_licenses_overlay"; }
+    const char* get_name() const override {
+        return "Source Licenses";
+    }
+    const char* xml_component() const override {
+        return "source_licenses_overlay";
+    }
     void register_callbacks() override {
         if (!lv_xml_component_get_scope(xml_component())) {
             lv_xml_register_component_from_file(
@@ -115,7 +119,8 @@ static constexpr uint32_t kSecretTapTimeoutMs = 2000;
 
 void AboutSettingsOverlay::register_callbacks() {
     register_xml_callbacks({
-        {"on_source_licenses_clicked", [](lv_event_t*) {
+        {"on_source_licenses_clicked",
+         [](lv_event_t*) {
              lazy_global<SourceLicensesOverlay>("SourceLicensesOverlay").show(lv_screen_active());
          }},
         {"on_about_printer_name_clicked",

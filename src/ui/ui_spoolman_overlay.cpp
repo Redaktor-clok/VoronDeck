@@ -73,7 +73,6 @@ void SpoolmanOverlay::init_subjects() {
         // Initialize refresh interval subject (default: 30 seconds)
         UI_MANAGED_SUBJECT_INT(refresh_interval_subject_, kDefaultRefreshIntervalSeconds,
                                "ams_spoolman_refresh_interval", subjects_);
-
     });
 }
 

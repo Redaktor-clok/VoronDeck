@@ -11,8 +11,8 @@
 #include "app_globals.h"
 #include "config.h"
 #include "device_display_name.h"
-#include "i_moonraker_api.h"
 #include "home_heater_visibility.h"
+#include "i_moonraker_api.h"
 #include "observer_factory.h"
 #include "panel_widget_manager.h"
 #include "panel_widget_registry.h"
@@ -83,9 +83,11 @@ void register_temperature_widget() {
         if (auto* api = get_moonraker_api()) {
             const auto gcode = helix::ui::temperature::resolve_cooldown_gcode(
                 get_printer_state().temperature_state());
-            api->execute_gcode(gcode, []() {}, [](const MoonrakerError& error) {
-                spdlog::warn("[Home] Cooldown failed: {}", error.message);
-            });
+            api->execute_gcode(
+                gcode, []() {},
+                [](const MoonrakerError& error) {
+                    spdlog::warn("[Home] Cooldown failed: {}", error.message);
+                });
         }
     });
 }
@@ -135,9 +137,15 @@ void HeaterTempWidget::refresh_home_visibility() {
     const auto& temperatures = printer_state_.temperature_state();
     std::string object;
     switch (cfg_.heater) {
-    case HeaterType::Nozzle: object = temperatures.active_extruder_name(); break;
-    case HeaterType::Bed: object = "heater_bed"; break;
-    case HeaterType::Chamber: object = temperatures.chamber_temperature_source(); break;
+    case HeaterType::Nozzle:
+        object = temperatures.active_extruder_name();
+        break;
+    case HeaterType::Bed:
+        object = "heater_bed";
+        break;
+    case HeaterType::Chamber:
+        object = temperatures.chamber_temperature_source();
+        break;
     }
     const std::string label = get_display_name(object, DeviceType::HEATER);
     lv_subject_copy_string(&home_name_, label.c_str());

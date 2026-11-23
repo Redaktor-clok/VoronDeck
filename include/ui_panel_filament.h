@@ -26,8 +26,8 @@
 #include <array>
 #include <map>
 #include <optional>
-#include <vector>
 #include <string>
+#include <vector>
 
 // Forward declarations
 class TemperatureService;
@@ -353,7 +353,6 @@ class FilamentPanel : public PanelBase {
      * @return true when the picker opened, so the hold ends its press
      */
     bool handle_preset_longpress(int slot);
-
 
   private:
     //
@@ -693,8 +692,8 @@ class FilamentPanel : public PanelBase {
     std::vector<MaterialChoice> material_choices_;
     std::string material_selection_key_;
     std::optional<SelectedProfile> selected_profile() const;
-    std::map<std::string, std::string> profile_macro_parameters(
-        const SelectedProfile& profile, const std::string& macro) const;
+    std::map<std::string, std::string> profile_macro_parameters(const SelectedProfile& profile,
+                                                                const std::string& macro) const;
     void sync_material_selector_selection();
     void refresh_material_selector();
     helix::ui::WidgetRef material_selector_dropdown_;

@@ -24,8 +24,8 @@
 namespace helix::zoffset_cal {
 
 // Keep a valid configured strategy, but never choose a missing physical mechanism.
-ZOffsetCalibrationStrategy effective_strategy(ZOffsetCalibrationStrategy configured,
-                                               bool has_probe, bool has_physical_z_endstop);
+ZOffsetCalibrationStrategy effective_strategy(ZOffsetCalibrationStrategy configured, bool has_probe,
+                                              bool has_physical_z_endstop);
 
 /// Which part of the head the calibration reads at the starting XY.
 enum class ReadingPoint {

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "ui_observer_guard.h"
+
 #include "overlay_base.h"
 #include "static_panel_registry.h"
-#include "ui_observer_guard.h"
 
 namespace helix::ui {
 
@@ -12,9 +13,15 @@ namespace helix::ui {
 class ExternalSpoolOverview : public OverlayBase {
   public:
     ~ExternalSpoolOverview() override;
-    const char* get_name() const override { return "External Spool"; }
-    bool is_destination() const override { return true; }
-    const char* xml_component() const override { return "external_spool_overview"; }
+    const char* get_name() const override {
+        return "External Spool";
+    }
+    bool is_destination() const override {
+        return true;
+    }
+    const char* xml_component() const override {
+        return "external_spool_overview";
+    }
     void init_subjects() override;
     void deinit_subjects();
     void register_callbacks() override;

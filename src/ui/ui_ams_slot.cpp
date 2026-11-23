@@ -15,21 +15,21 @@
 #include "ams_lane_state.h"
 #include "ams_state.h"
 #include "ams_types.h"
+#include "app_globals.h"
 #include "data_root_resolver.h"
 #include "display_numbering.h"
 #include "display_settings_manager.h"
-#include "filament_display_name.h"
 #include "filament_database.h"
-#include "home_spool_summary.h"
-#include "app_globals.h"
-#include "printer_state.h"
+#include "filament_display_name.h"
 #include "helix-xml/src/xml/lv_xml.h"
 #include "helix-xml/src/xml/lv_xml_parser.h"
 #include "helix-xml/src/xml/lv_xml_widget.h"
 #include "helix-xml/src/xml/parsers/lv_xml_obj_parser.h"
+#include "home_spool_summary.h"
 #include "lvgl/lvgl.h"
 #include "observer_factory.h"
 #include "panel_widget_size.h"
+#include "printer_state.h"
 #include "static_subject_registry.h"
 #include "theme_manager.h"
 #include "ui/ams_drawing_utils.h"
@@ -251,10 +251,10 @@ static helix::SlotCardLines slot_lines(const AmsSlotData* data) {
     const char* material = material_subject ? lv_subject_get_string(material_subject) : "";
     const char* name = name_subject ? lv_subject_get_string(name_subject) : "";
 
-    return helix::slot_card_lines(
-        name, material, helix::ui::lane_material_text(data->last_lane_state, material),
-        data->simple_rings ? 4 : data->total_count,
-        data->last_lane_state == helix::ui::LaneState::Empty);
+    return helix::slot_card_lines(name, material,
+                                  helix::ui::lane_material_text(data->last_lane_state, material),
+                                  data->simple_rings ? 4 : data->total_count,
+                                  data->last_lane_state == helix::ui::LaneState::Empty);
 }
 
 /**
@@ -300,7 +300,7 @@ static void apply_simple_summary(AmsSlotData* data) {
     }
     const double fraction = helix::home_spool_fill_level(amount);
     helix::ui::ams_lane_spool_set_fill_level(data->lane_spool,
-                                            fraction < 0 ? 0.0f : static_cast<float>(fraction));
+                                             fraction < 0 ? 0.0f : static_cast<float>(fraction));
     auto percent = helix::home_spool_summary(amount, {true, false, false}, false);
     if (percent.empty())
         percent = "\xE2\x80\x94";
@@ -476,7 +476,8 @@ static void apply_status_badge(AmsSlotData* data, int status_int) {
     }
     if (data->simple_rings && status != SlotStatus::BLOCKED) {
         auto* active = AmsState::instance().get_slot_active_loaded_subject(data->slot_index);
-        badge_bg = theme_manager_get_color(active && lv_subject_get_int(active) ? "primary" : "ams_badge_bg");
+        badge_bg = theme_manager_get_color(active && lv_subject_get_int(active) ? "primary"
+                                                                                : "ams_badge_bg");
     }
     lv_obj_remove_flag(data->status_badge_bg, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_bg_color(data->status_badge_bg, badge_bg, LV_PART_MAIN);
@@ -528,7 +529,8 @@ static void set_spool_glow(AmsSlotData* data, helix::ui::SpoolHighlight highligh
         lv_obj_set_style_border_color(data->container, theme_manager_get_color("primary"), 0);
         lv_obj_set_style_border_opa(data->container, selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
         auto* status = AmsState::instance().get_slot_status_subject(data->slot_index);
-        if (status) apply_status_badge(data, lv_subject_get_int(status));
+        if (status)
+            apply_status_badge(data, lv_subject_get_int(status));
         helix::ui::ams_lane_spool_set_highlight(data->lane_spool, helix::ui::SpoolHighlight::None);
         return;
     }
@@ -722,7 +724,7 @@ static void setup_slot_observers(AmsSlotData* data) {
     data->summary_observer.reset();
     if (data->simple_rings) {
         if (auto* fill = state.get_slot_fill_subject(backend_idx, data->slot_index,
-                                                    data->summary_lifetime)) {
+                                                     data->summary_lifetime)) {
             data->summary_observer = observe<int>(
                 fill, data->container,
                 [](lv_obj_t* obj, int) { apply_simple_summary(get_slot_data(obj)); },
@@ -947,14 +949,15 @@ static void setup_slot_observers(AmsSlotData* data) {
 static void* ams_slot_xml_create(lv_xml_parser_state_t* state, const char** attrs) {
     const char* simple = lv_xml_get_value_of(attrs, "simple_rings");
     const bool simple_rings = simple && lv_xml_to_bool(simple);
-    const char* ring_attrs[] = {"spool_view", "ring", "observe_fill", "false",
-                                "climate_font", "#font_xs", "climate_icon", "xs", nullptr};
+    const char* ring_attrs[] = {"spool_view",   "ring",         "observe_fill",
+                                "false",        "climate_font", "#font_xs",
+                                "climate_icon", "xs",           nullptr};
 
     void* parent = lv_xml_state_get_parent(state);
 
     // Create the XML-defined structure
-    lv_obj_t* obj = static_cast<lv_obj_t*>(
-        lv_xml_create(static_cast<lv_obj_t*>(parent), "ams_slot_view", simple_rings ? ring_attrs : nullptr));
+    lv_obj_t* obj = static_cast<lv_obj_t*>(lv_xml_create(
+        static_cast<lv_obj_t*>(parent), "ams_slot_view", simple_rings ? ring_attrs : nullptr));
     if (!obj) {
         spdlog::error(
             "[AmsSlot] Failed to create from XML - ams_slot_view component may not be registered");
@@ -1000,7 +1003,8 @@ static void* ams_slot_xml_create(lv_xml_parser_state_t* state, const char** attr
         lv_obj_set_width(data->lane_remaining, lv_pct(100));
         lv_obj_set_style_text_align(data->lane_remaining, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_height(data->lane_remaining,
-            2 * lv_font_get_line_height(lv_obj_get_style_text_font(data->lane_remaining, LV_PART_MAIN)));
+                          2 * lv_font_get_line_height(
+                                  lv_obj_get_style_text_font(data->lane_remaining, LV_PART_MAIN)));
         helix::ui::ams_lane_spool_set_fill_level(data->lane_spool, 0.0f);
     }
     if (simple_rings && data->status_badge_bg && data->lane_remaining) {
@@ -1223,7 +1227,8 @@ void ui_ams_slot_set_lane_humidity_visible(lv_obj_t* obj, bool visible) {
         return;
     data->show_lane_humidity = visible;
     if (data->simple_rings && visible)
-        lv_obj_move_to_index(data->lane_humidity, -1); // Climate follows the amounts, never offsets rings.
+        lv_obj_move_to_index(data->lane_humidity,
+                             -1); // Climate follows the amounts, never offsets rings.
     // DECLARATIVE_OK: shown per slot by the detail view's lid mode, which no subject carries
     if (visible)
         lv_obj_remove_flag(data->lane_humidity, LV_OBJ_FLAG_HIDDEN);

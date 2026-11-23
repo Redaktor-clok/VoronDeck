@@ -2,11 +2,11 @@
 #include "heater_bank_widget.h"
 
 #include "ui_component_keypad.h"
-#include "ui_panel_calibration_pid.h"
 #include "ui_error_reporting.h"
 #include "ui_icon.h"
 #include "ui_modal.h"
 #include "ui_next_tick.h"
+#include "ui_panel_calibration_pid.h"
 #include "ui_text.h"
 #include "ui_tile_rung.h"
 #include "ui_utils.h"
@@ -192,8 +192,8 @@ bool HeaterBankWidget::selected(const std::string& name) const {
             fallback = it->get<bool>();
     }
     auto* cfg = Config::get_instance();
-    return cfg ? HomeScreenPreferences(*cfg).is_visible(
-                     HomeScreenPreferences::DeviceKind::Heater, name, fallback)
+    return cfg ? HomeScreenPreferences(*cfg).is_visible(HomeScreenPreferences::DeviceKind::Heater,
+                                                        name, fallback)
                : fallback;
 }
 
@@ -367,14 +367,17 @@ HeaterBankWidget::LayoutFit HeaterBankWidget::choose_size(size_t count, int widt
     const auto shape = heater_bank_shape(count, portrait());
     const int gap = cells_ ? lv_obj_get_style_pad_column(cells_, LV_PART_MAIN) : 4;
     const int overhead_w = widget_ ? lv_obj_get_style_pad_left(widget_, LV_PART_MAIN) +
-                                        lv_obj_get_style_pad_right(widget_, LV_PART_MAIN) : 8;
+                                         lv_obj_get_style_pad_right(widget_, LV_PART_MAIN)
+                                   : 8;
     const int overhead_h = widget_ ? lv_obj_get_style_pad_top(widget_, LV_PART_MAIN) +
-                                        lv_obj_get_style_pad_bottom(widget_, LV_PART_MAIN) : 8;
+                                         lv_obj_get_style_pad_bottom(widget_, LV_PART_MAIN)
+                                   : 8;
     if (list) {
         const int available_width = width - overhead_w;
         const int visible_rows = std::clamp(static_cast<int>(count), 1, 3);
         const int available_height = std::max(0, height - overhead_h);
-        const int row_height = std::max(32, (available_height - gap * (visible_rows - 1)) / visible_rows);
+        const int row_height =
+            std::max(32, (available_height - gap * (visible_rows - 1)) / visible_rows);
         for (int rung = portrait() ? 3 : 6; rung >= 0; --rung) {
             const auto face = heater_face(rung);
             if (!face.value || !face.caption || !face.icon)
@@ -384,10 +387,11 @@ HeaterBankWidget::LayoutFit HeaterBankWidget::choose_size(size_t count, int widt
             const int status_width = std::max(ui::text_width("/ 888\u00B0", face.caption),
                                               ui::text_width(lv_tr("Off"), face.caption));
             const int required_width = icon.w + ui::text_width("888\u00B0", face.value) +
-                status_width + ui::text_width("100%", face.caption) +
-                ui::text_width("Hea", face.value) + 20;
+                                       status_width + ui::text_width("100%", face.caption) +
+                                       ui::text_width("Hea", face.value) + 20;
             if (required_width <= available_width &&
-                std::max<int>(icon.h, face.value->line_height) + 2 <= row_height && available_height >= 32)
+                std::max<int>(icon.h, face.value->line_height) + 2 <= row_height &&
+                available_height >= 32)
                 return {rung, rung};
         }
         return {};
@@ -396,9 +400,11 @@ HeaterBankWidget::LayoutFit HeaterBankWidget::choose_size(size_t count, int widt
     const int cell_height = (height - overhead_h - gap * (shape.rows - 1)) / shape.rows;
     auto* row = rows_.empty() ? nullptr : rows_.front()->object;
     const int row_pad_w = row ? lv_obj_get_style_pad_left(row, LV_PART_MAIN) +
-                                   lv_obj_get_style_pad_right(row, LV_PART_MAIN) : 4;
+                                    lv_obj_get_style_pad_right(row, LV_PART_MAIN)
+                              : 4;
     const int row_pad_h = row ? lv_obj_get_style_pad_top(row, LV_PART_MAIN) +
-                                   lv_obj_get_style_pad_bottom(row, LV_PART_MAIN) : 4;
+                                    lv_obj_get_style_pad_bottom(row, LV_PART_MAIN)
+                              : 4;
     const int icon_gap = row ? lv_obj_get_style_pad_column(row, LV_PART_MAIN) : 4;
     const int largest = count > 3 ? std::max(0, choose_size(3, width, height).value - 1) : 6;
     for (int rung = largest; rung >= 0; --rung) {
@@ -408,19 +414,22 @@ HeaterBankWidget::LayoutFit HeaterBankWidget::choose_size(size_t count, int widt
         for (bool compact : {false, true}) {
             if (compact && count <= 3)
                 continue;
-            const auto* caption = compact ? lv_xml_get_font_silent(nullptr, "noto_sans_light_8") : faces.caption;
+            const auto* caption =
+                compact ? lv_xml_get_font_silent(nullptr, "noto_sans_light_8") : faces.caption;
             if (!caption)
                 continue;
             // Both columns reserve their metadata line even while idle. Live values
             // never participate in fitting, so heating cannot resize any device.
             const int text_width = std::max(ui::text_width("888\u00B0", faces.value),
-                                           ui::text_width("/ 888\u00B0", caption));
+                                            ui::text_width("/ 888\u00B0", caption));
             const int power_width = ui::text_width("100%", caption);
             const int text_height = faces.value->line_height + 2 * caption->line_height;
             auto fits = [&](const lv_font_t* icon_font) {
                 const auto icon = ui::tile_glyph_box({icon_font, LV_SCALE_NONE});
-                return std::max(icon.w, power_width) + icon_gap + text_width + row_pad_w <= cell_width &&
-                    std::max<int>(icon.h + caption->line_height, text_height) + row_pad_h <= cell_height;
+                return std::max(icon.w, power_width) + icon_gap + text_width + row_pad_w <=
+                           cell_width &&
+                       std::max<int>(icon.h + caption->line_height, text_height) + row_pad_h <=
+                           cell_height;
             };
             if (!fits(faces.icon))
                 continue;
@@ -504,9 +513,10 @@ void HeaterBankWidget::on_size_changed(int, int, int, int) {
         if (!list) {
             if (auto* column = lv_obj_find_by_name(rows_[i]->object, "heater_bank_icon_column")) {
                 // DECLARATIVE_OK: reserve measured 100% width while the cold label is empty.
-                const auto icon = ui::tile_glyph_box({heater_face(chosen_icon).icon, LV_SCALE_NONE});
-                lv_obj_set_style_min_width(column,
-                    std::max(icon.w, ui::text_width("100%", faces.caption)), LV_PART_MAIN);
+                const auto icon =
+                    ui::tile_glyph_box({heater_face(chosen_icon).icon, LV_SCALE_NONE});
+                lv_obj_set_style_min_width(
+                    column, std::max(icon.w, ui::text_width("100%", faces.caption)), LV_PART_MAIN);
             }
         }
         for (const char* name : {"home_nozzle_cold_glyph", "nozzle_icon_glyph", "bed_icon_glyph",

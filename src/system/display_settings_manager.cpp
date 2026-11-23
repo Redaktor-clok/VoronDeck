@@ -639,8 +639,8 @@ void DisplaySettingsManager::set_display_dim_sec(int seconds) {
     // Enforce when the device dims OR a screensaver provides the dim-stage visual
     // (#1049) — same rationale as the sleep setter.
     int sleep_sec = get_display_sleep_sec();
-    if (!screensaver_enabled() && should_couple_sleep_to_dim() && seconds > 0 &&
-        sleep_sec > 0 && sleep_sec < seconds) {
+    if (!screensaver_enabled() && should_couple_sleep_to_dim() && seconds > 0 && sleep_sec > 0 &&
+        sleep_sec < seconds) {
         spdlog::info("[DisplaySettingsManager] Bumping sleep {}s up to match dim {}s", sleep_sec,
                      seconds);
         lv_subject_set_int(&display_sleep_subject_, seconds);
@@ -667,9 +667,9 @@ void DisplaySettingsManager::set_display_sleep_sec(int seconds) {
     // screensaver (e.g. AD5M/AD5X) the dim UI is hidden and dim_sec retains a
     // default that should NOT block short sleep times — hence the gate.
     if (seconds > 0 && should_couple_sleep_to_dim()) {
-        int dim_sec = minimum_sleep_after(
-            screensaver_enabled() ? get_screensaver_delay_sec() : get_display_dim_sec(),
-            screensaver_enabled());
+        int dim_sec = minimum_sleep_after(screensaver_enabled() ? get_screensaver_delay_sec()
+                                                                : get_display_dim_sec(),
+                                          screensaver_enabled());
         if (dim_sec > 0 && seconds < dim_sec) {
             spdlog::info("[DisplaySettingsManager] Clamping sleep {}s to dim {}s", seconds,
                          dim_sec);

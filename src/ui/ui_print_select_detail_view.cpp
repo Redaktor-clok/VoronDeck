@@ -1261,8 +1261,8 @@ void PrintSelectDetailView::on_ui_destroyed() {
 
 void PrintSelectDetailView::show_delete_confirmation(const std::string& filename) {
     // Create message with current filename
-    const auto message = fmt::format(
-        fmt::runtime(lv_tr("Delete '{}'? This action cannot be undone.")), filename);
+    const auto message =
+        fmt::format(fmt::runtime(lv_tr("Delete '{}'? This action cannot be undone.")), filename);
 
     // The modal closes itself on a button press and deletes itself after any
     // close, so every path here nulls the stored handle rather than hiding the
@@ -2485,7 +2485,8 @@ void PrintSelectDetailView::load_gcode_for_preview() {
             // GL initialization can fall back to 2D during the first draw.
             lv_subject_set_int(&self->detail_gcode_viewer_mode_,
                                helix::ui::gcode_viewer_is_using_2d_mode(viewer)
-                                   ? helix::ui::kPreviewMode2d : helix::ui::kPreviewMode3d);
+                                   ? helix::ui::kPreviewMode2d
+                                   : helix::ui::kPreviewMode3d);
             lv_subject_set_int(&self->detail_viewer_first_frame_, 1);
             self->refresh_viewer_visibility();
         },
@@ -2720,11 +2721,12 @@ static void update_prep_time_label() {
     auto* mgr = s_detail_view_instance->get_prep_manager();
     const auto& metadata = s_detail_view_instance->get_file_metadata();
     mgr->recalculate_estimate(metadata ? &*metadata : nullptr,
-                             s_detail_view_instance->current_file_key());
+                              s_detail_view_instance->current_file_key());
     const int seconds = lv_subject_get_int(mgr->get_preprint_estimate_subject());
     char text[96] = {};
     if (seconds > 0) {
-        snprintf(text, sizeof(text), "%s ~%d:%02d", lv_tr("Preparation:"), seconds / 60, seconds % 60);
+        snprintf(text, sizeof(text), "%s ~%d:%02d", lv_tr("Preparation:"), seconds / 60,
+                 seconds % 60);
     }
     lv_subject_copy_string(s_detail_view_instance->get_prep_time_estimate_subject(), text);
     s_detail_view_instance->set_prep_estimate_visible(seconds > 0 ? 1 : 0);

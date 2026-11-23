@@ -1023,7 +1023,8 @@ bool DisplayManager::try_drm_to_fbdev_fallback(lv_display_rotation_t rot, bool s
                  static_cast<int>(rot) * 90);
     // m_sleep reads m_backend and m_display through references, so the swap below needs no
     // retarget.
-    lv_display_delete(m_display); // intentional: switching backend before lv_deinit
+    // NOLINT(helix-shutdown): switch backend before input devices exist; clear the old display.
+    lv_display_delete(m_display);
     m_display = nullptr;
     m_backend.reset();
     m_backend = DisplayBackend::create(DisplayBackendType::FBDEV);

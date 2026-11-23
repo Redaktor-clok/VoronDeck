@@ -439,7 +439,7 @@ class PrintStatusWidget : public PanelWidget {
     ObserverGuard breakpoint_observer_;
     ObserverGuard view_observer_;     ///< Rebinds the active views after any card rebuilds them
     ObserverGuard language_observer_; ///< Re-fits the library actions to the new labels
-    ObserverGuard theme_observer_; ///< Re-fits the idle action captions after a font switch
+    ObserverGuard theme_observer_;    ///< Re-fits the idle action captions after a font switch
 
     // Guards async thumbnail callbacks and history observer from use-after-free
     helix::AsyncLifetimeGuard lifetime_;

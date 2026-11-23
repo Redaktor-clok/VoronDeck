@@ -17,7 +17,8 @@ using namespace helix;
 using settings::Scope;
 // Row order is AudioSettingsManager::Key.
 static constexpr settings::PersistedSetting kAudioSettings[] = {
-    {"settings_sounds_enabled", "/print_completion_sound", Scope::Global, true, 0, 0, 1, "sounds_enabled"},
+    {"settings_sounds_enabled", "/print_completion_sound", Scope::Global, true, 0, 0, 1,
+     "sounds_enabled"},
     {"settings_ui_sounds_enabled", "/ui_sounds_enabled", Scope::Global, true, 0, 0, 1,
      "ui_sounds_enabled"},
     {"settings_volume", "/sounds/volume", Scope::Global, false, 80, 0, 100, "volume"},

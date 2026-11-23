@@ -23,6 +23,7 @@
 #include "observer_factory.h"
 #include "overlay_base.h"
 #include "static_panel_registry.h"
+
 #include <string>
 
 namespace helix::settings {

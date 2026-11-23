@@ -284,7 +284,8 @@ void PrinterCapabilitiesState::set_hardware(const PrinterDiscovery& hardware,
     set_capability(Capability::HasExtruder, count_extruder_names(hardware.heaters()) > 0);
     set_capability(Capability::HasZOffsetCalibration, hardware.has_z_offset_calibration());
     set_capability(Capability::HasQglCalibration, hardware.has_qgl() && overrides.has_qgl());
-    set_capability(Capability::HasZTiltCalibration, hardware.has_z_tilt() && overrides.has_z_tilt());
+    set_capability(Capability::HasZTiltCalibration,
+                   hardware.has_z_tilt() && overrides.has_z_tilt());
     set_capability(Capability::HasBedScrews, hardware.has_bed_screws() ? 1 : 0);
     set_capability(Capability::HasBedMeshCalibration,
                    hardware.has_bed_mesh() && overrides.has_bed_mesh() ? 1 : 0);
@@ -293,9 +294,9 @@ void PrinterCapabilitiesState::set_hardware(const PrinterDiscovery& hardware,
     set_capability(Capability::HasScrewsTilt, hardware.has_screws_tilt() ? 1 : 0);
     set_capability(Capability::HasExcludeObject, hardware.has_exclude_object() ? 1 : 0);
     // A generic RESUME alone is ordinary pause/resume, not power-loss recovery.
-    set_capability(Capability::HasRecoveryMacros,
-                   hardware.has_macro("RECOVERY_CHECKPOINT") &&
-                   hardware.has_macro("RECOVERY_RESUME") && hardware.has_macro("RECOVERY_CLEAR"));
+    set_capability(Capability::HasRecoveryMacros, hardware.has_macro("RECOVERY_CHECKPOINT") &&
+                                                      hardware.has_macro("RECOVERY_RESUME") &&
+                                                      hardware.has_macro("RECOVERY_CLEAR"));
     set_capability(Capability::HasLayerPause, helix::layer_pause::supported(hardware) ? 1 : 0);
 
     // Automatic tool offset calibration: the module owns what "can" means.

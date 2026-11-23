@@ -26,18 +26,18 @@ jobs:
       contents: read
       actions: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - name: Проверить очистку / Test cleanup
-        run: python3 -m unittest discover -s tests/ci -p 'test_prune_caches.py' -v
+        run: python3 -m unittest discover -s .github/actions/tests -p 'test_prune_caches.py' -v
       - name: Очистить старые поколения / Prune old generations
         env:
           GH_TOKEN: ${{ github.token }}
           APPLY: ${{ github.event_name == 'schedule' || !inputs.dry_run }}
         run: |
           if [ "$APPLY" = true ]; then
-            python3 scripts/ci/prune-caches.py --apply
+            python3 .github/actions/scripts/prune-caches.py --apply
           else
-            python3 scripts/ci/prune-caches.py
+            python3 .github/actions/scripts/prune-caches.py
           fi

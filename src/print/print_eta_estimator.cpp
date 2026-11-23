@@ -21,14 +21,14 @@ int PrintEtaEstimator::remaining_seconds(const PrintEtaInputs& in) {
         return kNoEstimate;
     }
     if (progress == 0) {
-        const auto total = static_cast<long long>(in.slicer_estimate_s) +
-                           std::max(0, in.preprint_remaining_s);
-        return static_cast<int>(std::min(total, static_cast<long long>(std::numeric_limits<int>::max())));
+        const auto total =
+            static_cast<long long>(in.slicer_estimate_s) + std::max(0, in.preprint_remaining_s);
+        return static_cast<int>(
+            std::min(total, static_cast<long long>(std::numeric_limits<int>::max())));
     }
     // Scale the file's estimate by reported progress; do not add model/thermal
     // preparation guesses or replace it with elapsed-time extrapolation.
-    return static_cast<int>(static_cast<long long>(in.slicer_estimate_s) *
-                            (100 - progress) / 100);
+    return static_cast<int>(static_cast<long long>(in.slicer_estimate_s) * (100 - progress) / 100);
 }
 
 } // namespace helix

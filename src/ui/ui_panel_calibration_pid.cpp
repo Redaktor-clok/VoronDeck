@@ -5,7 +5,6 @@
 
 #include "ui_callback_helpers.h"
 #include "ui_component_keypad.h"
-#include "ui_update_queue.h"
 #include "ui_emergency_stop.h"
 #include "ui_error_reporting.h"
 #include "ui_event_safety.h"
@@ -13,6 +12,7 @@
 #include "ui_nav.h"
 #include "ui_temperature_utils.h"
 #include "ui_timer_guard.h"
+#include "ui_update_queue.h"
 
 #include "ams_state.h"
 #include "app_globals.h"
@@ -23,19 +23,19 @@
 #include "klipper_config_editor.h"
 #include "observer_factory.h"
 #include "preset_materials.h"
+#include "printer_state.h"
 #include "static_panel_registry.h"
 #include "static_subject_registry.h"
-#include "temperature_service.h"
 #include "temperature_sensor_manager.h"
-#include "printer_state.h"
+#include "temperature_service.h"
 #include "thermal_rate_model.h"
 #include "ui/ui_widget_helpers.h"
 
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/spdlog.h>
 
-#include <cctype>
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <lvgl.h>
@@ -67,7 +67,8 @@ void query_pid_config(helix::IMoonrakerAPI* api,
                       helix::SharedCallback<void(const nlohmann::json&)> success,
                       helix::SharedCallback<void(const MoonrakerError&)> error) {
     const auto epoch = get_printer_state().network_state().klippy_epoch();
-    api->get_client().send_jsonrpc("printer.gcode.help", nlohmann::json::object(),
+    api->get_client().send_jsonrpc(
+        "printer.gcode.help", nlohmann::json::object(),
         [api, epoch, success, error](const nlohmann::json& reply) {
             const bool supported = reply.contains("result") && reply["result"].is_object() &&
                                    reply["result"].contains("PID_CALIBRATE");
@@ -78,9 +79,11 @@ void query_pid_config(helix::IMoonrakerAPI* api,
                 if (supported)
                     api->query_configfile(success, error);
                 else if (error)
-                    error(MoonrakerError::unknown("PID_CALIBRATE is not supported", "printer.gcode.help"));
+                    error(MoonrakerError::unknown("PID_CALIBRATE is not supported",
+                                                  "printer.gcode.help"));
             });
-        }, error);
+        },
+        error);
 }
 
 std::string quick_pid_refusal(const std::string& heater, bool check_panel = true) {
@@ -93,9 +96,10 @@ std::string quick_pid_refusal(const std::string& heater, bool check_panel = true
         state.is_blocking_operation_active())
         return lv_tr("Printer is busy");
     auto* panel = existing_pid_cal_panel();
-    if (check_panel && panel && (panel->get_state() == PIDCalibrationPanel::State::CALIBRATING ||
-                  panel->get_state() == PIDCalibrationPanel::State::SAVING ||
-                  panel->get_state() == PIDCalibrationPanel::State::MIGRATING || panel->is_visible()))
+    if (check_panel && panel &&
+        (panel->get_state() == PIDCalibrationPanel::State::CALIBRATING ||
+         panel->get_state() == PIDCalibrationPanel::State::SAVING ||
+         panel->get_state() == PIDCalibrationPanel::State::MIGRATING || panel->is_visible()))
         return lv_tr("Printer is busy");
     const auto& heaters = state.get_discovery().heaters();
     if (std::find(heaters.begin(), heaters.end(), heater) == heaters.end())
@@ -117,7 +121,8 @@ void request_keypad_pid(const std::string& heater, int target) {
     const auto epoch = get_printer_state().network_state().klippy_epoch();
     // Re-read control and native limits after entry, rather than trust a
     // capability answer that may be minutes old when the user presses PID.
-    query_pid_config(api,
+    query_pid_config(
+        api,
         [api, epoch, heater, target](const nlohmann::json& config) {
             auto request = helix::pid_heater_request(config, heater);
             helix::ui::queue_update([api, epoch, heater, target, request]() {
@@ -130,7 +135,8 @@ void request_keypad_pid(const std::string& heater, int target) {
                     return;
                 }
                 if (!request || !request->accepts(target)) {
-                    NOTIFY_WARNING("{}", lv_tr("PID calibration is unavailable for this heater or target."));
+                    NOTIFY_WARNING(
+                        "{}", lv_tr("PID calibration is unavailable for this heater or target."));
                     return;
                 }
                 const auto message = fmt::format(lv_tr("Calibrate {} at {}°C?"), heater, target);
@@ -164,7 +170,8 @@ void ui_keypad_offer_pid(const std::string& heater, lv_obj_t* parent) {
         return;
     const auto generation = ui_keypad_generation();
     const auto epoch = get_printer_state().network_state().klippy_epoch();
-    query_pid_config(api,
+    query_pid_config(
+        api,
         [api, epoch, generation, heater](const nlohmann::json& config) {
             const auto request = helix::pid_heater_request(config, heater);
             helix::ui::queue_update([api, epoch, generation, heater, request]() {
@@ -176,14 +183,15 @@ void ui_keypad_offer_pid(const std::string& heater, lv_obj_t* parent) {
                     return;
                 // Preserve Set=0 (heater off); PID independently requires >0
                 // within this device's actual min/max, never a 300 C ceiling.
-                ui_keypad_set_limits(generation, static_cast<float>(std::min(0.0, request->min_temp)),
+                ui_keypad_set_limits(generation,
+                                     static_cast<float>(std::min(0.0, request->min_temp)),
                                      static_cast<float>(request->max_temp));
-                ui_keypad_set_secondary_action(generation, "PID Calibration",
-                    [heater](float value) {
-                        request_keypad_pid(heater, static_cast<int>(value));
-                    });
+                ui_keypad_set_secondary_action(
+                    generation, "PID Calibration",
+                    [heater](float value) { request_keypad_pid(heater, static_cast<int>(value)); });
             });
-        }, [](const MoonrakerError&) { /* Unknown capability: retain ordinary Set only. */ });
+        },
+        [](const MoonrakerError&) { /* Unknown capability: retain ordinary Set only. */ });
 }
 
 // ============================================================================
@@ -257,9 +265,8 @@ void PIDCalibrationPanel::init_subjects() {
     UI_MANAGED_SUBJECT_STRING(subj_pid_kd_, buf_pid_kd_, "0.000", "pid_kd", subjects_);
 
     UI_MANAGED_SUBJECT_INT(subj_quick_unsaved_, 0, "pid_quick_unsaved", subjects_);
-    lv_xml_register_event_cb(nullptr, "on_pid_quick_save", [](lv_event_t*) {
-        get_global_pid_cal_panel().handle_quick_save();
-    });
+    lv_xml_register_event_cb(nullptr, "on_pid_quick_save",
+                             [](lv_event_t*) { get_global_pid_cal_panel().handle_quick_save(); });
     UI_MANAGED_SUBJECT_STRING(subj_result_summary_, buf_result_summary_,
                               "Temperature control has been optimized.", "pid_result_summary",
                               subjects_);
@@ -582,7 +589,8 @@ void PIDCalibrationPanel::turn_off_fan() {
 // ============================================================================
 
 void PIDCalibrationPanel::set_state(State new_state) {
-    if (new_state == State::IDLE || new_state == State::ERROR) calibration_receipt_.cancel();
+    if (new_state == State::IDLE || new_state == State::ERROR)
+        calibration_receipt_.cancel();
     spdlog::debug("[PIDCal] State change: {} -> {}", static_cast<int>(state_),
                   static_cast<int>(new_state));
 
@@ -669,7 +677,8 @@ std::string PIDCalibrationPanel::heater_name() const {
 }
 
 bool PIDCalibrationPanel::part_fan_reaches_heater() const {
-    return !quick_request_ && selected_heater_ == Heater::EXTRUDER && heads_.selected_holds_active_tool();
+    return !quick_request_ && selected_heater_ == Heater::EXTRUDER &&
+           heads_.selected_holds_active_tool();
 }
 
 void PIDCalibrationPanel::update_fan_section_visibility() {
@@ -741,15 +750,15 @@ void PIDCalibrationPanel::setup_pid_graph() {
     // Configure for PID calibration view
     bool is_extruder = (selected_heater_ == Heater::EXTRUDER);
     float max_temp = quick_request_ ? static_cast<float>(quick_request_->max_temp)
-                                   : (is_extruder ? 300.0f : 150.0f);
+                                    : (is_extruder ? 300.0f : 150.0f);
     ui_temp_graph_set_temp_range(pid_graph_, 0.0f, max_temp);
     ui_temp_graph_set_point_count(pid_graph_, 300); // 5 min at 1Hz
     ui_temp_graph_set_y_axis(pid_graph_, is_extruder ? 100.0f : 50.0f, true);
     ui_temp_graph_set_axis_size(pid_graph_, "xs");
 
     // Add single series for the active heater
-    const char* series_name = quick_request_ ? quick_request_->object.c_str()
-                                            : (is_extruder ? "Nozzle" : "Bed");
+    const char* series_name =
+        quick_request_ ? quick_request_->object.c_str() : (is_extruder ? "Nozzle" : "Bed");
     lv_color_t color = is_extruder ? lv_color_hex(0xFF4444) : lv_color_hex(0x00CED1);
     pid_graph_series_id_ = ui_temp_graph_add_series(pid_graph_, series_name, color);
 
@@ -808,9 +817,9 @@ void PIDCalibrationPanel::send_pid_calibrate() {
     }
 
     // Update calibrating state label
-    const char* label = quick_request_ ? quick_request_->object.c_str()
-                      : (selected_heater_ == Heater::EXTRUDER) ? lv_tr("Extruder PID Tuning")
-                                                               : lv_tr("Heated Bed PID Tuning");
+    const char* label = quick_request_                           ? quick_request_->object.c_str()
+                        : (selected_heater_ == Heater::EXTRUDER) ? lv_tr("Extruder PID Tuning")
+                                                                 : lv_tr("Heated Bed PID Tuning");
     lv_subject_copy_string(&subj_calibrating_heater_, label);
 
     spdlog::info("[PIDCal] Starting PID calibration: {} at {}°C", heater, target_temp_);
@@ -1059,8 +1068,8 @@ void PIDCalibrationPanel::handle_start_clicked() {
 void PIDCalibrationPanel::begin_calibration(CalibMethod method) {
     calibration_receipt_.begin(helix::Config::get_instance()->df());
     run_heater_ = heater_name();
-    run_extruder_ = quick_request_ && selected_heater_ == Heater::EXTRUDER
-                        ? quick_request_->object : extruder_name();
+    run_extruder_ = quick_request_ && selected_heater_ == Heater::EXTRUDER ? quick_request_->object
+                                                                           : extruder_name();
     set_state(State::CALIBRATING);
     if (method == CalibMethod::MPC) {
         send_mpc_calibrate();
@@ -1158,7 +1167,7 @@ void PIDCalibrationPanel::handle_retry_clicked() {
 // ============================================================================
 
 bool PIDCalibrationPanel::start_keypad_calibration(const helix::PidHeaterRequest& request,
-                                                  int target, lv_obj_t* parent) {
+                                                   int target, lv_obj_t* parent) {
     const auto reason = quick_pid_refusal(request.object);
     if (!api_ || !reason.empty() || !request.accepts(target)) {
         NOTIFY_WARNING("{}", reason.empty() ? lv_tr("Invalid temperature") : reason.c_str());
@@ -1169,9 +1178,9 @@ bool PIDCalibrationPanel::start_keypad_calibration(const helix::PidHeaterRequest
     quick_request_ = request;
     quick_epoch_ = get_printer_state().network_state().klippy_epoch();
     ++quick_generation_;
-    selected_heater_ = request.object == "heater_bed" ? Heater::BED
+    selected_heater_ = request.object == "heater_bed"                    ? Heater::BED
                        : request.object.rfind("heater_generic ", 0) == 0 ? Heater::GENERIC
-                                                                        : Heater::EXTRUDER;
+                                                                         : Heater::EXTRUDER;
     active_tool_observer_.reset(); // The exact requested heater never follows tool changes.
     target_temp_ = target;
     fan_speed_ = 0;
@@ -1193,14 +1202,14 @@ void PIDCalibrationPanel::handle_quick_save() {
     auto* api = api_;
     const auto heater = quick_request_->object;
     const auto target = target_temp_;
-    if (api != get_moonraker_api() ||
-        epoch != get_printer_state().network_state().klippy_epoch())
+    if (api != get_moonraker_api() || epoch != get_printer_state().network_state().klippy_epoch())
         return;
     helix::ui::ConfirmOptions options;
     options.owner_token = lifetime_.token();
     helix::ui::confirm_config_rewrite(
         lv_tr("Save & Restart"), lv_tr("Save these PID results to the printer configuration."),
-        lv_tr("Save & Restart"), [this, api, epoch, generation, heater, target]() {
+        lv_tr("Save & Restart"),
+        [this, api, epoch, generation, heater, target]() {
             if (!quick_request_ || state_ != State::COMPLETE ||
                 lv_subject_get_int(&subj_quick_unsaved_) != 1 || api_ != api ||
                 api != get_moonraker_api() || quick_generation_ != generation ||
@@ -1214,7 +1223,8 @@ void PIDCalibrationPanel::handle_quick_save() {
             }
             set_state(State::SAVING);
             send_save_config();
-        }, options);
+        },
+        options);
 }
 
 void PIDCalibrationPanel::on_calibration_result(bool success, float kp, float ki, float kd,
@@ -1250,8 +1260,9 @@ void PIDCalibrationPanel::on_calibration_result(bool success, float kp, float ki
         // Set human-readable result summary. One whole sentence with both
         // variables as placeholders, and the heater name translated too -- the
         // bare snprintf here left the entire line English in all nine locales.
-        const char* heater_label = quick_request_ ? quick_request_->object.c_str() :
-            (selected_heater_ == Heater::EXTRUDER) ? lv_tr("extruder") : lv_tr("heated bed");
+        const char* heater_label = quick_request_ ? quick_request_->object.c_str()
+                                   : (selected_heater_ == Heater::EXTRUDER) ? lv_tr("extruder")
+                                                                            : lv_tr("heated bed");
         const std::string summary = fmt::format(
             lv_tr("Temperature control optimized for {} at {}°C."), heater_label, target_temp_);
         lv_subject_copy_string(&subj_result_summary_, summary.c_str());

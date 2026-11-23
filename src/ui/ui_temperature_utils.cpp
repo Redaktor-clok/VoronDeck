@@ -12,9 +12,9 @@
 #include "safety_settings_manager.h"
 #include "sort_small.h"
 #include "spdlog/spdlog.h"
+#include "temperature_sensor_manager.h"
 #include "theme_manager.h"
 #include "tool_state.h"
-#include "temperature_sensor_manager.h"
 
 #include <algorithm>
 #include <cmath>

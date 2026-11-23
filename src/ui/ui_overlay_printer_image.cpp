@@ -20,9 +20,8 @@
 #include "ui_update_queue.h"
 #include "ui_utils.h"
 
-#include "helix_fs.h"
 #include "config.h"
-#include "wizard_config_paths.h"
+#include "helix_fs.h"
 #include "lvgl.h"
 #include "prerendered_images.h"
 #include "printer_image_manager.h"
@@ -30,11 +29,12 @@
 #include "sort_small.h"
 #include "ui/ui_widget_helpers.h"
 #include "usb_manager.h"
+#include "wizard_config_paths.h"
 
 #include <spdlog/spdlog.h>
 
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 
 namespace helix::settings {
@@ -120,7 +120,8 @@ void PrinterImageOverlay::on_activate() {
     auto* config = Config::get_instance();
     const auto printer_name = config->get<std::string>(config->df() + wizard::PRINTER_NAME, "");
     const auto printer_type = config->get<std::string>(config->df() + wizard::PRINTER_TYPE, "");
-    lv_subject_copy_string(&current_printer_, (printer_name.empty() ? printer_type : printer_name).c_str());
+    lv_subject_copy_string(&current_printer_,
+                           (printer_name.empty() ? printer_type : printer_name).c_str());
     populate_shipped_images();
     populate_custom_images();
     scan_usb_drives();
@@ -271,13 +272,14 @@ std::string PrinterImageOverlay::get_preview_path_for_id(const std::string& imag
 
 void PrinterImageOverlay::append_card(std::vector<std::unique_ptr<ImageCard>>& cards,
                                       const char* group, const std::string& id,
-                                      const std::string& name, const std::string& path, bool valid) {
+                                      const std::string& name, const std::string& path,
+                                      bool valid) {
     auto card = std::make_unique<ImageCard>();
     card->id = id;
     card->path = path;
     const auto prefix = std::string("printer_image_") + group + "_" + std::to_string(cards.size());
-    UI_MANAGED_SUBJECT_STRING(card->label, card->name, name.c_str(),
-                              (prefix + "_name").c_str(), card->subjects);
+    UI_MANAGED_SUBJECT_STRING(card->label, card->name, name.c_str(), (prefix + "_name").c_str(),
+                              card->subjects);
     UI_MANAGED_SUBJECT_POINTER(card->source, path.empty() ? nullptr : card->path.data(),
                                (prefix + "_src").c_str(), card->subjects);
     UI_MANAGED_SUBJECT_INT(card->selected, 0, (prefix + "_selected").c_str(), card->subjects);
@@ -326,7 +328,8 @@ void PrinterImageOverlay::populate_shipped_images() {
     const auto images = helix::PrinterImageManager::instance().get_shipped_images(
         printer_images::current_screen_width());
     for (const auto& image : images)
-        append_card(shipped_cards_, "shipped", image.id, image.display_name, image.preview_path, true);
+        append_card(shipped_cards_, "shipped", image.id, image.display_name, image.preview_path,
+                    true);
     lv_subject_set_int(&shipped_count_, static_cast<int>(shipped_cards_.size()));
 }
 
@@ -486,7 +489,8 @@ void PrinterImageOverlay::handle_image_selected(const std::string& image_id) {
     std::string display_name = image_id;
     auto colon_pos = image_id.find(':');
     if (colon_pos != std::string::npos) {
-        display_name = helix::PrinterImageManager::format_display_name(image_id.substr(colon_pos + 1));
+        display_name =
+            helix::PrinterImageManager::format_display_name(image_id.substr(colon_pos + 1));
     }
 
     // Update preview panel

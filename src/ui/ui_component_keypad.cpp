@@ -224,7 +224,7 @@ bool ui_keypad_show(const ui_keypad_config_t* config) {
     close_state = std::make_shared<KeypadCloseState>();
     lv_subject_set_int(&keypad_has_secondary_subject, config->secondary_action ? 1 : 0);
     lv_subject_copy_string(&keypad_secondary_label_subject,
-                          config->secondary_label ? lv_tr(config->secondary_label) : "");
+                           config->secondary_label ? lv_tr(config->secondary_label) : "");
 
     // Start with empty display (user enters fresh value)
     input.clear();
@@ -279,17 +279,16 @@ bool ui_keypad_show(const ui_keypad_config_t* config) {
         }
     }
     // Runs once the keypad is off screen, so either hook may open the keypad again.
-    helix::nav::on_close(keypad_widget,
-                         [on_confirm = config->on_confirm, on_cancel = config->on_cancel,
-                          closing = close_state]() {
-                             destroy_keypad_backdrop();
-                             if (closing->confirmed && closing->secondary)
-                                 closing->secondary(closing->value);
-                             else if (closing->confirmed && on_confirm)
-                                 on_confirm(closing->value);
-                             else if (!closing->confirmed && on_cancel)
-                                 on_cancel();
-                         });
+    helix::nav::on_close(keypad_widget, [on_confirm = config->on_confirm,
+                                         on_cancel = config->on_cancel, closing = close_state]() {
+        destroy_keypad_backdrop();
+        if (closing->confirmed && closing->secondary)
+            closing->secondary(closing->value);
+        else if (closing->confirmed && on_confirm)
+            on_confirm(closing->value);
+        else if (!closing->confirmed && on_cancel)
+            on_cancel();
+    });
 
     // Show via overlay navigation, but keep previous panel visible (transparent overlay)
     helix::nav::push_overlay(keypad_widget, false /* hide_previous */);
@@ -320,7 +319,7 @@ uint64_t ui_keypad_generation() {
 }
 
 bool ui_keypad_set_secondary_action(uint64_t generation, const char* label,
-                                   std::function<void(float)> action) {
+                                    std::function<void(float)> action) {
     if (generation != keypad_generation || !ui_keypad_is_visible())
         return false;
     current_config.secondary_action = std::move(action);
@@ -330,13 +329,13 @@ bool ui_keypad_set_secondary_action(uint64_t generation, const char* label,
 }
 
 bool ui_keypad_set_limits(uint64_t generation, float min_value, float max_value) {
-    if (generation != keypad_generation || !ui_keypad_is_visible() ||
-        !std::isfinite(min_value) || !std::isfinite(max_value) || max_value <= min_value)
+    if (generation != keypad_generation || !ui_keypad_is_visible() || !std::isfinite(min_value) ||
+        !std::isfinite(max_value) || max_value <= min_value)
         return false;
     current_config.min_value = min_value;
     current_config.max_value = max_value;
-    input.max_int_digits = helix::ui::keypad_int_digits_for(
-        std::max(std::fabs(min_value), std::fabs(max_value)));
+    input.max_int_digits =
+        helix::ui::keypad_int_digits_for(std::max(std::fabs(min_value), std::fabs(max_value)));
     input.max_total_digits = input.max_int_digits + kKeypadFractionDigits;
     return true;
 }
@@ -408,7 +407,8 @@ static void wire_button_events() {
     if (!keypad_widget)
         return;
     if (auto* action = lv_obj_find_by_name(keypad_widget, "keypad_secondary_action")) {
-        lv_obj_add_event_cb(action, [](lv_event_t*) { handle_secondary(); }, LV_EVENT_CLICKED, nullptr);
+        lv_obj_add_event_cb(
+            action, [](lv_event_t*) { handle_secondary(); }, LV_EVENT_CLICKED, nullptr);
     }
 
     // Number buttons 0-9

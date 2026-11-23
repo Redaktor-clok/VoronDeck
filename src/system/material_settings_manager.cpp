@@ -119,14 +119,17 @@ void MaterialSettingsManager::set_override(const std::string& name,
     }
 }
 
-std::string MaterialSettingsManager::validate_user_profile_name(
-    const std::string& input, const std::string& previous_name) const {
+std::string
+MaterialSettingsManager::validate_user_profile_name(const std::string& input,
+                                                    const std::string& previous_name) const {
     const std::string name(helix::text_io::trim(input));
     if (name.empty())
         return "Profile name is required";
-    if (name.size() > 63 || std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 32 || c == 127; }))
+    if (name.size() > 63 ||
+        std::any_of(name.begin(), name.end(), [](unsigned char c) { return c < 32 || c == 127; }))
         return "Invalid profile name";
-    const auto previous = previous_name.empty() ? std::nullopt : filament::find_material(previous_name);
+    const auto previous =
+        previous_name.empty() ? std::nullopt : filament::find_material(previous_name);
     if (!previous_name.empty() && (!previous || !previous->user_defined))
         return "Only custom profiles can be renamed";
     const auto existing = filament::find_material(name);
@@ -144,10 +147,10 @@ std::string MaterialSettingsManager::validate_user_profile_name(
 }
 
 bool MaterialSettingsManager::save_user_profile(const std::string& input,
-                                               const filament::MaterialOverride& override,
-                                               const std::string& previous_name) {
-    if (!validate_user_profile_name(input, previous_name).empty() ||
-        !override.nozzle_min || !override.nozzle_max || !override.bed_temp || !override.chamber_temp)
+                                                const filament::MaterialOverride& override,
+                                                const std::string& previous_name) {
+    if (!validate_user_profile_name(input, previous_name).empty() || !override.nozzle_min ||
+        !override.nozzle_max || !override.bed_temp || !override.chamber_temp)
         return false;
     if (*override.nozzle_min < kProfileNozzleMinC || *override.nozzle_max < *override.nozzle_min ||
         *override.nozzle_max > kProfileNozzleMaxC || *override.bed_temp < 0 ||
@@ -203,9 +206,9 @@ void MaterialSettingsManager::load_from_overlay() {
     }
 }
 
-bool MaterialSettingsManager::write_to_overlay(
-    const std::string& name, const std::optional<filament::MaterialOverride>& ovr,
-    const std::string& previous_name) {
+bool MaterialSettingsManager::write_to_overlay(const std::string& name,
+                                               const std::optional<filament::MaterialOverride>& ovr,
+                                               const std::string& previous_name) {
     auto entries = FilamentCatalog::load_user_types();
     auto it = find_entry(entries, previous_name.empty() ? name : previous_name);
     if (it == entries.end()) {

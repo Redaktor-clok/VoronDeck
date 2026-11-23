@@ -323,7 +323,8 @@ void ZOffsetCalibrationPanel::on_ui_destroyed() {
 // ============================================================================
 
 void ZOffsetCalibrationPanel::set_state(State new_state) {
-    if (new_state == State::IDLE || new_state == State::ERROR) calibration_receipt_.cancel();
+    if (new_state == State::IDLE || new_state == State::ERROR)
+        calibration_receipt_.cancel();
     spdlog::debug("[ZOffsetCal] State change: {} -> {}", static_cast<int>(state_),
                   static_cast<int>(new_state));
     state_ = new_state;
@@ -462,7 +463,8 @@ void ZOffsetCalibrationPanel::start_calibration() {
     }
 
     if (!api_->hardware().has_z_offset_calibration() ||
-        !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject()) ||
+        !lv_subject_get_int(
+            get_printer_state().network_state().get_nav_buttons_enabled_subject()) ||
         lv_subject_get_int(get_printer_state().print_state().get_job_holds_machine_subject())) {
         on_calibration_result(false, lv_tr("Printer is not ready"));
         return;
@@ -522,7 +524,8 @@ void ZOffsetCalibrationPanel::start_calibration() {
 
 void ZOffsetCalibrationPanel::begin_probe_sequence() {
     if (!api_ || !api_->hardware().has_z_offset_calibration() ||
-        !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject()) ||
+        !lv_subject_get_int(
+            get_printer_state().network_state().get_nav_buttons_enabled_subject()) ||
         lv_subject_get_int(get_printer_state().print_state().get_job_holds_machine_subject())) {
         on_calibration_result(false, lv_tr("Printer is not ready"));
         return;
@@ -530,8 +533,9 @@ void ZOffsetCalibrationPanel::begin_probe_sequence() {
     set_state(State::PROBING);
 
     PrinterState& ps = get_printer_state();
-    auto strategy = zoffset_cal::effective_strategy(ps.profile_state().z_offset_calibration_strategy(),
-        api_->hardware().has_probe(), api_->hardware().has_physical_z_endstop());
+    auto strategy = zoffset_cal::effective_strategy(
+        ps.profile_state().z_offset_calibration_strategy(), api_->hardware().has_probe(),
+        api_->hardware().has_physical_z_endstop());
 
     // Check homing state (shared across all strategies)
     const bool all_homed = helix::toolhead_is_homed(ps);
@@ -974,7 +978,9 @@ void init_zoffset_row_handler() {
          [](lv_event_t*) {
              auto* api = get_moonraker_api();
              if (!api || !api->hardware().has_z_offset_calibration() ||
-                 !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject())) return;
+                 !lv_subject_get_int(
+                     get_printer_state().network_state().get_nav_buttons_enabled_subject()))
+                 return;
              spdlog::debug("[ZOffsetCal] Z-Offset row clicked");
              auto& overlay = get_global_zoffset_cal_panel();
              overlay.set_api(get_moonraker_api());

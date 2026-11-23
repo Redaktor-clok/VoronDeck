@@ -2059,8 +2059,10 @@ void Config::reset_for_new_owner() {
     const auto theme = get<std::string>("/display/theme", "");
     const bool dark = get<bool>("/dark_mode", true);
     reset_to_defaults();
-    if (!image.empty()) set<std::string>(df() + "printer_image", image);
-    if (!theme.empty()) set<std::string>("/display/theme", theme);
+    if (!image.empty())
+        set<std::string>(df() + "printer_image", image);
+    if (!theme.empty())
+        set<std::string>("/display/theme", theme);
     set<bool>("/dark_mode", dark);
 }
 

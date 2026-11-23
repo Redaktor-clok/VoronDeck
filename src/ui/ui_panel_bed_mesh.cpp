@@ -12,7 +12,6 @@
  */
 
 #include "ui_panel_bed_mesh.h"
-#include "config.h"
 
 #include "ui_bed_mesh.h"
 #include "ui_callback_helpers.h"
@@ -33,6 +32,7 @@
 #include "bed_mesh_probe_temp.h"
 #include "bed_mesh_profile_name.h"
 #include "bed_mesh_stats.h"
+#include "config.h"
 #include "display_settings_manager.h"
 #include "format_utils.h"
 #include "i18n_plural.h"
@@ -1122,18 +1122,21 @@ void BedMeshPanel::begin_calibration(const std::string& name) {
     // What the printer stores now, so completion can tell what the calibration stored.
     read_stored_meshes(
         [this, receipt](helix::bed_mesh::StoredMeshes before) {
-            if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
+            if (!calibration_receipt_.current(receipt, Config::get_instance()->df()))
+                return;
             meshes_before_ = std::move(before);
             prepare_and_probe(receipt);
         },
         [this, receipt](const std::string& why) {
-            if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
+            if (!calibration_receipt_.current(receipt, Config::get_instance()->df()))
+                return;
             on_calibration_error("Could not read the stored meshes: " + why);
         });
 }
 
 void BedMeshPanel::prepare_and_probe(helix::CalibrationReceipt::Ticket receipt) {
-    if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
+    if (!calibration_receipt_.current(receipt, Config::get_instance()->df()))
+        return;
     IMoonrakerAPI* api = get_moonraker_api();
     if (!api) {
         on_calibration_error("API not available");
@@ -1188,7 +1191,9 @@ void BedMeshPanel::prepare_and_probe(helix::CalibrationReceipt::Ticket receipt) 
                             }),
             lifetime_.bg_cb("BedMeshPanel::preheat_error",
                             [this, receipt](const MoonrakerError& err) {
-                                if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
+                                if (!calibration_receipt_.current(receipt,
+                                                                  Config::get_instance()->df()))
+                                    return;
                                 on_calibration_error("Preheat failed: " + err.message);
                             }),
             kPreheatTimeoutMs);
@@ -1199,7 +1204,8 @@ void BedMeshPanel::prepare_and_probe(helix::CalibrationReceipt::Ticket receipt) 
 }
 
 void BedMeshPanel::start_home_and_probe(helix::CalibrationReceipt::Ticket receipt) {
-    if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
+    if (!calibration_receipt_.current(receipt, Config::get_instance()->df()))
+        return;
     IMoonrakerAPI* api = get_moonraker_api();
     if (!api) {
         on_calibration_error("API not available");
@@ -1223,7 +1229,8 @@ void BedMeshPanel::start_home_and_probe(helix::CalibrationReceipt::Ticket receip
             start_calibration_probing(receipt);
         },
         [this, receipt](const MoonrakerError& err) {
-            if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
+            if (!calibration_receipt_.current(receipt, Config::get_instance()->df()))
+                return;
             on_calibration_error(err.type == MoonrakerErrorType::TIMEOUT
                                      ? std::string("Homing timed out — printer may still be homing")
                                      : "Homing failed: " + err.message);
@@ -1231,7 +1238,8 @@ void BedMeshPanel::start_home_and_probe(helix::CalibrationReceipt::Ticket receip
 }
 
 void BedMeshPanel::start_calibration_probing(helix::CalibrationReceipt::Ticket receipt) {
-    if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
+    if (!calibration_receipt_.current(receipt, Config::get_instance()->df()))
+        return;
     IMoonrakerAPI* api = get_moonraker_api();
     if (!api) {
         on_calibration_error("API not available");
@@ -1287,9 +1295,10 @@ void BedMeshPanel::start_calibration_probing(helix::CalibrationReceipt::Ticket r
             spdlog::info("[BedMeshPanel] Expected probe count from config: {} (samples={})",
                          expected, samples);
             // L081 Mechanism C: launch_calibration is a member fn; marshal to main.
-            token.defer("BedMeshPanel::launch_after_query", [this, api, expected, samples, receipt]() {
-                launch_calibration(api, expected, receipt, samples);
-            });
+            token.defer("BedMeshPanel::launch_after_query",
+                        [this, api, expected, samples, receipt]() {
+                            launch_calibration(api, expected, receipt, samples);
+                        });
         },
         [this, api, token, receipt](const MoonrakerError& /*err*/) {
             // L081 Mechanism C: launch_calibration is a member fn; marshal to main.
@@ -1322,8 +1331,10 @@ BedMeshPanel::plan_calibration_into(const std::string& name) const {
 }
 
 void BedMeshPanel::launch_calibration(IMoonrakerAPI* api, int expected_probes,
-                                    helix::CalibrationReceipt::Ticket receipt, int probe_samples) {
-    if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
+                                      helix::CalibrationReceipt::Ticket receipt,
+                                      int probe_samples) {
+    if (!calibration_receipt_.current(receipt, Config::get_instance()->df()))
+        return;
     // Start calibration with progress tracking. All three callbacks fire on the
     // WebSocket thread; bg_cb defers the body to main and re-checks the lifetime
     // generation atomically before invoking.
@@ -1335,7 +1346,8 @@ void BedMeshPanel::launch_calibration(IMoonrakerAPI* api, int expected_probes,
                             if (calibration_receipt_.current(receipt, Config::get_instance()->df()))
                                 on_probe_progress(current, total);
                         }),
-        lifetime_.bg_cb("BedMeshPanel::calibrate_done", [this, receipt]() { on_calibration_complete(receipt); }),
+        lifetime_.bg_cb("BedMeshPanel::calibrate_done",
+                        [this, receipt]() { on_calibration_complete(receipt); }),
         lifetime_.bg_cb("BedMeshPanel::calibrate_error",
                         [this, receipt](const MoonrakerError& err) {
                             if (calibration_receipt_.current(receipt, Config::get_instance()->df()))
@@ -1387,7 +1399,8 @@ void BedMeshPanel::show_save_config_modal() {
 }
 
 void BedMeshPanel::hide_all_modals(bool keep_calibration_receipt) {
-    if (!keep_calibration_receipt) calibration_receipt_.cancel();
+    if (!keep_calibration_receipt)
+        calibration_receipt_.cancel();
     // Cancel any pending operation timeout
     operation_guard_.end();
 
@@ -1557,7 +1570,8 @@ void BedMeshPanel::execute_save_config() {
     save_watch_.begin(
         api, "Configuration saved - restarting",
         [this, receipt, calibrated]() {
-            if (calibrated) calibration_receipt_.succeed(receipt, Config::get_instance()->df());
+            if (calibrated)
+                calibration_receipt_.succeed(receipt, Config::get_instance()->df());
             operation_guard_.end();
             spdlog::info("[{}] SAVE_CONFIG completed", get_name());
         },
@@ -1598,13 +1612,15 @@ void BedMeshPanel::on_probe_progress(int current, int total) {
 }
 
 void BedMeshPanel::on_calibration_complete(helix::CalibrationReceipt::Ticket receipt) {
-    if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
+    if (!calibration_receipt_.current(receipt, Config::get_instance()->df()))
+        return;
     cooldown_after_probing();
     // A command reporting success proves nothing was stored where it was asked to
     // store it: judge by what the printer's profiles now hold.
     read_stored_meshes(
         [this, receipt](const helix::bed_mesh::StoredMeshes& after) {
-            if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
+            if (!calibration_receipt_.current(receipt, Config::get_instance()->df()))
+                return;
             const auto result =
                 helix::bed_mesh::check_calibration(calibration_plan_, meshes_before_, after);
             switch (result.outcome) {
@@ -1626,7 +1642,8 @@ void BedMeshPanel::on_calibration_complete(helix::CalibrationReceipt::Ticket rec
             }
         },
         [this, receipt](const std::string& why) {
-            if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
+            if (!calibration_receipt_.current(receipt, Config::get_instance()->df()))
+                return;
             spdlog::error("[BedMeshPanel] Could not read the stored meshes after calibrating: {}",
                           why);
             NOTIFY_ERROR(lv_tr("Could not save the mesh as '{}': {}"), calibration_plan_.name, why);
@@ -1663,8 +1680,10 @@ void BedMeshPanel::read_stored_meshes(std::function<void(helix::bed_mesh::Stored
         });
 }
 
-void BedMeshPanel::finish_calibration(const std::string& profile, helix::CalibrationReceipt::Ticket receipt) {
-    if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
+void BedMeshPanel::finish_calibration(const std::string& profile,
+                                      helix::CalibrationReceipt::Ticket receipt) {
+    if (!calibration_receipt_.current(receipt, Config::get_instance()->df()))
+        return;
     stored_calibration_receipt_ = receipt;
     spdlog::info("[BedMeshPanel] Calibration complete, mesh stored as '{}'", profile);
     NOTIFY_SUCCESS(lv_tr("Mesh saved as '{}'"), profile);
@@ -1677,7 +1696,8 @@ void BedMeshPanel::finish_calibration(const std::string& profile, helix::Calibra
 void BedMeshPanel::copy_calibrated_mesh(const std::string& from, const std::string& to,
                                         helix::CalibrationReceipt::Ticket receipt) {
     auto fail = [this, to, receipt](const std::string& why) {
-        if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
+        if (!calibration_receipt_.current(receipt, Config::get_instance()->df()))
+            return;
         spdlog::error("[BedMeshPanel] Could not save the mesh as '{}': {}", to, why);
         NOTIFY_ERROR(lv_tr("Could not save the mesh as '{}': {}"), to, why);
         hide_all_modals();
@@ -1687,15 +1707,18 @@ void BedMeshPanel::copy_calibrated_mesh(const std::string& from, const std::stri
         fail("API not available");
         return;
     }
-    api->execute_gcode(helix::bed_mesh::profile_command("LOAD", from),
-                       lifetime_.bg_cb("BedMeshPanel::copy_load_done",
-                                       [this, to, fail, receipt]() {
-                                           if (!calibration_receipt_.current(receipt, Config::get_instance()->df())) return;
-                                           save_profile_as(
-                                               to, [this, to, receipt]() { finish_calibration(to, receipt); }, fail);
-                                       }),
-                       lifetime_.bg_cb("BedMeshPanel::copy_load_error",
-                                       [fail](const MoonrakerError& err) { fail(err.message); }));
+    api->execute_gcode(
+        helix::bed_mesh::profile_command("LOAD", from),
+        lifetime_.bg_cb(
+            "BedMeshPanel::copy_load_done",
+            [this, to, fail, receipt]() {
+                if (!calibration_receipt_.current(receipt, Config::get_instance()->df()))
+                    return;
+                save_profile_as(
+                    to, [this, to, receipt]() { finish_calibration(to, receipt); }, fail);
+            }),
+        lifetime_.bg_cb("BedMeshPanel::copy_load_error",
+                        [fail](const MoonrakerError& err) { fail(err.message); }));
 }
 
 void BedMeshPanel::save_profile_as(const std::string& name, std::function<void()> on_saved,
@@ -1937,8 +1960,10 @@ namespace helix::ui {
 void open_bed_mesh_panel(lv_obj_t* parent_screen) {
     auto* api = get_moonraker_api();
     if (!api || !api->hardware().has_bed_mesh() ||
-        !lv_subject_get_int(get_printer_state().capabilities_state().subject(Capability::HasBedMeshCalibration)) ||
-        !lv_subject_get_int(get_printer_state().network_state().get_nav_buttons_enabled_subject())) {
+        !lv_subject_get_int(
+            get_printer_state().capabilities_state().subject(Capability::HasBedMeshCalibration)) ||
+        !lv_subject_get_int(
+            get_printer_state().network_state().get_nav_buttons_enabled_subject())) {
         return;
     }
     get_global_bed_mesh_panel().show(parent_screen);

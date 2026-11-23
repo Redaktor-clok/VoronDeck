@@ -1087,7 +1087,8 @@ void ControlsPanel::handle_home_z() {
 
 void ControlsPanel::handle_qgl() {
     if (!api_ || !api_->hardware().has_qgl() ||
-        !lv_subject_get_int(printer_state_.network_state().get_nav_buttons_enabled_subject())) return;
+        !lv_subject_get_int(printer_state_.network_state().get_nav_buttons_enabled_subject()))
+        return;
     spdlog::debug("[{}] QGL clicked", get_name());
     run_quick_action(IAdvancedAPI::kLevelingTimeoutMs,
                      {lv_tr("Quad Gantry Level started..."), lv_tr("Quad Gantry Level complete"),
@@ -1102,7 +1103,8 @@ void ControlsPanel::handle_qgl() {
 
 void ControlsPanel::handle_z_tilt() {
     if (!api_ || !api_->hardware().has_z_tilt() ||
-        !lv_subject_get_int(printer_state_.network_state().get_nav_buttons_enabled_subject())) return;
+        !lv_subject_get_int(printer_state_.network_state().get_nav_buttons_enabled_subject()))
+        return;
     spdlog::debug("[{}] Z-Tilt clicked", get_name());
     run_quick_action(IAdvancedAPI::kLevelingTimeoutMs,
                      {lv_tr("Z-Tilt Adjust started..."), lv_tr("Z-Tilt Adjust complete"),
@@ -1230,7 +1232,8 @@ void ControlsPanel::handle_calibration_pa() {
 
 void ControlsPanel::handle_calibration_zoffset() {
     if (!api_ || !api_->hardware().has_z_offset_calibration() ||
-        !lv_subject_get_int(printer_state_.network_state().get_nav_buttons_enabled_subject())) return;
+        !lv_subject_get_int(printer_state_.network_state().get_nav_buttons_enabled_subject()))
+        return;
 #if defined(HELIX_PLATFORM_ESP32)
     helix::ui::show_feature_unavailable_toast();
     return;
@@ -1242,7 +1245,8 @@ void ControlsPanel::handle_calibration_zoffset() {
 
 void ControlsPanel::handle_calibration_screws() {
     if (!api_ || !api_->hardware().has_screws_tilt() ||
-        !lv_subject_get_int(printer_state_.network_state().get_nav_buttons_enabled_subject())) return;
+        !lv_subject_get_int(printer_state_.network_state().get_nav_buttons_enabled_subject()))
+        return;
 #if defined(HELIX_PLATFORM_ESP32)
     helix::ui::show_feature_unavailable_toast();
 #else

@@ -117,5 +117,5 @@ lv_subject_t* ui_keypad_get_display_subject();
 /// A capability reply may only modify the still-open keypad that requested it.
 uint64_t ui_keypad_generation();
 bool ui_keypad_set_secondary_action(uint64_t generation, const char* label,
-                                  std::function<void(float)> action);
+                                    std::function<void(float)> action);
 bool ui_keypad_set_limits(uint64_t generation, float min_value, float max_value);

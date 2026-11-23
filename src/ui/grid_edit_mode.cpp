@@ -762,8 +762,9 @@ void GridEditMode::create_selection_chrome(lv_obj_t* widget) {
         lv_obj_set_pos(btn, x, y);
         lv_obj_set_size(btn, BTN_SIZE, BTN_SIZE);
         if (voron_buttons) {
-            lv_obj_add_style(btn, ThemeManager::instance().get_style(
-                                     destructive ? StyleRole::ButtonDanger : StyleRole::ButtonGhost),
+            lv_obj_add_style(btn,
+                             ThemeManager::instance().get_style(
+                                 destructive ? StyleRole::ButtonDanger : StyleRole::ButtonGhost),
                              LV_PART_MAIN);
         } else {
             lv_obj_set_style_radius(btn, LV_RADIUS_CIRCLE, 0);
@@ -801,8 +802,8 @@ void GridEditMode::create_selection_chrome(lv_obj_t* widget) {
         auto* raw = lv_obj_get_user_data(widget);
         auto* pw = raw ? static_cast<PanelWidget*>(raw) : nullptr;
         if (pw && pw->has_edit_configure()) {
-            configure_btn_ =
-                make_chrome_pill(rel_x1 - kBtnOverhang, rel_y1 - kBtnOverhang, ICON_SETTINGS, false);
+            configure_btn_ = make_chrome_pill(rel_x1 - kBtnOverhang, rel_y1 - kBtnOverhang,
+                                              ICON_SETTINGS, false);
             lv_obj_add_event_cb(
                 configure_btn_,
                 [](lv_event_t* ev) {
@@ -2833,13 +2834,14 @@ void GridEditMode::rebuild_lattice() {
         constexpr int kDelBtnMargin = 8;
 
         const auto& button_palette = ThemeManager::instance().current_palette();
-        delete_page_btn_ = button_palette.vorondeck_buttons ? lv_button_create(shield_)
-                                                          : lv_obj_create(shield_);
+        delete_page_btn_ =
+            button_palette.vorondeck_buttons ? lv_button_create(shield_) : lv_obj_create(shield_);
         lv_obj_set_size(delete_page_btn_, kDelBtnSize, kDelBtnSize);
         const lv_color_t del_bg = button_palette.danger;
         if (button_palette.vorondeck_buttons) {
             lv_obj_add_style(delete_page_btn_,
-                             ThemeManager::instance().get_style(StyleRole::ButtonDanger), LV_PART_MAIN);
+                             ThemeManager::instance().get_style(StyleRole::ButtonDanger),
+                             LV_PART_MAIN);
         } else {
             lv_obj_set_style_radius(delete_page_btn_, LV_RADIUS_CIRCLE, 0);
             lv_obj_set_style_bg_color(delete_page_btn_, del_bg, 0);
@@ -2858,9 +2860,9 @@ void GridEditMode::rebuild_lattice() {
         lv_obj_set_style_text_font(icon, &mdi_icons_16, 0);
         if (!button_palette.vorondeck_buttons) {
             lv_obj_set_style_text_color(icon,
-                                       theme_manager_get_contrast_adjusted_text(
-                                           lv_color_white(), del_bg, screen_bg, LV_OPA_80),
-                                       0);
+                                        theme_manager_get_contrast_adjusted_text(
+                                            lv_color_white(), del_bg, screen_bg, LV_OPA_80),
+                                        0);
         }
         lv_obj_center(icon);
 

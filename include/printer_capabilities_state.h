@@ -49,8 +49,8 @@ enum class Capability : uint8_t {
     HasChamberAirExhaust,        ///< firmware offers the exhaust chamber air mode
     HasChamberAirOff,            ///< firmware offers the chamber air off mode
     HasChamber,                  ///< chamber sensor OR heater
-    HasHeaters,                 ///< at least one discovered controllable heater
-    HasExtruder,                ///< real Klipper extruder for pressure advance tuning
+    HasHeaters,                  ///< at least one discovered controllable heater
+    HasExtruder,                 ///< real Klipper extruder for pressure advance tuning
     HasZOffsetCalibration,       ///< probe or configured physical Z endstop
     HasQglCalibration,           ///< actual QGL module, without forced capability
     HasZTiltCalibration,         ///< actual Z tilt module, without forced capability
@@ -74,7 +74,7 @@ enum class Capability : uint8_t {
     HasLedEffects,               ///< [led_effect] sections
     EnclosureTopFitted,          ///< 1 = firmware reports a removable enclosure top fitted;
                                  ///< 0 = removed, not reported yet, or no such report
-    HasRecoveryMacros,          ///< VoronDeck checkpoint/resume/clear macros discovered
+    HasRecoveryMacros,           ///< VoronDeck checkpoint/resume/clear macros discovered
     HardwareGeneration,          ///< bumped whenever discovery or kinematics changes
     Count
 };

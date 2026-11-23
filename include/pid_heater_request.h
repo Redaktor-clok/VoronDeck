@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "hv/json.hpp"
 #include <cmath>
 #include <optional>
 #include <string>
+
+#include "hv/json.hpp"
 
 namespace helix {
 /// The config object and Klipper mux name are distinct for heater_generic.
@@ -20,7 +21,7 @@ struct PidHeaterRequest {
 
 /// Fail closed on absent control/limits. No MPC/watermark migration is implied.
 inline std::optional<PidHeaterRequest> pid_heater_request(const nlohmann::json& config,
-                                                       const std::string& object) {
+                                                          const std::string& object) {
     std::string command = object;
     if (object.rfind("heater_generic ", 0) == 0)
         command = object.substr(15);
@@ -28,8 +29,10 @@ inline std::optional<PidHeaterRequest> pid_heater_request(const nlohmann::json& 
              !(object.rfind("extruder", 0) == 0 &&
                object.find_first_not_of("0123456789", 8) == std::string::npos))
         return std::nullopt;
-    if (command.empty() || command.find_first_not_of(
-            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") != std::string::npos)
+    if (command.empty() ||
+        command.find_first_not_of(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") !=
+            std::string::npos)
         return std::nullopt;
     const auto section = config.find(object);
     if (section == config.end() || !section->is_object() ||

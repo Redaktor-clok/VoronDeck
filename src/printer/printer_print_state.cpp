@@ -1426,7 +1426,8 @@ void PrinterPrintState::set_estimated_print_time(int seconds) {
     int est = estimated_print_time_;
     const auto identity = print_identity_epoch_counter_;
     async_lifetime_.defer("PrinterPrintState::set_estimated_print_time", [this, est, identity]() {
-        if (identity != print_identity_epoch_counter_) return;
+        if (identity != print_identity_epoch_counter_)
+            return;
         // Seed/update time_left with slicer estimate when progress is still 0%.
         // Once progress-based calculation kicks in (>=1%), it takes over.
         if (est > 0 && lv_subject_get_int(&print_progress_) == 0) {

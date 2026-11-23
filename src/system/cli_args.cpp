@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "cli_args.h"
-#include "wizard_step.h"
 
 #include "app_globals.h"
 #include "config.h"
@@ -12,6 +11,7 @@
 #include "runtime_config.h"
 #include "text_io.h"
 #include "theme_manager.h"
+#include "wizard_step.h"
 
 #include <spdlog/spdlog.h>
 
@@ -305,7 +305,8 @@ bool parse_cli_args(int argc, char** argv, CliArgs& args, int& screen_width, int
         // Wizard step
         else if (strcmp(argv[i], "--wizard-step") == 0) {
             if (i + 1 >= argc) {
-                printf("Error: --wizard-step requires an argument (0-%d)\n", helix::wizard::STEP_COUNT - 1);
+                printf("Error: --wizard-step requires an argument (0-%d)\n",
+                       helix::wizard::STEP_COUNT - 1);
                 return false;
             }
             args.wizard_step = atoi(argv[++i]);

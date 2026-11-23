@@ -135,8 +135,8 @@ int label_tick_stride(int32_t plot_width, int tick_count, int32_t label_width, i
 }
 
 // Thin only the text at temperature ticks; range, grid and data are unchanged.
-int y_label_tick_stride(int32_t plot_height, float range, float increment,
-                        int32_t label_height, int32_t min_gap) {
+int y_label_tick_stride(int32_t plot_height, float range, float increment, int32_t label_height,
+                        int32_t min_gap) {
     if (plot_height <= 0 || range <= 0 || increment <= 0 || label_height <= 0)
         return 1;
     const double tick_height = static_cast<double>(plot_height) * increment / range;

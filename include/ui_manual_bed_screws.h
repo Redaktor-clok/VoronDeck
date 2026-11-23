@@ -1,22 +1,28 @@
 #pragma once
 
-#include "overlay_base.h"
-#include "observer_factory.h"
 #include "i_moonraker_client.h"
 #include "manual_bed_screws.h"
+#include "observer_factory.h"
+#include "overlay_base.h"
 
 class ManualBedScrewsPanel : public OverlayBase {
   public:
     ~ManualBedScrewsPanel() override;
-    const char* get_name() const override { return "Manual Bed Screws"; }
-    const char* xml_component() const override { return "manual_bed_screws"; }
+    const char* get_name() const override {
+        return "Manual Bed Screws";
+    }
+    const char* xml_component() const override {
+        return "manual_bed_screws";
+    }
     void init_subjects() override;
     void register_callbacks() override;
     void on_activate() override;
     void refresh();
     void act(helix::manual_bed_screws::Action action);
+
   protected:
     void on_deactivating(DeactivateReason reason) override;
+
   private:
     void request(const std::string& method, const nlohmann::json& params,
                  std::function<void(const nlohmann::json&)> done);

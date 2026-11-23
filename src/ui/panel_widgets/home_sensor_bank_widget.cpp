@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "home_sensor_bank_widget.h"
 
+#include "ui_temperature_utils.h"
+
 #include "config.h"
 #include "home_screen_preferences.h"
 #include "observer_factory.h"
 #include "panel_widget_registry.h"
 #include "temperature_sensor_manager.h"
-#include "ui_temperature_utils.h"
 
 #include <cmath>
 #include <memory>

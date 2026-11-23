@@ -392,8 +392,12 @@ class PrinterDiscovery {
         return has_exclude_object_;
     }
 
-    [[nodiscard]] bool has_bed_screws() const { return has_bed_screws_; }
-    [[nodiscard]] bool has_physical_z_endstop() const { return has_physical_z_endstop_; }
+    [[nodiscard]] bool has_bed_screws() const {
+        return has_bed_screws_;
+    }
+    [[nodiscard]] bool has_physical_z_endstop() const {
+        return has_physical_z_endstop_;
+    }
     [[nodiscard]] bool has_z_offset_calibration() const {
         return has_probe_ || has_physical_z_endstop_;
     }

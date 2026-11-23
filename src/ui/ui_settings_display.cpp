@@ -187,10 +187,11 @@ void DisplaySettingsOverlay::init_dim_dropdown() {
     for (const char* row_name : {"row_display_dim", "row_screensaver_after"}) {
         lv_obj_t* row = helix::ui::find_required(overlay_root_, row_name, get_name());
         if (lv_obj_t* dropdown = helix::ui::find_required(row, "dropdown", get_name())) {
-            const int selected = std::string(row_name) == "row_screensaver_after"
-                                     ? DisplaySettingsManager::dim_seconds_to_index(
-                                           DisplaySettingsManager::instance().get_screensaver_delay_sec())
-                                     : index;
+            const int selected =
+                std::string(row_name) == "row_screensaver_after"
+                    ? DisplaySettingsManager::dim_seconds_to_index(
+                          DisplaySettingsManager::instance().get_screensaver_delay_sec())
+                    : index;
             lv_dropdown_set_selected(dropdown, selected);
         }
     }

@@ -2188,7 +2188,8 @@ void AmsState::sync_current_loaded_from_backend(const AmsSystemInfo& primary_inf
     const auto measured_fill_pct = [](const SlotInfo& spool) {
         const float pct = spool.get_remaining_percent();
         return std::isfinite(pct) && pct >= 0
-            ? static_cast<int>(std::lround(std::clamp(pct, 0.0f, 100.0f))) : -1;
+                   ? static_cast<int>(std::lround(std::clamp(pct, 0.0f, 100.0f)))
+                   : -1;
     };
 
     if (registry_.count() == 0) {

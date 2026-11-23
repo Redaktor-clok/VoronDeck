@@ -120,7 +120,8 @@ void WizardSummaryStep::init_subjects() {
     spdlog::debug("[{}] Printer type from config: '{}'", get_name(), printer_type);
 
     // WiFi SSID
-    std::string wifi_ssid = config->get<std::string>(helix::wizard::WIFI_SSID, lv_tr("Not configured"));
+    std::string wifi_ssid =
+        config->get<std::string>(helix::wizard::WIFI_SSID, lv_tr("Not configured"));
     spdlog::debug("[{}] WiFi SSID from config: '{}'", get_name(), helix::redact::ssid(wifi_ssid));
 
     // Moonraker connection (host:port)
@@ -263,7 +264,6 @@ void WizardSummaryStep::init_subjects() {
 
 void WizardSummaryStep::register_callbacks() {
     spdlog::debug("[{}] Registering callbacks", get_name());
-
 }
 
 // ============================================================================

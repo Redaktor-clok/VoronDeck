@@ -3410,14 +3410,15 @@ void PrintStartCollector::save_prediction_entry() {
         predictor_.add_entry(entry);
     }
 
-    helix::ui::queue_update("PrintStartCollector::save_prediction_entry",
+    helix::ui::queue_update(
+        "PrintStartCollector::save_prediction_entry",
         [entry, printer_prefix = measured_printer_prefix_]() {
-        auto* cfg = Config::get_instance();
-        helix::PreprintPredictor::append_to_config(entry);
-        helix::PreprintPredictor::record_measured_total(entry, printer_prefix);
-        ThermalRateManager::instance().save_to_config(*cfg);
-        cfg->save();
-        spdlog::debug("[PrintStartCollector] Saved prediction history entry ({}s)",
-                      entry.total_seconds);
-    });
+            auto* cfg = Config::get_instance();
+            helix::PreprintPredictor::append_to_config(entry);
+            helix::PreprintPredictor::record_measured_total(entry, printer_prefix);
+            ThermalRateManager::instance().save_to_config(*cfg);
+            cfg->save();
+            spdlog::debug("[PrintStartCollector] Saved prediction history entry ({}s)",
+                          entry.total_seconds);
+        });
 }

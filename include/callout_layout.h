@@ -966,11 +966,9 @@ using CalloutChipWidths = std::array<int, kCalloutKindCount>;
 /// The tagger's review: a chip for every tagged part of `r`, placed over an
 /// `area_w` x `area_h` view of the image the way the home widget pins them
 /// (sliding apart, the toolhead merge, the overflow dock).
-[[nodiscard]] inline CalloutLayout review_callout_layout(const ImageRegions& r, int area_w,
-                                                         int area_h, const CalloutChipWidths& w,
-                                                         int chip_h, int gap,
-                                                         bool nozzle_tagged = true,
-                                                         bool bed_tagged = true) {
+[[nodiscard]] inline CalloutLayout
+review_callout_layout(const ImageRegions& r, int area_w, int area_h, const CalloutChipWidths& w,
+                      int chip_h, int gap, bool nozzle_tagged = true, bool bed_tagged = true) {
     CalloutLayoutInput in;
     in.area_w = area_w;
     in.area_h = area_h;
@@ -981,8 +979,7 @@ using CalloutChipWidths = std::array<int, kCalloutKindCount>;
     in.gap = gap;
     for (const CalloutKind k : {CalloutKind::Nozzle, CalloutKind::Bed, CalloutKind::Chamber,
                                 CalloutKind::Fan, CalloutKind::Light}) {
-        if ((k == CalloutKind::Nozzle && !nozzle_tagged) ||
-            (k == CalloutKind::Bed && !bed_tagged))
+        if ((k == CalloutKind::Nozzle && !nozzle_tagged) || (k == CalloutKind::Bed && !bed_tagged))
             continue;
         if (const auto a = region_anchor(r, k))
             in.active.push_back({k, w[size_t(k)], a});

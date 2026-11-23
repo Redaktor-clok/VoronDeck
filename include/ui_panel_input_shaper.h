@@ -8,6 +8,7 @@
 #include "ui_timer_guard.h"
 
 #include "async_lifetime_guard.h"
+#include "calibration_receipt.h"
 #include "calibration_types.h" // For InputShaperResult
 #include "input_shaper_calibrator.h"
 #include "klipper_config_editor.h"
@@ -17,7 +18,6 @@
 #include "shaper_selection.h"
 #include "static_panel_registry.h"
 #include "subject_managed_panel.h"
-#include "calibration_receipt.h"
 
 #include <algorithm>
 #include <array>
@@ -75,7 +75,9 @@ class InputShaperPanel : public OverlayBase {
     friend struct helix::ui::InputShaperPanelTestAccess;
 
   public:
-    const helix::CalibrationReceipt& calibration_receipt() const { return calibration_receipt_; }
+    const helix::CalibrationReceipt& calibration_receipt() const {
+        return calibration_receipt_;
+    }
 
     /**
      * @brief Panel state machine states

@@ -10,12 +10,16 @@
 
 namespace helix::zoffset_cal {
 
-ZOffsetCalibrationStrategy effective_strategy(ZOffsetCalibrationStrategy configured,
-                                               bool has_probe, bool has_physical_z_endstop) {
-    if (configured == ZOffsetCalibrationStrategy::FIRMWARE_MANAGED) return configured;
-    if (configured == ZOffsetCalibrationStrategy::ENDSTOP && has_physical_z_endstop) return configured;
-    if (has_probe) return ZOffsetCalibrationStrategy::PROBE_CALIBRATE;
-    if (has_physical_z_endstop) return ZOffsetCalibrationStrategy::ENDSTOP;
+ZOffsetCalibrationStrategy effective_strategy(ZOffsetCalibrationStrategy configured, bool has_probe,
+                                              bool has_physical_z_endstop) {
+    if (configured == ZOffsetCalibrationStrategy::FIRMWARE_MANAGED)
+        return configured;
+    if (configured == ZOffsetCalibrationStrategy::ENDSTOP && has_physical_z_endstop)
+        return configured;
+    if (has_probe)
+        return ZOffsetCalibrationStrategy::PROBE_CALIBRATE;
+    if (has_physical_z_endstop)
+        return ZOffsetCalibrationStrategy::ENDSTOP;
     // Callers reject unsupported hardware before any heating or movement.
     return configured;
 }

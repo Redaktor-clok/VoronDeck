@@ -57,12 +57,12 @@ void HomeScreenSettingsOverlay::deinit_subjects() {
 
 void HomeScreenSettingsOverlay::register_callbacks() {
     register_xml_callbacks({
-        {"on_home_settings_section", [](lv_event_t* e) {
+        {"on_home_settings_section",
+         [](lv_event_t* e) {
              get_home_screen_settings_overlay().show_section(ui::event_user_int(e).value_or(0));
          }},
-        {"on_home_settings_back", [](lv_event_t*) {
-             get_home_screen_settings_overlay().handle_back();
-         }},
+        {"on_home_settings_back",
+         [](lv_event_t*) { get_home_screen_settings_overlay().handle_back(); }},
         {"on_home_heater_visibility_changed",
          [](lv_event_t* e) {
              get_home_screen_settings_overlay().handle_device_changed(
@@ -106,7 +106,7 @@ void HomeScreenSettingsOverlay::before_show() {
 
 void HomeScreenSettingsOverlay::show_section(int section) {
     static constexpr const char* titles[] = {"Home screen", "Temperatures", "Fans",
-                                            "Filament remaining"};
+                                             "Filament remaining"};
     if (section < 0 || section > 3) {
         return;
     }

@@ -120,8 +120,7 @@ void GCodeCamera::fit_to_bounds(const AABB& raw_bounds) {
     // Orbit around the rendered center, including the renderer's -90 degree
     // model rotation. A screen-space correction alone leaves a depth offset
     // that moves an off-origin model out of view as soon as the camera rotates.
-    const glm::mat4 model =
-        glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0, 0, 1));
+    const glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(0, 0, 1));
     target_ = glm::vec3(model * glm::vec4(bounds.center(), 1.0f));
 
     // Set distance far enough for near/far clipping planes

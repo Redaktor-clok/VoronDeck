@@ -810,12 +810,12 @@ void PrinterDiscovery::parse_config_keys(const nlohmann::json& config) {
         if (pin != z->end() && pin->is_string()) {
             const auto name = pin->get<std::string>();
             has_physical_z_endstop_ = name.find_first_not_of(" !^~\t\r\n") != std::string::npos &&
-                                     name.find("virtual_endstop") == std::string::npos;
+                                      name.find("virtual_endstop") == std::string::npos;
         }
     }
     // A repeated config snapshot must also remove this config-only capability.
-    has_bed_screws_ = std::find(printer_objects_.begin(), printer_objects_.end(),
-                               "bed_screws") != printer_objects_.end();
+    has_bed_screws_ = std::find(printer_objects_.begin(), printer_objects_.end(), "bed_screws") !=
+                      printer_objects_.end();
     sections_.clear();
     for (const auto& [key, value] : config.items()) {
         const hw::ObjectClass cls = hw::classify_section(key, value);

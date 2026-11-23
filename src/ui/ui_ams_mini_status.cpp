@@ -131,15 +131,14 @@ struct SpoolCellData {
     std::string amount;
     std::string compact_amount;
     float fill_level = -1;
-    bool active = false;    // actively-loaded lane (success-colored badge)
-    int slot = -1;          // global slot index; -1 = the cell's own position
+    bool active = false; // actively-loaded lane (success-colored badge)
+    int slot = -1;       // global slot index; -1 = the cell's own position
 
     bool operator==(const SpoolCellData& o) const {
         return lane_state == o.lane_state && material == o.material &&
                remaining_pct == o.remaining_pct && summary == o.summary && percent == o.percent &&
                amount == o.amount && compact_amount == o.compact_amount &&
-               fill_level == o.fill_level && active == o.active &&
-               slot == o.slot;
+               fill_level == o.fill_level && active == o.active && slot == o.slot;
     }
 };
 
@@ -709,7 +708,7 @@ static void drop_spool_cells(AmsMiniStatusData* data) {
  * place, so creation bakes only the structure and the names.
  */
 static lv_obj_t* create_spool_cell(lv_obj_t* parent, int slot_index, int spool_size,
-                                 bool home_summary, bool simplified) {
+                                   bool home_summary, bool simplified) {
     char nm[32];
 
     lv_obj_t* cell = lv_obj_create(parent);
@@ -729,9 +728,12 @@ static lv_obj_t* create_spool_cell(lv_obj_t* parent, int slot_index, int spool_s
     lv_obj_t* wrap = ams_draw::create_transparent_container(cell);
     const std::string idx = std::to_string(slot_index);
     const std::string sz = std::to_string(spool_size);
-    const char* attrs[] = {"name", "lane_spool", "slot_index", idx.c_str(), "spool_size", sz.c_str(),
-                          "spool_view", home_summary ? "ring" : "default",
-                          "observe_fill", home_summary ? "false" : "true", nullptr};
+    const char* attrs[] = {"name",         "lane_spool",
+                           "slot_index",   idx.c_str(),
+                           "spool_size",   sz.c_str(),
+                           "spool_view",   home_summary ? "ring" : "default",
+                           "observe_fill", home_summary ? "false" : "true",
+                           nullptr};
     lv_obj_t* lspool = static_cast<lv_obj_t*>(lv_xml_create(wrap, "ams_lane_spool", attrs));
     if (!lspool)
         spdlog::error("[AmsMiniStatus] ams_lane_spool creation failed for slot {}", slot_index);
@@ -891,9 +893,10 @@ static void rebuild_spools(AmsMiniStatusData* data) {
     // Home wraps instead of squeezing every discovered lane into one row.
     // Keep a readable ring and its badge on narrow tiles, with at most six columns.
     const int home_min_cell = 36 + badge_margin;
-    const int columns = data->home_summary
-        ? std::min({lanes, 6, std::max(1, (avail_w + gap - 2) / (home_min_cell + gap))})
-        : lanes;
+    const int columns =
+        data->home_summary
+            ? std::min({lanes, 6, std::max(1, (avail_w + gap - 2) / (home_min_cell + gap))})
+            : lanes;
     const int share = (avail_w - (columns - 1) * gap - 2) / columns;
     if (data->home_summary) {
         lv_obj_set_flex_flow(sc, LV_FLEX_FLOW_ROW_WRAP);
@@ -925,21 +928,21 @@ static void rebuild_spools(AmsMiniStatusData* data) {
     // spaces the wrap and the text block by one gap.
     const int floor_h = kMinSpoolImgPx + badge_margin + gap;
     const int row_spool = std::min(avail_h - 4, kMaxSpoolImgPx); // square spool fits the row
-    const int stacked_cell = data->home_summary ? std::max({share, floor_cell, summary_w})
-                                               : std::max(share, floor_cell);
+    const int stacked_cell =
+        data->home_summary ? std::max({share, floor_cell, summary_w}) : std::max(share, floor_cell);
     auto stacked_spool_with = [&](int text_block) {
         return std::min({avail_h - badge_margin - text_block - gap, kMaxSpoolImgPx,
                          stacked_cell - badge_margin});
     };
     // The spool already draws how full it is, so the percent line under the
     // name stays only when it costs the spool nothing.
-    const bool stacked_pct = data->home_summary ||
-                             stacked_spool_with(mat_h + pct_h) == stacked_spool_with(mat_h);
+    const bool stacked_pct =
+        data->home_summary || stacked_spool_with(mat_h + pct_h) == stacked_spool_with(mat_h);
     const int stacked_spool = stacked_spool_with(mat_h + summary_h);
     const int beside_spool =
         share >= min_cell ? std::min(row_spool, share - badge_margin - gap - min_text) : 0;
-    const bool stacked = data->home_summary ||
-                         (avail_h >= floor_h + mat_h && stacked_spool >= beside_spool);
+    const bool stacked =
+        data->home_summary || (avail_h >= floor_h + mat_h && stacked_spool >= beside_spool);
 
     int cell_px = 0;
     int text_w = 0;
@@ -979,8 +982,10 @@ static void rebuild_spools(AmsMiniStatusData* data) {
         // unit lines; more lanes scroll rather than shrinking the ring away.
         cell_px = std::max({share, floor_cell, summary_w});
         text_w = cell_px;
-        spool_size = std::clamp(std::min(cell_px - badge_margin,
-            avail_h - mat_h - pct_h - summary_h - 2 * gap - badge_margin), kMinSpoolImgPx, 36);
+        spool_size =
+            std::clamp(std::min(cell_px - badge_margin,
+                                avail_h - mat_h - pct_h - summary_h - 2 * gap - badge_margin),
+                       kMinSpoolImgPx, 36);
     }
 
     // Up to six Home lanes retain their detailed header/ring/amount layout.
@@ -993,8 +998,7 @@ static void rebuild_spools(AmsMiniStatusData* data) {
     if (home_dense) {
         cell_px = std::max(share, floor_cell);
         text_w = 0;
-        spool_size = std::min(data->simplified ? 36 : kMaxSpoolImgPx,
-                              cell_px - badge_margin);
+        spool_size = std::min(data->simplified ? 36 : kMaxSpoolImgPx, cell_px - badge_margin);
         home_total_h = spool_size + badge_margin + 2 * gap;
     } else if (data->home_summary) {
         cell_px = std::max(share, floor_cell);
@@ -1002,8 +1006,8 @@ static void rebuild_spools(AmsMiniStatusData* data) {
         const int desired_ring = data->simplified ? 36 : kMaxSpoolImgPx;
         const int text_height = data->simplified ? mat_h + pct_h + summary_h : mat_h + summary_h;
         const int gaps = data->simplified ? 2 * gap : gap;
-        home_compact = summary_w > cell_px ||
-                       text_height + kMinSpoolImgPx + badge_margin + gaps > avail_h;
+        home_compact =
+            summary_w > cell_px || text_height + kMinSpoolImgPx + badge_margin + gaps > avail_h;
         if (home_compact) {
             const lv_font_t* candidates[] = {pct_font, &noto_sans_12, &noto_sans_11, &noto_sans_10};
             for (const lv_font_t* font : candidates) {
@@ -1015,20 +1019,22 @@ static void rebuild_spools(AmsMiniStatusData* data) {
                     if (cd.compact_amount.empty())
                         continue;
                     lv_point_t size;
-                    lv_text_get_size(&size, cd.compact_amount.c_str(), font, 0, 0,
-                                     LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+                    lv_text_get_size(&size, cd.compact_amount.c_str(), font, 0, 0, LV_COORD_MAX,
+                                     LV_TEXT_FLAG_NONE);
                     widest = std::max(widest, static_cast<int>(size.x));
                     tallest = std::max(tallest, static_cast<int>(size.y));
                 }
                 home_font = font;
                 home_header_h = lv_font_get_line_height(font);
                 home_amount_h = tallest;
-                if (widest <= cell_px && home_header_h + home_amount_h +
-                    kMinSpoolImgPx + badge_margin + 2 * gap <= avail_h)
+                if (widest <= cell_px &&
+                    home_header_h + home_amount_h + kMinSpoolImgPx + badge_margin + 2 * gap <=
+                        avail_h)
                     break;
             }
-            spool_size = std::min({desired_ring, cell_px - badge_margin,
-                avail_h - home_header_h - home_amount_h - badge_margin - 2 * gap});
+            spool_size =
+                std::min({desired_ring, cell_px - badge_margin,
+                          avail_h - home_header_h - home_amount_h - badge_margin - 2 * gap});
         } else {
             spool_size = std::min({desired_ring, cell_px - badge_margin,
                                    avail_h - text_height - badge_margin - gaps});
@@ -1043,8 +1049,8 @@ static void rebuild_spools(AmsMiniStatusData* data) {
             home_total_h = spool_size + badge_margin + 2 * gap;
         } else {
             home_total_h = home_compact || data->simplified
-                ? home_header_h + spool_size + badge_margin + home_amount_h + 2 * gap
-                : spool_size + badge_margin + gap + home_header_h;
+                               ? home_header_h + spool_size + badge_margin + home_amount_h + 2 * gap
+                               : spool_size + badge_margin + gap + home_header_h;
         }
     }
 
@@ -1099,8 +1105,8 @@ static void rebuild_spools(AmsMiniStatusData* data) {
             data->spool_cell_objs[i] = nullptr;
         }
         if (!data->spool_cell_objs[i]) {
-            data->spool_cell_objs[i] = create_spool_cell(sc, slot, spool_size, data->home_summary,
-                                                       data->simplified);
+            data->spool_cell_objs[i] =
+                create_spool_cell(sc, slot, spool_size, data->home_summary, data->simplified);
             data->spool_cell_obj_slots[i] = slot;
         }
         lv_obj_t* cell = data->spool_cell_objs[i];
@@ -1110,9 +1116,9 @@ static void rebuild_spools(AmsMiniStatusData* data) {
         // Home puts the material below the ring; other stacked views keep
         // the name above the spool. Short rows sit it alongside.
         lv_obj_set_size(cell, cell_px, lv_pct(100));
-        lv_obj_set_flex_flow(cell, stacked ? (data->home_summary ? LV_FLEX_FLOW_COLUMN
-                                                               : LV_FLEX_FLOW_COLUMN_REVERSE)
-                                         : LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_flow(
+            cell, stacked ? (data->home_summary ? LV_FLEX_FLOW_COLUMN : LV_FLEX_FLOW_COLUMN_REVERSE)
+                          : LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
                               LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_column(cell, gap, LV_PART_MAIN);
@@ -1189,8 +1195,9 @@ static void rebuild_spools(AmsMiniStatusData* data) {
             // Ghost the whole text group together: a full-strength percent beside a
             // dimmed material would read as two different lanes.
             lv_obj_set_style_text_opa(pct, text_opa, LV_PART_MAIN);
-            if (show_text && show_pct && (data->simplified ? !cd.percent.empty()
-                                                         : !data->home_summary || !cd.summary.empty()))
+            if (show_text && show_pct &&
+                (data->simplified ? !cd.percent.empty()
+                                  : !data->home_summary || !cd.summary.empty()))
                 lv_obj_remove_flag(pct, LV_OBJ_FLAG_HIDDEN);
             else
                 lv_obj_add_flag(pct, LV_OBJ_FLAG_HIDDEN);
@@ -1226,10 +1233,10 @@ static void rebuild_spools(AmsMiniStatusData* data) {
                 if (auto* label = lv_obj_get_child(badge, 0)) {
                     lv_point_t size;
                     lv_text_get_size(&size, lv_label_get_text(label),
-                        lv_obj_get_style_text_font(label, LV_PART_MAIN), 0, 0,
-                        LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+                                     lv_obj_get_style_text_font(label, LV_PART_MAIN), 0, 0,
+                                     LV_COORD_MAX, LV_TEXT_FLAG_NONE);
                     lv_obj_set_size(badge, std::max(spool_size * 2 / 5, size.x + 4),
-                                          std::max(spool_size * 2 / 5, size.y + 2));
+                                    std::max(spool_size * 2 / 5, size.y + 2));
                 }
             }
             continue;
@@ -1252,9 +1259,9 @@ static void rebuild_spools(AmsMiniStatusData* data) {
                 lv_obj_set_pos(col, 0, text_y);
                 lv_obj_set_size(col, cell_px, home_header_h);
                 lv_obj_set_flex_flow(col, home_compact ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
-                lv_obj_set_flex_align(col, home_compact ? LV_FLEX_ALIGN_CENTER : LV_FLEX_ALIGN_START,
-                                      LV_FLEX_ALIGN_CENTER,
-                                      LV_FLEX_ALIGN_CENTER);
+                lv_obj_set_flex_align(col,
+                                      home_compact ? LV_FLEX_ALIGN_CENTER : LV_FLEX_ALIGN_START,
+                                      LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
                 lv_obj_set_style_pad_column(col, 0, LV_PART_MAIN);
             }
             const lv_font_t* name_font = home_compact ? home_font : mat_font;
@@ -1262,8 +1269,8 @@ static void rebuild_spools(AmsMiniStatusData* data) {
             int percent_w = 0;
             if (home_compact && !cd.percent.empty()) {
                 lv_point_t size;
-                lv_text_get_size(&size, cd.percent.c_str(), number_font, 0, 0,
-                                 LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+                lv_text_get_size(&size, cd.percent.c_str(), number_font, 0, 0, LV_COORD_MAX,
+                                 LV_TEXT_FLAG_NONE);
                 percent_w = size.x;
             }
             if (mat) {
@@ -1289,7 +1296,8 @@ static void rebuild_spools(AmsMiniStatusData* data) {
                 lv_obj_set_size(amount, cell_px, home_amount_h);
                 lv_obj_set_style_text_font(amount, number_font, LV_PART_MAIN);
                 lv_obj_set_style_text_line_space(amount, 0, LV_PART_MAIN);
-                lv_label_set_text(amount, home_compact ? cd.compact_amount.c_str() : cd.amount.c_str());
+                lv_label_set_text(amount,
+                                  home_compact ? cd.compact_amount.c_str() : cd.amount.c_str());
                 if (three_parts && !cd.amount.empty())
                     lv_obj_remove_flag(amount, LV_OBJ_FLAG_HIDDEN);
                 else
@@ -1313,9 +1321,9 @@ static void rebuild_spools(AmsMiniStatusData* data) {
 static void rebuild(AmsMiniStatusData* data) {
     if (!data)
         return;
-    data->mode =
-        (data->home_summary || data->width_px >= helix::widget_size::w_normal())
-            ? AmsMiniMode::SPOOL : AmsMiniMode::BAR;
+    data->mode = (data->home_summary || data->width_px >= helix::widget_size::w_normal())
+                     ? AmsMiniMode::SPOOL
+                     : AmsMiniMode::BAR;
     if (data->mode == AmsMiniMode::SPOOL) {
         if (data->bars_container)
             lv_obj_add_flag(data->bars_container, LV_OBJ_FLAG_HIDDEN);
@@ -1716,16 +1724,17 @@ static void sync_from_ams_state(AmsMiniStatusData* data) {
             const std::string amount_separator = " \xC2\xB7 ";
             if (const auto pos = c.compact_amount.find(amount_separator); pos != std::string::npos)
                 c.compact_amount.replace(pos, amount_separator.size(), "\n");
-            c.compact_amount.erase(std::remove(c.compact_amount.begin(), c.compact_amount.end(), ' '),
-                                   c.compact_amount.end());
-            c.summary = data->simplified
-                ? helix::home_spool_summary(amount, {false, units.grams, units.metres}, false)
-                : helix::home_spool_summary(amount, units);
+            c.compact_amount.erase(
+                std::remove(c.compact_amount.begin(), c.compact_amount.end(), ' '),
+                c.compact_amount.end());
+            c.summary =
+                data->simplified
+                    ? helix::home_spool_summary(amount, {false, units.grams, units.metres}, false)
+                    : helix::home_spool_summary(amount, units);
             // One selected unit per line underneath its material label.
             const std::string separator = " \xC2\xB7 ";
             for (size_t pos = data->simplified ? std::string::npos : c.summary.find(separator);
-                 pos != std::string::npos;
-                 pos = c.summary.find(separator, pos + 1))
+                 pos != std::string::npos; pos = c.summary.find(separator, pos + 1))
                 c.summary.replace(pos, separator.size(), "\n");
         }
         c.active = active_subject && lv_subject_get_int(active_subject) != 0;

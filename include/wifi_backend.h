@@ -276,7 +276,8 @@ class WifiBackend {
         bool unresponsive{false};
 
         bool awaiting_ip() const {
-            return connected && (ip_address.empty() || ip_address == "0.0.0.0" || ip_address == "::");
+            return connected &&
+                   (ip_address.empty() || ip_address == "0.0.0.0" || ip_address == "::");
         }
     };
 

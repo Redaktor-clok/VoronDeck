@@ -27,10 +27,10 @@ static constexpr int kAmsDetailMaxSlots = helix::kAmsMaxSlots;
 
 /// Widget pointers resolved from an ams_unit_detail component
 struct AmsDetailWidgets {
-    bool simple_rings = false;        ///< Detail-only opt-in; never changes the AMS spool preference.
-    lv_obj_t* root = nullptr;          ///< The ams_unit_detail root object
-    lv_obj_t* slot_grid = nullptr;     ///< Flex row container for ams_slot widgets
-    lv_obj_t* slot_tray = nullptr;     ///< Visual "holder" in front of spool bottoms
+    bool simple_rings = false;     ///< Detail-only opt-in; never changes the AMS spool preference.
+    lv_obj_t* root = nullptr;      ///< The ams_unit_detail root object
+    lv_obj_t* slot_grid = nullptr; ///< Flex row container for ams_slot widgets
+    lv_obj_t* slot_tray = nullptr; ///< Visual "holder" in front of spool bottoms
     lv_obj_t* labels_layer = nullptr;  ///< Overlay for material labels (5+ slots)
     lv_obj_t* badge_layer = nullptr;   ///< Overlay for slot badges (in front of tray)
     lv_obj_t* env_indicator = nullptr; ///< Environment chip (temp/humidity) on the lid
