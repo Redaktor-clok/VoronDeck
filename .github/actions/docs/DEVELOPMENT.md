@@ -26,11 +26,6 @@ Ubuntu 24.04 и Python 3.13. Версия clang-format закреплена в `
 Ручной запуск по умолчанию лишь показывает кандидатов; для удаления снимите
 `Preview only`. Ошибка доступа не маскируется под успешную очистку.
 
-**Dependabot** раз в неделю предлагает обновления GitHub Actions и Python-
-инструментов через pull requests. Автоматического слияния нет. Обновление
-clang-format приходит отдельно. Библиотеки C++ и ARM toolchain требуют отдельной
-проверки локальных патчей, API и минимальной поддерживаемой системы.
-
 Ни один из этих процессов не подключается к принтеру и не устанавливает пакеты.
 Для проверок достаточно `contents: read`; право `actions: write` есть только
 у очистки кэшей на основной ветке. Секреты устройств не нужны.
@@ -55,11 +50,6 @@ per branch, dependency family and cache format. Entries younger than one day
 are protected. Other caches, test artifacts and Releases are untouched. Manual
 runs default to preview; uncheck `Preview only` to apply. Permission errors fail
 the job instead of being reported as successful deletions.
-
-**Dependabot** proposes weekly GitHub Actions and Python-tool updates as pull
-requests without automatic merging. Formatter updates are separate. C++ library
-and ARM toolchain upgrades require patch, API and minimum-system compatibility
-checks.
 
 No workflow connects to a printer or installs packages. Checks have read-only
 repository access; only cache cleanup on main can write Actions caches. Device

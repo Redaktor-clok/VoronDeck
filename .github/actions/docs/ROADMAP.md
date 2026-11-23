@@ -17,7 +17,7 @@ and an Issue/PR link. A configured workflow does not imply passing code.
 | DEP-01 | P0 | Обновить ARM toolchain и системные зависимости / Update ARM toolchain and dependencies | Версии и поддержка проверены; API/patches и минимальный ABI подтверждены / Versions, patches and ABI verified | Анализ; сборки остановлены / Review; builds paused |
 | CI-01 | P1 | Качество кода / Code quality | Независимые статические проверки и Python-регрессии, реальные ошибки видны / Independent checks with visible failures | Workflow добавлен; результаты в Actions / Added; see Actions |
 | CI-02 | P1 | Очистка кэшей / Cache cleanup | Два свежих поколения сохранены, dry-run и отказ API проверены / Two generations preserved, dry-run and API failures tested | Workflow добавлен / Added |
-| DEP-02 | P1 | Контроль обновлений / Dependency updates | Еженедельные PR без автослияния / Weekly PRs without auto-merge | Dependabot настроен / Configured |
+| DEP-02 | P1 | Контроль обновлений / Dependency updates | Проверка совместимости версий / Version compatibility checks | В плане / Planned |
 | CI-03 | P1 | Linux и C++ / Linux and C++ | Полная сборка и обычные C++-тесты из одного commit / Build and tests from one commit | Подготовлено, пауза DEP-01 / Prepared, waiting for DEP-01 |
 | CI-04 | P1 | ARM64 production | Без mock/debug-сервисов; manifest, SHA256, чистая конфигурация и ABI / Production flags, manifest, checksums, clean config and ABI | Подготовлено, пауза DEP-01 / Prepared, waiting for DEP-01 |
 | UI-01 | P1 | Адаптация интерфейса / Responsive UI | Матрица ниже, снимки и ручной просмотр текста / Matrix below, screenshots and text review | Перенос в hosted CI / Moving to hosted CI |
