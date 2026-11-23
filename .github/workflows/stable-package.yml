@@ -1,0 +1,50 @@
+name: Стабильный пакет / Stable package
+
+on:
+  pull_request:
+    branches: [stable-packages]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Проверка пакета / Package verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: candidate
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: main
+          fetch-depth: 0
+          path: source
+          persist-credentials: false
+      - name: Проверить целостность и исходники / Verify integrity and source
+        run: python3 source/.github/actions/scripts/check-stable-package.py candidate source
+
+  quality-gate:
+    name: Quality gate
+    needs: verify
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - env:
+          RESULT: ${{ needs.verify.result }}
+        run: test "$RESULT" = success
+
+  approve:
+    name: Подтверждение владельца / Owner approval
+    needs: quality-gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    environment: stable-release
+    permissions: {}
+    steps:
+      - run: echo 'Пакет проверен и одобрен. Слияние PR выполняется отдельно. / Package verified and approved. Merge the PR separately.'
