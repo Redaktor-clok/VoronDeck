@@ -1,14 +1,32 @@
-# VoronDeck
+<p align="center">
+  <img src="assets/presentation/vorondeck-logo.png" alt="VoronDeck" width="144" height="144">
+</p>
 
-**Сенсорный интерфейс для 3D-принтеров с Klipper и Moonraker.**
+<h1 align="center">VoronDeck</h1>
 
-Настраивайте главный экран, управляйте печатью и материалами, переключайтесь между системами подачи пластика — прямо на дисплее принтера.
+<p align="center"><strong>Настраиваемый сенсорный интерфейс для 3D-принтеров с Klipper</strong></p>
+
+<p align="center"><strong>Русский</strong> · <a href="README.en.md">English</a></p>
+
+<p align="center">
+  <a href="https://github.com/Redaktor-clok/VoronDeck/releases/latest"><img src="https://img.shields.io/github/v/release/Redaktor-clok/VoronDeck?label=version&amp;color=EF3E4A" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License: GPL-3.0"></a>
+  <img src="https://img.shields.io/badge/platform-Linux_ARM64-555" alt="Platform: Linux ARM64">
+  <img src="https://img.shields.io/badge/Klipper-Moonraker-555" alt="Klipper and Moonraker">
+  <img src="https://img.shields.io/badge/AMS-up_to_24_channels-B7E52A" alt="AMS: up to 24 channels">
+</p>
+
+Температуры, вентиляторы, материалы и управление печатью — на одном экране. Соберите главную страницу из нужных плиток, выберите тему и палитру, расположите дисплей горизонтально или вертикально.
+
+VoronDeck развивает интерфейс под проекты Voron и NEMESIS: упрощённое отображение катушек, несколько AMS с отдельными вкладками и до 24 каналов, профили материалов и учёт остатка пластика со Spoolman или локально. Доступные калибровки подбираются по конфигурации принтера. Для восстановления после отключения питания предусмотрена интеграция с отдельным плагином VoronDeck Recovery.
+
+**Основа проекта — [HelixScreen](https://github.com/prestonbrown/helixscreen), созданный Preston Brown и участниками проекта.** Спасибо авторам за открытую основу. VoronDeck — самостоятельная модификация с собственным оформлением, изменениями интерфейса и дополнительными возможностями. Сведения об авторах и лицензиях сохранены в [разделе благодарностей](docs/VORONDECK-CREDITS.md).
 
 ![VoronDeck: горизонтальный и вертикальный интерфейс](assets/presentation/vorondeck-two-orientations-v1.png)
 
 [Установка](#установка) · [Возможности](#возможности) · [Мультифиламент](#мультифиламент) · [Обновления](#обновления) · [Начало работы](docs/VORONDECK-GETTING-STARTED.md)
 
-> **VoronDeck 1.0 — стабильный выпуск.** Готовый пакет доступен для Linux `aarch64` с glibc 2.30 или новее. Основной репозиторий и стабильные обновления открыты; бета-канал остаётся закрытым.
+> **VoronDeck 1.0.1 — стабильный выпуск.** Готовый пакет доступен для Linux `aarch64` с glibc 2.30 или новее. Основной репозиторий и стабильные обновления открыты; бета-канал остаётся закрытым.
 
 ## Возможности
 
