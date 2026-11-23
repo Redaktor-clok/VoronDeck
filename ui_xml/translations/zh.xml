@@ -807,6 +807,7 @@
   <translation tag="Connect a USB label printer first" zh="请先连接 USB 标签打印机"/>
   <translation tag="Connect an ADXL345 accelerometer to calibrate" zh="连接 ADXL345 加速度计以进行校准"/>
   <translation tag="Connect to servers on your network and the internet." zh="连接到您网络及互联网上的服务器。"/>
+  <translation tag="Connect to this screen&apos;s local Moonraker before installing its update." zh="Connect to this screen&apos;s local Moonraker before installing its update."/>
   <translation tag="Connect to your printer via SSH and run:" zh="通过 SSH 连接到打印机并运行："/>
   <translation tag="Connected" zh="已连接"/>
   <translation tag="Connected (%s)" zh="已连接 (%s)"/>

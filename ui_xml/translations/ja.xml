@@ -807,6 +807,7 @@
   <translation tag="Connect a USB label printer first" ja="先にUSBラベルプリンターを接続してください"/>
   <translation tag="Connect an ADXL345 accelerometer to calibrate" ja="キャリブレーションには ADXL345 加速度センサーを接続してください"/>
   <translation tag="Connect to servers on your network and the internet." ja="ネットワークおよびインターネット上のサーバーに接続します。"/>
+  <translation tag="Connect to this screen&apos;s local Moonraker before installing its update." ja="Connect to this screen&apos;s local Moonraker before installing its update."/>
   <translation tag="Connect to your printer via SSH and run:" ja="SSHでプリンターに接続し、次を実行してください:"/>
   <translation tag="Connected" ja="接続済み"/>
   <translation tag="Connected (%s)" ja="接続済み (%s)"/>

@@ -830,6 +830,7 @@
   <translation tag="Connect a USB label printer first" en="Connect a USB label printer first"/>
   <translation tag="Connect an ADXL345 accelerometer to calibrate" en="Connect an ADXL345 accelerometer to calibrate"/>
   <translation tag="Connect to servers on your network and the internet." en="Connect to servers on your network and the internet."/>
+  <translation tag="Connect to this screen&apos;s local Moonraker before installing its update." en="Connect to this screen&apos;s local Moonraker before installing its update."/>
   <translation tag="Connect to your printer via SSH and run:" en="Connect to your printer via SSH and run:"/>
   <translation tag="Connected" en="Connected"/>
   <translation tag="Connected (%s)" en="Connected (%s)"/>

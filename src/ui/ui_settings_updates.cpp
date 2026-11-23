@@ -12,6 +12,7 @@
 #include "app_globals.h"
 #include "config.h"
 #include "helix_version.h"
+#include "host_identity.h"
 #include "http_executor.h"
 #include "i_moonraker_client.h"
 #include "json_fwd.h"
@@ -370,6 +371,15 @@ void UpdatesSettingsOverlay::install_test_update(const std::string& selection) {
         job_holds_machine(get_printer_state().print_state().get_print_lifecycle())) {
         ToastManager::instance().show(ToastSeverity::WARNING,
                                       lv_tr("Printer or update manager is busy"), 4000);
+        return;
+    }
+    // Offers describe this screen's package, never a remote printer's screen.
+    const auto host = helix::extract_host_from_websocket_url(client->get_last_url());
+    helix::invalidate_host_identity_cache();
+    if (host.empty() || !helix::is_moonraker_on_same_host(host)) {
+        ToastManager::instance().show(
+            ToastSeverity::WARNING,
+            lv_tr("Connect to this screen's local Moonraker before installing its update."), 6000);
         return;
     }
     auto params = json::parse(selection);

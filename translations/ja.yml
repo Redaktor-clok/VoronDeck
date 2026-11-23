@@ -4766,3 +4766,4 @@ translations:
   "VoronDeck updated successfully": "VoronDeck updated successfully"
   "Update was not confirmed. Check component updates before retrying.": "Update was not confirmed. Check component updates before retrying."
   "Update manager is outdated. Run the VoronDeck installer again.": "Update manager is outdated. Run the VoronDeck installer again."
+  "Connect to this screen's local Moonraker before installing its update.": "Connect to this screen's local Moonraker before installing its update."
