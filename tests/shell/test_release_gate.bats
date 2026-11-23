@@ -10,9 +10,7 @@ setup() {
     REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
     T="$BATS_TEST_TMPDIR/repo"
     mkdir -p "$T/scripts"
-    cp "$REPO_ROOT/scripts/release-gate.sh" "$REPO_ROOT/scripts/generate-whatsnew.sh" \
-        "$REPO_ROOT/scripts/android-version-code.sh" "$REPO_ROOT/scripts/changelog-section.sh" \
-        "$T/scripts/"
+    cp "$REPO_ROOT/scripts/release-gate.sh" "$T/scripts/"
     cat >"$T/scripts/helix-claim" <<'CLAIM'
 #!/usr/bin/env bash
 while [ "$1" != "--" ]; do shift; done
@@ -26,8 +24,6 @@ CLAIM
     git -C "$T" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
     echo "2.0.0" >"$T/VERSION.txt"
     printf '## [2.0.0] - 2026-10-07\n\n[2.0.0]: https://example/compare/v1.9.0...v2.0.0\n' >"$T/CHANGELOG.md"
-    mkdir -p "$T/android/whatsnew"
-    echo "Two point oh." >"$T/android/whatsnew/2.0.0.txt"
 
     export MAKE_ARGS_FILE="$BATS_TEST_TMPDIR/make.args"
     export FAKE_BUILD=ok
@@ -99,12 +95,11 @@ FAKE
     [[ "$output" == *"no '## [2.0.1] - <date>' entry"* ]] || fail "$output"
 }
 
-@test "a stable version with no Play Store text fails before the tag" {
-    rm android/whatsnew/2.0.0.txt
+@test "the fast tier needs no Android project or Play Store text" {
+    [ ! -e android ]
     run scripts/release-gate.sh fast
-    [ "$status" -ne 0 ] || fail "$output"
-    echo "$output" | grep -qE "^  FAIL  whatsnew " || fail "$output"
-    grep -q "android/whatsnew/2.0.0.txt is missing" build/release-gate/whatsnew.log || fail "$(cat build/release-gate/whatsnew.log)"
+    [ "$status" -eq 0 ] || fail "$output"
+    [[ "$output" != *"whatsnew"* ]] || fail "$output"
 }
 
 @test "a version that is already tagged fails" {
