@@ -6,13 +6,6 @@
 
 ## RU
 
-Обязательный Pull Request не используется. Изменения проходят Quality gate в
-рабочей ветке, затем тот же коммит переносится в `main` без переписывания истории.
-Стабильный пакет проверяется в ветке `release-*-review`; публикация требует
-подтверждения владельца в окружении `stable-release`. Только после этого коммит
-пакета переносится в `stable-packages` и обновляется Release. Само изменение
-`main` не выпускает обновление экрана.
-
 **Проверка качества кода / Code quality** запускается при изменениях основной
 рабочих веток и main, в pull requests, вручную и раз в неделю. Отдельные задания проверяют
 синтаксис Python/XML, параметры переводов, обработку JSON null, имена компонентов
@@ -43,12 +36,6 @@ clang-format приходит отдельно. Библиотеки C++ и ARM 
 у очистки кэшей на основной ветке. Секреты устройств не нужны.
 
 ## EN
-
-Pull requests are optional. Changes pass Quality gate on a working branch;
-the same commit then fast-forwards `main`. Stable packages are verified on a
-`release-*-review` branch and require owner approval in the `stable-release`
-environment. Only then is the package commit fast-forwarded into `stable-packages`
-and the Release updated. A change to `main` alone does not release a screen update.
 
 **Code quality** runs on working-branch and main changes, pull requests, manual dispatch and
 weekly. Independent jobs check Python/XML syntax, translation placeholders,
