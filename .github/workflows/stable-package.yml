@@ -1,9 +1,13 @@
 name: Стабильный пакет / Stable package
 
 on:
-  pull_request:
-    branches: [stable-packages]
+  push:
+    branches: ['release-*-review']
   workflow_dispatch:
+
+concurrency:
+  group: stable-package-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -47,4 +51,4 @@ jobs:
     environment: stable-release
     permissions: {}
     steps:
-      - run: echo 'Пакет проверен и одобрен. Слияние PR выполняется отдельно. / Package verified and approved. Merge the PR separately.'
+      - run: echo 'Пакет одобрен / Package approved'

@@ -6,10 +6,10 @@
   "packages": [
     {
       "architecture": "aarch64",
-      "sha256": "79c29acb05b40217908333dcc53bc8b3bf748b656ef4ebbbf111c9601d27bafb",
-      "size": 70668262,
-      "source_commit": "55b9df958b1d65b30c62972bdc7dfac69c44e8ab",
-      "binary_sha256": "4a7b4228b9a23c405a0dd47b73472c518038cb25bfb8ff6e5d48cf35e09c85bf",
+      "sha256": "4fcf42790225f3a0917db3d4367d2c1f7cdaef67f1290b78497887e87c9d3723",
+      "size": 70667966,
+      "source_commit": "71c5ce9042bf5f4de20a30844311d3d5d05a65a1",
+      "binary_sha256": "1c3921e3e5c9e45822d0653882ec69d5bad9c7285e7075bda2c84f3a5a0126ee",
       "libc": "glibc",
       "path": "packages/VoronDeck-1.0.1-aarch64-glibc.tar.gz"
     }
