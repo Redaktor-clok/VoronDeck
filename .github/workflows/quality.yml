@@ -1,0 +1,105 @@
+name: Проверка качества кода / Code quality
+
+on:
+  push:
+    branches: [main, actions-maintenance, github-actions]
+    paths-ignore: ['assets/presentation/**']
+  pull_request:
+    branches: [main]
+    paths-ignore: ['assets/presentation/**']
+  schedule:
+    - cron: '37 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHONUNBUFFERED: '1'
+  PYTHONUTF8: '1'
+
+jobs:
+  source:
+    name: ${{ matrix.check }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - check: Синтаксис и Actions / Syntax and Actions
+            command: python scripts/ci/check-source.py && python scripts/check_workflow_submodules.py && python -m unittest discover -s tests/ci -v
+          - check: Переводы / Translation formats
+            command: python scripts/check_translation_format_specifiers.py --verbose
+          - check: Безопасность JSON / JSON safety
+            command: python scripts/check_subscription_null_safety.py --max-allowed 0 --summary
+          - check: XML и AMS / XML and AMS
+            command: python scripts/check_duplicate_xml_names.py --summary && python scripts/check_xml_create_registered.py && python scripts/check_ams_xml_mirror.py
+          - check: Аудит C++ / C++ pattern audit
+            command: bash scripts/audit_codebase.sh
+          - check: Формат C++ / C++ formatting
+            command: git ls-files -z 'src/*.cpp' 'src/*.h' 'include/*.h' ':!:src/generated/*' | xargs -0 -r clang-format --dry-run --Werror
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Версии инструментов / Tool versions
+        run: |
+          python --version
+          clang-format --version
+          python -m pip freeze
+          git ls-tree -r HEAD lib/
+      - name: Проверить / Check
+        env:
+          CHECK_COMMAND: ${{ matrix.command }}
+        run: |
+          mkdir -p build/quality
+          bash -e -o pipefail -c "$CHECK_COMMAND" 2>&1 | tee build/quality/check.log
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: quality-${{ strategy.job-index }}-${{ github.sha }}
+          path: build/quality/
+          retention-days: 14
+
+  regressions:
+    name: Установщик и обновления / Installer and updates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Регрессионные тесты / Regression tests
+        run: |
+          mkdir -p build/quality
+          bash -n install.sh
+          python -m pytest -q --junitxml=build/quality/regressions.xml \
+            tests/ci/ tests/test_vorondeck_update_check.py \
+            tests/test_vorondeck_updates_setup.py tests/test_moonraker_vorondeck.py \
+            tests/python/test_vorondeck_distribution.py \
+            tests/python/test_vorondeck_installer_linux.py moonraker-plugin/tests/
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: quality-regressions-${{ github.sha }}
+          path: build/quality/
+          retention-days: 14

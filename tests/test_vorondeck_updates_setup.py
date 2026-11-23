@@ -9,8 +9,8 @@ import json
 
 SPEC = importlib.util.spec_from_file_location(
     'updates_setup', Path(__file__).resolve().parents[1] / 'scripts/setup-vorondeck-updates.py')
-setup_module = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(setup_module)
+updater_module = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(updater_module)
 
 
 class Services:
@@ -52,7 +52,7 @@ class UpdaterSetupTest(unittest.TestCase):
     def install(self, **kwargs):
         options = dict(home=self.home, probe=lambda port: True, sleep=lambda _: None, attempts=2)
         options.update(kwargs)
-        return setup_module.setup(self.repo, self.base, self.config, self.services,
+        return updater_module.setup(self.repo, self.base, self.config, self.services,
                                   options.pop('idle_check', self.idle), **options)
 
     def test_success_preserves_config_and_is_idempotent(self):
@@ -174,8 +174,8 @@ class UpdaterSetupTest(unittest.TestCase):
                  (['vorondeck_update'], {'vorondeck': {}}, ['vorondeck_update'], False),
                  (['vorondeck_update'], {'vorondeck': {}}, [], True)]
         for components, versions, failed, expected in cases:
-            with patch.object(setup_module, 'urlopen', side_effect=responses(components, versions, failed)):
-                self.assertEqual(setup_module.probe_loaded(7125), expected)
+            with patch.object(updater_module, 'urlopen', side_effect=responses(components, versions, failed)):
+                self.assertEqual(updater_module.probe_loaded(7125), expected)
 
 
 if __name__ == '__main__':

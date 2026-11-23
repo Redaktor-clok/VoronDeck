@@ -1,0 +1,43 @@
+name: Очистка устаревших кэшей / Cache cleanup
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Только показать список / Preview only'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cache-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    if: github.repository == 'Redaktor-clok/VoronDeck' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Проверить очистку / Test cleanup
+        run: python3 -m unittest discover -s tests/ci -p 'test_prune_caches.py' -v
+      - name: Очистить старые поколения / Prune old generations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPLY: ${{ github.event_name == 'schedule' || !inputs.dry_run }}
+        run: |
+          if [ "$APPLY" = true ]; then
+            python3 scripts/ci/prune-caches.py --apply
+          else
+            python3 scripts/ci/prune-caches.py
+          fi
