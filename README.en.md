@@ -24,7 +24,7 @@ VoronDeck develops the interface for Voron and NEMESIS projects: simplified spoo
 
 [Installation](#installation) · [Features](#features) · [Multi-material](#multi-material) · [Updates](#updates) · [Getting started (RU)](docs/VORONDECK-GETTING-STARTED.md) · [Roadmap and tests](.github/actions/docs/ROADMAP.md) · [Actions](.github/actions/docs/DEVELOPMENT.md)
 
-![VoronDeck in landscape and portrait](assets/presentation/vorondeck-two-orientations-v1.png)
+![VoronDeck in landscape and portrait](assets/presentation/en/vorondeck-two-orientations-v1.png)
 
 > **VoronDeck 1.0.1 — stable release.** A ready-to-install package is available for Linux `aarch64` with glibc 2.30 or newer. The main repository and stable updates are public; the beta channel remains private.
 
@@ -46,13 +46,13 @@ Available devices and calibrations depend on the Klipper configuration. A chambe
 
 Add the widgets you need, resize them and arrange the tiles. Choose which heaters, sensors and fans to display. Show heaters as large icons or as a scrolling list.
 
-![Home screen tile customization](assets/presentation/tile-customization.png)
+![Home screen tile customization](assets/presentation/en/tile-customization.png)
 
 ## Your screen. Your style.
 
 Choose a theme and palette, preview the colors and apply your preferred look. The interface adapts to landscape and portrait displays.
 
-![Themes, palettes and preview](assets/presentation/interface-customization.png)
+![Themes, palettes and preview](assets/presentation/en/interface-customization.png)
 
 ## Multi-material
 
@@ -64,29 +64,29 @@ The connected system and its configuration determine the actual channel limit. T
 
 ### 4 colors · one AMS
 
-![Four spools in one AMS](assets/presentation/ams-04.png)
+![Four spools in one AMS](assets/presentation/en/ams-04.png)
 
 ### 8 colors · one AMS
 
-![Eight spools in one AMS](assets/presentation/ams-08.png)
+![Eight spools in one AMS](assets/presentation/en/ams-08.png)
 
 ### 12 colors · three AMS units
 
-![Twelve spools across three AMS units](assets/presentation/ams-12.png)
+![Twelve spools across three AMS units](assets/presentation/en/ams-12.png)
 
 ### 16 colors · four AMS units
 
-![Sixteen spools across four AMS units](assets/presentation/ams-16.png)
+![Sixteen spools across four AMS units](assets/presentation/en/ams-16.png)
 
 ### 24 colors · six AMS units
 
-![Twenty-four spools across six AMS units](assets/presentation/ams-24.png)
+![Twenty-four spools across six AMS units](assets/presentation/en/ams-24.png)
 
 ### Switching between systems
 
 Switch AMS tabs to see that unit's spools, selected channel and feed status.
 
-![Switching AMS tabs](assets/presentation/ams-switching.png)
+![Switching AMS tabs](assets/presentation/en/ams-switching.png)
 
 ## Filament remaining
 
@@ -94,19 +94,19 @@ Switch AMS tabs to see that unit's spools, selected channel and feed status.
 
 Connect Spoolman for spool information and remaining material. The color, material and ring fill help you see how much filament is available.
 
-![Filament tracking with Spoolman](assets/presentation/spoolman-weight.png)
+![Filament tracking with Spoolman](assets/presentation/en/spoolman-weight.png)
 
 ### Without Spoolman
 
 Keep local records of material, color and filament weight without a separate Spoolman server. Remaining filament is shown as a percentage and in grams; length is calculated from material properties. This is calculated tracking, not a measurement from built-in scales.
 
-![Local filament tracking](assets/presentation/local-weight.png)
+![Local filament tracking](assets/presentation/en/local-weight.png)
 
 ## Print recovery
 
 **VoronDeck Recovery** is a separate power-loss recovery plugin. When it is installed and configured, the screen lets you enable or disable checkpoint saving and check for component updates.
 
-![VoronDeck Recovery controls](assets/presentation/print-recovery.png)
+![VoronDeck Recovery controls](assets/presentation/en/print-recovery.png)
 
 The plugin is installed separately and also requires access during beta testing. Whether a print can resume depends on its saved checkpoint and the printer's state after power loss. Check the machine position and the printed part before resuming.
 
@@ -162,6 +162,6 @@ Update components while the printer is idle. Installing the screen does not auto
 
 ---
 
-Banners are presentation renders based on the interface; the depicted display housings are illustrative. Banner text is currently in Russian.
+Banners are presentation renders based on the interface; the depicted display housings are illustrative.
 
 © 2026 VoronDeck. Licensed under [GPL-3.0](LICENSE). [Components and author credits](docs/VORONDECK-CREDITS.md).
