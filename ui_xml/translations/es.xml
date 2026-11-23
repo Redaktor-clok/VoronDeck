@@ -763,6 +763,7 @@
   <translation tag="Completed in %d probes" es="Completado en %d sondeos"/>
   <translation tag="Completed just now" es="Completado justo ahora"/>
   <translation tag="Completed prints will appear here" es="Los impresiones completadas aparecerán aquí"/>
+  <translation tag="Completed release" es="Completed release"/>
   <translation tag="Completed {}d ago" es="Completado hace {} días"/>
   <translation tag="Completed {}h ago" es="Completado hace {} h"/>
   <translation tag="Completed {}m ago" es="Completado hace {} min"/>
@@ -1071,6 +1072,7 @@
   <translation tag="Door switches, buttons, and other on/off inputs" es="Interruptores de puerta, botones y otras entradas de encendido/apagado"/>
   <translation tag="Download update?" es="¿Descargar actualización?"/>
   <translation tag="Download v{}?" es="¿Descargar v{}?"/>
+  <translation tag="Downloading and verifying VoronDeck. The screen will restart." es="Downloading and verifying VoronDeck. The screen will restart."/>
   <translation tag="Downloading..." es="Descargando..."/>
   <translation tag="Downloading... {:.1f}/{:.1f} MB" es="Descargando... {:.1f}/{:.1f} MB"/>
   <translation tag="Draw a ripple at each touch — helps diagnose offsets" es="Dibuja una onda en cada toque — ayuda a diagnosticar desfases"/>
@@ -1796,6 +1798,7 @@
   <translation tag="Install Plugin" es="Instalar Plugin"/>
   <translation tag="Install Root" es="Raíz de Instalación"/>
   <translation tag="Install Update" es="Instalar actualización"/>
+  <translation tag="Install VoronDeck {}? This is a test release and may contain errors." es="Install VoronDeck {}? This is a test release and may contain errors."/>
   <translation tag="Install plugin" es="Instalar plugin"/>
   <translation tag="Install script not found. Use the remote install command instead." es="Script de instalación no encontrado. Use el comando de instalación remota en su lugar."/>
   <translation tag="Install the HelixPrint plugin to enable fast G-code modifications. Run this command via SSH on your printer:" es="Instale el plugin HelixPrint para habilitar modificaciones rápidas de G-code. Ejecute este comando vía SSH en su impresora:"/>
@@ -2418,7 +2421,7 @@
   <translation tag="Not enough frequency data from the sweeps. Try again." es="No hay suficientes datos de frecuencia de los barridos. Intente de nuevo."/>
   <translation tag="Not enough room for this widget. Rearrange or remove widgets to make space." es="No hay espacio suficiente para este widget. Reorganiza o elimina widgets para hacer espacio."/>
   <translation tag="Not in your spools? Set it up" es="¿No está en tus bobinas? Configúralo"/>
-  <translation tag="Not now" es="Ahora no"/>
+  <translation tag="Not now" es="Not now"/>
   <translation tag="Not set" es="Sin definir"/>
   <translation tag="Not turned" es="Sin girar"/>
   <translation tag="Not yet available on this display" es="Aún no disponible en esta pantalla"/>
@@ -2518,6 +2521,7 @@
   <translation tag="Optimize Your Printing" es="Optimice su Impresión"/>
   <translation tag="Optimizes temperature control for stable, consistent heating." es="Optimiza el control de temperatura para un calentamiento estable y consistente."/>
   <translation tag="Optional - select your main lighting source, or skip if your printer doesn&apos;t have one" es="Opcional - selecciona tu fuente de iluminación principal, u omite si tu impresora no tiene una"/>
+  <translation tag="Optional prerelease · install only if you choose" es="Optional prerelease · install only if you choose"/>
   <translation tag="Options" es="Opciones"/>
   <translation tag="Or Enter Manually" es="O Ingrese Manualmente"/>
   <translation tag="Or instead of turning the others" es="O en lugar de girar los demás"/>
@@ -3482,6 +3486,8 @@
   <translation tag="Sport" es="Deportivo"/>
   <translation tag="Square Corner Velocity" es="Velocidad de Esquina Cuadrada"/>
   <translation tag="Stable" es="Estable"/>
+  <translation tag="Stable release" es="Stable release"/>
+  <translation tag="Stable releases and optional test updates" es="Stable releases and optional test updates"/>
   <translation tag="Stall detection setup failed for the Z motor — power-cycle to retry" es="Falló la configuración de la detección de bloqueo del motor Z. Apague y encienda para reintentar"/>
   <translation tag="Stall detection setup failed for the extruder — power-cycle to retry" es="Falló la configuración de la detección de bloqueo del extrusor. Apague y encienda para reintentar"/>
   <translation tag="Standard" es="Estándar"/>
@@ -3661,6 +3667,8 @@
   <translation tag="Test Screensaver" es="Probar Salvapantallas"/>
   <translation tag="Test Tracker" es="Rastreador de Pruebas"/>
   <translation tag="Test label printed" es="Etiqueta de prueba impresa"/>
+  <translation tag="Test release" es="Test release"/>
+  <translation tag="Test release check failed. Try again later." es="Test release check failed. Try again later."/>
   <translation tag="Test tower {:.0f} mm wide and {:.0f} mm tall, about {} min plus heating: {} bands of {:.0f} mm at {}°C." es="Torre de prueba de {:.0f} mm de ancho y {:.0f} mm de alto, unos {} min más el calentamiento: {} franjas de {:.0f} mm a {}°C."/>
   <translation tag="Testing rotation: %d° (%d/%d) - %ds remaining" es="Probando rotación: %d° (%d/%d) - %ds restantes"/>
   <translation tag="Testing, servo, and motor operations" es="Operaciones de prueba, servo y motor"/>
@@ -4112,7 +4120,9 @@
   <translation tag="Update heater model?" es="¿Actualizar modelo del calentador?"/>
   <translation tag="Update in Spoolman" es="Actualizar en Spoolman"/>
   <translation tag="Update installed!" es="¡Actualización instalada!"/>
+  <translation tag="Update manager is outdated. Run the VoronDeck installer again." es="Update manager is outdated. Run the VoronDeck installer again."/>
   <translation tag="Update the INDX heater model too? {} now holds {}: density {:.2f}, heat capacity {:.2f}." es="¿Actualizar también el modelo del calentador INDX? {} ahora tiene {}: densidad {:.2f}, capacidad calorífica {:.2f}."/>
+  <translation tag="Update was not confirmed. Check component updates before retrying." es="Update was not confirmed. Check component updates before retrying."/>
   <translation tag="Update your security PIN" es="Actualice su PIN de seguridad en esta instalación."/>
   <translation tag="Updates" es="Actualizaciones"/>
   <translation tag="Updating Configuration..." es="Actualizando configuración..."/>
@@ -4177,6 +4187,7 @@
   <translation tag="VoronDeck Macros" es="Macros de VoronDeck"/>
   <translation tag="VoronDeck adds [include helix-plr/*.cfg] to printer.cfg, so a resume reloads the mesh the print started with. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect." es="VoronDeck agrega [include helix-plr/*.cfg] a printer.cfg para que una reanudación vuelva a cargar la malla con la que empezó la impresión. Junto a printer.cfg se guarda una copia de seguridad, y Klipper debe reiniciarse para que surta efecto."/>
   <translation tag="VoronDeck removes its [include helix-plr/*.cfg] lines from printer.cfg. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect. A resume then uses the printer&apos;s default mesh profile." es="VoronDeck elimina sus líneas [include helix-plr/*.cfg] de printer.cfg. Junto a printer.cfg se guarda una copia de seguridad, y Klipper debe reiniciarse para que surta efecto. Una reanudación usará entonces el perfil de malla predeterminado de la impresora."/>
+  <translation tag="VoronDeck updated successfully" es="VoronDeck updated successfully"/>
   <translation tag="VoronDeck will integrate with your filament changer for multi-spool/color print operations." es="VoronDeck se integrará con su cambiador de filamento para operaciones de impresión multi-bobina/color."/>
   <translation tag="VoronDeck writes this to printer.cfg and restarts Klipper. The printer will briefly disconnect." es="VoronDeck escribirá esto en printer.cfg y reiniciará Klipper. La impresora se desconectará brevemente."/>
   <translation tag="VoronDeck {} is available ({})" es="VoronDeck {} disponible ({})"/>

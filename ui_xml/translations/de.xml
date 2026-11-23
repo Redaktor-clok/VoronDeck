@@ -763,6 +763,7 @@
   <translation tag="Completed in %d probes" de="Abgeschlossen in %d Messungen"/>
   <translation tag="Completed just now" de="Gerade eben abgeschlossen"/>
   <translation tag="Completed prints will appear here" de="Abgeschlossene Drucke erscheinen hier"/>
+  <translation tag="Completed release" de="Completed release"/>
   <translation tag="Completed {}d ago" de="Vor {} Tagen abgeschlossen"/>
   <translation tag="Completed {}h ago" de="Vor {} Std. abgeschlossen"/>
   <translation tag="Completed {}m ago" de="Vor {} Min. abgeschlossen"/>
@@ -1071,6 +1072,7 @@
   <translation tag="Door switches, buttons, and other on/off inputs" de="Türschalter, Taster und andere Ein/Aus-Eingänge"/>
   <translation tag="Download update?" de="Update herunterladen?"/>
   <translation tag="Download v{}?" de="v{} herunterladen?"/>
+  <translation tag="Downloading and verifying VoronDeck. The screen will restart." de="Downloading and verifying VoronDeck. The screen will restart."/>
   <translation tag="Downloading..." de="Wird heruntergeladen..."/>
   <translation tag="Downloading... {:.1f}/{:.1f} MB" de="Wird heruntergeladen... {:.1f}/{:.1f} MB"/>
   <translation tag="Draw a ripple at each touch — helps diagnose offsets" de="Bei jeder Berührung einen Effekt zeichnen — hilft beim Diagnostizieren von Versätzen"/>
@@ -1796,6 +1798,7 @@
   <translation tag="Install Plugin" de="Plugin installieren"/>
   <translation tag="Install Root" de="Installations-Verzeichnis"/>
   <translation tag="Install Update" de="Update installieren"/>
+  <translation tag="Install VoronDeck {}? This is a test release and may contain errors." de="Install VoronDeck {}? This is a test release and may contain errors."/>
   <translation tag="Install plugin" de="Plugin installieren"/>
   <translation tag="Install script not found. Use the remote install command instead." de="Installationsskript nicht gefunden. Verwenden Sie stattdessen den Remote-Installationsbefehl."/>
   <translation tag="Install the HelixPrint plugin to enable fast G-code modifications. Run this command via SSH on your printer:" de="Installieren Sie das HelixPrint-Plugin für schnelle G-Code-Modifikationen. Führen Sie diesen Befehl per SSH auf Ihrem Drucker aus:"/>
@@ -2418,7 +2421,7 @@
   <translation tag="Not enough frequency data from the sweeps. Try again." de="Nicht genügend Frequenzdaten aus den Messungen. Versuchen Sie es erneut."/>
   <translation tag="Not enough room for this widget. Rearrange or remove widgets to make space." de="Nicht genug Platz für dieses Widget. Ordnen Sie Widgets neu an oder entfernen Sie welche, um Platz zu schaffen."/>
   <translation tag="Not in your spools? Set it up" de="Nicht in Ihren Spulen? Einrichten"/>
-  <translation tag="Not now" de="Nicht jetzt"/>
+  <translation tag="Not now" de="Not now"/>
   <translation tag="Not set" de="Nicht festgelegt"/>
   <translation tag="Not turned" de="Ungedreht"/>
   <translation tag="Not yet available on this display" de="Auf diesem Display noch nicht verfügbar"/>
@@ -2518,6 +2521,7 @@
   <translation tag="Optimize Your Printing" de="Optimieren Sie Ihren Druck"/>
   <translation tag="Optimizes temperature control for stable, consistent heating." de="Optimiert die Temperaturregelung für stabiles, gleichmäßiges Heizen."/>
   <translation tag="Optional - select your main lighting source, or skip if your printer doesn&apos;t have one" de="Optional - Hauptbeleuchtung auswählen, oder überspringen falls keine vorhanden"/>
+  <translation tag="Optional prerelease · install only if you choose" de="Optional prerelease · install only if you choose"/>
   <translation tag="Options" de="Optionen"/>
   <translation tag="Or Enter Manually" de="Oder manuell eingeben"/>
   <translation tag="Or instead of turning the others" de="Oder statt die anderen zu drehen"/>
@@ -3482,6 +3486,8 @@
   <translation tag="Sport" de="Sport"/>
   <translation tag="Square Corner Velocity" de="Eckgeschwindigkeit"/>
   <translation tag="Stable" de="Stabil"/>
+  <translation tag="Stable release" de="Stable release"/>
+  <translation tag="Stable releases and optional test updates" de="Stable releases and optional test updates"/>
   <translation tag="Stall detection setup failed for the Z motor — power-cycle to retry" de="Einrichten der Blockiererkennung für den Z-Motor fehlgeschlagen. Zum erneuten Versuch aus- und einschalten"/>
   <translation tag="Stall detection setup failed for the extruder — power-cycle to retry" de="Einrichten der Blockiererkennung für den Extruder fehlgeschlagen. Zum erneuten Versuch aus- und einschalten"/>
   <translation tag="Standard" de="Standard"/>
@@ -3661,6 +3667,8 @@
   <translation tag="Test Screensaver" de="Bildschirmschoner testen"/>
   <translation tag="Test Tracker" de="Test-Tracker"/>
   <translation tag="Test label printed" de="Testetikett gedruckt"/>
+  <translation tag="Test release" de="Test release"/>
+  <translation tag="Test release check failed. Try again later." de="Test release check failed. Try again later."/>
   <translation tag="Test tower {:.0f} mm wide and {:.0f} mm tall, about {} min plus heating: {} bands of {:.0f} mm at {}°C." de="Testturm {:.0f} mm breit und {:.0f} mm hoch, etwa {} min plus Aufheizen: {} Bereiche zu {:.0f} mm bei {}°C."/>
   <translation tag="Testing rotation: %d° (%d/%d) - %ds remaining" de="Drehung testen: %d° (%d/%d) - %ds verbleibend"/>
   <translation tag="Testing, servo, and motor operations" de="Test-, Servo- und Motorfunktionen"/>
@@ -4112,7 +4120,9 @@
   <translation tag="Update heater model?" de="Heizungsmodell aktualisieren?"/>
   <translation tag="Update in Spoolman" de="In Spoolman aktualisieren"/>
   <translation tag="Update installed!" de="Update installiert!"/>
+  <translation tag="Update manager is outdated. Run the VoronDeck installer again." de="Update manager is outdated. Run the VoronDeck installer again."/>
   <translation tag="Update the INDX heater model too? {} now holds {}: density {:.2f}, heat capacity {:.2f}." de="Auch das INDX-Heizungsmodell aktualisieren? {} enthält jetzt {}: Dichte {:.2f}, Wärmekapazität {:.2f}."/>
+  <translation tag="Update was not confirmed. Check component updates before retrying." de="Update was not confirmed. Check component updates before retrying."/>
   <translation tag="Update your security PIN" de="Sicherheits-PIN aktualisieren nicht verfügbar."/>
   <translation tag="Updates" de="Updates"/>
   <translation tag="Updating Configuration..." de="Konfiguration wird aktualisiert..."/>
@@ -4177,6 +4187,7 @@
   <translation tag="VoronDeck Macros" de="VoronDeck-Makros"/>
   <translation tag="VoronDeck adds [include helix-plr/*.cfg] to printer.cfg, so a resume reloads the mesh the print started with. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect." de="VoronDeck fügt [include helix-plr/*.cfg] zu printer.cfg hinzu, damit ein Fortsetzen das Bettnetz lädt, mit dem der Druck begonnen hat. Neben printer.cfg wird eine Sicherung aufbewahrt, und Klipper muss neu gestartet werden, damit die Änderung wirksam wird."/>
   <translation tag="VoronDeck removes its [include helix-plr/*.cfg] lines from printer.cfg. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect. A resume then uses the printer&apos;s default mesh profile." de="VoronDeck entfernt seine [include helix-plr/*.cfg]-Zeilen aus printer.cfg. Neben printer.cfg wird eine Sicherung aufbewahrt, und Klipper muss neu gestartet werden, damit die Änderung wirksam wird. Ein Fortsetzen verwendet dann das Standard-Bettnetzprofil des Druckers."/>
+  <translation tag="VoronDeck updated successfully" de="VoronDeck updated successfully"/>
   <translation tag="VoronDeck will integrate with your filament changer for multi-spool/color print operations." de="VoronDeck wird sich mit Ihrem Filamentwechsler für Multi-Spulen/Farb-Druckoperationen integrieren."/>
   <translation tag="VoronDeck writes this to printer.cfg and restarts Klipper. The printer will briefly disconnect." de="VoronDeck schreibt dies in die printer.cfg und startet Klipper neu. Der Drucker wird kurz getrennt."/>
   <translation tag="VoronDeck {} is available ({})" de="VoronDeck {} ist verfügbar ({})"/>

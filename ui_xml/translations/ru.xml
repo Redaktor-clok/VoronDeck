@@ -830,6 +830,7 @@
   <translation tag="Completed in %d probes_one" ru="Завершено за %d измерение"/>
   <translation tag="Completed just now" ru="Завершено только что"/>
   <translation tag="Completed prints will appear here" ru="Завершённые печати появятся здесь"/>
+  <translation tag="Completed release" ru="Готовая стабильная версия"/>
   <translation tag="Completed {}d ago" ru="Завершено {} дн назад"/>
   <translation tag="Completed {}h ago" ru="Завершено {} ч назад"/>
   <translation tag="Completed {}m ago" ru="Завершено {} мин назад"/>
@@ -1149,6 +1150,7 @@
   <translation tag="Door switches, buttons, and other on/off inputs" ru="Датчики дверей, кнопки и другие входы вкл/выкл"/>
   <translation tag="Download update?" ru="Загрузить обновление?"/>
   <translation tag="Download v{}?" ru="Загрузить v{}?"/>
+  <translation tag="Downloading and verifying VoronDeck. The screen will restart." ru="Загрузка и проверка VoronDeck. Экран перезапустится."/>
   <translation tag="Downloading..." ru="Загрузка..."/>
   <translation tag="Downloading... {:.1f}/{:.1f} MB" ru="Загрузка... {:.1f}/{:.1f} МБ"/>
   <translation tag="Draw a ripple at each touch — helps diagnose offsets" ru="Рисовать круг при каждом касании — помогает диагностировать смещения"/>
@@ -1900,6 +1902,7 @@
   <translation tag="Install Plugin" ru="Установить плагин"/>
   <translation tag="Install Root" ru="Корень установки"/>
   <translation tag="Install Update" ru="Установить обновление"/>
+  <translation tag="Install VoronDeck {}? This is a test release and may contain errors." ru="Установить VoronDeck {}? Это тестовый выпуск, в нём могут быть ошибки."/>
   <translation tag="Install plugin" ru="Установить плагин"/>
   <translation tag="Install script not found. Use the remote install command instead." ru="Скрипт установки не найден. Используйте вместо этого команду удалённой установки."/>
   <translation tag="Install the HelixPrint plugin to enable fast G-code modifications. Run this command via SSH on your printer:" ru="Установите плагин HelixPrint для быстрой модификации G-code. Выполните эту команду через SSH на вашем принтере:"/>
@@ -2650,6 +2653,7 @@
   <translation tag="Optimize Your Printing" ru="Оптимизируйте вашу печать"/>
   <translation tag="Optimizes temperature control for stable, consistent heating." ru="Оптимизирует контроль температуры для стабильного и равномерного нагрева."/>
   <translation tag="Optional - select your main lighting source, or skip if your printer doesn&apos;t have one" ru="Необязательно — выберите основной источник освещения или пропустите, если его нет"/>
+  <translation tag="Optional prerelease · install only if you choose" ru="Предрелиз · установка только по вашему выбору"/>
   <translation tag="Optional. Open a tool to review and start it, or skip this stage." ru="Необязательно. Откройте нужную калибровку или пропустите этап."/>
   <translation tag="Options" ru="Параметры"/>
   <translation tag="Or Enter Manually" ru="Или введите вручную"/>
@@ -3686,6 +3690,8 @@
   <translation tag="Square Corner Velocity" ru="Скорость прохождения углов"/>
   <translation tag="Stable" ru="Стабильная"/>
   <translation tag="Stable and beta releases · beta requires access" ru="Стабильные и бета-выпуски · бета требует доступа"/>
+  <translation tag="Stable release" ru="Стабильный выпуск"/>
+  <translation tag="Stable releases and optional test updates" ru="Стабильные версии и тестовые обновления по желанию"/>
   <translation tag="Stage" ru="Этап"/>
   <translation tag="Stall detection setup failed for the Z motor — power-cycle to retry" ru="Не удалась настройка детектирования заклинивания двигателя Z. Выключите и включите питание"/>
   <translation tag="Stall detection setup failed for the extruder — power-cycle to retry" ru="Не удалась настройка детектирования заклинивания экструдера. Выключите и включите питание"/>
@@ -3871,6 +3877,8 @@
   <translation tag="Test Screensaver" ru="Проверить заставку"/>
   <translation tag="Test Tracker" ru="Трекер тестов"/>
   <translation tag="Test label printed" ru="Тестовая этикетка напечатана"/>
+  <translation tag="Test release" ru="Тестовый выпуск"/>
+  <translation tag="Test release check failed. Try again later." ru="Не удалось проверить предрелизы. Повторите позже."/>
   <translation tag="Test tower {:.0f} mm wide and {:.0f} mm tall, about {} min plus heating: {} bands of {:.0f} mm at {}°C." ru="Тестовая башня шириной {:.0f} мм и высотой {:.0f} мм, около {} мин плюс нагрев: {} полос по {:.0f} мм при {}°C."/>
   <translation tag="Testing rotation: %d° (%d/%d) - %ds remaining" ru="Тест поворота: %d° (%d/%d) - осталось %ds"/>
   <translation tag="Testing, servo, and motor operations" ru="Тестирование, сервопривод и работа моторов"/>
@@ -4332,9 +4340,11 @@
   <translation tag="Update heater model?" ru="Обновить модель нагревателя?"/>
   <translation tag="Update in Spoolman" ru="Обновить в Spoolman"/>
   <translation tag="Update installed!" ru="Обновление установлено!"/>
+  <translation tag="Update manager is outdated. Run the VoronDeck installer again." ru="Менеджер обновлений устарел. Повторно запустите установщик VoronDeck."/>
   <translation tag="Update recovery macros to enable this switch, then restart Klipper." ru="Обновите макросы восстановления и перезапустите Klipper, чтобы включить управление."/>
   <translation tag="Update the INDX heater model too? {} now holds {}: density {:.2f}, heat capacity {:.2f}." ru="Обновить и модель нагревателя INDX? В {} теперь {}: плотность {:.2f}, теплоёмкость {:.2f}."/>
   <translation tag="Update the VoronDeck recovery plugin" ru="Обновите плагин восстановления VoronDeck"/>
+  <translation tag="Update was not confirmed. Check component updates before retrying." ru="Обновление не подтверждено. Перед повтором проверьте обновления компонентов."/>
   <translation tag="Update your security PIN" ru="Обновите ваш PIN-код"/>
   <translation tag="Updates" ru="Обновления"/>
   <translation tag="Updating Configuration..." ru="Обновление конфигурации..."/>
@@ -4403,6 +4413,7 @@
   <translation tag="VoronDeck is up to date" ru="Установлена актуальная версия VoronDeck"/>
   <translation tag="VoronDeck recovery macros detected. Checkpoints are saved by RECOVERY_CHECKPOINT in the slicer layer-change G-code." ru="Макросы восстановления VoronDeck обнаружены. Точки сохранения создаёт RECOVERY_CHECKPOINT в коде смены слоя слайсера."/>
   <translation tag="VoronDeck removes its [include helix-plr/*.cfg] lines from printer.cfg. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect. A resume then uses the printer&apos;s default mesh profile." ru="VoronDeck удаляет свои строки [include helix-plr/*.cfg] из printer.cfg. Рядом с printer.cfg хранится резервная копия, а чтобы изменение вступило в силу, нужно перезапустить Klipper. При возобновлении будет использоваться стандартный профиль сетки принтера."/>
+  <translation tag="VoronDeck updated successfully" ru="VoronDeck успешно обновлён"/>
   <translation tag="VoronDeck updates will be connected after printer testing" ru="Обновления VoronDeck подключим после проверки на принтере"/>
   <translation tag="VoronDeck user guide is being updated" ru="Руководство VoronDeck обновляется"/>
   <translation tag="VoronDeck will integrate with your filament changer for multi-spool/color print operations." ru="VoronDeck интегрируется с вашим сменщиком филамента для многокатушечной/многоцветной печати."/>

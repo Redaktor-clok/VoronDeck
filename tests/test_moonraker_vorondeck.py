@@ -34,6 +34,53 @@ class DirectLoop:
 
 
 class RuntimeNoop(unittest.TestCase):
+    def test_stable_package_download_is_verified_and_staged(self):
+        import tempfile
+        import json
+        runtime = component._load_runtime()
+        package = {'version': '1.0.1', 'sha256': 'b' * 64, 'source_commit': 'a' * 40,
+                   'size': 3, 'path': 'packages/screen.tar.gz'}
+        manifest = {'version': '1.0.1', 'source_commit': 'a' * 40}
+        @contextlib.contextmanager
+        def index(channel):
+            self.assertEqual(channel, 'stable')
+            yield ['git'], {}, 'c' * 40, package
+        def stage(destination, actual_manifest, payload, allow_dependencies):
+            self.assertFalse(allow_dependencies)
+            self.assertEqual(actual_manifest, manifest)
+            destination.mkdir(parents=True)
+            (destination / 'vorondeck-release.json').write_text(json.dumps(manifest))
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            with patch.object(runtime, 'release_index', index), \
+                    patch.object(runtime, 'release_state', return_value={'path': str(base / 'old'), 'source_commit': 'd' * 40, 'version': '1.0.0'}), \
+                    patch.object(runtime.checker, 'run', side_effect=[b'3', b'abc']) as fetch, \
+                    patch.object(runtime.installer, 'host_arch', return_value='x86_64'), \
+                    patch.object(runtime.installer, 'verify_package', return_value=(manifest, {})) as verify, \
+                    patch.object(runtime.installer, 'stage_release', side_effect=stage):
+                destination = runtime.prepare_release(base, 'stable')
+                self.assertTrue(destination.is_dir())
+                self.assertEqual(fetch.call_count, 2)
+                verify.assert_called_once()
+
+    def test_changed_installed_source_refuses_test_before_network(self):
+        runtime = component._load_runtime()
+        with patch.object(runtime, 'release_state', return_value={'source_commit': 'a' * 40}), \
+                patch.object(runtime.checker.public, 'selected', side_effect=AssertionError('network')):
+            with self.assertRaises(ValueError):
+                runtime.prepare_selected_release(Path('/managed'), {'installed_source': 'b' * 40})
+
+    def test_stable_update_cannot_silently_downgrade_test_install(self):
+        runtime = component._load_runtime()
+        @contextlib.contextmanager
+        def index(channel):
+            yield [], {}, 'c' * 40, {'version': '1.0.1', 'sha256': 'b' * 64, 'source_commit': 'a' * 40}
+        with patch.object(runtime, 'release_index', index), \
+                patch.object(runtime, 'release_state', return_value={'path': '/managed/test', 'version': '1.0.2-T.1'}), \
+                patch.object(runtime.checker, 'run', side_effect=AssertionError('download')):
+            with self.assertRaisesRegex(ValueError, 'older'):
+                runtime.prepare_release(Path('/managed'), 'stable')
+
     def test_current_package_does_not_download_or_stage(self):
         runtime = component._load_runtime()
         base = Path('/managed')
@@ -96,7 +143,7 @@ class Transaction(unittest.IsolatedAsyncioTestCase):
         api = types.SimpleNamespace(query_objects=query)
         self.node.server = types.SimpleNamespace(
             lookup_component=lambda name: machine if name == 'machine' else api,
-            error=lambda text: ValueError(text))
+            error=lambda text, code=400: ValueError(text))
         self.node.runtime = types.SimpleNamespace(
             installer=types.SimpleNamespace(assert_idle=validate),
             install_lock=lambda base: contextlib.nullcontext(),
@@ -119,6 +166,52 @@ class Transaction(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await self.node.update()
         self.assertFalse(any(e[0] in ('prepare', 'switch', 'service') for e in self.events))
+
+    async def test_explicit_test_selection_uses_same_transaction(self):
+        selection = {'kind': 'test', 'tag': 'v1.0.2-T.1'}
+        self.node.runtime.prepare_selected_release = lambda base, selected: (
+            self.events.append(('selected', selected)) or self.new)
+        self.assertTrue(await self.node.update(selection))
+        self.assertIn(('selected', selection), self.events)
+        self.assertFalse(any(e[0] == 'prepare' for e in self.events))
+        self.assertEqual(self.node.channel, 'beta')
+
+    async def test_test_update_busy_refused_before_fetch(self):
+        self.busy = True
+        with self.assertRaises(ValueError):
+            await self.node.update({'kind': 'test'})
+        self.assertFalse(any(e[0] in ('prepare', 'switch', 'service') for e in self.events))
+
+    async def test_test_update_restart_failure_rolls_back(self):
+        self.node.runtime.prepare_selected_release = lambda *_: self.new
+        self.fail_restart = True
+        with self.assertRaises(ValueError):
+            await self.node.update({'kind': 'test'})
+        self.assertEqual(self.current, Path('/managed/releases/old'))
+
+    async def test_test_endpoint_serializes_and_clears_state(self):
+        import asyncio
+        from unittest.mock import Mock
+        manager = types.SimpleNamespace(cmd_request_lock=asyncio.Lock(), cmd_helper=types.SimpleNamespace(
+            is_app_updating=lambda _: False, set_update_info=Mock(), clear_update_info=Mock(),
+            notify_update_response=Mock()))
+        lookup = self.node.server.lookup_component
+        self.node.server.lookup_component = lambda name: manager if name == 'update_manager' else lookup(name)
+        self.node.update = AsyncMock()
+        request = types.SimpleNamespace(get_str=lambda key: key)
+        self.assertEqual(await self.node._handle_test_update(request), 'ok')
+        self.node.update.assert_awaited_once()
+        manager.cmd_helper.clear_update_info.assert_called_once()
+        self.node.update.side_effect = ValueError('refused')
+        with self.assertRaises(ValueError):
+            await self.node._handle_test_update(request)
+        self.assertFalse(manager.cmd_request_lock.locked())
+        self.assertEqual(manager.cmd_helper.clear_update_info.call_count, 2)
+        await manager.cmd_request_lock.acquire()
+        with self.assertRaises(ValueError):
+            await self.node._handle_test_update(request)
+        self.assertEqual(self.node.update.await_count, 2)
+        manager.cmd_request_lock.release()
 
     async def test_heating_refused_before_download(self):
         self.target = 200

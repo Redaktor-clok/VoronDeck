@@ -62,10 +62,10 @@ class DistributionTests(unittest.TestCase):
             self.assertNotIn('config/settings.json', payload)
 
     def test_stable_and_beta_versions_are_distinct(self):
-        for version in ('1.0.0', '1.0.0-beta.1', '1.0.0-preview', '../1.0.0'):
+        for version in ('1.0.0', '1.0.0-beta.1', '1.0.2-T.1', '1.0.0-preview', '../1.0.0'):
             with self.subTest(version=version), tempfile.TemporaryDirectory() as directory:
                 args = self.bundle(Path(directory), version=version)
-                if version in ('1.0.0', '1.0.0-beta.1'):
+                if version in ('1.0.0', '1.0.0-beta.1', '1.0.2-T.1'):
                     manifest, _ = installer.verify_package(*args, 'x86_64')
                     self.assertEqual(manifest['version'], version)
                 else:

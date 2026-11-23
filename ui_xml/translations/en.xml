@@ -783,6 +783,7 @@
   <translation tag="Completed in %d probes" en="Completed in %d probes"/>
   <translation tag="Completed just now" en="Completed just now"/>
   <translation tag="Completed prints will appear here" en="Completed prints will appear here"/>
+  <translation tag="Completed release" en="Completed release"/>
   <translation tag="Completed {}d ago" en="Completed {}d ago"/>
   <translation tag="Completed {}h ago" en="Completed {}h ago"/>
   <translation tag="Completed {}m ago" en="Completed {}m ago"/>
@@ -1100,6 +1101,7 @@
   <translation tag="Door switches, buttons, and other on/off inputs" en="Door switches, buttons, and other on/off inputs"/>
   <translation tag="Download update?" en="Download update?"/>
   <translation tag="Download v{}?" en="Download v{}?"/>
+  <translation tag="Downloading and verifying VoronDeck. The screen will restart." en="Downloading and verifying VoronDeck. The screen will restart."/>
   <translation tag="Downloading..." en="Downloading..."/>
   <translation tag="Downloading... {:.1f}/{:.1f} MB" en="Downloading... {:.1f}/{:.1f} MB"/>
   <translation tag="Draw a ripple at each touch — helps diagnose offsets" en="Draw a ripple at each touch — helps diagnose offsets"/>
@@ -1833,6 +1835,7 @@
   <translation tag="Install Plugin" en="Install Plugin"/>
   <translation tag="Install Root" en="Install Root"/>
   <translation tag="Install Update" en="Install Update"/>
+  <translation tag="Install VoronDeck {}? This is a test release and may contain errors." en="Install VoronDeck {}? This is a test release and may contain errors."/>
   <translation tag="Install plugin" en="Install plugin"/>
   <translation tag="Install script not found. Use the remote install command instead." en="Install script not found. Use the remote install command instead."/>
   <translation tag="Install the HelixPrint plugin to enable fast G-code modifications. Run this command via SSH on your printer:" en="Install the HelixPrint plugin to enable fast G-code modifications. Run this command via SSH on your printer:"/>
@@ -2574,6 +2577,7 @@
   <translation tag="Optimize Your Printing" en="Optimize Your Printing"/>
   <translation tag="Optimizes temperature control for stable, consistent heating." en="Optimizes temperature control for stable, consistent heating."/>
   <translation tag="Optional - select your main lighting source, or skip if your printer doesn&apos;t have one" en="Optional - select your main lighting source, or skip if your printer doesn&apos;t have one"/>
+  <translation tag="Optional prerelease · install only if you choose" en="Optional prerelease · install only if you choose"/>
   <translation tag="Optional. Open a tool to review and start it, or skip this stage." en="Optional. Open a tool to review and start it, or skip this stage."/>
   <translation tag="Options" en="Options"/>
   <translation tag="Or Enter Manually" en="Or Enter Manually"/>
@@ -3584,6 +3588,8 @@
   <translation tag="Square Corner Velocity" en="Square Corner Velocity"/>
   <translation tag="Stable" en="Stable"/>
   <translation tag="Stable and beta releases · beta requires access" en="Stable and beta releases · beta requires access"/>
+  <translation tag="Stable release" en="Stable release"/>
+  <translation tag="Stable releases and optional test updates" en="Stable releases and optional test updates"/>
   <translation tag="Stage" en="Stage"/>
   <translation tag="Stall detection setup failed for the Z motor — power-cycle to retry" en="Stall detection setup failed for the Z motor — power-cycle to retry"/>
   <translation tag="Stall detection setup failed for the extruder — power-cycle to retry" en="Stall detection setup failed for the extruder — power-cycle to retry"/>
@@ -3767,6 +3773,8 @@
   <translation tag="Test Screensaver" en="Test Screensaver"/>
   <translation tag="Test Tracker" en="Test Tracker"/>
   <translation tag="Test label printed" en="Test label printed"/>
+  <translation tag="Test release" en="Test release"/>
+  <translation tag="Test release check failed. Try again later." en="Test release check failed. Try again later."/>
   <translation tag="Test tower {:.0f} mm wide and {:.0f} mm tall, about {} min plus heating: {} bands of {:.0f} mm at {}°C." en="Test tower {:.0f} mm wide and {:.0f} mm tall, about {} min plus heating: {} bands of {:.0f} mm at {}°C."/>
   <translation tag="Testing rotation: %d° (%d/%d) - %ds remaining" en="Testing rotation: %d° (%d/%d) - %ds remaining"/>
   <translation tag="Testing, servo, and motor operations" en="Testing, servo, and motor operations"/>
@@ -4226,8 +4234,10 @@
   <translation tag="Update heater model?" en="Update heater model?"/>
   <translation tag="Update in Spoolman" en="Update in Spoolman"/>
   <translation tag="Update installed!" en="Update installed!"/>
+  <translation tag="Update manager is outdated. Run the VoronDeck installer again." en="Update manager is outdated. Run the VoronDeck installer again."/>
   <translation tag="Update recovery macros to enable this switch, then restart Klipper." en="Update recovery macros to enable this switch, then restart Klipper."/>
   <translation tag="Update the INDX heater model too? {} now holds {}: density {:.2f}, heat capacity {:.2f}." en="Update the INDX heater model too? {} now holds {}: density {:.2f}, heat capacity {:.2f}."/>
+  <translation tag="Update was not confirmed. Check component updates before retrying." en="Update was not confirmed. Check component updates before retrying."/>
   <translation tag="Update your security PIN" en="Update your security PIN"/>
   <translation tag="Updates" en="Updates"/>
   <translation tag="Updating Configuration..." en="Updating Configuration..."/>
@@ -4295,6 +4305,7 @@
   <translation tag="VoronDeck is up to date" en="VoronDeck is up to date"/>
   <translation tag="VoronDeck recovery macros detected. Checkpoints are saved by RECOVERY_CHECKPOINT in the slicer layer-change G-code." en="VoronDeck recovery macros detected. Checkpoints are saved by RECOVERY_CHECKPOINT in the slicer layer-change G-code."/>
   <translation tag="VoronDeck removes its [include helix-plr/*.cfg] lines from printer.cfg. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect. A resume then uses the printer&apos;s default mesh profile." en="VoronDeck removes its [include helix-plr/*.cfg] lines from printer.cfg. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect. A resume then uses the printer&apos;s default mesh profile."/>
+  <translation tag="VoronDeck updated successfully" en="VoronDeck updated successfully"/>
   <translation tag="VoronDeck updates will be connected after printer testing" en="VoronDeck updates will be connected after printer testing"/>
   <translation tag="VoronDeck user guide is being updated" en="VoronDeck user guide is being updated"/>
   <translation tag="VoronDeck will integrate with your filament changer for multi-spool/color print operations." en="VoronDeck will integrate with your filament changer for multi-spool/color print operations."/>

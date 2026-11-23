@@ -763,6 +763,7 @@
   <translation tag="Completed in %d probes" ja="%d 回のプローブで完了"/>
   <translation tag="Completed just now" ja="たった今完了しました"/>
   <translation tag="Completed prints will appear here" ja="完了した印刷がここに表示されます"/>
+  <translation tag="Completed release" ja="Completed release"/>
   <translation tag="Completed {}d ago" ja="{} 日前に完了"/>
   <translation tag="Completed {}h ago" ja="{} 時間前に完了"/>
   <translation tag="Completed {}m ago" ja="{} 分前に完了"/>
@@ -1071,6 +1072,7 @@
   <translation tag="Door switches, buttons, and other on/off inputs" ja="ドアスイッチ、ボタン、その他のオン/オフ入力"/>
   <translation tag="Download update?" ja="アップデートをダウンロードしますか？"/>
   <translation tag="Download v{}?" ja="v{}をダウンロードしますか？"/>
+  <translation tag="Downloading and verifying VoronDeck. The screen will restart." ja="Downloading and verifying VoronDeck. The screen will restart."/>
   <translation tag="Downloading..." ja="ダウンロード中..."/>
   <translation tag="Downloading... {:.1f}/{:.1f} MB" ja="ダウンロード中... {:.1f}/{:.1f} MB"/>
   <translation tag="Draw a ripple at each touch — helps diagnose offsets" ja="タッチごとに波紋を描画 — ズレの診断に役立ちます"/>
@@ -1796,6 +1798,7 @@
   <translation tag="Install Plugin" ja="プラグインをインストール"/>
   <translation tag="Install Root" ja="インストールルート"/>
   <translation tag="Install Update" ja="更新をインストール"/>
+  <translation tag="Install VoronDeck {}? This is a test release and may contain errors." ja="Install VoronDeck {}? This is a test release and may contain errors."/>
   <translation tag="Install plugin" ja="プラグインをインストール"/>
   <translation tag="Install script not found. Use the remote install command instead." ja="インストールスクリプトが見つかりません。代わりにリモートインストールコマンドを使用してください。"/>
   <translation tag="Install the HelixPrint plugin to enable fast G-code modifications. Run this command via SSH on your printer:" ja="高速 G-code 修正を有効にするために HelixPrint プラグインをインストールしてください。プリンターで SSH 経由でこのコマンドを実行してください:"/>
@@ -2418,7 +2421,7 @@
   <translation tag="Not enough frequency data from the sweeps. Try again." ja="測定から十分な周波数データが得られませんでした。再試行してください。"/>
   <translation tag="Not enough room for this widget. Rearrange or remove widgets to make space." ja="このウィジェットを配置するスペースが足りません。スペースを確保するためにウィジェットを整理または削除してください。"/>
   <translation tag="Not in your spools? Set it up" ja="スプールにない？登録する"/>
-  <translation tag="Not now" ja="後で"/>
+  <translation tag="Not now" ja="Not now"/>
   <translation tag="Not set" ja="未設定"/>
   <translation tag="Not turned" ja="未回転"/>
   <translation tag="Not yet available on this display" ja="このディスプレイではまだ利用できません"/>
@@ -2518,6 +2521,7 @@
   <translation tag="Optimize Your Printing" ja="印刷を最適化"/>
   <translation tag="Optimizes temperature control for stable, consistent heating." ja="安定した一貫性のある加熱のために温度制御を最適化します。"/>
   <translation tag="Optional - select your main lighting source, or skip if your printer doesn&apos;t have one" ja="任意 - メイン照明を選択するか、照明がない場合はスキップしてください"/>
+  <translation tag="Optional prerelease · install only if you choose" ja="Optional prerelease · install only if you choose"/>
   <translation tag="Options" ja="オプション"/>
   <translation tag="Or Enter Manually" ja="または手動で入力"/>
   <translation tag="Or instead of turning the others" ja="他のネジを回す代わりに"/>
@@ -3482,6 +3486,8 @@
   <translation tag="Sport" ja="スポーツ"/>
   <translation tag="Square Corner Velocity" ja="直角コーナー速度"/>
   <translation tag="Stable" ja="安定版"/>
+  <translation tag="Stable release" ja="Stable release"/>
+  <translation tag="Stable releases and optional test updates" ja="Stable releases and optional test updates"/>
   <translation tag="Stall detection setup failed for the Z motor — power-cycle to retry" ja="Z モーターのストール検出の設定に失敗しました。電源を入れ直して再試行してください"/>
   <translation tag="Stall detection setup failed for the extruder — power-cycle to retry" ja="エクストルーダーのストール検出の設定に失敗しました。電源を入れ直して再試行してください"/>
   <translation tag="Standard" ja="スタンダード"/>
@@ -3661,6 +3667,8 @@
   <translation tag="Test Screensaver" ja="スクリーンセーバーをテスト"/>
   <translation tag="Test Tracker" ja="テストトラッカー"/>
   <translation tag="Test label printed" ja="テストラベル印刷完了"/>
+  <translation tag="Test release" ja="Test release"/>
+  <translation tag="Test release check failed. Try again later." ja="Test release check failed. Try again later."/>
   <translation tag="Test tower {:.0f} mm wide and {:.0f} mm tall, about {} min plus heating: {} bands of {:.0f} mm at {}°C." ja="テストタワー 幅{:.0f} mm・高さ{:.0f} mm、約{}分+加熱: {}区間(各{:.0f} mm)、{}°C。"/>
   <translation tag="Testing rotation: %d° (%d/%d) - %ds remaining" ja="回転テスト: %d° (%d/%d) - %ds残り"/>
   <translation tag="Testing, servo, and motor operations" ja="テスト・サーボ・モーター操作"/>
@@ -4112,7 +4120,9 @@
   <translation tag="Update heater model?" ja="ヒーターモデルを更新しますか？"/>
   <translation tag="Update in Spoolman" ja="Spoolman で更新"/>
   <translation tag="Update installed!" ja="アップデートをインストールしました！"/>
+  <translation tag="Update manager is outdated. Run the VoronDeck installer again." ja="Update manager is outdated. Run the VoronDeck installer again."/>
   <translation tag="Update the INDX heater model too? {} now holds {}: density {:.2f}, heat capacity {:.2f}." ja="INDXヒーターモデルも更新しますか？{}は{}になりました：密度 {:.2f}、熱容量 {:.2f}。"/>
+  <translation tag="Update was not confirmed. Check component updates before retrying." ja="Update was not confirmed. Check component updates before retrying."/>
   <translation tag="Update your security PIN" ja="セキュリティ PIN を更新"/>
   <translation tag="Updates" ja="更新"/>
   <translation tag="Updating Configuration..." ja="設定を更新中..."/>
@@ -4177,6 +4187,7 @@
   <translation tag="VoronDeck Macros" ja="VoronDeckマクロ"/>
   <translation tag="VoronDeck adds [include helix-plr/*.cfg] to printer.cfg, so a resume reloads the mesh the print started with. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect." ja="VoronDeck は printer.cfg に [include helix-plr/*.cfg] を追加し、再開時に印刷開始時のメッシュを読み込み直せるようにします。printer.cfg の横にバックアップが保存され、反映には Klipper の再起動が必要です。"/>
   <translation tag="VoronDeck removes its [include helix-plr/*.cfg] lines from printer.cfg. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect. A resume then uses the printer&apos;s default mesh profile." ja="VoronDeck は printer.cfg から [include helix-plr/*.cfg] の行を削除します。printer.cfg の横にバックアップが保存され、反映には Klipper の再起動が必要です。再開時にはプリンターのデフォルトのメッシュプロファイルが使われます。"/>
+  <translation tag="VoronDeck updated successfully" ja="VoronDeck updated successfully"/>
   <translation tag="VoronDeck will integrate with your filament changer for multi-spool/color print operations." ja="VoronDeck はマルチスプール/カラー印刷操作のためにフィラメントチェンジャーと連携します。"/>
   <translation tag="VoronDeck writes this to printer.cfg and restarts Klipper. The printer will briefly disconnect." ja="VoronDeckがこれをprinter.cfgに書き込み、Klipperを再起動します。プリンターは一時的に切断されます。"/>
   <translation tag="VoronDeck {} is available ({})" ja="VoronDeck {} が利用可能です ({})"/>

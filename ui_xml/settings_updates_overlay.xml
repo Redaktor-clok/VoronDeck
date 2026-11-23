@@ -7,10 +7,18 @@
             style_pad_all="#space_md" style_pad_gap="#space_md" scrollable="true">
       <setting_group name="group_vorondeck_updates">
         <setting_action_row name="row_vorondeck_check" label="Check VoronDeck updates" icon="refresh"
-                            description="Stable and beta releases · beta requires access" description_min_bp="0"
+                            description="Stable releases and optional test updates" description_min_bp="0"
                             callback="on_vorondeck_check_updates"/>
       </setting_group>
       <text_body name="vorondeck_update_status" width="100%" text="VoronDeck" long_mode="wrap"/>
+      <setting_group name="group_release_offers" hidden="true">
+        <setting_action_row name="row_stable_release" label="Stable release" icon="check"
+                            description="Completed release" description_min_bp="0"
+                            callback="on_vorondeck_component_updates"/>
+        <setting_action_row name="row_test_release" label="Test release" icon="download"
+                            description="Optional prerelease · install only if you choose" description_min_bp="0"
+                            callback="on_vorondeck_test_update"/>
+      </setting_group>
       <text_small name="vorondeck_update_scope" width="100%" long_mode="wrap"
                   text="Checks the screen installed on this device. Does not install updates automatically."/>
       <setting_group name="group_printer_component_updates">

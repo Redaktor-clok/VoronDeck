@@ -69,7 +69,7 @@ def probe_loaded(port):
         status = get('machine/update/status')
         return ('vorondeck_update' in info.get('components', [])
                 and 'vorondeck_update' not in info.get('failed_components', [])
-                and 'vorondeck' in status.get('version_info', {}))
+                and status.get('version_info', {}).get('vorondeck', {}).get('vorondeck_test_updates') is True)
     except (OSError, ValueError, KeyError, TypeError):
         return False
 

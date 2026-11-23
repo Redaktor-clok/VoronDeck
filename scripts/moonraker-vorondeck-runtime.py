@@ -42,7 +42,7 @@ def release_state(base):
     manifest = json.loads(path.read_text())
     version = manifest.get('version', '')
     if (manifest.get('project') != 'VoronDeck' or manifest.get('schema') != 1
-            or not re.fullmatch(r'\d+\.\d+\.\d+(?:-beta\.\d+)?', version)
+            or not re.fullmatch(r'\d+\.\d+\.\d+(?:-(?:beta|T)\.\d+)?', version)
             or not re.fullmatch(r'[a-f0-9]{40}', manifest.get('source_commit', ''))
             or manifest.get('architecture') != installer.host_arch()):
         raise ValueError('Invalid installed VoronDeck metadata')
@@ -92,6 +92,8 @@ def prepare_release(base, channel):
         current = release_state(base)
         if Path(current['path']) == destination and current['source_commit'] == package['source_commit']:
             return destination
+        if checker.public.version_key(package['version']) < checker.public.version_key(current['version']):
+            raise ValueError('The available stable package is older than the installed release')
         if shutil.disk_usage(base).free < package['size'] * 2 + 64 * 1024**2:
             raise ValueError('Not enough free disk space for the package download')
         blob = commit + ':' + package['path']
@@ -109,6 +111,28 @@ def prepare_release(base, channel):
             if json.loads((destination / 'vorondeck-release.json').read_text()) != manifest:
                 raise ValueError('Existing staged release metadata differs from the package')
             return destination
+
+
+def prepare_selected_release(base, selection):
+    """Public tests are opt-in and do not change the configured stable channel."""
+    current = release_state(base)
+    if current['source_commit'] != selection.get('installed_source'):
+        raise ValueError('The installed screen changed; check updates again')
+    package = checker.public.selected(selection, installer.host_arch(), bootstrap.libc_name(),
+                                      current['version'])
+    destination = base / 'releases' / (package['version'] + '-' + package['sha256'][:12])
+    if shutil.disk_usage(base).free < package['size'] * 2 + 64 * 1024**2:
+        raise ValueError('Not enough free disk space for the package download')
+    with tempfile.TemporaryDirectory(prefix='vorondeck-test-update-') as temp:
+        archive = Path(temp) / 'package.tar.gz'
+        checker.public.download(package, archive)
+        manifest, payload = installer.verify_package(archive, package['sha256'], installer.host_arch())
+        if manifest['version'] != package['version'] or manifest['source_commit'] != package['source_commit']:
+            raise ValueError('Package differs from the selected prerelease')
+        installer.stage_release(destination, manifest, payload, allow_dependencies=False)
+        if json.loads((destination / 'vorondeck-release.json').read_text()) != manifest:
+            raise ValueError('Existing staged release metadata differs from the package')
+        return destination
 
 
 def switch_release(base, previous, destination):

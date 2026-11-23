@@ -18,8 +18,8 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--version', required=True)
     args = parser.parse_args()
-    if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-beta\.[0-9]+)?', args.version):
-        parser.error('Use a version such as 1.0.0 or 1.0.0-beta.1')
+    if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-(?:beta|T)\.[0-9]+)?', args.version):
+        parser.error('Use a version such as 1.0.1 or 1.0.2-T.1')
     root = Path(__file__).resolve().parents[1]
     if args.output.exists():
         parser.error('Refusing to overwrite an existing package')

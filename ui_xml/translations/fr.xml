@@ -763,6 +763,7 @@
   <translation tag="Completed in %d probes" fr="Terminé en %d sondes"/>
   <translation tag="Completed just now" fr="Terminé à l&apos;instant"/>
   <translation tag="Completed prints will appear here" fr="Les impressions terminées apparaîtront ici"/>
+  <translation tag="Completed release" fr="Completed release"/>
   <translation tag="Completed {}d ago" fr="Terminé il y a {} j"/>
   <translation tag="Completed {}h ago" fr="Terminé il y a {} h"/>
   <translation tag="Completed {}m ago" fr="Terminé il y a {} min"/>
@@ -1071,6 +1072,7 @@
   <translation tag="Door switches, buttons, and other on/off inputs" fr="Interrupteurs de porte, boutons et autres entrées marche/arrêt"/>
   <translation tag="Download update?" fr="Télécharger la mise à jour ?"/>
   <translation tag="Download v{}?" fr="Télécharger v{} ?"/>
+  <translation tag="Downloading and verifying VoronDeck. The screen will restart." fr="Downloading and verifying VoronDeck. The screen will restart."/>
   <translation tag="Downloading..." fr="Téléchargement..."/>
   <translation tag="Downloading... {:.1f}/{:.1f} MB" fr="Téléchargement... {:.1f}/{:.1f} Mo"/>
   <translation tag="Draw a ripple at each touch — helps diagnose offsets" fr="Dessine une ondulation à chaque contact — aide à diagnostiquer les décalages"/>
@@ -1796,6 +1798,7 @@
   <translation tag="Install Plugin" fr="Installer le plugin"/>
   <translation tag="Install Root" fr="Racine d&apos;installation"/>
   <translation tag="Install Update" fr="Installer la mise à jour"/>
+  <translation tag="Install VoronDeck {}? This is a test release and may contain errors." fr="Install VoronDeck {}? This is a test release and may contain errors."/>
   <translation tag="Install plugin" fr="Installer le plugin"/>
   <translation tag="Install script not found. Use the remote install command instead." fr="Script d&apos;installation introuvable. Utilisez plutôt la commande d&apos;installation distante."/>
   <translation tag="Install the HelixPrint plugin to enable fast G-code modifications. Run this command via SSH on your printer:" fr="Installez le plugin HelixPrint pour activer les modifications rapides de G-code. Exécutez cette commande via SSH sur votre imprimante :"/>
@@ -2418,7 +2421,7 @@
   <translation tag="Not enough frequency data from the sweeps. Try again." fr="Pas assez de données de fréquence après les balayages. Réessayez."/>
   <translation tag="Not enough room for this widget. Rearrange or remove widgets to make space." fr="Pas assez de place pour ce widget. Réorganisez ou supprimez des widgets pour libérer de l&apos;espace."/>
   <translation tag="Not in your spools? Set it up" fr="Pas dans vos bobines ? Configurez-la"/>
-  <translation tag="Not now" fr="Pas maintenant"/>
+  <translation tag="Not now" fr="Not now"/>
   <translation tag="Not set" fr="Non défini"/>
   <translation tag="Not turned" fr="Pas tourné"/>
   <translation tag="Not yet available on this display" fr="Pas encore disponible sur cet écran"/>
@@ -2518,6 +2521,7 @@
   <translation tag="Optimize Your Printing" fr="Optimisez votre impression"/>
   <translation tag="Optimizes temperature control for stable, consistent heating." fr="Optimise le contrôle de température pour un chauffage stable et constant."/>
   <translation tag="Optional - select your main lighting source, or skip if your printer doesn&apos;t have one" fr="Optionnel - sélectionnez votre source d&apos;éclairage principale, ou ignorez si votre imprimante n&apos;en a pas"/>
+  <translation tag="Optional prerelease · install only if you choose" fr="Optional prerelease · install only if you choose"/>
   <translation tag="Options" fr="Options"/>
   <translation tag="Or Enter Manually" fr="Ou entrer manuellement"/>
   <translation tag="Or instead of turning the others" fr="Ou, au lieu de tourner les autres"/>
@@ -3482,6 +3486,8 @@
   <translation tag="Sport" fr="Sport"/>
   <translation tag="Square Corner Velocity" fr="Vitesse dans les angles"/>
   <translation tag="Stable" fr="Stable"/>
+  <translation tag="Stable release" fr="Stable release"/>
+  <translation tag="Stable releases and optional test updates" fr="Stable releases and optional test updates"/>
   <translation tag="Stall detection setup failed for the Z motor — power-cycle to retry" fr="Échec de la configuration de la détection de blocage du moteur Z. Éteignez et rallumez pour réessayer"/>
   <translation tag="Stall detection setup failed for the extruder — power-cycle to retry" fr="Échec de la configuration de la détection de blocage de l&apos;extrudeur. Éteignez et rallumez pour réessayer"/>
   <translation tag="Standard" fr="Standard"/>
@@ -3661,6 +3667,8 @@
   <translation tag="Test Screensaver" fr="Tester l&apos;économiseur d&apos;écran"/>
   <translation tag="Test Tracker" fr="Test Tracker"/>
   <translation tag="Test label printed" fr="Étiquette de test imprimée"/>
+  <translation tag="Test release" fr="Test release"/>
+  <translation tag="Test release check failed. Try again later." fr="Test release check failed. Try again later."/>
   <translation tag="Test tower {:.0f} mm wide and {:.0f} mm tall, about {} min plus heating: {} bands of {:.0f} mm at {}°C." fr="Tour de test de {:.0f} mm de large et {:.0f} mm de haut, environ {} min plus la chauffe : {} bandes de {:.0f} mm à {}°C."/>
   <translation tag="Testing rotation: %d° (%d/%d) - %ds remaining" fr="Test de rotation : %d° (%d/%d) - %ds restantes"/>
   <translation tag="Testing, servo, and motor operations" fr="Opérations de test, servo et moteur"/>
@@ -4112,7 +4120,9 @@
   <translation tag="Update heater model?" fr="Mettre à jour le modèle de chauffage ?"/>
   <translation tag="Update in Spoolman" fr="Mettre à jour dans Spoolman"/>
   <translation tag="Update installed!" fr="Mise à jour installée !"/>
+  <translation tag="Update manager is outdated. Run the VoronDeck installer again." fr="Update manager is outdated. Run the VoronDeck installer again."/>
   <translation tag="Update the INDX heater model too? {} now holds {}: density {:.2f}, heat capacity {:.2f}." fr="Mettre aussi à jour le modèle de chauffage INDX ? {} contient maintenant {} : densité {:.2f}, capacité thermique {:.2f}."/>
+  <translation tag="Update was not confirmed. Check component updates before retrying." fr="Update was not confirmed. Check component updates before retrying."/>
   <translation tag="Update your security PIN" fr="Mettez à jour votre PIN de sécurité sur cette installation."/>
   <translation tag="Updates" fr="Mises à jour"/>
   <translation tag="Updating Configuration..." fr="Mise à jour de la configuration..."/>
@@ -4177,6 +4187,7 @@
   <translation tag="VoronDeck Macros" fr="Macros VoronDeck"/>
   <translation tag="VoronDeck adds [include helix-plr/*.cfg] to printer.cfg, so a resume reloads the mesh the print started with. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect." fr="VoronDeck ajoute [include helix-plr/*.cfg] à printer.cfg pour qu&apos;une reprise recharge le maillage avec lequel l&apos;impression a commencé. Une sauvegarde est conservée à côté de printer.cfg, et Klipper doit redémarrer pour que le changement prenne effet."/>
   <translation tag="VoronDeck removes its [include helix-plr/*.cfg] lines from printer.cfg. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect. A resume then uses the printer&apos;s default mesh profile." fr="VoronDeck supprime ses lignes [include helix-plr/*.cfg] de printer.cfg. Une sauvegarde est conservée à côté de printer.cfg, et Klipper doit redémarrer pour que le changement prenne effet. Une reprise utilisera alors le profil de maillage par défaut de l&apos;imprimante."/>
+  <translation tag="VoronDeck updated successfully" fr="VoronDeck updated successfully"/>
   <translation tag="VoronDeck will integrate with your filament changer for multi-spool/color print operations." fr="VoronDeck s&apos;intégrera avec votre changeur de filament pour les opérations d&apos;impression multi-bobines/couleurs."/>
   <translation tag="VoronDeck writes this to printer.cfg and restarts Klipper. The printer will briefly disconnect." fr="VoronDeck écrira ceci dans printer.cfg et redémarrera Klipper. L&apos;imprimante se déconnectera brièvement."/>
   <translation tag="VoronDeck {} is available ({})" fr="VoronDeck {} disponible ({})"/>

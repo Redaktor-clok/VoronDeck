@@ -59,7 +59,7 @@ def verify_package(package, expected_sha, machine):
     manifest = json.loads(payload.pop('vorondeck-release.json'))
     if (not isinstance(manifest, dict) or manifest.get('schema') != 1 or manifest.get('project') != 'VoronDeck' or
             manifest.get('architecture') != machine or not re.fullmatch(
-                r'[0-9]+\.[0-9]+\.[0-9]+(?:-beta\.[0-9]+)?', manifest.get('version', ''))):
+                r'[0-9]+\.[0-9]+\.[0-9]+(?:-(?:beta|T)\.[0-9]+)?', manifest.get('version', ''))):
         raise ValueError('Incompatible release manifest')
     hashes = {name: hashlib.sha256(data).hexdigest() for name, data in payload.items()}
     if hashes != manifest.get('files'):

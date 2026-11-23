@@ -3,6 +3,7 @@
 """Check the authenticated beta package index. Never install or execute fetched files."""
 from contextlib import contextmanager
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -15,9 +16,13 @@ CHANNELS = {
     'beta': ('git@github.com:Redaktor-clok/VoronDeck-beta.git', 'beta-packages'),
     'stable': ('https://github.com/Redaktor-clok/VoronDeck.git', 'stable-packages'),
 }
-VERSION = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+(?:-beta\.[0-9]+)?')
+VERSION = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+(?:-(?:beta|T)\.[0-9]+)?')
 SHA = re.compile(r'[a-f0-9]{64}')
 COMMIT = re.compile(r'[a-f0-9]{40}')
+
+_spec = importlib.util.spec_from_file_location('vorondeck_public_releases', Path(__file__).with_name('vorondeck_public_releases.py'))
+public = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(public)
 
 
 def ssh_command(home):
@@ -76,7 +81,8 @@ def compare_release(installed, release_name, index, libc, channel='beta'):
     return {'status': 'current' if current else 'available',
             'installed_version': installed['version'], 'available_version': version,
             'installed_build': installed['source_commit'][:8],
-            'available_build': package['source_commit'][:8]}
+            'available_build': package['source_commit'][:8],
+            'sha256': package['sha256'], 'source_commit': package['source_commit']}
 
 
 @contextmanager
@@ -139,6 +145,13 @@ def check_channels(installed, release_name, libc, has_beta_key, fetch=None, sele
                              'build': result.get('available_build', '')}
     result = dict(results[active], active_channel=active, channels=channels)
     result['notification_id'] = notification_id(result)
+    stable = results['stable']
+    result['offers'] = []
+    if notification_id(dict(stable, active_channel='stable')):
+        result['offers'].append({'kind': 'stable', 'version': stable['available_version'],
+                                'display_version': stable['available_version'], 'tag': '',
+                                'sha256': stable['sha256'], 'source_commit': stable['source_commit'],
+                                'notification_id': 'stable:' + stable['available_version'] + ':' + stable['sha256']})
     return result
 
 
@@ -154,11 +167,7 @@ def notification_id(result):
             or ('-beta.' in available) != (channel == 'beta')):
         return ''
 
-    def order(version):
-        base, _, beta = version.partition('-beta.')
-        return tuple(map(int, base.split('.'))) + (0 if beta else 1, int(beta or 0))
-
-    if order(available) < order(installed):
+    if public.version_key(available) < public.version_key(installed):
         return ''
     return ':'.join((channel, available, build))
 
@@ -171,7 +180,10 @@ def check(selected_channel=None):
     if manifest.stat().st_size > 2 * 1024**2:
         raise ValueError('Installed release metadata too large')
     installed = json.loads(manifest.read_text())
-    if not isinstance(installed, dict):
+    if (not isinstance(installed, dict) or installed.get('schema') != 1
+            or installed.get('project') != 'VoronDeck'
+            or not VERSION.fullmatch(installed.get('version', ''))
+            or not COMMIT.fullmatch(installed.get('source_commit', ''))):
         raise ValueError('Invalid installed release metadata')
     try:
         libc = 'glibc' if os.confstr('CS_GNU_LIBC_VERSION') else 'musl'
@@ -180,8 +192,23 @@ def check(selected_channel=None):
     home = Path.home()
     has_beta_key = ((home / '.ssh/vorondeck_beta_readonly').is_file()
                     and (home / '.ssh/known_hosts_vorondeck').is_file())
-    return check_channels(installed, root.name, libc, has_beta_key,
-                          selected_channel=selected_channel)
+    result = check_channels(installed, root.name, libc, has_beta_key,
+                            selected_channel=selected_channel)
+    result['installed_source'] = installed.get('source_commit', '')
+    try:
+        floor = installed['version']
+        stable_version = result.get('channels', {}).get('stable', {}).get('version', '')
+        if VERSION.fullmatch(stable_version) and public.version_key(stable_version) > public.version_key(floor):
+            floor = stable_version
+        offer = public.latest(installed['architecture'], libc, floor)
+        result['test_status'] = 'available' if offer else 'none'
+        if offer:
+            result['offers'].append({key: offer[key] for key in
+                                    ('kind', 'version', 'display_version', 'tag', 'sha256', 'source_commit')})
+            result['offers'][-1]['notification_id'] = 'test:' + offer['version'] + ':' + offer['sha256']
+    except (OSError, ValueError, TypeError, KeyError):
+        result['test_status'] = 'unavailable'
+    return result
 
 
 if __name__ == '__main__':

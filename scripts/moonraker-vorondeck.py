@@ -42,6 +42,28 @@ class VoronDeckDeploy(BaseDeploy):
         self.last_error = ''
         self.loop = server.get_event_loop()
         manager.get_updaters()['vorondeck'] = self
+        from ..common import RequestType
+        server.register_endpoint('/machine/update/vorondeck_test', RequestType.POST,
+                                 self._handle_test_update)
+
+    async def _handle_test_update(self, request):
+        selection = {key: request.get_str(key) for key in
+                     ('kind', 'version', 'tag', 'sha256', 'source_commit', 'installed_source')}
+        manager = self.server.lookup_component('update_manager')
+        if not hasattr(manager, 'cmd_request_lock') or not hasattr(manager, 'cmd_helper'):
+            raise self.server.error('This Moonraker cannot serialize test updates')
+        if manager.cmd_request_lock.locked() or manager.cmd_helper.is_app_updating('vorondeck'):
+            raise self.server.error('Another update is running', 503)
+        async with manager.cmd_request_lock:
+            manager.cmd_helper.set_update_info('vorondeck', id(request))
+            try:
+                await self.update(selection)
+            except Exception:
+                manager.cmd_helper.notify_update_response('VoronDeck test update failed', is_complete=True)
+                raise
+            finally:
+                manager.cmd_helper.clear_update_info()
+        return 'ok'
 
     async def initialize(self):
         storage = await super().initialize()
@@ -87,7 +109,7 @@ class VoronDeckDeploy(BaseDeploy):
                 'channel_invalid': False, 'is_valid': valid, 'is_dirty': False,
                 'owner': 'Redaktor-clok', 'repo_name': 'VoronDeck-beta' if self.channel == 'beta' else 'VoronDeck',
                 'version': version, 'remote_version': available, 'rollback_version': '?',
-                'vorondeck_package': True, 'package_sha256': current_hash,
+                'vorondeck_package': True, 'vorondeck_test_updates': True, 'package_sha256': current_hash,
                 'remote_package_sha256': remote_hash,
                 'update_available': valid and version != available,
                 'last_error': self.last_error, 'warnings': [self.last_error] if self.last_error else [],
@@ -103,7 +125,7 @@ class VoronDeckDeploy(BaseDeploy):
             status.update(await api.query_objects({name: ['target'] for name in heaters}))
         self.runtime.installer.assert_idle(status)
 
-    async def update(self):
+    async def update(self, selection=None):
         machine = self.server.lookup_component('machine')
         if not machine.is_service_allowed('vorondeck'):
             raise self.server.error('Add vorondeck to moonraker.asvc before updating')
@@ -113,7 +135,8 @@ class VoronDeckDeploy(BaseDeploy):
             previous = Path((await self.loop.run_in_thread(self.runtime.release_state, self.base))['path'])
             self.notify_status('Downloading and verifying the VoronDeck package')
             preparation = asyncio.ensure_future(self.loop.run_in_thread(
-                self.runtime.prepare_release, self.base, self.channel))
+                self.runtime.prepare_release if selection is None else self.runtime.prepare_selected_release,
+                self.base, self.channel if selection is None else selection))
             try:
                 destination = await asyncio.shield(preparation)
             except asyncio.CancelledError:

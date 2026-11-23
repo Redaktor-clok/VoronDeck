@@ -172,7 +172,8 @@ class UpdaterSetupTest(unittest.TestCase):
         cases = [([], {'vorondeck': {}}, [], False),
                  (['vorondeck_update'], {}, [], False),
                  (['vorondeck_update'], {'vorondeck': {}}, ['vorondeck_update'], False),
-                 (['vorondeck_update'], {'vorondeck': {}}, [], True)]
+                 (['vorondeck_update'], {'vorondeck': {}}, [], False),
+                 (['vorondeck_update'], {'vorondeck': {'vorondeck_test_updates': True}}, [], True)]
         for components, versions, failed, expected in cases:
             with patch.object(updater_module, 'urlopen', side_effect=responses(components, versions, failed)):
                 self.assertEqual(updater_module.probe_loaded(7125), expected)
