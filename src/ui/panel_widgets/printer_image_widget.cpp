@@ -424,8 +424,9 @@ void PrinterImageWidget::refresh_printer_image() {
 void PrinterImageWidget::refresh_if_detected_image_changed() {
     // Hardware subjects change on every connect; redrawing an unchanged image
     // would drop its decoded copy for nothing.
-    if (!widget_obj_ || helix::PrinterImageManager::instance().get_displayed_image_path(
-                            printer_images::current_screen_width()) == current_source_path_)
+    if (!widget_obj_ || !detection_watch_.changed() ||
+        helix::PrinterImageManager::instance().get_displayed_image_path(
+            printer_images::current_screen_width()) == current_source_path_)
         return;
     schedule_image_refresh();
 }
@@ -816,6 +817,7 @@ void PrinterImageWidget::apply_callout_layout() {
     };
 
     helix::ui::CalloutPresenter::Config cfg;
+    cfg.prefer_side_column = true;
     cfg.single_cell = callout_colspan_ <= GridLayout::TRACKS_PER_CELL &&
                       callout_rowspan_ <= GridLayout::TRACKS_PER_CELL;
     if (lv_obj_get_content_width(container) <= 0 || lv_obj_get_content_height(container) <= 0) {

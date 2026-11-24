@@ -16,6 +16,7 @@
 #include "ams_fault_event.h"
 #include "ams_status_json.h"
 #include "config.h"
+#include "fault_path_position.h"
 #include "humidity_sensor_types.h"
 #include "i_moonraker_api.h"
 #include "lane_legacy_migration.h"
@@ -2128,6 +2129,12 @@ void AmsBackendAfc::apply_afc_state(const afc::StateDelta& afc, std::string& def
         } else {
             error_segment_ = PathSegment::NONE;
         }
+    }
+
+    // The sentence may arrive after error_state; do not mark a recovered stale queue entry.
+    if (error_state_ && last_message_type_ == "error" &&
+        faultpath::is_prep_runout(last_seen_message_)) {
+        error_segment_ = PathSegment::PREP;
     }
 
     // When bypass is active, current_slot = -2 (convention from Happy Hare)
@@ -5449,7 +5456,7 @@ AmsError AmsBackendAfc::enable_bypass() {
             return precondition;
         }
 
-        if (!helix::bypass_available_for(system_info_.supports_bypass)) {
+        if (!helix::bypass_available_for(system_info_)) {
             return AmsError(AmsResult::WRONG_STATE, "Bypass not supported",
                             lv_tr("This AFC system does not support bypass mode"), "");
         }

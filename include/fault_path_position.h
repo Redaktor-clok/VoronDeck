@@ -23,6 +23,9 @@
  */
 namespace helix::faultpath {
 
+/// A runout explicitly reported by a lane's entry sensor, not a weight or toolhead event.
+[[nodiscard]] bool is_prep_runout(std::string_view message);
+
 /// Where the filament had reached when the fault was raised, or nullopt when
 /// no provider recognises @p message.
 [[nodiscard]] std::optional<PathSegment> fault_position(std::string_view message);

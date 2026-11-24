@@ -459,25 +459,48 @@ TEST_CASE("Bypass availability override", "[ams][bypass][override]") {
     using helix::bypass_available;
 
     SECTION("firmware saying yes needs no override") {
-        CHECK(bypass_available(true, /*force=*/false));
-        CHECK(bypass_available(true, /*force=*/true));
+        CHECK(bypass_available(true, /*force=*/false, true));
+        CHECK(bypass_available(true, /*force=*/true, true));
     }
 
     SECTION("firmware saying no hides the controls by default") {
-        CHECK_FALSE(bypass_available(false, /*force=*/false));
+        CHECK_FALSE(bypass_available(false, /*force=*/false, true));
     }
 
     SECTION("the override is the only thing that contradicts the firmware") {
-        CHECK(bypass_available(false, /*force=*/true));
+        CHECK(bypass_available(false, /*force=*/true, true));
     }
 
     SECTION("with the override off, the resolver is exactly the firmware value") {
         // Guards the short-circuit in bypass_available_for(): a machine that
         // reports a bypass must never depend on a setting to keep it.
         REQUIRE_FALSE(SettingsManager::instance().get_ams_force_bypass_controls());
-        CHECK(helix::bypass_available_for(true));
-        CHECK_FALSE(helix::bypass_available_for(false));
+        AmsSystemInfo info;
+        info.type = AmsType::AFC;
+        info.supports_bypass = true;
+        CHECK(helix::bypass_available_for(info));
+        info.supports_bypass = false;
+        CHECK_FALSE(helix::bypass_available_for(info));
     }
+}
+
+TEST_CASE("Bypass override follows the actual system capability", "[ams][bypass][override]") {
+    AmsSystemInfo info;
+    for (const auto type : {AmsType::NONE, AmsType::TOOL_CHANGER, AmsType::SNAPMAKER,
+                            AmsType::QIDI_BOX, AmsType::OPENAMS, AmsType::INDX}) {
+        info.type = type;
+        CHECK_FALSE(helix::bypass_override_offered(info));
+        CHECK_FALSE(helix::bypass_available(false, true, helix::bypass_override_offered(info)));
+    }
+    for (const auto type : {AmsType::AFC, AmsType::HAPPY_HARE, AmsType::ACE, AmsType::CFS}) {
+        info.type = type;
+        REQUIRE(helix::bypass_override_offered(info));
+        CHECK(helix::bypass_available(false, true, helix::bypass_override_offered(info)));
+    }
+    info.external_spool_only = true;
+    CHECK_FALSE(helix::bypass_override_offered(info));
+    info.supports_bypass = true;
+    CHECK(helix::bypass_available_for(info));
 }
 
 TEST_CASE("AFC toolchanger: the captured machine hides its bypass node",

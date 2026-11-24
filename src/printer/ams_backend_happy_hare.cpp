@@ -11,6 +11,7 @@
 #include "ams_fault_event.h"
 #include "ams_state.h"
 #include "config.h"
+#include "fault_path_position.h"
 #include "happy_hare_status_parse.h"
 #include "hh_defaults.h"
 #include "humidity_sensor_types.h"
@@ -1385,7 +1386,9 @@ void AmsBackendHappyHare::apply_fault_edge_locked(const MmuFrame& frame) {
     // After gate and filament_pos, so the marks land where this frame says.
     const bool faulted = !reason_for_pause_.empty();
     if (faulted && !frame.was_faulted) {
-        error_segment_ = path_segment_from_happy_hare_pos(filament_pos_);
+        error_segment_ = faultpath::is_prep_runout(reason_for_pause_)
+                             ? PathSegment::PREP
+                             : path_segment_from_happy_hare_pos(filament_pos_);
         if (auto* entry = slots_.get_mut(system_info_.current_slot)) {
             entry->info.error = SlotError{display_reason(reason_for_pause_), SlotError::ERROR};
             spdlog::debug("[AMS HappyHare] Error on slot {}: {}", system_info_.current_slot,
@@ -3151,7 +3154,7 @@ AmsError AmsBackendHappyHare::enable_bypass() {
             return precondition;
         }
 
-        if (!helix::bypass_available_for(system_info_.supports_bypass)) {
+        if (!helix::bypass_available_for(system_info_)) {
             return AmsError(AmsResult::WRONG_STATE, "Bypass not supported",
                             lv_tr("This Happy Hare system does not support bypass mode"), "");
         }

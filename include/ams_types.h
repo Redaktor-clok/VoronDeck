@@ -92,7 +92,7 @@ enum class AmsType {
     CFS = 6,          ///< Creality Filament System (K2 series, RS-485)
     SNAPMAKER = 7,    ///< Snapmaker U1 SnapSwap toolchanger
     QIDI_BOX =
-        8, ///< QIDI Box filament changer (PLUS4, Q2, MAX4 — hub AMS, 4 slots chainable to 16)
+        8,       ///< QIDI Box filament changer (PLUS4, Q2, MAX4 — hub AMS, 4 slots chainable to 16)
     OPENAMS = 9, ///< klipper_openams through its own versioned oams_manager API
     INDX = 10    ///< Bondtech INDX: docked passive nozzles, one extruder and heater
 };
@@ -128,6 +128,7 @@ struct AmsTypeTraits {
     /// The clog meter's name for this system's buffer fault counter; nullptr
     /// for the generic wording. Translated at the point of use.
     const char* buffer_fault_label;
+    bool bypass_overridable = true; ///< This kind can act on a forced bypass selection.
 };
 
 // i18n: do not translate - the names below are product names
@@ -139,15 +140,16 @@ inline constexpr AmsTypeTraits kAmsTypeTraits[] = {
      TR_NOOP("AFC buffer")},
     {AmsType::ACE, "ACE", "ACE", "ace", "ace", AmsBufferRows::None, nullptr},
     {AmsType::TOOL_CHANGER, "Tool Changer", "Tool Changer", "tool_changer", "toolchanger",
-     AmsBufferRows::None, nullptr},
+     AmsBufferRows::None, nullptr, false},
     {AmsType::AD5X_IFS, "AD5X IFS", "FlashForge IFS", "ifs", "ifs", AmsBufferRows::None, nullptr},
     {AmsType::CFS, "CFS", "Creality CFS", "cfs", "cfs", AmsBufferRows::None, nullptr},
     {AmsType::SNAPMAKER, "Snapmaker", "Snapmaker SnapSwap", "snapmaker", "snapmaker",
-     AmsBufferRows::None, nullptr},
+     AmsBufferRows::None, nullptr, false},
     {AmsType::QIDI_BOX, "QIDI Box", "QIDI Box", "qidi_box", "qidi_box", AmsBufferRows::None,
-     nullptr},
-    {AmsType::OPENAMS, "OpenAMS", "OpenAMS", "openams", "openams", AmsBufferRows::None, nullptr},
-    {AmsType::INDX, "INDX", "INDX", "indx", "indx", AmsBufferRows::None, nullptr},
+     nullptr, false},
+    {AmsType::OPENAMS, "OpenAMS", "OpenAMS", "openams", "openams", AmsBufferRows::None, nullptr,
+     false},
+    {AmsType::INDX, "INDX", "INDX", "indx", "indx", AmsBufferRows::None, nullptr, false},
 };
 
 /// The row for @p type; the NONE row for a value with none.

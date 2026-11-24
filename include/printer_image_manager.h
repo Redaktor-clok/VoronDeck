@@ -128,6 +128,20 @@ class PrinterImageManager {
     /// re-resolves it when one changes.
     static std::vector<DetectionInput> detection_inputs();
 
+    /// Main-thread revision of hardware facts that can change the selected image.
+    int detected_facts_revision();
+
+    struct DetectionWatch {
+        int seen = -1;
+        bool changed() {
+            const int revision = instance().detected_facts_revision();
+            if (seen == revision)
+                return false;
+            seen = revision;
+            return true;
+        }
+    };
+
     /// Bump the image-changed subject, so the home widget redraws the image and
     /// its callouts. set_active_image() calls it; so does anything that changes
     /// how the same image is drawn, like saving its tags.

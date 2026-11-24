@@ -483,3 +483,49 @@ TEST_CASE_METHOD(KlippyRecoveryFixture, "A shutdown frame carrying its reason sh
     settle();
     CHECK(recovery_message_text().find(kM112Reason) != std::string::npos);
 }
+
+TEST_CASE("Fault keys fold changing measurements but retain quoted device names", "[fault_modal]") {
+    using helix::ui::fault_dedup_key;
+    CHECK(fault_dedup_key("Error", "Must home: 12.3 44.0") ==
+          fault_dedup_key("Error", "Must home: 98.1 21.7"));
+    CHECK(fault_dedup_key("Error", "Timer 123 line 5") ==
+          fault_dedup_key("Error", "Timer 456 line 9"));
+    CHECK(fault_dedup_key("Error", "MCU 'mcu1' lost") !=
+          fault_dedup_key("Error", "MCU 'mcu2' lost"));
+    CHECK(fault_dedup_key("Error", "Heater failed") != fault_dedup_key("Error", "Must home"));
+    CHECK(fault_dedup_key(nullptr, nullptr) == "\n");
+}
+
+TEST_CASE_METHOD(FaultModalFixture, "Fault lookup spans the stack and forgets deleted dialogs",
+                 "[fault_modal]") {
+    using helix::ui::fault_dedup_key;
+    using helix::ui::fault_modal_showing;
+    const auto key = fault_dedup_key("Error", "Must home: 12.3");
+    auto* dialog = helix::ui::modal_alert("Error", "Must home: 12.3", ModalSeverity::Error, "OK");
+    REQUIRE(dialog);
+    track_fault_modal(dialog, key);
+    raise_untracked("Other", "Unrelated overlay");
+    CHECK(fault_modal_showing(key));
+    CHECK_FALSE(fault_modal_showing(fault_dedup_key("Error", "Heater failed")));
+    dismiss_fault_modals();
+    settle();
+    CHECK_FALSE(fault_modal_showing(key));
+}
+
+TEST_CASE_METHOD(FaultModalFixture, "New faults retire the oldest of the same title",
+                 "[fault_modal]") {
+    std::vector<std::string> keys;
+    for (const char* message : {"alpha", "bravo", "charlie", "delta", "echo"}) {
+        keys.push_back(helix::ui::fault_dedup_key("Error", message));
+        auto* dialog = helix::ui::modal_alert("Error", message, ModalSeverity::Error, "OK");
+        REQUIRE(dialog);
+        track_fault_modal(dialog, keys.back());
+        settle();
+    }
+    int live = 0;
+    for (const auto& key : keys)
+        live += helix::ui::fault_modal_showing(key) ? 1 : 0;
+    CHECK(live == helix::ui::kMaxFaultModalsPerTitle);
+    CHECK_FALSE(helix::ui::fault_modal_showing(keys.front()));
+    CHECK(helix::ui::fault_modal_showing(keys.back()));
+}

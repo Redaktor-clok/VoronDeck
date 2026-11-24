@@ -235,7 +235,15 @@ void PrintStatusTiles::init_subjects(SubjectManager& subjects) {
         },
         ps));
     for (const auto& in : PrinterImageManager::detection_inputs()) {
-        image_observers_.push_back(observe<int>(in.subject, this, image_changed, in.lifetime));
+        image_observers_.push_back(observe<int>(
+            in.subject, this,
+            [](PrintStatusTiles* self, int) {
+                if (self->detection_watch_.changed()) {
+                    self->image_stale_ = true;
+                    self->request_update();
+                }
+            },
+            in.lifetime));
     }
 }
 
@@ -621,6 +629,7 @@ void PrintStatusTiles::update_now() {
     }
 
     CalloutPresenter::Config cfg;
+    cfg.prefer_side_column = true;
     cfg.chip_h = m.chip_h;
     cfg.compact_chip_h =
         compact_callout_chip_h(probe, contents[index_of(PrintStatusChip::Light)].shown);

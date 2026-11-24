@@ -28,6 +28,7 @@
  */
 
 #include "afc_fault_position.h"
+#include "fault_path_position.h"
 
 #include <optional>
 #include <string>
@@ -219,4 +220,23 @@ TEST_CASE("CRLF art rows are still recognised", "[afc][fault][position]") {
                             "TRG   LOAD   HUB   TOOL.";
     REQUIRE(afc_strip_position_diagram(msg) ==
             "filament did not trigger hub sensor, CHECK FILAMENT PATH\r");
+}
+
+TEST_CASE("Entry runout location accepts AFC and Happy Hare 3 and 4 messages",
+          "[afc][fault][position]") {
+    using helix::faultpath::is_prep_runout;
+    for (const char* message :
+         {"Runout triggered for lane lane2 and runout lane is not setup to switch to another lane.",
+          "Runout detected on T2 (gate 2) by mmu_entry_2\nNo alternative gates",
+          "Runout detected on T2 (gate 2) mmu_entry_2", "Runout detected on mmu_pre_gate_2"}) {
+        REQUIRE(is_prep_runout(message));
+        CHECK(helix::faultpath::fault_position(message) == helix::PathSegment::PREP);
+        CHECK(helix::faultpath::strip_position_diagram(message) == message);
+    }
+    for (const char* message :
+         {"", "Runout detected on T2 (gate 2) by toolhead",
+          "Runout detected on T2 mmu_entry_unrelated",
+          "Minimum weight threshold reached for lane lane2",
+          "File opened: Runout triggered for lane lane2.gcode", "Gate 2 is empty!"})
+        CHECK_FALSE(is_prep_runout(message));
 }

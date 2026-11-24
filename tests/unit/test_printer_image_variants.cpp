@@ -172,3 +172,17 @@ TEST_CASE("select_image: two variants naming one image show it when either fact 
     CHECK(select_image(entry, HardwareFacts{{}, true, true}) == "with-top.png");
     CHECK(select_image(entry, kNoHardware) == "plain.png");
 }
+
+TEST_CASE("Hardware facts change only with image-relevant hardware", "[printer_image_variants]") {
+    HardwareFacts facts;
+    CHECK(facts == HardwareFacts{});
+    facts.filament_systems = {AmsType::AFC};
+    CHECK(facts != HardwareFacts{});
+    auto other = facts;
+    CHECK(facts == other);
+    other.enclosure_top = !facts.enclosure_top;
+    CHECK(facts != other);
+    other = facts;
+    other.has_chamber_heater = !facts.has_chamber_heater;
+    CHECK(facts != other);
+}

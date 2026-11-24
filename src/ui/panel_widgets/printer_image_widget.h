@@ -10,6 +10,7 @@
 #include "callout_presenter.h"
 #include "exact_size_image.h"
 #include "panel_widget.h"
+#include "printer_image_manager.h"
 
 #include <array>
 #include <string>
@@ -98,6 +99,7 @@ class PrinterImageWidget : public PanelWidget {
     /// `image_variants` can pick another image once a backend registers, which
     /// happens after connect.
     std::vector<ObserverGuard> hardware_observers_;
+    PrinterImageManager::DetectionWatch detection_watch_;
     void refresh_if_detected_image_changed();
 
     void schedule_image_refresh();

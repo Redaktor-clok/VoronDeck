@@ -43,6 +43,14 @@ struct HardwareFacts {
     bool enclosure_top = false;
     /// The printer has a chamber heater, detected or manually assigned.
     bool has_chamber_heater = false;
+
+    bool operator==(const HardwareFacts& other) const {
+        return filament_systems == other.filament_systems && enclosure_top == other.enclosure_top &&
+               has_chamber_heater == other.has_chamber_heater;
+    }
+    bool operator!=(const HardwareFacts& other) const {
+        return !(*this == other);
+    }
 };
 
 /// Whether @p key is a condition `image_variants` understands.

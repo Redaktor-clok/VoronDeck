@@ -74,8 +74,9 @@ struct CalloutPoint {
 struct CalloutLayoutInput {
     int area_w = 0; ///< the image container's content box
     int area_h = 0;
-    bool single_cell = false; ///< the grid granted one cell on both axes
-    int image_w = 0;          ///< natural image size; only the aspect is used
+    bool single_cell = false;        ///< the grid granted one cell on both axes
+    bool prefer_side_column = false; ///< keep readings beside the picture when space permits
+    int image_w = 0;                 ///< natural image size; only the aspect is used
     int image_h = 0;
     bool tagged = false; ///< the image has a regions entry
     int chip_h = 0;      ///< a one-line chip's height; a taller chip carries its own h
@@ -513,7 +514,7 @@ inline constexpr int kMaxImageShrinkPctBothSides = 20;
 /// The side band's axis (true: bands left and right) and the room one column of
 /// budget chips needs across it, for the image at `img`.
 inline std::pair<bool, int> line_column(const CalloutLayoutInput& in, const CalloutRect& img) {
-    const bool horiz = (in.area_w - img.w) >= (in.area_h - img.h);
+    const bool horiz = in.prefer_side_column || (in.area_w - img.w) >= (in.area_h - img.h);
     int widest = 0, tallest = in.chip_h;
     for (const auto& c : in.budget) {
         widest = std::max(widest, c.w);
@@ -740,6 +741,19 @@ inline bool try_line_modes_at(const CalloutLayoutInput& in, const CalloutRect& c
     const auto active = joined(in.active, loose_active);
 
     std::vector<CalloutChipOut> scratch;
+    if (in.prefer_side_column && horiz && in.area_w - centred.w >= col) {
+        CalloutRect moved = centred;
+        moved.x = 0;
+        const BandSides sides = band_sides(budget, true);
+        if (place_band(in, moved, true, sides, budget, scratch)) {
+            out.image = moved;
+            out.chips.clear();
+            place_band(in, moved, true, sides, active, out.chips);
+            out.mode = CalloutMode::OneSide;
+            return true;
+        }
+        scratch.clear();
+    }
     const int band = horiz ? centred.x : centred.y;
     if (horiz) {
         const BandSides sides = band_sides(budget, false);

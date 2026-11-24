@@ -58,6 +58,7 @@ class CalloutPresenter {
 
     struct Config {
         bool single_cell = false;
+        bool prefer_side_column = false;
         int chip_h = 0;              ///< a full-size chip's height
         int compact_chip_h = 0;      ///< a pinned (compact) chip's height
         int gap = 0;                 ///< CalloutLayoutInput::gap

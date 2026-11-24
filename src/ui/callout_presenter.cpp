@@ -56,6 +56,7 @@ CalloutLayout CalloutPresenter::apply(const Parts& parts, const ImageRegions* re
     in.area_w = lv_obj_get_content_width(parts.area);
     in.area_h = lv_obj_get_content_height(parts.area);
     in.single_cell = config.single_cell;
+    in.prefer_side_column = config.prefer_side_column;
     if (in.area_w <= 0 || in.area_h <= 0) {
         image_changed_ = place_image(parts.image, nullptr);
         return out;

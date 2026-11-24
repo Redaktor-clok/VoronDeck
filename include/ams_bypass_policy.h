@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "ams_types.h"
+
 #include <string>
 #include <vector>
 
@@ -68,8 +70,14 @@ struct BypassMacros {
  * @param force_override User setting: offer bypass despite a firmware "no"
  * @return true when bypass UI and operations should be offered
  */
-[[nodiscard]] constexpr bool bypass_available(bool firmware_supports_bypass, bool force_override) {
-    return firmware_supports_bypass || force_override;
+[[nodiscard]] constexpr bool bypass_available(bool firmware_supports_bypass, bool force_override,
+                                              bool overridable) {
+    return firmware_supports_bypass || (force_override && overridable);
+}
+
+[[nodiscard]] inline bool bypass_override_offered(const AmsSystemInfo& info) {
+    return info.presents_filament_system() && !info.supports_bypass &&
+           ams_type_traits(info.type).bypass_overridable;
 }
 
 /**
@@ -98,6 +106,6 @@ struct BypassMacros {
 /// Gather bypass_available()'s override input from settings. Split from the pure
 /// rule above so the rule is testable without standing up SettingsManager, which
 /// is the same split bypass_node_visible() / bypass_node_visible_for() uses.
-[[nodiscard]] bool bypass_available_for(bool firmware_supports_bypass);
+[[nodiscard]] bool bypass_available_for(const AmsSystemInfo& info);
 
 } // namespace helix

@@ -1380,3 +1380,40 @@ TEST_CASE("a loose chip finds the only free spot, off the gap grid",
     CHECK(got.x == want.x);
     CHECK(got.y == want.y);
 }
+
+TEST_CASE("side column keeps readings beside the image across tile sizes",
+          "[printer_image][callout_layout]") {
+    auto in = base();
+    in.prefer_side_column = true;
+    in.image_w = 1000;
+    in.image_h = 1000;
+    in.budget = {{CalloutKind::Nozzle, 92, NormPoint{0.45f, 0.25f}},
+                 {CalloutKind::Bed, 88, NormPoint{0.5f, 0.8f}},
+                 {CalloutKind::Chamber, 70, NormPoint{0.7f, 0.5f}},
+                 {CalloutKind::Light, 22, NormPoint{0.9f, 0.1f}}};
+    in.active = in.budget;
+    for (const auto size : {std::pair{320, 210}, std::pair{300, 400}, std::pair{500, 260}}) {
+        in.area_w = size.first;
+        in.area_h = size.second;
+        const auto l = compute_callout_layout(in);
+        REQUIRE(l.mode == CalloutMode::OneSide);
+        REQUIRE(l.chips.size() == in.active.size());
+        for (const auto& c : l.chips) {
+            CHECK(c.rect.x >= l.image.x + l.image.w);
+            CHECK(c.has_line);
+        }
+        check_apart_and_inside(l, in);
+        auto changing = in;
+        changing.active.pop_back();
+        changing.active.front().w = 65;
+        const auto changed = compute_callout_layout(changing);
+        CHECK(changed.image.x == l.image.x);
+        CHECK(changed.image.y == l.image.y);
+        CHECK(changed.image.w == l.image.w);
+        CHECK(changed.image.h == l.image.h);
+        const auto* nozzle = find(l, CalloutKind::Nozzle);
+        REQUIRE(nozzle);
+        CHECK(nozzle->line_x0 == callout_detail::px(0.45f, l.image.x, l.image.w));
+        CHECK(nozzle->line_y0 == callout_detail::px(0.25f, l.image.y, l.image.h));
+    }
+}
