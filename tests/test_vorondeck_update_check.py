@@ -92,6 +92,32 @@ class SshCommand(unittest.TestCase):
 
 class Channels(unittest.TestCase):
     setUp = ReleaseCheck.setUp
+
+    def test_both_newer_channels_offer_install_independent_of_active_channel(self):
+        self.index['version'] = '1.0.2-beta.1'
+        stable = dict(self.index, channel='stable', version='1.0.1')
+        for active in ('stable', 'beta'):
+            result = checker.check_channels(self.installed, self.name, 'glibc', True,
+                                           lambda c: stable if c == 'stable' else self.index,
+                                           selected_channel=active)
+            self.assertEqual([o['kind'] for o in result['offers']], ['stable', 'beta'])
+
+    def test_older_beta_is_not_offered_to_stable_install(self):
+        self.installed['version'] = '1.0.1'
+        stable = dict(self.index, channel='stable', version='1.0.2')
+        result = checker.check_channels(self.installed, self.name, 'glibc', True,
+                                       lambda c: stable if c == 'stable' else self.index)
+        self.assertEqual([o['kind'] for o in result['offers']], ['stable'])
+
+    def test_revoked_beta_access_still_allows_newer_stable(self):
+        stable = dict(self.index, channel='stable', version='1.0.1')
+        def fetch(channel):
+            if channel == 'beta':
+                raise OSError('Access revoked')
+            return stable
+        result = checker.check_channels(self.installed, self.name, 'glibc', True, fetch)
+        self.assertEqual([o['kind'] for o in result['offers']], ['stable'])
+        self.assertEqual(result['channels']['beta']['status'], 'error')
     def test_selected_stable_overrides_installed_beta(self):
         stable = copy.deepcopy(self.index)
         stable.update(channel='stable', version='1.0.0')

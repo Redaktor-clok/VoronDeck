@@ -14,7 +14,10 @@
       <setting_group name="group_release_offers" hidden="true">
         <setting_action_row name="row_stable_release" label="Stable release" icon="check"
                             description="Completed release" description_min_bp="0"
-                            callback="on_vorondeck_component_updates"/>
+                            callback="on_vorondeck_stable_update"/>
+        <setting_action_row name="row_beta_release" label="Beta" icon="download"
+                            description="Optional prerelease · install only if you choose" description_min_bp="0"
+                            callback="on_vorondeck_beta_update"/>
         <setting_action_row name="row_test_release" label="Test release" icon="download"
                             description="Optional prerelease · install only if you choose" description_min_bp="0"
                             callback="on_vorondeck_test_update"/>

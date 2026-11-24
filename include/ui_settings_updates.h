@@ -41,6 +41,7 @@ class UpdatesSettingsOverlay : public OverlayBase {
     void on_activate() override;
     void check_vorondeck_updates(bool background = false);
     void confirm_test_update();
+    void confirm_release_update(const std::string& kind);
 
     /**
      * @brief Point both Update Channel rows at the channel the updater is using
@@ -84,7 +85,8 @@ class UpdatesSettingsOverlay : public OverlayBase {
     bool vorondeck_check_busy_ = false;
     std::string vorondeck_update_text_;
     std::string test_offer_;
-    std::string stable_version_;
+    std::string stable_offer_;
+    std::string beta_offer_;
     bool vorondeck_install_busy_ = false;
     void install_test_update(const std::string& selection);
     void publish_vorondeck_status();

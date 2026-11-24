@@ -45,13 +45,15 @@ class VoronDeckDeploy(BaseDeploy):
         from ..common import RequestType
         server.register_endpoint('/machine/update/vorondeck_test', RequestType.POST,
                                  self._handle_test_update)
+        server.register_endpoint('/machine/update/vorondeck_release', RequestType.POST,
+                                 self._handle_test_update)
 
     async def _handle_test_update(self, request):
         selection = {key: request.get_str(key) for key in
                      ('kind', 'version', 'tag', 'sha256', 'source_commit', 'installed_source')}
         manager = self.server.lookup_component('update_manager')
         if not hasattr(manager, 'cmd_request_lock') or not hasattr(manager, 'cmd_helper'):
-            raise self.server.error('This Moonraker cannot serialize test updates')
+            raise self.server.error('This Moonraker cannot serialize selected updates')
         if manager.cmd_request_lock.locked() or manager.cmd_helper.is_app_updating('vorondeck'):
             raise self.server.error('Another update is running', 503)
         async with manager.cmd_request_lock:
@@ -59,7 +61,7 @@ class VoronDeckDeploy(BaseDeploy):
             try:
                 await self.update(selection)
             except Exception:
-                manager.cmd_helper.notify_update_response('VoronDeck test update failed', is_complete=True)
+                manager.cmd_helper.notify_update_response('VoronDeck update failed', is_complete=True)
                 raise
             finally:
                 manager.cmd_helper.clear_update_info()
@@ -104,14 +106,16 @@ class VoronDeckDeploy(BaseDeploy):
         if remote_hash:
             available += '+' + remote_hash[:12]
         valid = bool(self.current and self.remote and not self.last_error)
+        non_older = valid and self.runtime.checker.public.version_key(remote['version']) >= self.runtime.checker.public.version_key(current['version'])
         return {'name': self.name, 'configured_type': 'executable',
                 'detected_type': 'executable', 'channel': self.channel,
                 'channel_invalid': False, 'is_valid': valid, 'is_dirty': False,
                 'owner': 'Redaktor-clok', 'repo_name': 'VoronDeck-beta' if self.channel == 'beta' else 'VoronDeck',
                 'version': version, 'remote_version': available, 'rollback_version': '?',
                 'vorondeck_package': True, 'vorondeck_test_updates': True, 'package_sha256': current_hash,
+                'vorondeck_release_selection': True,
                 'remote_package_sha256': remote_hash,
-                'update_available': valid and version != available,
+                'update_available': bool(non_older and version != available),
                 'last_error': self.last_error, 'warnings': [self.last_error] if self.last_error else [],
                 'anomalies': [], 'info_tags': ['Verified binary package', 'SSH beta' if self.channel == 'beta' else 'Stable']}
 

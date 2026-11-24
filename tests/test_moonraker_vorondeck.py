@@ -34,34 +34,61 @@ class DirectLoop:
 
 
 class RuntimeNoop(unittest.TestCase):
-    def test_stable_package_download_is_verified_and_staged(self):
-        import tempfile
-        import json
+    def test_selected_channel_refetches_authenticated_index_and_rejects_changes(self):
         runtime = component._load_runtime()
-        package = {'version': '1.0.1', 'sha256': 'b' * 64, 'source_commit': 'a' * 40,
-                   'size': 3, 'path': 'packages/screen.tar.gz'}
-        manifest = {'version': '1.0.1', 'source_commit': 'a' * 40}
-        @contextlib.contextmanager
-        def index(channel):
-            self.assertEqual(channel, 'stable')
-            yield ['git'], {}, 'c' * 40, package
-        def stage(destination, actual_manifest, payload, allow_dependencies):
-            self.assertFalse(allow_dependencies)
-            self.assertEqual(actual_manifest, manifest)
-            destination.mkdir(parents=True)
-            (destination / 'vorondeck-release.json').write_text(json.dumps(manifest))
-        with tempfile.TemporaryDirectory() as folder:
-            base = Path(folder)
-            with patch.object(runtime, 'release_index', index), \
-                    patch.object(runtime, 'release_state', return_value={'path': str(base / 'old'), 'source_commit': 'd' * 40, 'version': '1.0.0'}), \
-                    patch.object(runtime.checker, 'run', side_effect=[b'3', b'abc']) as fetch, \
-                    patch.object(runtime.installer, 'host_arch', return_value='x86_64'), \
-                    patch.object(runtime.installer, 'verify_package', return_value=(manifest, {})) as verify, \
-                    patch.object(runtime.installer, 'stage_release', side_effect=stage):
-                destination = runtime.prepare_release(base, 'stable')
-                self.assertTrue(destination.is_dir())
-                self.assertEqual(fetch.call_count, 2)
-                verify.assert_called_once()
+        for kind in ('stable', 'beta'):
+            package = {'version': '1.0.1' if kind == 'stable' else '1.0.2-beta.1',
+                       'sha256': 'b' * 64, 'source_commit': 'a' * 40}
+            selection = dict(package, kind=kind, tag='', installed_source='d' * 40)
+            @contextlib.contextmanager
+            def index(channel):
+                self.assertEqual(channel, kind)
+                yield [], {}, 'c' * 40, package
+            for key in ('version', 'sha256', 'source_commit', 'tag'):
+                with self.subTest(kind=kind, key=key), \
+                        patch.object(runtime, 'release_index', index), \
+                        patch.object(runtime, 'release_state', return_value={
+                            'path': '/managed/old', 'source_commit': 'd' * 40, 'version': '1.0.0-beta.1'}), \
+                        patch.object(runtime.checker, 'run', side_effect=AssertionError('download')):
+                    with self.assertRaisesRegex(ValueError, 'selected package changed'):
+                        runtime.prepare_selected_release(Path('/managed'), dict(selection, **{key: 'changed'}))
+
+    def test_selected_beta_does_not_bypass_revoked_access(self):
+        runtime = component._load_runtime()
+        with patch.object(runtime, 'release_state', return_value={'source_commit': 'a' * 40}), \
+                patch.object(runtime, 'release_index', side_effect=OSError('Access revoked')):
+            with self.assertRaises(OSError):
+                runtime.prepare_selected_release(Path('/managed'), {'kind': 'beta', 'installed_source': 'a' * 40})
+
+    def test_selected_stable_and_beta_packages_are_verified_and_staged(self):
+        for kind, version in (('stable', '1.0.1'), ('beta', '1.0.2-beta.1')):
+            import tempfile
+            import json
+            runtime = component._load_runtime()
+            package = {'version': version, 'sha256': 'b' * 64, 'source_commit': 'a' * 40,
+                       'size': 3, 'path': 'packages/screen.tar.gz'}
+            manifest = {'version': version, 'source_commit': 'a' * 40}
+            @contextlib.contextmanager
+            def index(channel):
+                self.assertEqual(channel, kind)
+                yield ['git'], {}, 'c' * 40, package
+            def stage(destination, actual_manifest, payload, allow_dependencies):
+                self.assertFalse(allow_dependencies)
+                self.assertEqual(actual_manifest, manifest)
+                destination.mkdir(parents=True)
+                (destination / 'vorondeck-release.json').write_text(json.dumps(manifest))
+            with tempfile.TemporaryDirectory() as folder:
+                base = Path(folder)
+                with patch.object(runtime, 'release_index', index), \
+                        patch.object(runtime, 'release_state', return_value={'path': str(base / 'old'), 'source_commit': 'd' * 40, 'version': '1.0.0'}), \
+                        patch.object(runtime.checker, 'run', side_effect=[b'3', b'abc']) as fetch, \
+                        patch.object(runtime.installer, 'host_arch', return_value='x86_64'), \
+                        patch.object(runtime.installer, 'verify_package', return_value=(manifest, {})) as verify, \
+                        patch.object(runtime.installer, 'stage_release', side_effect=stage):
+                    destination = runtime.prepare_selected_release(base, dict(package, kind=kind, tag='', installed_source='d' * 40))
+                    self.assertTrue(destination.is_dir())
+                    self.assertEqual(fetch.call_count, 2)
+                    verify.assert_called_once()
 
     def test_changed_installed_source_refuses_test_before_network(self):
         runtime = component._load_runtime()
@@ -145,6 +172,7 @@ class Transaction(unittest.IsolatedAsyncioTestCase):
             lookup_component=lambda name: machine if name == 'machine' else api,
             error=lambda text, code=400: ValueError(text))
         self.node.runtime = types.SimpleNamespace(
+            checker=component._load_runtime().checker,
             installer=types.SimpleNamespace(assert_idle=validate),
             install_lock=lambda base: contextlib.nullcontext(),
             release_state=lambda base: {'path': str(self.current)},
@@ -264,6 +292,8 @@ class Transaction(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(status['vorondeck_package'])
         self.assertEqual(status['configured_type'], 'executable')
         self.assertTrue(status['update_available'])
+        self.node.current['version'] = '1.0.1'
+        self.assertFalse(self.node.get_update_status()['update_available'])
         self.node.last_error = 'Check failed'
         self.assertFalse(self.node.get_update_status()['update_available'])
 

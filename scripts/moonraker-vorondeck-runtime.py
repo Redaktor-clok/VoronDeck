@@ -86,15 +86,22 @@ def remote_release(channel):
         return package
 
 
-def prepare_release(base, channel):
+def prepare_release(base, channel, selection=None):
     """Download, authenticate and stage only; the old screen stays running."""
     with release_index(channel) as (git, env, commit, package):
         destination = base / 'releases' / (package['version'] + '-' + package['sha256'][:12])
         current = release_state(base)
+        if selection is not None:
+            if current['source_commit'] != selection.get('installed_source'):
+                raise ValueError('The installed screen changed; check updates again')
+            if (selection.get('kind') != channel or selection.get('tag') != ''
+                    or any(selection.get(key) != package[key]
+                           for key in ('version', 'sha256', 'source_commit'))):
+                raise ValueError('The selected package changed; check updates again')
         if Path(current['path']) == destination and current['source_commit'] == package['source_commit']:
             return destination
         if checker.public.version_key(package['version']) < checker.public.version_key(current['version']):
-            raise ValueError('The available stable package is older than the installed release')
+            raise ValueError('The available package is older than the installed release')
         if shutil.disk_usage(base).free < package['size'] * 2 + 64 * 1024**2:
             raise ValueError('Not enough free disk space for the package download')
         blob = commit + ':' + package['path']
@@ -115,10 +122,14 @@ def prepare_release(base, channel):
 
 
 def prepare_selected_release(base, selection):
-    """Public tests are opt-in and do not change the configured stable channel."""
+    """Authenticate the exact opt-in release without changing the configured channel."""
     current = release_state(base)
     if current['source_commit'] != selection.get('installed_source'):
         raise ValueError('The installed screen changed; check updates again')
+    if selection.get('kind') in ('stable', 'beta'):
+        return prepare_release(base, selection['kind'], selection)
+    if selection.get('kind') != 'test':
+        raise ValueError('Unknown selected release channel')
     package = checker.public.selected(selection, installer.host_arch(), bootstrap.libc_name(),
                                       current['version'])
     destination = base / 'releases' / (package['version'] + '-' + package['sha256'][:12])

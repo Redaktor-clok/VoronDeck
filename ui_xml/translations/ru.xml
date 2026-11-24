@@ -1903,6 +1903,7 @@
   <translation tag="Install Plugin" ru="Установить плагин"/>
   <translation tag="Install Root" ru="Корень установки"/>
   <translation tag="Install Update" ru="Установить обновление"/>
+  <translation tag="Install VoronDeck {}? The screen will restart." ru="Установить VoronDeck {}? Экран перезапустится."/>
   <translation tag="Install VoronDeck {}? This is a test release and may contain errors." ru="Установить VoronDeck {}? Это тестовый выпуск, в нём могут быть ошибки."/>
   <translation tag="Install plugin" ru="Установить плагин"/>
   <translation tag="Install script not found. Use the remote install command instead." ru="Скрипт установки не найден. Используйте вместо этого команду удалённой установки."/>
@@ -3467,6 +3468,7 @@
   <translation tag="Select Slot" ru="Выбрать слот"/>
   <translation tag="Select Spool" ru="Выбрать катушку"/>
   <translation tag="Select a filament slot to load" ru="Выберите слот филамента для загрузки"/>
+  <translation tag="Select a release below to install." ru="Выберите выпуск ниже для установки."/>
   <translation tag="Select a valid number" ru="Выберите корректный номер"/>
   <translation tag="Select a valid number (1-{})" ru="Выберите корректный номер (1-{})"/>
   <translation tag="Select a valid tool" ru="Выберите корректный инструмент"/>

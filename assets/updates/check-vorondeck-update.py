@@ -144,14 +144,15 @@ def check_channels(installed, release_name, libc, has_beta_key, fetch=None, sele
                              'version': result.get('available_version', ''),
                              'build': result.get('available_build', '')}
     result = dict(results[active], active_channel=active, channels=channels)
+    result['installed_version'] = installed['version']
     result['notification_id'] = notification_id(result)
-    stable = results['stable']
     result['offers'] = []
-    if notification_id(dict(stable, active_channel='stable')):
-        result['offers'].append({'kind': 'stable', 'version': stable['available_version'],
-                                'display_version': stable['available_version'], 'tag': '',
-                                'sha256': stable['sha256'], 'source_commit': stable['source_commit'],
-                                'notification_id': 'stable:' + stable['available_version'] + ':' + stable['sha256']})
+    for channel, release in results.items():
+        if notification_id(dict(release, active_channel=channel)):
+            result['offers'].append({'kind': channel, 'version': release['available_version'],
+                                    'display_version': release['available_version'], 'tag': '',
+                                    'sha256': release['sha256'], 'source_commit': release['source_commit'],
+                                    'notification_id': channel + ':' + release['available_version'] + ':' + release['sha256']})
     return result
 
 
