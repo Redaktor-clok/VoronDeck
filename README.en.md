@@ -140,6 +140,14 @@ Choose one of the installer options:
 2. **Run for testing** — switch screens now without changing autostart.
 3. **Prepare files** — keep the current screen running.
 
+Preview of the console installer messages. The main menu below is translated for this guide; the current installer displays that menu in Russian. Terminal appearance depends on your SSH client.
+
+![Installer mode selection, translated into English](assets/presentation/en/installer-menu.png)
+
+Before switching screens, the installer asks for confirmation. Enter `y` to continue, or `n` / Enter to decline the switch.
+
+![Confirmation before switching to VoronDeck](assets/presentation/en/installer-confirmation.png)
+
 The installer checks the package and its checksum, offers to install missing libraries and preserves the previous screen's files, including KlipperScreen. Switching screens stops the previous screen's active service. Activation also configures VoronDeck in Moonraker's update manager.
 
 If `~/VoronDeck` already exists, do not clone over it. Use the update manager for an installed screen.
