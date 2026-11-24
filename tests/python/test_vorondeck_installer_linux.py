@@ -22,6 +22,31 @@ from vorondeck_distribution import elf_arch
 
 @unittest.skipUnless(sys.platform == 'linux', 'Linux CLI integration')
 class LinuxInstallerTests(unittest.TestCase):
+    def test_language_selection_in_real_terminal_before_host_operations(self):
+        import pty
+        for answer, code, expected in [('0\n', 0, 'Language'),
+                                       ('1\n', 2, 'Недопустимый порт Moonraker'),
+                                       ('invalid\n2\n', 2, 'Invalid Moonraker port')]:
+            with self.subTest(answer=answer):
+                master, slave = pty.openpty()
+                try:
+                    # Invalid port exits before service detection or contacting a printer.
+                    with subprocess.Popen(['sh', str(ROOT / 'install.sh'), '--moonraker-port', '0'],
+                                          stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                          text=True) as process:
+                        os.write(master, answer.encode())
+                        try:
+                            stdout, stderr = process.communicate(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.communicate()
+                            raise
+                        self.assertEqual(process.returncode, code, stdout + stderr)
+                        self.assertIn(expected, stdout + stderr)
+                finally:
+                    os.close(master)
+                    os.close(slave)
+
     def test_generated_service_syntax(self):
         spec = importlib.util.spec_from_file_location('installer', ROOT / 'scripts/install-vorondeck.py')
         installer = importlib.util.module_from_spec(spec)
@@ -90,18 +115,24 @@ class LinuxInstallerTests(unittest.TestCase):
                 trap.write_text('#!/bin/sh\necho unexpected-sudo >&2\nexit 99\n')
                 trap.chmod(0o755)
                 environment['PATH'] = str(fake_bin) + os.pathsep + os.environ['PATH']
-                for mode in ([], ['--install'], ['--install']):
-                    result = subprocess.run(args + mode, capture_output=True, text=True, env=environment, timeout=20)
-                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                    self.assertNotIn('unexpected-sudo', result.stderr)
+                for language in ('ru', 'en'):
+                    for mode in ([], ['--install'], ['--install']):
+                        result = subprocess.run(args + mode + ['--language', language],
+                                                capture_output=True, text=True, env=environment, timeout=20)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertIn('Пакет проверен' if language == 'ru' else 'Package verified', result.stdout)
+                        self.assertNotIn('unexpected-sudo', result.stderr)
                 base = home / '.local/share/vorondeck'
                 self.assertEqual(len(list((base / 'releases').iterdir())), 1)
                 self.assertFalse((base / 'current').exists())
                 self.assertFalse((home / 'printer_data').exists())
                 # One-command entry point also supports offline check with no Git access.
-                result = subprocess.run(['sh', str(ROOT / 'install.sh'), '--check', *args[2:]],
-                                        capture_output=True, text=True, env=environment, timeout=20)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                for language in ('ru', 'en'):
+                    result = subprocess.run(['sh', str(ROOT / 'install.sh'), '--check', *args[2:],
+                                             '--language', language],
+                                            capture_output=True, text=True, env=environment, timeout=20)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn('Пакет проверен' if language == 'ru' else 'Package verified', result.stdout)
         finally:
             server.shutdown()
             server.server_close()

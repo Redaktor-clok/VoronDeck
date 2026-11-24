@@ -140,9 +140,13 @@ Choose one of the installer options:
 2. **Run for testing** — switch screens now without changing autostart.
 3. **Prepare files** — keep the current screen running.
 
-Preview of the console installer messages. The main menu below is translated for this guide; the current installer displays that menu in Russian. Terminal appearance depends on your SSH client.
+Choose the installer language first: **Русский** or **English**. Menus, confirmations and progress messages use the selected language. You can also specify it directly: `./install.sh --language en` or `./install.sh --language ru`.
 
-![Installer mode selection, translated into English](assets/presentation/en/installer-menu.png)
+Preview of the console installer messages. Terminal appearance depends on your SSH client.
+
+![Installer language selection](assets/presentation/en/installer-language.png)
+
+![Installer mode selection in English](assets/presentation/en/installer-menu.png)
 
 Before switching screens, the installer asks for confirmation. Enter `y` to continue, or `n` / Enter to decline the switch.
 

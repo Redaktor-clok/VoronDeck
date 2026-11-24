@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from vorondeck_installer_i18n import LANGUAGES, select_language, tr
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -77,16 +78,16 @@ def verify_package(package, expected_sha, machine):
 
 def assert_idle(status):
     if status.get('print_stats', {}).get('state') not in ('standby', 'complete', 'cancelled'):
-        raise ValueError('Printer must be idle; printing, paused and unknown states are refused')
+        raise ValueError(tr('Printer must be idle; printing, paused and unknown states are refused'))
     if status.get('idle_timeout', {}).get('state') != 'Idle':
-        raise ValueError('Wait until the printer is idle before installing')
+        raise ValueError(tr('Wait until the printer is idle before installing'))
     heaters = status.get('heaters', {}).get('available_heaters')
     if not isinstance(heaters, list):
-        raise ValueError('Cannot verify heater state')
+        raise ValueError(tr('Cannot verify heater state'))
     for heater in heaters:
         target = status.get(heater, {}).get('target')
         if not isinstance(target, (int, float)) or isinstance(target, bool) or target != 0:
-            raise ValueError('All heater targets must be zero before installing')
+            raise ValueError(tr('All heater targets must be zero before installing'))
 
 
 def check_printer(port=7125):
@@ -98,7 +99,7 @@ def check_printer(port=7125):
             raise ValueError('Oversized Moonraker response')
         return json.loads(data)['result']
     if request('/server/info').get('klippy_state') != 'ready':
-        raise ValueError('Klipper is not ready')
+        raise ValueError(tr('Klipper is not ready'))
     from urllib.parse import quote
     base = request('/printer/objects/query?heaters')['status']['heaters']['available_heaters']
     query = '&'.join(quote(name, safe='') for name in ['print_stats', 'idle_timeout', 'heaters', *base])
@@ -355,9 +356,9 @@ def check_dependencies(binary, allow_install=False):
         options = {'apt-get': ['install', '-y', '--no-install-recommends'], 'dnf': ['install', '-y'],
                    'pacman': ['-S', '--needed', '--noconfirm'], 'apk': ['add'],
                    'zypper': ['--non-interactive', 'install']}
-        print('Required system packages:', manager, ', '.join(packages))
-        if input('Install these packages from the configured OS repositories? [y/N] ').lower() != 'y':
-            raise ValueError('Required runtime libraries are missing')
+        print(tr('Required system packages:'), manager, ', '.join(packages))
+        if input(tr('Install these packages from the configured OS repositories? [y/N] ')).lower() != 'y':
+            raise ValueError(tr('Required runtime libraries are missing'))
         if manager == 'apt-get':
             subprocess.run(['sudo', 'apt-get', 'update'], check=True)
         subprocess.run(['sudo', manager, *options[manager], *packages], check=True)
@@ -515,15 +516,17 @@ def main():
     parser.add_argument('--moonraker-port', type=int, default=7125)
     parser.add_argument('--channel', choices=('stable', 'beta'), help='Update channel; defaults to the verified package version')
     parser.add_argument('--rollback', type=Path, help='Restore a previous switch backup after confirmation')
+    parser.add_argument('--language', choices=LANGUAGES, help='Console language; defaults to system locale')
     args = parser.parse_args()
+    select_language(args.language)
     if sys.version_info < (3, 9):
-        parser.error('Python 3.9 or newer is required')
+        parser.error(tr('Python 3.9 or newer is required'))
     if platform.system() != 'Linux':
-        parser.error('Run this installer on the Linux printer host')
+        parser.error(tr('Run this installer on the Linux printer host'))
     if os.geteuid() == 0:
-        parser.error('Run as the printer user, not root; sudo is used only for service management')
+        parser.error(tr('Run as the printer user, not root; sudo is used only for service management'))
     if not 1 <= args.moonraker_port <= 65535:
-        parser.error('Invalid Moonraker port')
+        parser.error(tr('Invalid Moonraker port'))
     if args.activate and not args.install or args.autostart and not args.activate or args.fresh and not args.activate:
         parser.error('--activate requires --install; --fresh and --autostart require --activate')
     if args.rollback and (args.package or args.install or args.activate or args.fresh or args.autostart):
@@ -536,7 +539,7 @@ def main():
     config = safe_child(args.config_dir or home / 'printer_data/config/VoronDeck', home)
     services = Services.detect()
     machine = host_arch()
-    print('Host:', machine, 'init:', services.kind, 'config:', config)
+    print(tr('Host:'), machine, tr('init:'), services.kind, tr('config:'), config)
     idle_check = lambda: check_printer(args.moonraker_port)
     if not args.rollback:
         if not args.package or not args.sha256:
@@ -546,7 +549,7 @@ def main():
         if args.channel and args.channel != package_channel:
             parser.error('Requested update channel does not match the verified package')
         idle_check()
-        print('Package verified; printer is idle')
+        print(tr('Package verified; printer is idle'))
         if not args.install:
             return
     # Hold a per-user lock through staging, switching and rollback.
@@ -556,23 +559,23 @@ def main():
         try:
             fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            parser.error('Another VoronDeck installer is running')
+            parser.error(tr('Another VoronDeck installer is running'))
         if args.rollback:
             backup = safe_child(args.rollback.absolute(), home)
             if not backup.is_relative_to(base / 'backups') or not (backup / 'switch.json').is_file():
                 parser.error('Choose a backup created by this installer')
             idle_check()
-            if input('Restore screen services and settings from this backup? [y/N] ').lower() != 'y':
+            if input(tr('Restore screen services and settings from this backup? [y/N] ')).lower() != 'y':
                 return
             run('sudo', '-v')
             restore_switch(backup, services, base, config)
-            print('Previous screen restored')
+            print(tr('Previous screen restored'))
             return
         destination = safe_child(base / 'releases' / (manifest['version'] + '-' + args.sha256[:12]), home)
         stage_release(destination, manifest, payload, args.install_deps)
-        print('Package staged:', destination)
+        print(tr('Package staged:'), destination)
         if not args.activate:
-            print('Screen unchanged. Add --activate to switch after confirmation.')
+            print(tr('Screen unchanged. Add --activate to switch after confirmation.'))
             return
         user = pwd.getpwuid(os.getuid()).pw_name
         known = {group.gr_name: group.gr_gid for group in grp.getgrall()}
@@ -583,15 +586,15 @@ def main():
                 parser.error('OpenRC requires device group membership first: ' + ', '.join(missing))
         service = services.text(user, base / 'current', config, groups, args.moonraker_port)
         active = [n for n in ('KlipperScreen', 'helixscreen', 'vorondeck') if services.active(n)]
-        print('Active screens:', ', '.join(active) or 'none')
-        print('Existing screen files are kept. Boot services change only with --autostart.')
-        if input('Switch to VoronDeck now? [y/N] ').lower() != 'y':
+        print(tr('Active screens:'), ', '.join(active) or tr('none'))
+        print(tr('Existing screen files are kept. Boot services change only with --autostart.'))
+        if input(tr('Switch to VoronDeck now? [y/N] ')).lower() != 'y':
             return
         run('sudo', '-v')
         backup = activate_release(services, base, config, destination, payload, service,
                                   fresh=args.fresh, autostart=args.autostart, idle_check=idle_check)
-        print('VoronDeck service stayed active for 5 seconds. Check the physical display and touch.')
-        print('Rollback backup:', backup)
+        print(tr('VoronDeck service stayed active for 5 seconds. Check the physical display and touch.'))
+        print(tr('Rollback backup:'), backup)
         import importlib.util
         setup_spec = importlib.util.spec_from_file_location(
             'vorondeck_updates_setup', Path(__file__).with_name('setup-vorondeck-updates.py'))
@@ -602,14 +605,14 @@ def main():
                 services, idle_check, channel=package_channel, port=args.moonraker_port)
         except Exception as error:
             raise RuntimeError('VoronDeck is installed, but automatic updates setup failed. ' + str(error)) from error
-        print('VoronDeck updates connected to Moonraker; channel:', package_channel)
+        print(tr('VoronDeck updates connected to Moonraker; channel:'), package_channel)
         if updates_backup:
-            print('Update configuration backup:', updates_backup)
+            print(tr('Update configuration backup:'), updates_backup)
 
 
 if __name__ == '__main__':
     try:
         main()
-    except (ValueError, OSError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
-        print('Installation stopped: ' + str(error), file=sys.stderr)
+    except (EOFError, KeyboardInterrupt, ValueError, OSError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
+        print(tr('Installation stopped: ') + str(error), file=sys.stderr)
         sys.exit(1)

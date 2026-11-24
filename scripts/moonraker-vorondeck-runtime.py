@@ -24,6 +24,7 @@ def load(name, path):
 
 
 load('vorondeck_distribution', ROOT / 'scripts/vorondeck_distribution.py')
+load('vorondeck_installer_i18n', ROOT / 'scripts/vorondeck_installer_i18n.py')
 installer = load('_vorondeck_updater_installer', ROOT / 'scripts/install-vorondeck.py')
 bootstrap = load('_vorondeck_updater_bootstrap', ROOT / 'scripts/vorondeck-bootstrap.py')
 checker = load('_vorondeck_updater_checker', ROOT / 'assets/updates/check-vorondeck-update.py')

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Interactive installer entry point; private beta packages use the clone's SSH key."""
 import argparse
+from vorondeck_installer_i18n import LANGUAGES, select_language, tr
 import hashlib
 import importlib.util
 import json
@@ -93,17 +94,21 @@ def main():
     parser.add_argument('--moonraker-port', type=int, default=7125)
     parser.add_argument('--channel', choices=('stable', 'beta'),
                         help='Defaults to the channel of this source checkout')
+    parser.add_argument('--language', choices=LANGUAGES, help='Installer language; otherwise ask in an interactive terminal')
     args = parser.parse_args()
+    language = select_language(args.language, interactive=not args.check)
+    if language is None:
+        return
     if sys.platform != 'linux' or os.geteuid() == 0:
-        parser.error('Run on Linux as the printer user, not root')
+        parser.error(tr('Run on Linux as the printer user, not root'))
     if bool(args.package) != bool(args.sha256):
-        parser.error('Offline installation requires both --package and --sha256')
+        parser.error(tr('Offline installation requires both --package and --sha256'))
     if not 1 <= args.moonraker_port <= 65535:
-        parser.error('Invalid Moonraker port')
+        parser.error(tr('Invalid Moonraker port'))
     channel = args.channel or ('beta' if '-beta.' in (ROOT / 'VERSION.txt').read_text() else 'stable')
     installer.Services.detect()
     arch, libc = installer.host_arch(), libc_name()
-    print('VoronDeck — установка:', arch, '/', libc, flush=True)
+    print(tr('VoronDeck — installation:'), arch, '/', libc, flush=True)
     installer.check_printer(args.moonraker_port)
     with tempfile.TemporaryDirectory(prefix='vorondeck-package-') as temporary:
         package, digest = ((args.package, args.sha256) if args.package else
@@ -114,15 +119,16 @@ def main():
             raise ValueError('Published package does not match the requested channel')
         command = [sys.executable, str(ROOT / 'scripts/install-vorondeck.py'),
                    '--package', str(package), '--sha256', digest,
-                   '--moonraker-port', str(args.moonraker_port), '--channel', package_channel]
+                   '--moonraker-port', str(args.moonraker_port), '--channel', package_channel,
+                   '--language', language]
         if args.config_dir:
             command += ['--config-dir', str(args.config_dir)]
         if not args.check:
-            print('1. Установить и включить автозапуск VoronDeck (прежний экран отключится).')
-            print('2. Запустить для проверки до перезагрузки.')
-            print('3. Подготовить файлы, оставить прежний экран работающим.')
-            print('0. Отмена. Файлы KlipperScreen сохраняются для отката.')
-            choice = input('Выберите [1/2/3/0]: ').strip()
+            print(tr('1. Install VoronDeck with autostart (the previous screen will be disabled).'))
+            print(tr('2. Run for testing until the next reboot.'))
+            print(tr('3. Prepare files and leave the previous screen running.'))
+            print(tr('0. Cancel. KlipperScreen files are kept for rollback.'))
+            choice = input(tr('Choose [1/2/3/0]: ')).strip()
             if choice not in ('1', '2', '3'):
                 return
             command += ['--install', '--install-deps']
@@ -136,6 +142,6 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (ValueError, OSError, KeyError, subprocess.SubprocessError) as error:
-        print('Установка остановлена: ' + str(error), file=sys.stderr)
+    except (EOFError, KeyboardInterrupt, ValueError, OSError, KeyError, subprocess.SubprocessError) as error:
+        print(tr('Installation stopped: ') + str(error), file=sys.stderr)
         sys.exit(1)
