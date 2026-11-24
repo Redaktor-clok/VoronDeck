@@ -92,7 +92,7 @@ enum class AmsType {
     CFS = 6,          ///< Creality Filament System (K2 series, RS-485)
     SNAPMAKER = 7,    ///< Snapmaker U1 SnapSwap toolchanger
     QIDI_BOX =
-        8,       ///< QIDI Box filament changer (PLUS4, Q2, MAX4 — hub AMS, 4 slots chainable to 16)
+        8, ///< QIDI Box filament changer (PLUS4, Q2, MAX4 — hub AMS, 4 slots chainable to 16)
     OPENAMS = 9, ///< klipper_openams through its own versioned oams_manager API
     INDX = 10    ///< Bondtech INDX: docked passive nozzles, one extruder and heater
 };
