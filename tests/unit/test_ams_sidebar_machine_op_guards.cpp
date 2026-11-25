@@ -24,7 +24,6 @@
 #include "../test_fixtures.h"
 #include "../test_helpers/widget_in_tree.h"
 #include "ams_backend_mock.h"
-#include "ams_backend_snapmaker.h"
 #include "ams_state.h"
 #include "helix-xml/src/xml/lv_xml.h"
 #include "static_subject_registry.h"
@@ -83,35 +82,6 @@ struct SidebarGuardFixture : public XMLTestFixture {
 /// can_unload_from_toolhead() and get_slot_info(), so this is the seam they
 /// share. Lane presence defaults to UNKNOWN (the backend publishes none),
 /// which the load rule reads as permissive.
-class FixedHeadsBackend : public helix::AmsBackendSnapmaker {
-  public:
-    explicit FixedHeadsBackend(std::vector<bool> unloadable,
-                               std::vector<helix::SlotStatus> presence = {})
-        : helix::AmsBackendSnapmaker(nullptr, nullptr), unloadable_(std::move(unloadable)),
-          presence_(std::move(presence)) {}
-
-    helix::AmsSystemInfo get_system_info() const override {
-        helix::AmsSystemInfo info;
-        info.total_slots = static_cast<int>(unloadable_.size());
-        return info;
-    }
-    helix::SlotInfo get_slot_info(int slot_index) const override {
-        helix::SlotInfo slot;
-        slot.slot_index = slot_index;
-        if (slot_index >= 0 && slot_index < static_cast<int>(presence_.size())) {
-            slot.status = presence_[slot_index];
-        }
-        return slot;
-    }
-    bool can_unload_from_toolhead(int slot_index) const override {
-        return slot_index >= 0 && slot_index < static_cast<int>(unloadable_.size()) &&
-               unloadable_[slot_index];
-    }
-
-  private:
-    std::vector<bool> unloadable_;
-    std::vector<helix::SlotStatus> presence_;
-};
 
 /// Builds the production sidebar over a chosen backend, so the gating subjects
 /// carry the value production would show. setup() ends in
@@ -199,50 +169,6 @@ TEST_CASE_METHOD(SidebarGuardFixture,
 TEST_CASE_METHOD(SidebarDirectionGateFixture,
                  "AMS sidebar Load and Unload gate per direction on a batch backend",
                  "[ams][sidebar][batch]") {
-    SECTION("heads loaded with no tool on the carriage keep Unload live") {
-        build(std::make_unique<FixedHeadsBackend>(std::vector<bool>{true, false, true, false}));
-        lv_subject_t* loaded = helix::AmsState::instance().get_filament_loaded_subject();
-        REQUIRE(loaded != nullptr);
-        REQUIRE(lv_subject_get_int(loaded) == 0); // no tool on the carriage
-        CHECK(gate_value("ams_sidebar_unload_picks") == 1);
-        CHECK_FALSE(lv_obj_has_flag(button("btn_load"), LV_OBJ_FLAG_HIDDEN));
-        CHECK(lv_obj_has_flag(button("btn_unload"), LV_OBJ_FLAG_HIDDEN));
-        CHECK_FALSE(lv_obj_has_flag(button("btn_batch_unload"), LV_OBJ_FLAG_HIDDEN));
-        CHECK(gate_value("ams_sidebar_unload_disabled") == 0);
-        CHECK(gate_value("ams_sidebar_load_disabled") == 0);
-    }
-    SECTION("no head can unload disables Unload, not Load") {
-        build(std::make_unique<FixedHeadsBackend>(std::vector<bool>{false, false, false, false}));
-        CHECK(gate_value("ams_sidebar_unload_disabled") == 1);
-        CHECK(gate_value("ams_sidebar_load_disabled") == 0);
-    }
-    SECTION("every head already loaded disables Load, not Unload") {
-        build(std::make_unique<FixedHeadsBackend>(std::vector<bool>{true, true, true, true}));
-        CHECK(gate_value("ams_sidebar_unload_disabled") == 0);
-        CHECK(gate_value("ams_sidebar_load_disabled") == 1);
-    }
-    SECTION("every feeder empty disables Load too") {
-        // Feeding an empty lane is the no-op the firmware refuses, so an
-        // all-empty rig must not offer Load even though no head is at a
-        // toolhead.
-        using helix::SlotStatus;
-        build(std::make_unique<FixedHeadsBackend>(
-            std::vector<bool>{false, false, false, false},
-            std::vector<SlotStatus>{SlotStatus::EMPTY, SlotStatus::EMPTY, SlotStatus::EMPTY,
-                                    SlotStatus::EMPTY}));
-        CHECK(gate_value("ams_sidebar_unload_disabled") == 1);
-        CHECK(gate_value("ams_sidebar_load_disabled") == 1);
-    }
-    SECTION("an empty lane, a loaded head and a fed head gate per direction") {
-        // Only the fed-not-loaded head can load; only the loaded one can
-        // unload. The empty lane serves neither direction.
-        using helix::SlotStatus;
-        build(std::make_unique<FixedHeadsBackend>(
-            std::vector<bool>{false, true, false},
-            std::vector<SlotStatus>{SlotStatus::EMPTY, SlotStatus::LOADED, SlotStatus::AVAILABLE}));
-        CHECK(gate_value("ams_sidebar_unload_disabled") == 0);
-        CHECK(gate_value("ams_sidebar_load_disabled") == 0);
-    }
     SECTION("a one-head backend keeps the aggregate rule and gains a Load button") {
         // The aggregate flag says loaded while no head answers can_unload: the
         // per-head rule leaking into non-batch backends would grey this out.
@@ -277,18 +203,6 @@ namespace {
 TEST_CASE_METHOD(SidebarDirectionGateFixture,
                  "An operation the sidebar starts publishes its first step's action",
                  "[ams][sidebar][coarse]") {
-    SECTION("a U1 load starts on Home, which is loading work, not heating") {
-        build(std::make_unique<FixedHeadsBackend>(std::vector<bool>{true, true, true, true}));
-        sidebar_->start_operation(helix::StepOperationType::LOAD_FRESH, 1);
-        CHECK(published_action() == helix::AmsAction::LOADING);
-    }
-
-    SECTION("a U1 unload starts on Home too") {
-        build(std::make_unique<FixedHeadsBackend>(std::vector<bool>{true, true, true, true}));
-        sidebar_->start_operation(helix::StepOperationType::UNLOAD, 1);
-        CHECK(published_action() == helix::AmsAction::UNLOADING);
-    }
-
     SECTION("a backend with no step model keeps the legacy bar's first step, Heat") {
         auto mock = std::make_unique<helix::AmsBackendMock>(4);
         REQUIRE(mock->start().success());
@@ -323,45 +237,4 @@ TEST_CASE_METHOD(SidebarDirectionGateFixture,
     helix::AmsState::instance().set_backend(nullptr);
     CHECK(gate_value("ams_has_device_ops") == 0);
     CHECK(lv_obj_has_flag(button("btn_settings"), LV_OBJ_FLAG_HIDDEN));
-}
-
-TEST_CASE_METHOD(SidebarDirectionGateFixture,
-                 "AMS sidebar gating goes back to its defaults when its sidebar goes away",
-                 "[ams][sidebar][gating_lifetime]") {
-    // A U1 sidebar routes Unload through the head picker and hides the one-tap
-    // button. The next sidebar, for any backend, must not inherit that.
-    build(std::make_unique<FixedHeadsBackend>(std::vector<bool>{true, false, true, false}));
-    REQUIRE(gate_value("ams_sidebar_unload_picks") == 1);
-
-    sidebar_.reset();
-    CHECK(gate_value("ams_sidebar_unload_picks") == 0);
-    CHECK(gate_value("ams_sidebar_unload_hidden") == 0);
-
-    lv_obj_t* fresh = static_cast<lv_obj_t*>(lv_xml_create(test_screen(), "ams_sidebar", nullptr));
-    REQUIRE(fresh != nullptr);
-    lv_obj_t* unload = lv_obj_find_by_name(fresh, "btn_unload");
-    REQUIRE(unload != nullptr);
-    CHECK_FALSE(lv_obj_has_flag(unload, LV_OBJ_FLAG_HIDDEN));
-    lv_obj_delete(fresh);
-}
-
-TEST_CASE_METHOD(SidebarDirectionGateFixture,
-                 "AMS sidebar gating survives a printer switch at its defaults",
-                 "[ams][sidebar][gating_lifetime]") {
-    build(std::make_unique<FixedHeadsBackend>(std::vector<bool>{true, false, true, false}));
-    REQUIRE(gate_value("ams_sidebar_unload_picks") == 1);
-
-    // A switch runs every entry with its PrinterSwitch disposition. The
-    // subjects come from a process-once registration, so they must still be
-    // published afterwards, holding the values nothing has refreshed yet.
-    auto& registry = StaticSubjectRegistry::instance();
-    using Scope = StaticSubjectRegistry::Scope;
-    REQUIRE(registry.deinit_one("AmsSidebarButtonGatingReset", Scope::PrinterSwitch));
-    REQUIRE(registry.deinit_one("AmsSidebarButtonGating", Scope::PrinterSwitch));
-    CHECK(gate_value("ams_sidebar_unload_picks") == 0);
-    CHECK(gate_value("ams_sidebar_unload_disabled") == 1);
-    CHECK(gate_value("ams_sidebar_supports_reset") == 1);
-
-    // Still registered for the next switch.
-    CHECK(registry.deinit_one("AmsSidebarButtonGatingReset", Scope::PrinterSwitch));
 }

@@ -14,11 +14,9 @@
 #endif
 #include "../test_helpers/print_state_test_drivers.h"
 #include "../test_helpers/registered_backend.h"
-#include "../test_helpers/snapmaker_test_access.h"
 #include "../test_helpers/toolchanger_test_helper.h"
 #include "../ui_test_utils.h"
 #include "ams_backend_mock.h"
-#include "ams_backend_snapmaker.h"
 #include "ams_backend_toolchanger.h"
 #include "ams_types.h"
 #include "app_globals.h"
@@ -435,43 +433,6 @@ class DockSensorToolChanger : public AmsBackendToolChanger {
 // A U1 head whose toolhead switch reads filament while channel_state says
 // preload_finish: filament parked short of the nozzle. The menu offers the
 // heated Unload for it and keeps Load, since the head is not loaded.
-TEST_CASE("Snapmaker lane menu offers Unload and Load for filament parked in the toolhead",
-          "[ams][context_menu][snapmaker][parked]") {
-    using UnloadMode = AmsContextMenuTestAccess::UnloadMode;
-    helix::test::RegisteredBackend<helix::AmsBackendSnapmaker> reg(nullptr, nullptr);
-    auto& backend = *reg;
-    auto feed = [&](const char* channel_state, bool switch_detected) {
-        helix::SnapmakerTestAccess::handle_status(
-            backend,
-            nlohmann::json{
-                {"toolhead", {{"extruder", "extruder3"}}},
-                {"filament_feed right",
-                 {{"extruder3", {{"filament_detected", true}, {"channel_state", channel_state}}}}},
-                {"filament_motion_sensor e3_filament", {{"filament_detected", switch_detected}}}});
-    };
-
-    SECTION("parked") {
-        feed("preload_finish", true);
-        const auto d = ops_for(backend, 3);
-        CHECK(d.unload_mode == UnloadMode::Unload);
-        CHECK(d.unload_enabled);
-        CHECK(d.can_load);
-    }
-    SECTION("switch clear: nothing to unload") {
-        feed("preload_finish", false);
-        const auto d = ops_for(backend, 3);
-        CHECK(d.unload_mode == UnloadMode::Unavailable);
-        CHECK_FALSE(d.unload_enabled);
-        CHECK(d.can_load);
-    }
-    SECTION("loaded to the nozzle") {
-        feed("load_finish", true);
-        const auto d = ops_for(backend, 3);
-        CHECK(d.unload_mode == UnloadMode::Unload);
-        CHECK(d.unload_enabled);
-        CHECK_FALSE(d.can_load);
-    }
-}
 
 TEST_CASE("Lane menus withdraw Unload while the toolhead is unaccounted",
           "[ams][context_menu][1324]") {
@@ -870,35 +831,6 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 // ============================================================================
 // A Z-Mod Creator 5 with the afclite shim: Load is a feed
 // ============================================================================
-
-TEST_CASE("Load stays offered on the mounted head when Load is a feed",
-          "[ams][context_menu][toolchanger][zmod][feed]") {
-    nlohmann::json objects = nlohmann::json::array(
-        {"zmod", "zmod_color", "save_variables", "zmod_afclite", "AFC", "AFC_unit C5",
-         "AFC_lane E0", "AFC_lane E1", "AFC_lane E2", "AFC_lane E3"});
-    for (int i = 1; i <= 4; ++i) {
-        objects.push_back("gcode_button extruder_pos" + std::to_string(i));
-        objects.push_back("gcode_button extruder_grab" + std::to_string(i));
-    }
-    helix::PrinterDiscovery hw;
-    hw.parse_objects(objects);
-
-    helix::test::ToolChangerHelper feeding(4);
-    feeding.set_tool_sensor(helix::toolchanger_addon::resolve_tool_sensor(hw));
-    feeding.set_tool_feed(helix::toolchanger_addon::resolve_tool_feed(hw));
-    feeding.feed(nlohmann::json{{"zmod_color", {{"active_tool_id", 1}}}});
-    REQUIRE(feeding.get_current_slot() == 1);
-
-    CHECK(ops_for(feeding, 1).can_load);
-    CHECK(ops_for(feeding, 0).can_load);
-
-    // The same carriage reading on a changer whose Load is a mount refuses the
-    // mounted tool.
-    helix::test::ToolChangerHelper mounting(4);
-    mounting.set_tool_sensor(helix::toolchanger_addon::resolve_tool_sensor(hw));
-    mounting.feed(nlohmann::json{{"zmod_color", {{"active_tool_id", 1}}}});
-    CHECK_FALSE(ops_for(mounting, 1).can_load);
-}
 
 // ============================================================================
 // on_created: the eject refusal is the backend's to explain

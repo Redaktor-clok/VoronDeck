@@ -33,13 +33,10 @@
 #include "ui_update_queue.h"
 
 #include "../lvgl_test_fixture.h"
-#include "../test_helpers/ad5x_ifs_test_access.h"
 #include "../test_helpers/filament_sensor_manager_test_access.h"
 #include "../test_helpers/post_unload_grace_test_access.h"
 #include "../test_helpers/print_state_test_drivers.h"
 #include "../ui_test_utils.h"
-#include "ams_backend_ace.h"
-#include "ams_backend_ad5x_ifs.h"
 #include "ams_backend_mock.h"
 #include "ams_state.h"
 #include "ams_types.h"
@@ -87,9 +84,26 @@ class TypedBackend : public AmsBackendMock {
     [[nodiscard]] BackendTraits traits() const override {
         switch (type_) {
         case AmsType::AD5X_IFS:
-            return AmsBackendAd5xIfs::kTraits;
+            return [] {
+                BackendTraits t;
+                t.hub_on_toolhead = true;
+                t.has_per_slot_loaded_authority = true;
+                t.filament_ops_self_home = true;
+                t.supports_auto_heat_on_load = true;
+                t.supports_auto_heat_on_unload = true;
+                t.supports_force_eject = true;
+                t.has_firmware_spool_persistence = false;
+                t.raises_runout_fault = true;
+                t.unloads_to_hub_between_prints = true;
+                return t;
+            }();
         case AmsType::ACE:
-            return AmsBackendAce::kTraits;
+            return [] {
+                BackendTraits t;
+                t.has_per_slot_loaded_authority = true;
+                t.has_environment_sensors = true;
+                return t;
+            }();
         default:
             return {};
         }
@@ -366,54 +380,3 @@ nlohmann::json zmod_change(int channel) {
 // ANALOG_PRUTOK finds a spool of the same colour and material, feeds it through
 // _A_CHANGE_FILAMENT and resumes. None of that is an op of ours, so the backend
 // reads the change from the macro's last_data.channel.
-TEST_CASE_METHOD(DwellFixture, "A Z-Mod runout auto-swap longer than the dwell announces nothing",
-                 "[runout][dwell][sensors][1714]") {
-    auto owned = std::make_unique<helix::AmsBackendAd5xIfs>(nullptr, nullptr);
-    auto* backend = owned.get();
-    AmsState::instance().add_backend(std::move(owned));
-    helix::test::set_wire_state(get_printer_state(), PrintJobState::PRINTING);
-    helix::ui::UpdateQueue::instance().drain();
-
-    ToastCapture toasts;
-    sensor(false);
-    REQUIRE(PostUnloadGraceTestAccess::removal_dwell_pending(FilamentSensorManager::instance()));
-
-    helix::Ad5xIfsTestAccess::handle_status(*backend, zmod_change(0));
-    helix::ui::UpdateQueue::instance().drain();
-    REQUIRE(AmsState::instance().is_filament_operation_active());
-
-    // The swap outlasts the dwell: the unload, the load and the wait for
-    // temperature easily do.
-    age_past_dwell();
-    tick();
-    CHECK(toasts.warnings_containing(kRemovedWarning) == 0);
-
-    // The new spool reaches the head, then the change ends.
-    sensor(true);
-    helix::Ad5xIfsTestAccess::handle_status(*backend, zmod_change(99));
-    helix::ui::UpdateQueue::instance().drain();
-    CHECK_FALSE(AmsState::instance().is_filament_operation_active());
-    tick();
-
-    CHECK(toasts.warnings_containing(kRemovedWarning) == 0);
-    CHECK(toasts.infos_containing(kInsertedInfo) == 0);
-}
-
-TEST_CASE_METHOD(DwellFixture, "Z-Mod idle between changes: a runout past the dwell is announced",
-                 "[runout][dwell][sensors][1714]") {
-    auto owned = std::make_unique<helix::AmsBackendAd5xIfs>(nullptr, nullptr);
-    auto* backend = owned.get();
-    AmsState::instance().add_backend(std::move(owned));
-    helix::test::set_wire_state(get_printer_state(), PrintJobState::PRINTING);
-    helix::ui::UpdateQueue::instance().drain();
-
-    // The macro is present but idle: no spool matched, so no change started.
-    helix::Ad5xIfsTestAccess::handle_status(*backend, zmod_change(99));
-    helix::ui::UpdateQueue::instance().drain();
-
-    ToastCapture toasts;
-    sensor(false);
-    age_past_dwell();
-    tick();
-    CHECK(toasts.warnings_containing(kRemovedWarning) == 1);
-}

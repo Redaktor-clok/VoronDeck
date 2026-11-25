@@ -18,20 +18,6 @@
 #include "mock_persona.h"
 #include "moonraker_client_mock.h"
 #endif
-#include "ams_backend_ad5x_ifs.h"
-#if HELIX_HAS_CFS
-#include "ams_backend_cfs.h"
-#endif
-#if HELIX_HAS_ACE
-#include "ams_backend_ace.h"
-#endif
-#if HELIX_HAS_QIDI
-#include "ams_backend_qidi.h"
-#endif
-#if HELIX_HAS_SNAPMAKER
-#include "ams_backend_multiace.h"
-#include "ams_backend_snapmaker.h"
-#endif
 #include "ams_backend_toolchanger.h"
 #include "filament_database.h"
 #include "filament_slot_override.h"
@@ -55,35 +41,6 @@
 #include <tuple>
 
 namespace helix {
-
-namespace {
-// Task 15 R2: ACE (500ms REST poll) and AD5X IFS (5s whole-file HTTP poll)
-// are the only AMS backends that need a raw HTTP transport instead of the
-// WebSocket JSON-RPC channel every other backend rides. On ESP32 that
-// transport is the Task 10 HTTP lane (EspHttpLane) — a single dedicated
-// worker thread with a bounded, capped fetch model — still an evaluation arm
-// pending a real-hardware budget/latency measurement, so it's gated by
-// CONFIG_HELIX_AMS_HTTP_POLL_BACKENDS (default n). Flipping the flag is the
-// only delta between "unsupported on this screen" and a real backend.
-// Desktop always supports both (unconditional real HTTP stack).
-#if defined(ESP_PLATFORM)
-bool http_poll_ams_backends_supported() {
-    // A Kconfig bool set to 'n' (the default) is OMITTED from sdkconfig.h
-    // entirely, not defined as 0 — so this must be a preprocessor #if, not a
-    // runtime return of the macro's value (the latter fails to compile when
-    // off: the token is simply undeclared).
-#if CONFIG_HELIX_AMS_HTTP_POLL_BACKENDS
-    return true;
-#else
-    return false;
-#endif
-}
-#else
-constexpr bool http_poll_ams_backends_supported() {
-    return true;
-}
-#endif
-} // namespace
 
 // ============================================================================
 // Endless Spool - shared validation, reset loop and eligibility rule
@@ -671,15 +628,9 @@ create_mock_with_features(int gate_count, IMoonrakerClient* mock_client = nullpt
         } else if (ams_type == "vivid") {
             mock->set_vivid_mixed_mode(true);
             spdlog::info("[AMS Backend] Mock ViViD mixed mode enabled");
-        } else if (ams_type == "ifs" || ams_type == "ad5x" || ams_type == "ad5x_ifs") {
-            mock->set_ifs_mode(true);
-            spdlog::info("[AMS Backend] Mock AD5X IFS mode enabled");
         } else if (ams_type == "htlf_toolchanger" || ams_type == "htlf_tc" || ams_type == "htlf") {
             mock->set_htlf_toolchanger_mode(true);
             spdlog::info("[AMS Backend] Mock HTLF+Toolchanger mode enabled");
-        } else if (ams_type == "snapmaker" || ams_type == "snapswap" || ams_type == "u1") {
-            mock->set_snapmaker_mode(true);
-            spdlog::info("[AMS Backend] Mock Snapmaker U1 mode enabled");
         }
     }
 
@@ -831,7 +782,7 @@ static std::unique_ptr<AmsBackend> try_create_mock(IMoonrakerClient* mock_client
     // seeds their objects and frames, and the production AmsBackendMultiAce /
     // AmsBackendIndx run against them (multiACE pairs with
     // HELIX_MOCK_PRINTER=snapmaker_u1).
-    if (mode == "multiace" || mode == "indx") {
+    if (mode == "indx") {
         spdlog::info("[AMS Backend] HELIX_MOCK_AMS={} selects mock hardware, not a mock "
                      "backend - deferring to real discovery",
                      mode);
@@ -868,17 +819,9 @@ bool AmsBackend::sensor_belongs_to_backend(AmsType type, const std::string& bare
     case AmsType::AFC:
         return AmsBackendAfc::owns_filament_sensor(bare_name, discovery);
     case AmsType::AD5X_IFS:
-#if HELIX_HAS_IFS
-        return AmsBackendAd5xIfs::owns_filament_sensor(bare_name, discovery);
-#else
         return false;
-#endif
     case AmsType::CFS:
-#if HELIX_HAS_CFS
-        return printer::AmsBackendCfs::owns_filament_sensor(bare_name, discovery);
-#else
         return false;
-#endif
     case AmsType::ACE:
     case AmsType::TOOL_CHANGER:
     case AmsType::INDX:
@@ -916,25 +859,6 @@ nlohmann::json AmsBackend::required_status_objects(const helix::PrinterDiscovery
     merge(AmsBackendHappyHare::required_status_objects(hw));
     merge(AmsBackendOpenAms::required_status_objects(hw));
     merge(AmsBackendIndx::required_status_objects(hw));
-#if HELIX_HAS_IFS
-    if (hw.mmu_type() == AmsType::AD5X_IFS) {
-        for (const auto& name : AmsBackendAd5xIfs::required_status_objects(hw)) {
-            objects[name] = nullptr;
-        }
-    }
-#endif
-#if HELIX_HAS_CFS
-    merge(printer::AmsBackendCfs::required_status_objects(hw));
-#endif
-#if HELIX_HAS_ACE
-    merge(AmsBackendAce::required_status_objects(hw));
-#endif
-#if HELIX_HAS_QIDI
-    merge(AmsBackendQidi::required_status_objects(hw));
-#endif
-#if HELIX_HAS_SNAPMAKER
-    merge(AmsBackendSnapmaker::required_status_objects(hw));
-#endif
     return objects;
 }
 
@@ -974,21 +898,8 @@ std::unique_ptr<AmsBackend> AmsBackend::create(AmsType detected_type, IMoonraker
         return std::make_unique<AmsBackendAfc>(api, client);
 
     case AmsType::ACE:
-#if HELIX_HAS_ACE
-        if (!api || !client) {
-            spdlog::error("[AMS Backend] ACE requires IMoonrakerAPI and MoonrakerClient");
-            return nullptr;
-        }
-        if (!http_poll_ams_backends_supported()) {
-            spdlog::info("[AMS Backend] AMS backend 'ACE' unsupported on this screen");
-            return nullptr;
-        }
-        spdlog::debug("[AMS Backend] Creating ACE backend");
-        return std::make_unique<AmsBackendAce>(api, client);
-#else
         spdlog::info("[AMS Backend] ACE support not compiled in");
         return nullptr;
-#endif
 
     case AmsType::TOOL_CHANGER:
         if (!api || !client) {
@@ -1009,64 +920,20 @@ std::unique_ptr<AmsBackend> AmsBackend::create(AmsType detected_type, IMoonraker
         return std::make_unique<AmsBackendIndx>(api, client);
 
     case AmsType::AD5X_IFS:
-#if HELIX_HAS_IFS
-        if (!api || !client) {
-            spdlog::error("[AMS Backend] AD5X IFS requires IMoonrakerAPI and MoonrakerClient");
-            return nullptr;
-        }
-        if (!http_poll_ams_backends_supported()) {
-            spdlog::info("[AMS Backend] AMS backend 'AD5X IFS' unsupported on this screen");
-            return nullptr;
-        }
-        spdlog::debug("[AMS Backend] Creating AD5X IFS backend");
-        return std::make_unique<AmsBackendAd5xIfs>(api, client);
-#else
         spdlog::info("[AMS Backend] IFS support not compiled in");
         return nullptr;
-#endif
 
     case AmsType::CFS:
-#if HELIX_HAS_CFS
-        if (!api || !client) {
-            spdlog::error("[AMS Backend] CFS requires IMoonrakerAPI and MoonrakerClient");
-            return nullptr;
-        }
-        spdlog::debug("[AMS Backend] Creating CFS backend");
-        return std::make_unique<printer::AmsBackendCfs>(api, client);
-#else
         spdlog::info("[AMS Backend] CFS support not compiled in");
         return nullptr;
-#endif
 
     case AmsType::SNAPMAKER:
-#if HELIX_HAS_SNAPMAKER
-        if (!api || !client) {
-            spdlog::error("[AMS Backend] Snapmaker requires IMoonrakerAPI and MoonrakerClient");
-            return nullptr;
-        }
-        if (hw && multiace::present(*hw)) {
-            spdlog::debug("[AMS Backend] Creating Snapmaker SnapSwap backend with multiACE");
-            return std::make_unique<AmsBackendMultiAce>(api, client);
-        }
-        spdlog::debug("[AMS Backend] Creating Snapmaker SnapSwap backend");
-        return std::make_unique<AmsBackendSnapmaker>(api, client);
-#else
         spdlog::info("[AMS Backend] Snapmaker support not compiled in");
         return nullptr;
-#endif
 
     case AmsType::QIDI_BOX:
-#if HELIX_HAS_QIDI
-        if (!api || !client) {
-            spdlog::error("[AMS Backend] QIDI Box requires IMoonrakerAPI and MoonrakerClient");
-            return nullptr;
-        }
-        spdlog::debug("[AMS Backend] Creating QIDI Box backend (stub)");
-        return std::make_unique<AmsBackendQidi>(api, client);
-#else
         spdlog::info("[AMS Backend] QIDI Box support not compiled in");
         return nullptr;
-#endif
 
     case AmsType::OPENAMS:
         if (!api || !client) {

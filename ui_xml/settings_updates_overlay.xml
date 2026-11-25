@@ -5,22 +5,17 @@
   <view name="settings_updates_overlay" extends="overlay_panel" title="Updates" bg_color="#screen_bg">
     <lv_obj name="overlay_content" width="100%" flex_grow="1" flex_flow="column"
             style_pad_all="#space_md" style_pad_gap="#space_md" scrollable="true">
-      <setting_group name="group_vorondeck_updates">
-        <setting_action_row name="row_vorondeck_check" label="Check VoronDeck updates" icon="refresh"
-                            description="Stable releases and optional test updates" description_min_bp="0"
-                            callback="on_vorondeck_check_updates"/>
-      </setting_group>
       <text_body name="vorondeck_update_status" width="100%" text="VoronDeck" long_mode="wrap"/>
-      <setting_group name="group_release_offers" hidden="true">
-        <setting_action_row name="row_stable_release" label="Stable release" icon="check"
+      <setting_group name="group_release_offers">
+        <setting_action_row name="row_stable_release" label="Stable release" icon="download"
                             description="Completed release" description_min_bp="0"
                             callback="on_vorondeck_stable_update"/>
-        <setting_action_row name="row_beta_release" label="Beta" icon="download"
-                            description="Optional prerelease · install only if you choose" description_min_bp="0"
-                            callback="on_vorondeck_beta_update"/>
         <setting_action_row name="row_test_release" label="Test release" icon="download"
                             description="Optional prerelease · install only if you choose" description_min_bp="0"
                             callback="on_vorondeck_test_update"/>
+        <setting_action_row name="row_beta_release" label="Beta" icon="download"
+                            description="Optional prerelease · install only if you choose" description_min_bp="0"
+                            callback="on_vorondeck_beta_update"/>
       </setting_group>
       <text_small name="vorondeck_update_scope" width="100%" long_mode="wrap"
                   text="Checks the screen installed on this device. Does not install updates automatically."/>

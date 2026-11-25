@@ -266,7 +266,7 @@ class AmsBackendMock : public AmsBackend {
     /// Four fixed heads in Snapmaker mode, lane-per-tool otherwise. The
     /// inherited identity agrees for T0-T3 and diverges from T4 up, which is
     /// exactly where a U1 file with extended tools lands.
-    [[nodiscard]] helix::FirmwareRouting firmware_default_routing() const override;
+
     /// PrePrintSend in Snapmaker mode, otherwise whatever
     /// set_remap_strategy() was given — Native by default, because every other
     /// mode stands in for a backend that owns its tool->slot table and writes it
@@ -279,7 +279,11 @@ class AmsBackendMock : public AmsBackend {
     /// could not be opened in a mock run at all.
     [[nodiscard]] RemapStrategy get_remap_strategy() const override;
     [[nodiscard]] bool remap_ready() const override;
-    [[nodiscard]] bool owns_tool_mapping_table() const override;
+
+    [[nodiscard]] bool owns_tool_mapping_table() const override {
+        return true;
+    }
+
     [[nodiscard]] bool carriage_can_be_empty() const override;
 
     /// One head per slot where the persona's backend has one per tool (tool
@@ -292,7 +296,6 @@ class AmsBackendMock : public AmsBackend {
     [[nodiscard]] std::optional<int> head_source_slot(int head,
                                                       const AmsSystemInfo& info) const override;
     [[nodiscard]] std::optional<bool> head_has_filament(int head) const override;
-    [[nodiscard]] int max_heads_per_filament_op() const override;
 
     /// Emulate a backend that declares a different route. The shape worth
     /// reaching for is RemapStrategy::None — ACE, or a single-extruder printer
@@ -322,8 +325,6 @@ class AmsBackendMock : public AmsBackend {
     /// the print directly, so the user's head pick never reaches the printer
     /// even though the modal logs a stored mapping. Delegates to
     /// AmsBackendSnapmaker::preprint_gcode so the bytes are the real ones.
-    [[nodiscard]] std::string build_preprint_gcode(const std::set<int>& tools_used,
-                                                   const std::map<int, int>& remap) const override;
 
     // Device actions
     [[nodiscard]] std::vector<helix::printer::DeviceSection> get_device_sections() const override;
@@ -612,8 +613,6 @@ class AmsBackendMock : public AmsBackend {
             return helix::ui::LaneNoun::Gate;
         case AmsType::TOOL_CHANGER:
             return helix::ui::LaneNoun::Tool;
-        case AmsType::SNAPMAKER:
-            return helix::ui::LaneNoun::Feeder;
         default:
             return helix::ui::LaneNoun::Slot;
         }
@@ -623,8 +622,7 @@ class AmsBackendMock : public AmsBackend {
     /// every other type this mock simulates uses the base class's Tool.
     [[nodiscard]] helix::ui::LaneNoun tool_noun() const override {
         std::lock_guard<std::mutex> lock(mutex_);
-        return system_info_.type == AmsType::SNAPMAKER ? helix::ui::LaneNoun::Toolhead
-                                                       : helix::ui::LaneNoun::Tool;
+        return helix::ui::LaneNoun::Tool;
     }
 
     /**
@@ -702,11 +700,6 @@ class AmsBackendMock : public AmsBackend {
     void set_vivid_mixed_mode(bool enabled);
 
     /**
-     * @brief Set AD5X IFS mode (4 slots, LINEAR, bypass + tool mapping)
-     */
-    void set_ifs_mode(bool enabled);
-
-    /**
      * @brief Set HTLF + Toolchanger mixed topology mode
      *
      * Simulates the user's real HTLF+TC setup: HTLF_1 (4 lanes, MIXED — 2 direct + 2 hub-routed)
@@ -716,33 +709,9 @@ class AmsBackendMock : public AmsBackend {
      */
     void set_htlf_toolchanger_mode(bool enabled);
 
-    /**
-     * @brief Set Snapmaker U1 SnapSwap mode (4 slots, PARALLEL, NON-editable
-     *        tool mapping, PrePrintSend remap strategy).
-     *
-     * Mirrors AmsBackendSnapmaker: the FilamentMappingCard still renders its
-     * two-tone chips, but the mapping is not editable inline and a tap opens
-     * the native remap picker, exactly as on the device. Test/dev only (gated
-     * by HELIX_MOCK_AMS=snapmaker).
-     */
-    void set_snapmaker_mode(bool enabled);
-
     /// Hold @p slot_index's filament at its feeder: its entry sensor reads it,
     /// its toolhead has not taken it (HELIX_MOCK_AMS_STATE=feeder).
     void set_slot_at_feeder(int slot_index);
-
-    /**
-     * @brief Configure (or clear) the simulated Snapmaker print task.
-     *
-     * The U1 publishes a routing only while a task is set up; idle it holds a
-     * default table nobody may act on. Enabling Snapmaker mode starts with no
-     * task, which is the idle machine.
-     *
-     * @param routing Index = logical tool, value = physical head. EMPTY clears
-     *        the task. On a U1 head N owns lane N, so these are also the slot
-     *        indices HELIX_MOCK_REMAP names.
-     */
-    void set_snapmaker_print_task(std::vector<int> routing);
 
     /**
      * @brief Seed per-tool→slot firmware mappings from a "tool:slot" CSV.
@@ -858,15 +827,6 @@ class AmsBackendMock : public AmsBackend {
 
     /// The slot write apply_user_edit() and sync_external_identity() share.
     AmsError write_slot(int slot_index, const SlotInfo& info);
-
-    /**
-     * @brief set_snapmaker_print_task() for callers already holding mutex_.
-     *
-     * Derives extruders_used from the routing, because that is what it means on
-     * the printer: a head is "used" when some tool in the task prints from it,
-     * and all-false is the firmware's own "no task configured" signal.
-     */
-    void set_snapmaker_task_locked(std::vector<int> routing);
 
     /**
      * @brief Shared body of load_filament_batch() / unload_filament_batch()
@@ -1114,10 +1074,8 @@ class AmsBackendMock : public AmsBackend {
     bool multi_unit_mode_ = false;       ///< Simulate multi-unit AFC (2x Box Turtle)
     bool mixed_topology_mode_ = false;   ///< Simulate mixed topology (BT + 2x OpenAMS)
     bool vivid_mixed_mode_ = false;      ///< Simulate 2x BoxTurtle + 1x ViViD
-    bool ifs_mode_ = false;              ///< Simulate AD5X IFS (4 slots, LINEAR)
     bool htlf_toolchanger_mode_ = false; ///< Simulate HTLF + Toolchanger mixed topology
     bool torture_mode_ = false;          ///< A table-driven AFC rig profile (torture, stealth)
-    bool snapmaker_mode_ = false; ///< Simulate Snapmaker U1 (4 slots, PARALLEL, non-editable)
     /// Declared remap route outside Snapmaker mode. Native by default: every
     /// non-Snapmaker mode stands in for a table-owning backend.
     RemapStrategy remap_strategy_ = RemapStrategy::Native;
@@ -1126,8 +1084,6 @@ class AmsBackendMock : public AmsBackend {
     /// The emulated print_task_config, in the firmware's own two fields so
     /// AmsBackendSnapmaker::task_routing() can gate on them unchanged. Both
     /// empty = no task, which is how Snapmaker mode starts.
-    std::vector<bool> snapmaker_extruders_used_;
-    std::vector<int> snapmaker_extruder_map_;
     std::vector<PathTopology> unit_topologies_; ///< Per-unit topology storage
 
     // Endless spool simulation state

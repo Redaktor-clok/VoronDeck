@@ -74,26 +74,11 @@ class IndxProbe : public helix::AmsBackendIndx {
 } // namespace
 
 TEST_CASE("AMS backends declare a section for every device action", "[ams][sections]") {
-    AceProbe ace;
-    require_actions_in_declared_sections("AmsBackendAce", ace);
-
-    Ad5xIfsProbe ad5x_ifs;
-    require_actions_in_declared_sections("AmsBackendAd5xIfs", ad5x_ifs);
-
     AfcProbe afc;
     require_actions_in_declared_sections("AmsBackendAfc", afc);
 
-    CfsProbe cfs;
-    require_actions_in_declared_sections("AmsBackendCfs", cfs);
-
     HappyHareProbe happy_hare;
     require_actions_in_declared_sections("AmsBackendHappyHare", happy_hare);
-
-    QidiProbe qidi;
-    require_actions_in_declared_sections("AmsBackendQidi", qidi);
-
-    SnapmakerProbe snapmaker;
-    require_actions_in_declared_sections("AmsBackendSnapmaker", snapmaker);
 
     ToolChangerProbe toolchanger;
     require_actions_in_declared_sections("AmsBackendToolChanger", toolchanger);

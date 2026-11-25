@@ -8,7 +8,6 @@
 
 #include "../lvgl_test_fixture.h"
 #include "ams_backend_afc.h"
-#include "ams_backend_cfs.h"
 #include "ams_backend_happy_hare.h"
 #include "ams_error.h"
 #include "ams_state.h"
@@ -18,7 +17,6 @@
 #include "lane_source_store.h"
 #include "settings_manager.h"
 #include "test_helpers/afc_test_access.h"
-#include "test_helpers/cfs_test_access.h"
 #include "test_helpers/happy_hare_test_access.h"
 #include "test_helpers/registered_backend.h"
 
@@ -35,7 +33,6 @@ using helix::AmsBackendAfc;
 using helix::AmsBackendHappyHare;
 using helix::AmsError;
 using helix::AmsErrorHelper;
-using helix::CfsTestAccess;
 using helix::HappyHareTestAccess;
 using helix::SettingsManager;
 using helix::SlotInfo;
@@ -51,7 +48,6 @@ using helix::ams::Observation;
 using helix::ams::ObservationSource;
 using helix::ams::reconcile_binding;
 using helix::ams::resolve;
-using helix::printer::AmsBackendCfs;
 using helix::test::RegisteredBackend;
 
 namespace {
@@ -85,7 +81,6 @@ BindingReading id_reporting_firmware_says(int spool_id, bool keep_on_eject) {
 
 using AfcHarness = RegisteredBackend<AmsBackendAfc>;
 using HappyHareHarness = RegisteredBackend<AmsBackendHappyHare>;
-using CfsHarness = RegisteredBackend<AmsBackendCfs>;
 
 void init_afc_lanes(AmsBackendAfc& backend) {
     AfcTestAccess::initialize_slots(backend, std::vector<std::string>{"lane1", "lane2"});
@@ -112,17 +107,6 @@ void feed_mmu(AmsBackendHappyHare& backend, const nlohmann::json& mmu) {
 
 /// A community-fork CFS `box`: a flat self-describing slots[] array, the one
 /// CFS schema that states a per-bay spool id.
-void feed_cfs_flat(AmsBackendCfs& backend, int spoolman_id) {
-    nlohmann::json slot{{"id", 0},           {"name", "PLA Black"},       {"material", "PLA"},
-                        {"brand", "Elegoo"}, {"color", "ED2C2C"},         {"present", true},
-                        {"loaded", false},   {"spoolman_id", spoolman_id}};
-    nlohmann::json box{{"api_version", 1}, {"slots", nlohmann::json::array({slot})}};
-    nlohmann::json params;
-    params["box"] = box;
-    nlohmann::json notification;
-    notification["params"] = nlohmann::json::array({params, 0.0});
-    CfsTestAccess::handle_status(backend, notification);
-}
 
 /// The user's own declaration on a lane: a link and nothing else, which is
 /// exactly what user_edit_observation() files for a binding change.
@@ -654,42 +638,6 @@ TEST_CASE_METHOD(LVGLTestFixture, "a Happy Hare gate re-bound in the gate map dr
 
     // Gate 1 declared nothing and states nothing, so it is untouched.
     CHECK_FALSE(lane_sources(harness.lane(1)).local_user.has_value());
-}
-
-TEST_CASE_METHOD(LVGLTestFixture, "a flat-schema CFS bay re-bound by the fork drops its record",
-                 "[lane][binding][cfs]") {
-    SettingsManager::instance().init_subjects();
-
-    CfsHarness harness(nullptr, nullptr);
-
-    feed_cfs_flat(*harness, 42);
-    user_links(harness.lane(0), 42);
-    REQUIRE(resolve(lane_sources(harness.lane(0))).spoolman_id == 42);
-
-    feed_cfs_flat(*harness, 169);
-
-    CHECK_FALSE(lane_sources(harness.lane(0)).local_user.has_value());
-    CHECK(resolve(lane_sources(harness.lane(0))).spoolman_id == 169);
-}
-
-TEST_CASE_METHOD(LVGLTestFixture, "a CFS bay reading zero is never an eject",
-                 "[lane][binding][cfs]") {
-    // printer_reports_spool_ids() is false on CFS, so 0 is the everyday
-    // reading. A retention-off user must not have every bay emptied.
-    auto& settings = SettingsManager::instance();
-    settings.init_subjects();
-    settings.set_ams_keep_spool_info_on_eject(false);
-
-    CfsHarness harness(nullptr, nullptr);
-
-    feed_cfs_flat(*harness, 42);
-    user_links(harness.lane(0), 42);
-    feed_cfs_flat(*harness, 0);
-
-    REQUIRE(lane_sources(harness.lane(0)).local_user.has_value());
-    CHECK(lane_sources(harness.lane(0)).local_user->spoolman_id == 42);
-
-    settings.set_ams_keep_spool_info_on_eject(true);
 }
 
 // ============================================================================

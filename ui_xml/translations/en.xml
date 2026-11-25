@@ -313,6 +313,7 @@
   <translation tag="Anonymous data to help improve HelixScreen" en="Anonymous data to help improve HelixScreen"/>
   <translation tag="Anonymous stats — no personal data, ever." en="Anonymous stats — no personal data, ever."/>
   <translation tag="Anonymous usage statistics" en="Anonymous usage statistics"/>
+  <translation tag="Another component is being updated. Wait for it to finish, then try again." en="Another component is being updated. Wait for it to finish, then try again."/>
   <translation tag="Any notes..." en="Any notes..."/>
   <translation tag="App Background" en="App Background"/>
   <translation tag="App startup encountered an error. Some features may be unavailable." en="App startup encountered an error. Some features may be unavailable."/>
@@ -339,6 +340,7 @@
   <translation tag="At least {} lines in helixscreen.env were ignored" en="At least {} lines in helixscreen.env were ignored"/>
   <translation tag="At target" en="At target"/>
   <translation tag="At {}°C, about {} minutes." en="At {}°C, about {} minutes."/>
+  <translation tag="Authenticated update check failed" en="Authenticated update check failed"/>
   <translation tag="Authentication failed" en="Authentication failed"/>
   <translation tag="Auto" en="Auto"/>
   <translation tag="Auto Bed Mesh" en="Auto Bed Mesh"/>
@@ -698,6 +700,7 @@
   <translation tag="Checking slots..." en="Checking slots..."/>
   <translation tag="Checking the PEI sheet is off..." en="Checking the PEI sheet is off..."/>
   <translation tag="Checking the printer..." en="Checking the printer..."/>
+  <translation tag="Checking the update manager..." en="Checking the update manager..."/>
   <translation tag="Checking timelapse plugin..." en="Checking timelapse plugin..."/>
   <translation tag="Checking webcam" en="Checking webcam"/>
   <translation tag="Checking..." en="Checking..."/>
@@ -865,6 +868,7 @@
   <translation tag="Connection restored" en="Connection restored"/>
   <translation tag="Connection successful!" en="Connection successful!"/>
   <translation tag="Connection timeout" en="Connection timeout"/>
+  <translation tag="Connection to Moonraker was lost or timed out. The update may still be running. Check component versions before retrying." en="Connection to Moonraker was lost or timed out. The update may still be running. Check component versions before retrying."/>
   <translation tag="Connection to printer lost - attempting to reconnect..." en="Connection to printer lost - attempting to reconnect..."/>
   <translation tag="Connection to printer lost — operation may still be running" en="Connection to printer lost — operation may still be running"/>
   <translation tag="Connection to printer lost." en="Connection to printer lost."/>
@@ -1103,6 +1107,7 @@
   <translation tag="Download update?" en="Download update?"/>
   <translation tag="Download v{}?" en="Download v{}?"/>
   <translation tag="Downloading and verifying VoronDeck. The screen will restart." en="Downloading and verifying VoronDeck. The screen will restart."/>
+  <translation tag="Downloading and verifying the package..." en="Downloading and verifying the package..."/>
   <translation tag="Downloading..." en="Downloading..."/>
   <translation tag="Downloading... {:.1f}/{:.1f} MB" en="Downloading... {:.1f}/{:.1f} MB"/>
   <translation tag="Draw a ripple at each touch — helps diagnose offsets" en="Draw a ripple at each touch — helps diagnose offsets"/>
@@ -1852,6 +1857,7 @@
   <translation tag="Installation timed out" en="Installation timed out"/>
   <translation tag="Installation timed out. The script may be stuck." en="Installation timed out. The script may be stuck."/>
   <translation tag="Installed" en="Installed"/>
+  <translation tag="Installing the package and restarting the screen..." en="Installing the package and restarting the screen..."/>
   <translation tag="Installing..." en="Installing..."/>
   <translation tag="Intensity" en="Intensity"/>
   <translation tag="Interactive calibration for all lanes" en="Interactive calibration for all lanes"/>
@@ -2237,14 +2243,17 @@
   <translation tag="Moonraker answered at {}." en="Moonraker answered at {}."/>
   <translation tag="Moonraker at {} rejected the API key." en="Moonraker at {} rejected the API key."/>
   <translation tag="Moonraker at {} requires an API key." en="Moonraker at {} requires an API key."/>
+  <translation tag="Moonraker cannot restart VoronDeck. Repair the update manager using the installer." en="Moonraker cannot restart VoronDeck. Repair the update manager using the installer."/>
   <translation tag="Moonraker config is not writable from VoronDeck." en="Moonraker config is not writable from VoronDeck."/>
   <translation tag="Moonraker has no G-code folder." en="Moonraker has no G-code folder."/>
   <translation tag="Moonraker is connected to Spoolman, which tracks your spools and how much filament is left. Browse them on the Spoolman screen." en="Moonraker is connected to Spoolman, which tracks your spools and how much filament is left. Browse them on the Spoolman screen."/>
   <translation tag="Moonraker is not responding at {}. It runs on this printer, so check that the Klipper and Moonraker services started." en="Moonraker is not responding at {}. It runs on this printer, so check that the Klipper and Moonraker services started."/>
   <translation tag="Moonraker keeps a queue of prints to run one after another. View it in the job queue." en="Moonraker keeps a queue of prints to run one after another. View it in the job queue."/>
   <translation tag="Moonraker refused the login" en="Moonraker refused the login"/>
+  <translation tag="Moonraker rejected the update:" en="Moonraker rejected the update:"/>
   <translation tag="Moonraker restarted but Spoolman not connected. Check server." en="Moonraker restarted but Spoolman not connected. Check server."/>
   <translation tag="Moonraker restarting...&#10;Waiting for reconnection..." en="Moonraker restarting...&#10;Waiting for reconnection..."/>
+  <translation tag="Moonraker returned an unexpected update response. Check component versions." en="Moonraker returned an unexpected update response. Check component versions."/>
   <translation tag="Moonraker&apos;s Python is too old for this feature." en="Moonraker&apos;s Python is too old for this feature."/>
   <translation tag="Moonraker&apos;s config file is not writable from VoronDeck. Add the [spoolman] section by hand — see the log for details." en="Moonraker&apos;s config file is not writable from VoronDeck. Add the [spoolman] section by hand — see the log for details."/>
   <translation tag="Moonraker, Klipper and other configured components" en="Moonraker, Klipper and other configured components"/>
@@ -2404,6 +2413,7 @@
   <translation tag="No network. Scan QR code to report on your phone." en="No network. Scan QR code to report on your phone."/>
   <translation tag="No networks found" en="No networks found"/>
   <translation tag="No new mesh was stored as &apos;{}&apos;" en="No new mesh was stored as &apos;{}&apos;"/>
+  <translation tag="No newer test release" en="No newer test release"/>
   <translation tag="No notifications" en="No notifications"/>
   <translation tag="No objects" en="No objects"/>
   <translation tag="No objects defined for this print" en="No objects defined for this print"/>
@@ -2473,6 +2483,7 @@
   <translation tag="Not connected to the printer" en="Not connected to the printer"/>
   <translation tag="Not detected" en="Not detected"/>
   <translation tag="Not drying" en="Not drying"/>
+  <translation tag="Not enough free disk space to download the update." en="Not enough free disk space to download the update."/>
   <translation tag="Not enough free space on the printer for this file. Free some in Settings &gt; System &gt; Storage." en="Not enough free space on the printer for this file. Free some in Settings &gt; System &gt; Storage."/>
   <translation tag="Not enough frequency data from the sweeps. Try again." en="Not enough frequency data from the sweeps. Try again."/>
   <translation tag="Not enough room for this widget. Rearrange or remove widgets to make space." en="Not enough room for this widget. Rearrange or remove widgets to make space."/>
@@ -2616,6 +2627,8 @@
   <translation tag="PRINTING" en="PRINTING"/>
   <translation tag="PROBE SENSORS" en="PROBE SENSORS"/>
   <translation tag="PTFE tube connection loose" en="PTFE tube connection loose"/>
+  <translation tag="Package download timed out. Check the network and beta access." en="Package download timed out. Check the network and beta access."/>
+  <translation tag="Package verification failed. Check updates and download again." en="Package verification failed. Check updates and download again."/>
   <translation tag="Packages" en="Packages"/>
   <translation tag="Pair" en="Pair"/>
   <translation tag="Pair Bluetooth Printer" en="Pair Bluetooth Printer"/>
@@ -3594,6 +3607,7 @@
   <translation tag="Stable release" en="Stable release"/>
   <translation tag="Stable releases and optional test updates" en="Stable releases and optional test updates"/>
   <translation tag="Stage" en="Stage"/>
+  <translation tag="Stage {} of 3" en="Stage {} of 3"/>
   <translation tag="Stall detection setup failed for the Z motor — power-cycle to retry" en="Stall detection setup failed for the Z motor — power-cycle to retry"/>
   <translation tag="Stall detection setup failed for the extruder — power-cycle to retry" en="Stall detection setup failed for the extruder — power-cycle to retry"/>
   <translation tag="Standard" en="Standard"/>
@@ -3803,6 +3817,7 @@
   <translation tag="The PEI sheet is still on the bed. Take it off, then tap Next." en="The PEI sheet is still on the bed. Take it off, then tap Next."/>
   <translation tag="The Spoolman spool currently loaded" en="The Spoolman spool currently loaded"/>
   <translation tag="The animated screensaver has been turned off on this device to prevent it from interfering with prints. You can re-enable it in Settings &gt; Display." en="The animated screensaver has been turned off on this device to prevent it from interfering with prints. You can re-enable it in Settings &gt; Display."/>
+  <translation tag="The background update check did not finish within 90 seconds. Try again later." en="The background update check did not finish within 90 seconds. Try again later."/>
   <translation tag="The bed and nozzle heat together before anything moves, so the print re-grips and the nozzle lets go of it." en="The bed and nozzle heat together before anything moves, so the print re-grips and the nozzle lets go of it."/>
   <translation tag="The bed has cooled. Take the spools off the plate, then confirm." en="The bed has cooled. Take the spools off the plate, then confirm."/>
   <translation tag="The bed heater. Set its temperature and watch its graph on the bed temperature screen." en="The bed heater. Set its temperature and watch its graph on the bed temperature screen."/>
@@ -3844,6 +3859,7 @@
   <translation tag="The heater was turned off at the heater." en="The heater was turned off at the heater."/>
   <translation tag="The heater will cycle on and off several times." en="The heater will cycle on and off several times."/>
   <translation tag="The helper macros are installed and activate after Klipper restarts." en="The helper macros are installed and activate after Klipper restarts."/>
+  <translation tag="The installed version is newer" en="The installed version is newer"/>
   <translation tag="The latch opens and {} can drop. Hold it before you continue, then put it in its dock." en="The latch opens and {} can drop. Hold it before you continue, then put it in its dock."/>
   <translation tag="The left RFID reader in this CFS unit may need service" en="The left RFID reader in this CFS unit may need service"/>
   <translation tag="The loaded slot is not known yet" en="The loaded slot is not known yet"/>
@@ -3901,6 +3917,7 @@
   <translation tag="The printer lost power while printing {}. Resume where it left off?" en="The printer lost power while printing {}. Resume where it left off?"/>
   <translation tag="The printer lost power while printing {}. The resumed layer may not line up exactly." en="The printer lost power while printing {}. The resumed layer may not line up exactly."/>
   <translation tag="The printer moves the toolhead and measures its motors." en="The printer moves the toolhead and measures its motors."/>
+  <translation tag="The printer must be idle with heaters off before updating." en="The printer must be idle with heaters off before updating."/>
   <translation tag="The printer no longer has a print to resume." en="The printer no longer has a print to resume."/>
   <translation tag="The printer reads the file up to the last saved position. A large file can take a minute." en="The printer reads the file up to the last saved position. A large file can take a minute."/>
   <translation tag="The printer records lane {} in the toolhead, not this one" en="The printer records lane {} in the toolhead, not this one"/>
@@ -3914,6 +3931,7 @@
   <translation tag="The right RFID reader in this CFS unit may need service" en="The right RFID reader in this CFS unit may need service"/>
   <translation tag="The runout sensor indicates no filament is loaded. Start print anyway?" en="The runout sensor indicates no filament is loaded. Start print anyway?"/>
   <translation tag="The saved position is kept. Reconnect or restart the screen to be offered the resume again." en="The saved position is kept. Reconnect or restart the screen to be offered the resume again."/>
+  <translation tag="The selected or installed version has changed. Check updates again." en="The selected or installed version has changed. Check updates again."/>
   <translation tag="The sensor in this CFS unit cannot be read. Check its connection, or the unit may need service" en="The sensor in this CFS unit cannot be read. Check its connection, or the unit may need service"/>
   <translation tag="The speed of one fan you choose" en="The speed of one fan you choose"/>
   <translation tag="The time, date, and system uptime" en="The time, date, and system uptime"/>
@@ -3997,6 +4015,7 @@
   <translation tag="This printer&apos;s network service controls the WiFi radio" en="This printer&apos;s network service controls the WiFi radio"/>
   <translation tag="This printer&apos;s network service manages saved WiFi networks" en="This printer&apos;s network service manages saved WiFi networks"/>
   <translation tag="This printer&apos;s screen has not shared a layout" en="This printer&apos;s screen has not shared a layout"/>
+  <translation tag="This release is installed" en="This release is installed"/>
   <translation tag="This removes the plugin&apos;s Moonraker component and restarts Moonraker. The printer will briefly disconnect. If old phase-tracking lines are still in PRINT_START, they are removed too, with backups kept. A Klipper restart applies that." en="This removes the plugin&apos;s Moonraker component and restarts Moonraker. The printer will briefly disconnect. If old phase-tracking lines are still in PRINT_START, they are removed too, with backups kept. A Klipper restart applies that."/>
   <translation tag="This replaces the printer&apos;s helper macros with the current version and restarts Klipper." en="This replaces the printer&apos;s helper macros with the current version and restarts Klipper."/>
   <translation tag="This replaces the printer&apos;s helper macros with the current version. A print is running, so Klipper restarts after it finishes." en="This replaces the printer&apos;s helper macros with the current version. A print is running, so Klipper restarts after it finishes."/>
@@ -4230,6 +4249,7 @@
   <translation tag="Update Success" en="Update Success"/>
   <translation tag="Update available" en="Update available"/>
   <translation tag="Update check failed. Check the network and beta SSH access." en="Update check failed. Check the network and beta SSH access."/>
+  <translation tag="Update check failed. Tap to retry." en="Update check failed. Tap to retry."/>
   <translation tag="Update checks are available on an installed VoronDeck screen" en="Update checks are available on an installed VoronDeck screen"/>
   <translation tag="Update completed. Check component versions." en="Update completed. Check component versions."/>
   <translation tag="Update component?" en="Update component?"/>
@@ -4237,13 +4257,18 @@
   <translation tag="Update heater model?" en="Update heater model?"/>
   <translation tag="Update in Spoolman" en="Update in Spoolman"/>
   <translation tag="Update installed!" en="Update installed!"/>
+  <translation tag="Update manager" en="Update manager"/>
   <translation tag="Update manager is outdated. Run the VoronDeck installer again." en="Update manager is outdated. Run the VoronDeck installer again."/>
+  <translation tag="Update manager ready. Check updates again." en="Update manager ready. Check updates again."/>
+  <translation tag="Update manager repair failed. Check that the printer is idle and local Moonraker is available." en="Update manager repair failed. Check that the printer is idle and local Moonraker is available."/>
   <translation tag="Update recovery macros to enable this switch, then restart Klipper." en="Update recovery macros to enable this switch, then restart Klipper."/>
   <translation tag="Update the INDX heater model too? {} now holds {}: density {:.2f}, heat capacity {:.2f}." en="Update the INDX heater model too? {} now holds {}: density {:.2f}, heat capacity {:.2f}."/>
+  <translation tag="Update the local update manager? Moonraker will restart. Printer settings are preserved. Then check updates again." en="Update the local update manager? Moonraker will restart. Printer settings are preserved. Then check updates again."/>
   <translation tag="Update was not confirmed. Check component updates before retrying." en="Update was not confirmed. Check component updates before retrying."/>
   <translation tag="Update your security PIN" en="Update your security PIN"/>
   <translation tag="Updates" en="Updates"/>
   <translation tag="Updating Configuration..." en="Updating Configuration..."/>
+  <translation tag="Updating the update manager..." en="Updating the update manager..."/>
   <translation tag="Upgrade to AFC 1.2.0 or newer for multi-color spools. It also adds filament names, which otherwise need Spoolman." en="Upgrade to AFC 1.2.0 or newer for multi-color spools. It also adds filament names, which otherwise need Spoolman."/>
   <translation tag="Upload" en="Upload"/>
   <translation tag="Upload Debug Bundle" en="Upload Debug Bundle"/>
@@ -4338,6 +4363,7 @@
   <translation tag="Waiting for bed to reach temperature for accurate calibration." en="Waiting for bed to reach temperature for accurate calibration."/>
   <translation tag="Waiting for chamber {} / {}°C" en="Waiting for chamber {} / {}°C"/>
   <translation tag="Waiting for chamber {}°C" en="Waiting for chamber {}°C"/>
+  <translation tag="Waiting for the background check to finish..." en="Waiting for the background check to finish..."/>
   <translation tag="Waiting for the chamber to heat" en="Waiting for the chamber to heat"/>
   <translation tag="Waiting for the filament system to report its state" en="Waiting for the filament system to report its state"/>
   <translation tag="Waiting for the printer" en="Waiting for the printer"/>

@@ -9,17 +9,11 @@
 #include "ui_update_queue.h"
 
 #include "../lvgl_test_fixture.h"
-#include "../test_helpers/ad5x_ifs_test_access.h"
 #include "../test_helpers/afc_test_access.h"
-#include "../test_helpers/cfs_test_access.h"
-#include "../test_helpers/snapmaker_test_access.h"
 #include "../test_helpers/toolchanger_test_access.h"
 #include "../test_helpers/update_queue_test_access.h"
-#include "ams_backend_ad5x_ifs.h"
 #include "ams_backend_afc.h"
-#include "ams_backend_cfs.h"
 #include "ams_backend_mock.h"
-#include "ams_backend_snapmaker.h"
 #include "ams_backend_toolchanger.h"
 #include "ams_state.h"
 #include "ams_types.h"
@@ -155,20 +149,6 @@ TEST_CASE_METHOD(KlipperRestartFixture, "A deinit and re-init leave exactly one 
     CHECK(backend->restarts == 1);
 }
 
-TEST_CASE_METHOD(KlipperRestartFixture, "A U1 operation latched busy ends with a Klipper restart",
-                 "[ams][snapmaker][klipper_restart_expiry]") {
-    auto owned = std::make_unique<helix::AmsBackendSnapmaker>(nullptr, nullptr);
-    auto* backend = owned.get();
-    AmsState::instance().set_backend(std::move(owned));
-
-    helix::SnapmakerTestAccess::handle_status(*backend, u1_feed_status(1, "load_feeding"));
-    REQUIRE(helix::ams_action_is_busy(backend->get_current_action()));
-
-    restart_klipper();
-
-    CHECK(backend->get_current_action() == AmsAction::IDLE);
-}
-
 TEST_CASE_METHOD(KlipperRestartFixture, "AFC ends a busy operation on a Klipper restart",
                  "[ams][afc][klipper_restart_expiry]") {
     helix::AmsBackendAfc backend(nullptr, nullptr);
@@ -177,31 +157,6 @@ TEST_CASE_METHOD(KlipperRestartFixture, "AFC ends a busy operation on a Klipper 
     backend.on_klipper_restarted();
 
     CHECK(backend.get_current_action() == AmsAction::IDLE);
-}
-
-TEST_CASE_METHOD(KlipperRestartFixture,
-                 "AD5X IFS ends its operation and phase tracking on a restart",
-                 "[ams][ad5x][klipper_restart_expiry]") {
-    helix::AmsBackendAd5xIfs backend(nullptr, nullptr);
-    helix::Ad5xIfsTestAccess::begin_phase(backend, /*is_unload=*/false);
-    REQUIRE(helix::Ad5xIfsTestAccess::phase_active(backend));
-
-    backend.on_klipper_restarted();
-
-    CHECK(helix::Ad5xIfsTestAccess::action(backend) == AmsAction::IDLE);
-    CHECK_FALSE(helix::Ad5xIfsTestAccess::phase_active(backend));
-}
-
-TEST_CASE_METHOD(KlipperRestartFixture, "CFS ends its operation and phase tracking on a restart",
-                 "[ams][cfs][klipper_restart_expiry]") {
-    helix::printer::AmsBackendCfs backend(nullptr, nullptr);
-    helix::CfsTestAccess::force_phase_intent(backend, AmsAction::LOADING);
-    REQUIRE(helix::CfsTestAccess::phase_active(backend));
-
-    backend.on_klipper_restarted();
-
-    CHECK(backend.get_current_action() == AmsAction::IDLE);
-    CHECK_FALSE(helix::CfsTestAccess::phase_active(backend));
 }
 
 TEST_CASE_METHOD(KlipperRestartFixture, "AFC drops its optimistic dispatch on a Klipper restart",

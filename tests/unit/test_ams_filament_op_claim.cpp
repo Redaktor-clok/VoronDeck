@@ -37,7 +37,6 @@
 #include "../lvgl_test_fixture.h"
 #include "../test_helpers/print_state_test_drivers.h"
 #include "ams_backend_happy_hare.h"
-#include "ams_backend_qidi.h"
 #include "ams_error.h"
 #include "ams_types.h"
 #include "moonraker_api_mock.h"
@@ -295,27 +294,6 @@ TEST_CASE_METHOD(ClaimFixture, "AMS filament op: exactly one of many concurrent 
         }
     }
     CHECK(winners == 1);
-    CHECK(backend->hook_entries.load() == 1);
-}
-
-TEST_CASE_METHOD(ClaimFixture, "AMS filament op: the claim covers a PrintActiveOnly backend too",
-                 "[ams][threading][claim]") {
-    // QIDI opts out of the running_/busy half of the gate
-    // (FilamentOpGate::PrintActiveOnly). That is an opt-out of consulting an AMS
-    // state it does not maintain — NOT an opt-out of the structural guarantee,
-    // which a backend has no hook to decline.
-    auto backend = headless<helix::AmsBackendQidi>();
-    backend->block_first_entrant.store(true);
-
-    std::thread first([&] { (void)backend->load_filament(0); });
-    backend->wait_for_first_entrant();
-
-    const AmsError contender = backend->change_tool(1);
-
-    backend->release();
-    first.join();
-
-    CHECK(contender.result == AmsResult::BUSY);
     CHECK(backend->hook_entries.load() == 1);
 }
 

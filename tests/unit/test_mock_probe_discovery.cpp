@@ -307,7 +307,8 @@ TEST_CASE("Mock probe status carries the keys real firmware publishes",
     }
 }
 
-TEST_CASE("Unset HELIX_MOCK_PROBE_TYPE reports the persona's own probe", "[mock][probe][persona]") {
+TEST_CASE("Mock probe selection follows the persona and explicit overrides",
+          "[mock][probe][persona]") {
     using Keys = std::set<std::string>;
     helix::ScopedEnv unset("HELIX_MOCK_PROBE_TYPE", nullptr);
 
@@ -317,8 +318,9 @@ TEST_CASE("Unset HELIX_MOCK_PROBE_TYPE reports the persona's own probe", "[mock]
         CHECK(keys_of(mock_internal::get_mock_probe_config(type)) == Keys{"cartographer"});
     }
 
-    SECTION("cc1 reports its mainline load_cell_probe and nothing of cartographer's") {
-        const auto type = helix::mock::PrinterType::ELEGOO_CC1;
+    SECTION("mainline load_cell_probe publishes its probe alias") {
+        helix::ScopedEnv probe_type("HELIX_MOCK_PROBE_TYPE", "load_cell_probe");
+        const auto type = helix::mock::PrinterType::VORON_24;
         const json st = helix::sim::mock_probe_status(type);
         CHECK(keys_of(st) == Keys{"load_cell_probe", "probe"});
         CHECK(st["probe"] == st["load_cell_probe"]);
@@ -326,17 +328,9 @@ TEST_CASE("Unset HELIX_MOCK_PROBE_TYPE reports the persona's own probe", "[mock]
         CHECK(keys_of(mock_internal::get_mock_probe_config(type)) == Keys{"load_cell_probe"});
     }
 
-    SECTION("ad5x reports the Flashforge load cell on the generic probe") {
-        const auto type = helix::mock::PrinterType::FLASHFORGE_AD5X;
-        const json st = helix::sim::mock_probe_status(type);
-        CHECK(keys_of(st) == Keys{"probe"});
-        CHECK(st["probe"]["z_offset"].is_null());
-        CHECK(keys_of(mock_internal::get_mock_probe_config(type)) == Keys{"probe"});
-    }
-
     SECTION("an explicit type overrides the persona's own probe") {
         helix::ScopedEnv bltouch("HELIX_MOCK_PROBE_TYPE", "bltouch");
-        const auto type = helix::mock::PrinterType::ELEGOO_CC1;
+        const auto type = helix::mock::PrinterType::VORON_24;
         CHECK(keys_of(helix::sim::mock_probe_status(type)) == Keys{"bltouch", "probe"});
         CHECK(keys_of(mock_internal::get_mock_probe_config(type)) == Keys{"bltouch"});
     }

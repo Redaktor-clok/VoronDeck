@@ -13,9 +13,7 @@ namespace helix {
 ///
 /// Returns @p fallback when the variable is unset, empty, non-numeric, or
 /// non-positive — an unusable value, not a boundary to clamp to. Any usable
-/// value is clamped to [@p lo, @p hi]. The HELIX_JZ_* piezo-rig knobs
-/// pioneered this shape inline (jz_pwm_sound_backend.cpp); this is the
-/// shared home so the parse/clamp rules live once.
+/// value is clamped to [@p lo, @p hi].
 inline float env_float(const char* name, float fallback, float lo, float hi) {
     const char* raw = std::getenv(name);
     if (raw == nullptr || raw[0] == '\0') {

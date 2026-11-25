@@ -16,13 +16,8 @@ TEST_CASE("Telemetry ams.type slugs are stable", "[telemetry][ams]") {
     CHECK(std::string(ams_type_telemetry_slug(AmsType::NONE)) == "unknown");
     CHECK(std::string(ams_type_telemetry_slug(AmsType::HAPPY_HARE)) == "happy_hare");
     CHECK(std::string(ams_type_telemetry_slug(AmsType::AFC)) == "afc");
-    CHECK(std::string(ams_type_telemetry_slug(AmsType::ACE)) == "ace");
     CHECK(std::string(ams_type_telemetry_slug(AmsType::TOOL_CHANGER)) == "tool_changer");
-    CHECK(std::string(ams_type_telemetry_slug(AmsType::AD5X_IFS)) == "ifs");
-    CHECK(std::string(ams_type_telemetry_slug(AmsType::CFS)) == "cfs");
-    CHECK(std::string(ams_type_telemetry_slug(AmsType::QIDI_BOX)) == "qidi_box");
     CHECK(std::string(ams_type_telemetry_slug(AmsType::OPENAMS)) == "openams");
-    CHECK(std::string(ams_type_telemetry_slug(AmsType::SNAPMAKER)) == "snapmaker");
     CHECK(std::string(ams_type_telemetry_slug(AmsType::INDX)) == "indx");
 }
 
@@ -33,7 +28,6 @@ TEST_CASE("Expected-hardware names are stable and round-trip", "[ams][hardware][
     using helix::ams_type_traits;
     CHECK(std::string(ams_type_traits(AmsType::HAPPY_HARE).expected_hardware) == "mmu");
     CHECK(std::string(ams_type_traits(AmsType::AFC).expected_hardware) == "AFC");
-    CHECK(std::string(ams_type_traits(AmsType::ACE).expected_hardware) == "ace");
     CHECK(std::string(ams_type_traits(AmsType::TOOL_CHANGER).expected_hardware) == "toolchanger");
     CHECK(std::string(ams_type_traits(AmsType::INDX).expected_hardware) == "indx");
 
@@ -50,15 +44,23 @@ TEST_CASE("Expected-hardware names are stable and round-trip", "[ams][hardware][
     CHECK(ams_type_for_expected_hardware("heater_bed") == AmsType::NONE);
 }
 
-TEST_CASE("Every AmsType has exactly one traits row", "[ams]") {
-    for (int v = 0; v <= static_cast<int>(AmsType::INDX); ++v) {
-        const auto type = static_cast<AmsType>(v);
+TEST_CASE("Every supported AmsType has exactly one traits row", "[ams]") {
+    for (const auto type : {AmsType::NONE, AmsType::HAPPY_HARE, AmsType::AFC, AmsType::TOOL_CHANGER,
+                            AmsType::OPENAMS, AmsType::INDX}) {
         int rows = 0;
         for (const auto& row : helix::kAmsTypeTraits) {
             rows += row.type == type ? 1 : 0;
         }
-        CAPTURE(v);
+        CAPTURE(static_cast<int>(type));
         CHECK(rows == 1);
         CHECK(helix::ams_type_traits(type).type == type);
+    }
+}
+
+TEST_CASE("Retired persisted AMS identifiers have no active traits", "[ams][vorondeck]") {
+    for (const auto type :
+         {AmsType::ACE, AmsType::AD5X_IFS, AmsType::CFS, AmsType::QIDI_BOX, AmsType::SNAPMAKER}) {
+        CHECK(helix::ams_type_traits(type).type == AmsType::NONE);
+        CHECK(std::string(ams_type_telemetry_slug(type)) == "unknown");
     }
 }

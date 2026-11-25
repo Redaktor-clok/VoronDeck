@@ -6,13 +6,11 @@
 #include "../lvgl_ui_test_fixture.h"
 #include "../test_helpers/mock_printer.h"
 #include "ams_backend_afc.h"
-#include "ams_backend_cfs.h"
 #include "ams_backend_toolchanger.h"
 #include "filament_op_execute.h"
 #include "moonraker_api_mock.h"
 #include "moonraker_client_mock.h"
 #include "printer_state.h"
-#include "test_helpers/cfs_test_access.h"
 #include "test_helpers/filament_panel_macro_harness.h"
 #include "test_helpers/filament_panel_test_access.h"
 #include "test_helpers/lane_material_backend.h"
@@ -270,55 +268,6 @@ TEST_CASE("ensure_homed_then custom timeout/silent bypass the hardcoded virtuals
 // dispatch_action_script stays private in AmsBackendCfs -- these tests reach
 // the REAL production implementation through the helix::CfsTestAccess friend shim
 // (tests/test_helpers/cfs_test_access.h), not by subclassing to widen access.
-
-TEST_CASE("CFS dispatch_action_script routes through ensure_homed_then and homes when unhomed",
-          "[ams][homing][cfs]") {
-    MockPrinter mock_printer;
-    auto& client = mock_printer.client;
-    auto& api = mock_printer.api;
-
-    // homed_axes defaults to "" (not homed) -- exercises the G28-then-payload leg.
-    helix::printer::AmsBackendCfs backend(&api, nullptr);
-
-    auto err = helix::CfsTestAccess::call_dispatch_action_script(backend, "BOX_LOAD LANE=1");
-    REQUIRE(err.success());
-
-    // G28's success callback is marshalled through token.defer() (L081
-    // Mechanism C) before the payload is dispatched -- drain to let it run.
-    helix::ui::UpdateQueueTestAccess::drain_all(helix::ui::UpdateQueue::instance());
-
-    REQUIRE(client.gcode_script_history().size() == 2);
-    CHECK(client.gcode_script_history()[0] == "G28");
-    CHECK(client.gcode_script_history()[1] == "BOX_LOAD LANE=1");
-
-    // The payload send is the last one recorded -- confirms silent=false
-    // (CFS's own timeout-toast behaviour) survived the collapse into
-    // ensure_homed_then()'s "custom" dispatch_payload() branch.
-    CHECK(client.last_send_method() == "printer.gcode.script");
-    CHECK(client.last_send_script() == "BOX_LOAD LANE=1");
-    CHECK_FALSE(client.last_send_silent());
-}
-
-TEST_CASE("CFS Fork variant never homes via dispatch_action_script", "[ams][homing][cfs][fork]") {
-    MockPrinter mock_printer;
-    auto& client = mock_printer.client;
-    auto& api = mock_printer.api;
-
-    helix::printer::AmsBackendCfs backend(&api, nullptr);
-    helix::CfsTestAccess::set_macro_variant_fork(backend);
-
-    // homed_axes is STILL "" (not homed) here -- proves the skip comes from
-    // skip_homing=true (Fork maps to it), not from the toolhead happening to
-    // already be homed.
-    auto err = helix::CfsTestAccess::call_dispatch_action_script(backend, "BOX_LOAD LANE=1");
-    REQUIRE(err.success());
-
-    helix::ui::UpdateQueueTestAccess::drain_all(helix::ui::UpdateQueue::instance());
-
-    REQUIRE(client.gcode_script_history().size() == 1);
-    CHECK(client.gcode_script_history()[0] == "BOX_LOAD LANE=1");
-    CHECK_FALSE(client.last_send_silent());
-}
 
 // =====================================================================
 // FilamentPanel: an unhomed macro-tier load homes only when its profile says so

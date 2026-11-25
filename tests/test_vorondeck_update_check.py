@@ -6,6 +6,7 @@ from pathlib import Path
 import shlex
 import tempfile
 import unittest
+from unittest.mock import patch
 
 path = Path(__file__).resolve().parents[1] / 'assets/updates/check-vorondeck-update.py'
 spec = importlib.util.spec_from_file_location('vorondeck_update_check', path)
@@ -181,6 +182,37 @@ class Channels(unittest.TestCase):
         self.assertEqual(calls, ['stable'])
         self.assertEqual(result['status'], 'access_required')
         self.assertEqual(result['channels']['beta']['status'], 'access_required')
+
+
+class TestChannel(unittest.TestCase):
+    def test_independent_tracking_and_install_eligibility(self):
+        package = dict(kind='test', version='1.0.2-T.1', display_version='1.0.2 T1',
+                       tag='v1.0.2-T.1', sha256='b' * 64, source_commit='a' * 40)
+        for installed_version, stable, expected in (
+                ('1.0.1', '1.0.1', 'available'),
+                ('1.0.2-beta.2', '1.0.1', 'older'),
+                ('1.0.2-T.1', '1.0.1', 'current'),
+                ('1.0.1', '1.0.2', 'older')):
+            with self.subTest(installed=installed_version, stable=stable):
+                installed = dict(version=installed_version, source_commit='a' * 40,
+                                 architecture='aarch64')
+                result = dict(channels={'stable': {'version': stable}}, offers=[])
+                with patch.object(checker.public, 'latest', return_value=package) as latest:
+                    checker.check_test_channel(result, installed,
+                                               installed_version + '-' + 'b' * 12, 'glibc')
+                    latest.assert_called_once_with('aarch64', 'glibc')
+                self.assertEqual(result['channels']['test'],
+                                 {'status': expected, 'version': '1.0.2 T1'})
+                self.assertEqual(bool(result['offers']), expected == 'available')
+
+    def test_missing_and_failed_test_channel_are_distinct(self):
+        installed = dict(version='1.0.1', source_commit='a' * 40, architecture='aarch64')
+        for failure, expected in ((None, 'none'), (OSError('offline'), 'unavailable')):
+            result = dict(channels={}, offers=[])
+            with patch.object(checker.public, 'latest', return_value=None, side_effect=failure):
+                checker.check_test_channel(result, installed, '1.0.1', 'glibc')
+            self.assertEqual(result['test_status'], expected)
+            self.assertEqual(result['offers'], [])
 
 
 class Notifications(unittest.TestCase):

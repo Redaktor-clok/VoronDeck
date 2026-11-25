@@ -360,26 +360,11 @@ libhv-build:
 ifneq ($(CROSS_COMPILE),)
 	# Cross-compilation mode.
 	# Pass cross-compiler to configure and make.
-	# When SSL is enabled, map target -> toolchain OpenSSL prefix.
-	$(Q)OPENSSL_PREFIX=""; \
-	OPENSSL_INC=""; \
-	OPENSSL_LIB_DIR=""; \
-	if [ "$(ENABLE_SSL)" = "yes" ]; then \
-		case "$(PLATFORM_TARGET)" in \
-			ad5m|cc1) OPENSSL_PREFIX="/opt/arm-toolchain/arm-none-linux-gnueabihf" ;; \
-			mips|k1|ad5x) OPENSSL_PREFIX="/opt/k1-toolchain/mipsel-k1-linux-musl/sysroot/usr" ;; \
-			k2) OPENSSL_PREFIX="/opt/arm-musl-toolchain/arm-buildroot-linux-musleabihf/sysroot/usr" ;; \
-		esac; \
-		if [ -n "$$OPENSSL_PREFIX" ]; then \
-			OPENSSL_INC=" -I$$OPENSSL_PREFIX/include"; \
-			OPENSSL_LIB_DIR="-L$$OPENSSL_PREFIX/lib"; \
-		fi; \
-	fi; \
 	(cd $(LIBHV_DIR) && \
 		CC="$(CC)" CXX="$(CXX)" AR="$(AR)" \
-		CFLAGS="$(TARGET_CFLAGS) $(SANITIZE_FLAGS)$$OPENSSL_INC" \
-		CXXFLAGS="$(TARGET_CFLAGS) $(SANITIZE_FLAGS)$$OPENSSL_INC" \
-		LDFLAGS="$$OPENSSL_LIB_DIR $(SANITIZE_FLAGS)" \
+		CFLAGS="$(TARGET_CFLAGS) $(SANITIZE_FLAGS)" \
+		CXXFLAGS="$(TARGET_CFLAGS) $(SANITIZE_FLAGS)" \
+		LDFLAGS="$(SANITIZE_FLAGS)" \
 		./configure --with-http-client $(if $(filter yes,$(ENABLE_SSL)),--with-openssl))
 	# libhv's nested make has been flaky under cross toolchains when run with
 	# inherited/parallel jobserver flags; keep only this sub-build serialized.

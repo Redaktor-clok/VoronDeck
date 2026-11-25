@@ -40,17 +40,13 @@
 // AD5X IFS is feature-gated (HELIX_HAS_IFS=0 on the space-constrained cross
 // builds, mk/cross.mk), so every self-homing assertion below is guarded. The
 // non-self-homing half of the table is unconditional.
-#include "ams_backend_ad5x_ifs.h"
 #include "ams_backend_afc.h"
 #include "ams_backend_happy_hare.h"
-#include "ams_backend_qidi.h"
-#include "ams_backend_snapmaker.h"
 #include "ams_error.h"
 #include "moonraker_api_mock.h"
 #include "moonraker_client_mock.h"
 #include "printer_state.h"
 #include "test_helpers/afc_test_access.h"
-#include "test_helpers/snapmaker_test_access.h"
 
 #include <algorithm>
 #include <memory>
@@ -125,24 +121,18 @@ struct PausedGateFixture : public LVGLTestFixture {
 // The capability itself
 // ============================================================================
 
-TEST_CASE_METHOD(PausedGateFixture,
-                 "filament_ops_self_home: AD5X is the only backend that claims it",
+TEST_CASE_METHOD(PausedGateFixture, "Open filament backends leave homing to the guarded caller",
                  "[ams][safety][paused]") {
     // Verified by grep: the sole G28 sites in the filament paths are AD5X's
     // `_IFS_REMOVE_CURRENT_PRUTOK` / `INSERT_PRUTOK_IFS`. Every other backend
     // dispatches through ensure_homed_then(), which homes only when unhomed.
-#if HELIX_HAS_IFS
-    CHECK(make<helix::AmsBackendAd5xIfs>()->filament_ops_self_home());
-#endif
     CHECK_FALSE(make<helix::AmsBackendAfc>()->filament_ops_self_home());
     CHECK_FALSE(make<helix::AmsBackendHappyHare>()->filament_ops_self_home());
-    CHECK_FALSE(make<helix::AmsBackendQidi>()->filament_ops_self_home());
     // Snapmaker's AUTO_FEEDING does home, but prepare_for_resume() drives
     // `AUTO_FEEDING ... PRINTING=1` on a PAUSED job and was live-verified on
     // physical U1 hardware (#991) — the firmware exposes PRINTING=1 for exactly
     // that recovery. No evidence the home is unsafe, so this stays false and the
     // runout-recovery workflow keeps working.
-    CHECK_FALSE(make<helix::AmsBackendSnapmaker>()->filament_ops_self_home());
 }
 
 // ============================================================================
@@ -152,20 +142,6 @@ TEST_CASE_METHOD(PausedGateFixture,
 TEST_CASE_METHOD(PausedGateFixture, "PRINTING refuses toolhead-motion ops on every backend",
                  "[ams][safety][paused]") {
     set_print_state(helix::PrintJobState::PRINTING);
-
-#if HELIX_HAS_IFS
-    SECTION("self-homing backend (AD5X)") {
-        auto backend = make<helix::AmsBackendAd5xIfs>();
-        AmsError err = backend->check_preconditions(/*requires_toolhead_motion=*/true);
-        REQUIRE_FALSE(err.success());
-        CHECK(err.result == AmsResult::WRONG_STATE);
-        CHECK(err.user_msg == "Cannot run filament operation while printing");
-        // AD5X cannot do the op paused either, so pausing is NOT offered as a
-        // recovery — only finishing or cancelling is.
-        CHECK(err.suggestion.find("Finish or cancel") != std::string::npos);
-        CHECK(err.suggestion.find("Pause the print") == std::string::npos);
-    }
-#endif // HELIX_HAS_IFS
 
     SECTION("non-self-homing backend (AFC) — the reported machine") {
         auto backend = make<helix::AmsBackendAfc>();
@@ -183,46 +159,11 @@ TEST_CASE_METHOD(PausedGateFixture, "PRINTING refuses toolhead-motion ops on eve
         CHECK_FALSE(backend->check_preconditions(true).success());
         CHECK_FALSE(backend->call_refuse_if_printing().success());
     }
-
-    SECTION("QIDI gates via refuse_if_printing() directly, not check_preconditions()") {
-        // QIDI's load/unload/change_tool call refuse_if_printing() themselves
-        // because they skip the running_/busy gate. That path must refuse too.
-        auto backend = make<helix::AmsBackendQidi>();
-        AmsError err = backend->call_refuse_if_printing();
-        REQUIRE_FALSE(err.success());
-        CHECK(err.user_msg == "Cannot run filament operation while printing");
-    }
 }
 
 // ============================================================================
 // Cell 3: PAUSED still refuses on a self-homing backend (XWPBR2DX protection)
 // ============================================================================
-
-#if HELIX_HAS_IFS
-TEST_CASE_METHOD(PausedGateFixture, "PAUSED still refuses on AD5X — the buried _G28 would collide",
-                 "[ams][safety][paused]") {
-    set_print_state(helix::PrintJobState::PAUSED);
-    auto backend = make<helix::AmsBackendAd5xIfs>();
-
-    AmsError err = backend->check_preconditions(/*requires_toolhead_motion=*/true);
-    REQUIRE_FALSE(err.success());
-    CHECK(err.result == AmsResult::WRONG_STATE);
-    CHECK(err.user_msg == "Can't move filament while the print is paused");
-
-    // The refusal has to leave the user somewhere they can actually go. Both
-    // named routes work on an AD5X: feeding filament past the toolhead sensor by
-    // hand re-triggers head_switch_sensor so RESUME continues the job, and
-    // cancelling returns the printer to STANDBY where Load/Unload are permitted.
-    CHECK(err.suggestion.find("Resume") != std::string::npos);
-    CHECK(err.suggestion.find("cancel") != std::string::npos);
-    // "while printing" on a paused job reads as a bug (bundle JX2FVRB9).
-    CHECK(err.user_msg.find("printing") == std::string::npos);
-
-    // No-motion ops (eject_lane, select, unlock) were never blocked and still
-    // are not — blocking them would strand filament the user could have ejected.
-    CHECK(backend->check_preconditions(/*requires_toolhead_motion=*/false).success());
-}
-#endif // HELIX_HAS_IFS
 
 // ============================================================================
 // Cell 4: PAUSED now SUCCEEDS on a backend that does not self-home
@@ -247,11 +188,6 @@ TEST_CASE_METHOD(PausedGateFixture,
         auto backend = make<helix::AmsBackendHappyHare>();
         CHECK(backend->check_preconditions(true).success());
     }
-
-    SECTION("QIDI, via its direct refuse_if_printing() call site") {
-        auto backend = make<helix::AmsBackendQidi>();
-        CHECK(backend->call_refuse_if_printing().success());
-    }
 }
 
 // ============================================================================
@@ -267,101 +203,6 @@ TEST_CASE_METHOD(PausedGateFixture,
 // after the command is built returns the refusal AND still sends the G-code.
 // ============================================================================
 
-TEST_CASE_METHOD(PausedGateFixture, "Snapmaker refuses toolhead-motion filament ops while PRINTING",
-                 "[ams][snapmaker][safety][paused]") {
-    set_print_state(helix::PrintJobState::PRINTING);
-    auto backend = make<helix::AmsBackendSnapmaker>();
-
-    auto expect_refused = [&](AmsError err) {
-        REQUIRE_FALSE(err.success());
-        CHECK(err.result == AmsResult::WRONG_STATE);
-        CHECK(err.user_msg == "Cannot run filament operation while printing");
-        // Snapmaker can do these paused, so the copy names pausing as the way out.
-        CHECK(err.suggestion.find("Pause the print") != std::string::npos);
-        CHECK(backend->dispatched.empty());
-    };
-
-    SECTION("load_filament") {
-        expect_refused(backend->load_filament(2));
-    }
-
-    SECTION("unload_filament with an explicit slot") {
-        expect_refused(backend->unload_filament(2));
-    }
-
-    SECTION("unload_filament with an unknown current slot — the INNER_FILAMENT_UNLOAD fallback") {
-        // current_slot defaults to -1, so this is the branch that skips
-        // AUTO_FEEDING and emits the firmware's bare leaf macro. It moves the
-        // toolhead too, and the guard sits ahead of the fork so it is covered.
-        expect_refused(backend->unload_filament(-1));
-    }
-
-    SECTION("change_tool") {
-        expect_refused(backend->change_tool(1));
-    }
-
-    SECTION("select_slot — on the U1 a slot select IS a physical tool change") {
-        expect_refused(backend->select_slot(1));
-    }
-}
-
-TEST_CASE_METHOD(PausedGateFixture, "Snapmaker still allows filament ops while PAUSED",
-                 "[ams][snapmaker][safety][paused]") {
-    // Runout recovery on a U1 is pause -> feed -> resume, and prepare_for_resume()
-    // drives AUTO_FEEDING against a paused job on real hardware (#991). Refusing
-    // here would break the workflow the gate exists to protect.
-    set_print_state(helix::PrintJobState::PAUSED);
-    auto backend = make<helix::AmsBackendSnapmaker>();
-
-    SECTION("load_filament") {
-        REQUIRE(backend->load_filament(2).success());
-        REQUIRE(backend->dispatched.size() == 1);
-        CHECK(backend->dispatched[0] == "AUTO_FEEDING EXTRUDER=2 LOAD=1");
-    }
-
-    SECTION("unload_filament") {
-        REQUIRE(backend->unload_filament(2).success());
-        REQUIRE(backend->dispatched.size() == 1);
-        CHECK(backend->dispatched[0] == "AUTO_FEEDING EXTRUDER=2 UNLOAD=1");
-    }
-
-    SECTION("unload_filament falls back to INNER_FILAMENT_UNLOAD") {
-        REQUIRE(backend->unload_filament(-1).success());
-        REQUIRE(backend->dispatched.size() == 1);
-        CHECK(backend->dispatched[0] == "INNER_FILAMENT_UNLOAD");
-    }
-
-    SECTION("change_tool") {
-        REQUIRE(backend->change_tool(1).success());
-        REQUIRE(backend->dispatched.size() == 1);
-        CHECK(backend->dispatched[0] == "T1");
-    }
-
-    SECTION("select_slot") {
-        REQUIRE(backend->select_slot(3).success());
-        REQUIRE(backend->dispatched.size() == 1);
-        CHECK(backend->dispatched[0] == "T3");
-    }
-}
-
-TEST_CASE_METHOD(PausedGateFixture, "Snapmaker filament ops are untouched with no print running",
-                 "[ams][snapmaker][safety][paused]") {
-    auto backend = make<helix::AmsBackendSnapmaker>();
-
-    for (helix::PrintJobState s : {helix::PrintJobState::STANDBY, helix::PrintJobState::COMPLETE,
-                                   helix::PrintJobState::CANCELLED, helix::PrintJobState::ERROR}) {
-        set_print_state(s);
-        CAPTURE(static_cast<int>(s));
-
-        backend->dispatched.clear();
-        REQUIRE(backend->load_filament(0).success());
-        REQUIRE(backend->unload_filament(0).success());
-        REQUIRE(backend->change_tool(0).success());
-        REQUIRE(backend->select_slot(0).success());
-        CHECK(backend->dispatched.size() == 4);
-    }
-}
-
 // ============================================================================
 // States that were never gated stay ungated
 // ============================================================================
@@ -369,18 +210,12 @@ TEST_CASE_METHOD(PausedGateFixture, "Snapmaker filament ops are untouched with n
 TEST_CASE_METHOD(PausedGateFixture, "inactive print states allow motion ops on every backend",
                  "[ams][safety][paused]") {
     auto afc = make<helix::AmsBackendAfc>();
-#if HELIX_HAS_IFS
-    auto ad5x = make<helix::AmsBackendAd5xIfs>();
-#endif
 
     for (helix::PrintJobState s : {helix::PrintJobState::STANDBY, helix::PrintJobState::COMPLETE,
                                    helix::PrintJobState::CANCELLED, helix::PrintJobState::ERROR}) {
         set_print_state(s);
         CAPTURE(static_cast<int>(s));
         CHECK(afc->check_preconditions(/*requires_toolhead_motion=*/true).success());
-#if HELIX_HAS_IFS
-        CHECK(ad5x->check_preconditions(true).success());
-#endif
     }
 }
 
@@ -409,16 +244,8 @@ TEST_CASE_METHOD(PausedGateFixture, "PREPARING refuses toolhead-motion ops on ev
     set_preprint_phase(helix::PrintStartPhase::BED_MESH);
 
     auto afc = make<helix::AmsBackendAfc>();
-    auto snap = make<helix::AmsBackendSnapmaker>();
-#if HELIX_HAS_IFS
-    auto ad5x = make<helix::AmsBackendAd5xIfs>();
-#endif
 
     CHECK_FALSE(afc->check_preconditions(/*requires_toolhead_motion=*/true).success());
-    CHECK_FALSE(snap->check_preconditions(true).success());
-#if HELIX_HAS_IFS
-    CHECK_FALSE(ad5x->check_preconditions(true).success());
-#endif
 
     // Cold lane ops are still permitted — they move no toolhead, and blanket-
     // blocking them would strand filament exactly as #995/#1199 describe.
@@ -595,40 +422,8 @@ TEST_CASE_METHOD(PausedGateFixture, "AFC is the backend whose cold lane ops the 
                  "[ams][afc][eject][paused]") {
     CHECK(make<helix::AmsBackendAfc>()->cold_lane_ops_refused_during_print());
     CHECK_FALSE(make<helix::AmsBackendHappyHare>()->cold_lane_ops_refused_during_print());
-    CHECK_FALSE(make<helix::AmsBackendQidi>()->cold_lane_ops_refused_during_print());
-#if HELIX_HAS_IFS
-    CHECK_FALSE(make<helix::AmsBackendAd5xIfs>()->cold_lane_ops_refused_during_print());
-#endif
 }
 
 // ============================================================================
 // Park Toolhead: the shared gate refuses a paused job for every caller
 // ============================================================================
-
-TEST_CASE_METHOD(PausedGateFixture, "park_active_tool is refused while paused or printing",
-                 "[ams][safety][paused][park]") {
-    auto backend = make<helix::AmsBackendSnapmaker>();
-    helix::SnapmakerTestAccess::handle_status(
-        *backend, nlohmann::json{{"toolhead", nlohmann::json{{"extruder", "extruder1"}}}});
-    REQUIRE(backend->get_current_tool() == 1);
-
-    SECTION("paused: refused although the backend allows other ops while paused") {
-        set_print_state(helix::PrintJobState::PAUSED);
-        CHECK(backend->change_tool(2).success());
-        backend->dispatched.clear();
-
-        CHECK_FALSE(backend->park_active_tool().success());
-        CHECK(backend->dispatched.empty());
-    }
-    SECTION("printing: refused") {
-        set_print_state(helix::PrintJobState::PRINTING);
-        CHECK_FALSE(backend->park_active_tool().success());
-        CHECK(backend->dispatched.empty());
-    }
-    SECTION("standby: parks") {
-        set_print_state(helix::PrintJobState::STANDBY);
-        REQUIRE(backend->park_active_tool().success());
-        REQUIRE(backend->dispatched.size() == 1);
-        CHECK(backend->dispatched[0] == "PARK_EXTRUDER");
-    }
-}

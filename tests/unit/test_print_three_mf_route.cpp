@@ -14,10 +14,8 @@
 #include "../test_helpers/print_status_panel_test_access.h"
 #include "../test_helpers/printer_state_test_access.h"
 #include "../test_helpers/scoped_env.h"
-#include "../test_helpers/snapmaker_test_access.h"
 #include "../test_helpers/update_queue_test_access.h"
 #include "../ui_test_utils.h"
-#include "ams_backend_snapmaker.h"
 #include "app_globals.h"
 #include "moonraker_api_mock.h"
 #include "print_start_checks.h"
@@ -230,12 +228,8 @@ TEST_CASE_METHOD(ArchiveStart, "a plate the printer already converted prints fro
 TEST_CASE_METHOD(ArchiveStart, "staged copies go where the printer's Klipper can print them",
                  "[print_preparation][three_mf][staging]") {
     plant("single_plate.gcode.3mf");
-    const bool forgex = GENERATE(true, false);
-    CAPTURE(forgex);
-    REQUIRE(printer.state.profile_state().set_printer_type(
-        forgex ? "FlashForge Adventurer 5M (ForgeX)" : "FlashForge Adventurer 5M", true, false,
-        false));
-    const std::string root = forgex ? "helix_staging/modified_" : ".helix_temp/modified_";
+    REQUIRE(printer.state.profile_state().set_printer_type("Voron 2.4", true, false, false));
+    const std::string root = ".helix_temp/modified_";
     manager.set_archive_plate(kArchive, 9);
     start();
     const auto& uploads = printer.api.transfers_mock().path_uploads();
@@ -560,33 +554,6 @@ TEST_CASE("a cancelled read_entry_head answers nothing", "[three_mf][reader][sca
     cancelled->store(true);
     transfers.release_held(fail);
     CHECK_FALSE(answered);
-}
-
-TEST_CASE_METHOD(ArchiveStart, "a reprint before Print Files is built runs the pre-print step",
-                 "[print_status][reprint]") {
-    helix::test::RegisteredBackend<AmsBackendSnapmaker> backend_reg(&printer.api, nullptr);
-    helix::PlantedGcode file("reprint_fallback_t0t2.gcode", "",
-                             "; filament_type = PLA;PLA;PETG\n"
-                             "G28\nT0\nT2\n"
-                             "; filament used [g] = 1.50, 0.00, 2.25\n");
-    printer.client.clear_gcode_script_history();
-
-    PrintStatusPanel panel{printer.state, &printer.api};
-    panel.init_subjects();
-    helix::ui::PrintStartController controller(printer.state, &printer.api);
-    PrintStatusPanelTestAccess::reprint_through(panel, controller,
-                                                helix::gcode::ReprintTarget{file.name(), 0});
-    drain_until_quiet();
-    REQUIRE(printer.api.job_mock().started_prints().size() == 1);
-
-    // The pre-print step named the file's heads before the start.
-    bool used_heads = false;
-    for (const auto& script : printer.client.gcode_script_history()) {
-        used_heads = used_heads ||
-                     script.find("SET_PRINT_USED_EXTRUDERS EXTRUDERS=0,2") != std::string::npos;
-    }
-    CHECK(used_heads);
-    panel.deinit_subjects();
 }
 
 TEST_CASE_METHOD(ArchiveStart, "a plate reprint before Print Files is built is refused",

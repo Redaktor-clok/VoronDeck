@@ -33,8 +33,6 @@ const StyleCase kStyles[] = {
     {ToolheadStyle::ANTHEAD, "anthead", draw_nozzle_anthead},
     {ToolheadStyle::JABBERWOCKY, "jabberwocky", draw_nozzle_jabberwocky},
     {ToolheadStyle::STEALTHBURNER, "stealthburner", draw_nozzle_stealthburner},
-    {ToolheadStyle::CREALITY_K1, "k1", draw_nozzle_creality_k1},
-    {ToolheadStyle::CREALITY_K2, "k2", draw_nozzle_creality_k2},
 };
 
 // Glyph scales the canvases draw at, micro through 800x480: the detail tool

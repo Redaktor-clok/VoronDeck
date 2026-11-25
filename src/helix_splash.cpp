@@ -24,6 +24,7 @@
 #include "display_backend.h"
 #include "helix_version.h"
 #include "prerender_size_class.h"
+#include "splash_branding.h"
 #include "splash_status.h"
 
 #include <algorithm>
@@ -162,19 +163,16 @@ static void fade_anim_cb(void* obj, int32_t value) {
 /**
  * @brief Create and configure the splash screen UI
  *
- * Native VoronDeck text; no upstream artwork fallback.
+ * VoronDeck logo and native title, shared with the main application.
  */
-static lv_obj_t* create_splash_ui(lv_obj_t* screen, int /*width*/, int /*height*/, bool dark_mode,
+static lv_obj_t* create_splash_ui(lv_obj_t* screen, int width, int height, bool dark_mode,
                                   bool use_fade) {
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_set_style_bg_color(screen, lv_color_hex(dark_mode ? kBgColorDark : kBgColor3dLight), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-    lv_obj_t* container = lv_label_create(screen);
-    lv_label_set_text(container, "VoronDeck");
-    lv_obj_set_style_text_color(container, lv_color_hex(dark_mode ? 0xFFFFFF : 0x202124), 0);
-    lv_obj_center(container);
-    lv_obj_set_style_transform_scale(container, 512, 0);
+    lv_obj_t* container = helix::create_splash_branding(
+        screen, width, height, lv_color_hex(dark_mode ? 0xFFFFFF : 0x202124), LV_FONT_DEFAULT);
     lv_obj_set_style_opa(container, LV_OPA_TRANSP, 0);
 
     if (use_fade) {

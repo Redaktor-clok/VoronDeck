@@ -325,11 +325,6 @@ TEST_APP_OBJS := $(filter-out \
 # back for the test link. $(sort) keeps this idempotent on the platforms where
 # APP_OBJS already contains it.
 TEST_APP_OBJS := $(sort $(TEST_APP_OBJS) $(OBJ_DIR)/system/pwm_sound_backend.o)
-# The jz_pwm backend is platform-gated out of APP_SRCS (ad5x ships it), but
-# tests/unit/test_jz_pwm_sound_backend.cpp exercises its pure renderer on
-# the host. The gate decides what SHIPS, not what is testable - same
-# treatment as the sysfs PWM backend above.
-TEST_APP_OBJS := $(sort $(TEST_APP_OBJS) $(OBJ_DIR)/system/jz_pwm_sound_backend.o)
 
 # ============================================================================
 # Test Targets
@@ -1235,19 +1230,7 @@ TEST_ASAN_BIN := $(BIN_DIR)/helix-tests-asan
 # ThreadSanitizer test binary
 TEST_TSAN_BIN := $(BIN_DIR)/helix-tests-tsan
 
-# The test binary is always a generic-host build: it links every backend's test
-# TUs alongside the app objects, so the vendor AMS gates must be ON for the
-# whole link even when the surrounding invocation zeroes them for a device
-# target. Target-specific CXXFLAGS inherit to every prerequisite object and a
-# later -D wins, so `make test HELIX_HAS_SNAPMAKER=0` still compiles.
-# test-asan/test-tsan re-invoke make with TEST_BIN=<their binary>, so this line
-# attaches to those targets too. `override` is what makes it survive there: the
-# same invocation passes CXXFLAGS on the command line, and a command-line
-# variable discards every makefile assignment to it without the keyword.
-# print-compile-command (Makefile) adds TEST_BIN_CXXFLAGS to every tests/ source
-# itself: it runs outside this target, where the inheritance does not reach.
-TEST_BIN_CXXFLAGS := -DHELIX_HAS_ACE=1 -DHELIX_HAS_QIDI=1 -DHELIX_HAS_SNAPMAKER=1
-$(TEST_BIN): override CXXFLAGS += $(TEST_BIN_CXXFLAGS)
+TEST_BIN_CXXFLAGS :=
 
 # Run a sanitizer binary in Catch2 shards, $(3) at a time, each into
 # $$shard_dir/<i>.log with its exit status in <i>.exit. The caller creates

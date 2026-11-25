@@ -215,26 +215,6 @@ TEST_CASE("StandardMacros - auto-detection", "[standard_macros]") {
         REQUIRE(macros.get(StandardMacroSlot::Resume).detected_macro == "M602");
     }
 
-    SECTION("QIDI's stock M604/M603 fill an otherwise empty slot") {
-        // The macros QIDI's own screen drives. Neither spelling means anything
-        // in stock Klipper, and Marlin has no M604 at all, so a printer that
-        // defines them is running QIDI's convention.
-        //
-        // The set below is the stock Q2 one (the config dump in #1030): it
-        // carries NO LOAD_FILAMENT, LOAD_MATERIAL, M701, UNLOAD_FILAMENT,
-        // UNLOAD_MATERIAL, M702 or QUIT_MATERIAL, so every earlier pattern in
-        // both lists misses and the tail entries are what stands between that
-        // printer and an empty slot.
-        helix::PrinterDiscovery qidi;
-        json objects = {"extruder",          "gcode_macro M604",         "gcode_macro M603",
-                        "gcode_macro _CG28", "gcode_macro CLEAR_NOZZLE", "gcode_macro PRINT_START"};
-        qidi.parse_objects(objects);
-        macros.init(qidi);
-
-        REQUIRE(macros.get(StandardMacroSlot::LoadFilament).detected_macro == "M604");
-        REQUIRE(macros.get(StandardMacroSlot::UnloadFilament).detected_macro == "M603");
-    }
-
     SECTION("M604/M603 rank last — a conventionally named macro keeps the slot") {
         // Marlin's M603 configures a filament change rather than running one, so
         // a printer that has both readings must not have the QIDI one win.

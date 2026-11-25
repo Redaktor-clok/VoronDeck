@@ -89,8 +89,7 @@
     "total_duration",
     "estimated_time",
     "info",
-    "message",
-    "power_loss"
+    "message"
   ],
   "save_variables": [
     "variables"
@@ -112,8 +111,7 @@
     "layer",
     "layer_count",
     "is_active",
-    "file_position",
-    "file_path"
+    "file_position"
   ],
   "webhooks": [
     "state",

@@ -1155,51 +1155,6 @@ TEST_CASE_METHOD(LVGLUITestFixture, "The tap chevron tracks the card, and the ba
         CHECK(lv_subject_get_int(help_visible) == 0);
     }
 
-    SECTION("a firmware-table remap is never warned that the job file gets rewritten") {
-        // The degraded-history advisory only makes sense for a GcodeRewrite
-        // remap, which prints a modified copy and needs the plugin to put the
-        // original name back. A backend with its own picker routes in firmware
-        // and never touches the file, so an old Moonraker costs it nothing - and
-        // the modal behind this cue would tell its user the file is rewritten,
-        // which on that printer does not happen.
-        ams.backend->set_snapmaker_mode(true);
-        lv_subject_set_int(
-            get_printer_state().versions_state().get_moonraker_history_degraded_subject(), 1);
-        view.show("two_tools.gcode", "sub", "PLA", two_colors, two_materials, kSize, kMtime);
-
-        REQUIRE(view.current_remap_block() == helix::printer::RemapBlock::None);
-        CHECK(lv_subject_get_int(remappable) == 1);
-        CHECK(lv_subject_get_int(help_visible) == 0);
-
-        lv_subject_set_int(
-            get_printer_state().versions_state().get_moonraker_history_degraded_subject(), 0);
-    }
-
-    SECTION("card shown on a backend with a picker: chevron lit") {
-        // Snapmaker U1 shape - mapping not editable inline, but the backend has
-        // a native remap picker, so current_remap_block() is None. The known
-        // positive: without it the zeros below could be a subject nothing ever
-        // sets.
-        ams.backend->set_snapmaker_mode(true);
-        view.show("two_tools.gcode", "sub", "PLA", two_colors, two_materials, kSize, kMtime);
-
-        CHECK(lv_subject_get_int(visible) == 1);
-        CHECK(lv_subject_get_int(remappable) == 1);
-        CHECK(lv_obj_find_by_name(root, "filament_chip_0") != nullptr);
-    }
-
-    SECTION("card hidden on that same backend: chevron dark") {
-        // Same backend, same picker - only the card is gone, because an empty
-        // palette leaves the card with no tool to map. The chevron must follow
-        // the card, not the backend.
-        ams.backend->set_snapmaker_mode(true);
-        view.show("no_palette.gcode", "sub", "PLA", {}, {}, kSize, kMtime);
-
-        CHECK(lv_subject_get_int(visible) == 0);
-        CHECK(lv_subject_get_int(remappable) == 0);
-        CHECK(lv_obj_find_by_name(root, "filament_chip_0") == nullptr);
-    }
-
     SECTION("card shown on a backend with no picker: chevron dark") {
         // The other half. A backend with no remap route at all - ACE, or a
         // single-extruder printer with no AMS - still makes the card worth
@@ -1229,58 +1184,6 @@ TEST_CASE_METHOD(LVGLUITestFixture, "The tap chevron tracks the card, and the ba
 // would call the remap opener twice - which on a live screen is the picker
 // opening over itself. Pinned because the obvious way to "move the tap handler
 // to the surviving card" is exactly the way that breaks it.
-TEST_CASE_METHOD(LVGLUITestFixture, "A tap on the filament card opens the remap picker once",
-                 "[print_select][detail_view][remap]") {
-    CacheDirGuard guard;
-    ScopedAmsBackend ams(4);
-    // Snapmaker U1 shape: the only mock configuration where a tap is meant to
-    // reach the opener at all (current_remap_block() gates on the backend's
-    // remap strategy).
-    ams.backend->set_snapmaker_mode(true);
-
-    register_xml_callbacks({
-        {"on_print_select_detail_backdrop", detail_noop_cb},
-        {"on_print_select_print_button", detail_noop_cb},
-        {"on_print_select_delete_button", detail_noop_cb},
-        {"on_print_select_more_button", detail_noop_cb},
-        {"on_print_detail_back_clicked", detail_noop_cb},
-        {"on_toggle_sliced_colors", detail_noop_cb},
-        {"on_print_select_detail_objects", detail_noop_cb},
-    });
-
-    helix::ui::PrintSelectDetailView view;
-    view.init_subjects();
-    lv_obj_t* const root = view.create(test_screen());
-    REQUIRE(root != nullptr);
-
-    struct CloseOnExit {
-        helix::ui::PrintSelectDetailView& v;
-        ~CloseOnExit() {
-            v.hide();
-            helix::ui::UpdateQueue::instance().drain();
-            lv_timer_handler(); // the close callback runs on the next tick
-        }
-    } closer{view};
-
-    int opens = 0;
-    view.set_on_remap_requested([&opens]() { ++opens; });
-
-    constexpr size_t kSize = 1122;
-    constexpr time_t kMtime = 3344;
-    auto& warmer = helix::tools_used_cache();
-    warmer.store("sub/two_tools.gcode", {kSize, kMtime}, {0, 1});
-    view.show("two_tools.gcode", "sub", "PLA", {"#FF0000", "#00FF00"}, {"PLA", "PETG"}, kSize,
-              kMtime);
-
-    lv_obj_t* const card = lv_obj_find_by_name(root, "filament_mapping_card");
-    REQUIRE(card != nullptr);
-    // The card is on screen and says it can be tapped - otherwise a count of 1
-    // below could mean "one handler" or "the guard swallowed the second".
-    REQUIRE(lv_subject_get_int(lv_xml_get_subject(nullptr, "color_card_remappable")) == 1);
-
-    lv_obj_send_event(card, LV_EVENT_CLICKED, nullptr);
-    CHECK(opens == 1);
-}
 
 TEST_CASE_METHOD(LVGLUITestFixture, "A chip tap runs the card's remap gate",
                  "[print_select][detail_view][remap][filament_mapping][chip_tap]") {

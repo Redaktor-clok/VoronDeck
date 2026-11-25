@@ -253,21 +253,6 @@ TEST_CASE("Tool mapping capabilities vary by backend mode", "[ams][tool_mapping]
 
         mock.stop();
     }
-
-    SECTION("Mock in Snapmaker mode remaps without writing a table") {
-        // The mode that genuinely differs: PrePrintSend reaches the printer
-        // through a pre-print send, so the pick is honored and nothing persists.
-        AmsBackendMock mock(4);
-        mock.set_operation_delay(0);
-        mock.set_snapmaker_mode(true);
-        REQUIRE(mock.start());
-
-        CHECK(helix::printer::can_remap(mock));
-        CHECK_FALSE(helix::printer::remap_is_persistent(mock.get_remap_strategy()));
-        CHECK_FALSE(mock.owns_tool_mapping_table());
-
-        mock.stop();
-    }
 }
 
 // =============================================================================

@@ -13,7 +13,6 @@
 #include "platform_info.h"
 #include "system/debug_bundle_collector.h"
 #include "system/diagnostics.h"
-#include "test_helpers/flashforge_layout_fixture.h"
 #include "test_helpers/scoped_board.h"
 #include "test_helpers/unique_temp_dir.h"
 
@@ -122,27 +121,13 @@ TEST_CASE("the updater staging dir is a sibling of the install root", "[diagnost
 // Identity: one platform key, three filesystem layouts
 // ============================================================================
 
-TEST_CASE("the mod flavor separates the layouts one platform key serves", "[diagnostics]") {
-    TempDir tmp;
-    auto name_of = [&](const char* layout) {
-        return std::string(helix::flashforge_mod_tree_name(helix::flashforge_mod_tree(
-            helix::test::make_flashforge_layout(tmp.path, layout).string())));
-    };
-
-    CHECK(name_of("zmod-marker") == "ZMOD");
-    CHECK(name_of("zmod-prog") == "ZMOD");
-    CHECK(name_of("forgex") == "Forge-X");
-    CHECK(name_of("forgex-host") == "Forge-X");
-    CHECK(name_of("plain") == "none");
-}
-
 TEST_CASE("diagnostics names the board", "[diagnostics]") {
-    helix::test::ScopedBoard board(helix::board::Board::Creator5Pro);
-    CHECK(helix::diagnostics::collect().identity.board == "creator5-pro");
+    helix::test::ScopedBoard board(helix::board::Board::Generic);
+    CHECK(helix::diagnostics::collect().identity.board == "generic");
 }
 
 TEST_CASE("the startup log line names the board", "[diagnostics]") {
-    helix::test::ScopedBoard board(helix::board::Board::Creator5Pro);
+    helix::test::ScopedBoard board(helix::board::Board::Generic);
     std::ostringstream captured;
     auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(captured);
     sink->set_pattern("%v");
@@ -153,7 +138,7 @@ TEST_CASE("the startup log line names the board", "[diagnostics]") {
     helix::diagnostics::log_diagnostics();
     spdlog::set_default_logger(original);
 
-    CHECK(captured.str().find("creator5-pro") != std::string::npos);
+    CHECK(captured.str().find("generic") != std::string::npos);
 }
 
 TEST_CASE("the bundle form carries the board", "[diagnostics]") {

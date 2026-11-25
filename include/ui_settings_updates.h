@@ -39,7 +39,7 @@ class UpdatesSettingsOverlay : public OverlayBase {
 
     void register_callbacks() override;
     void on_activate() override;
-    void check_vorondeck_updates(bool background = false);
+    bool check_vorondeck_updates(bool background = false);
     void confirm_test_update();
     void confirm_release_update(const std::string& kind);
 
@@ -83,12 +83,18 @@ class UpdatesSettingsOverlay : public OverlayBase {
     bool download_modal_closed_by_user_ = false;
     ObserverGuard download_status_observer_;
     bool vorondeck_check_busy_ = false;
+    bool vorondeck_check_background_ = false;
     std::string vorondeck_update_text_;
     std::string test_offer_;
     std::string stable_offer_;
     std::string beta_offer_;
+    std::string release_status_;
+    void repair_update_manager();
     bool vorondeck_install_busy_ = false;
-    void install_test_update(const std::string& selection);
+    void install_test_update(const std::string& selection, bool manager_ready = false);
+    void show_package_progress(const std::string& stage, const std::string& line, int step);
+    helix::ui::WidgetRef package_progress_modal_;
+    unsigned package_update_attempt_ = 0;
     void publish_vorondeck_status();
 };
 

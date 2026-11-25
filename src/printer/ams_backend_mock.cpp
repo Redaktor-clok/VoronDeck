@@ -4,19 +4,13 @@
 #include "ams_backend_mock.h"
 
 #include "afc_defaults.h"
-#include "helix_thread.h"
-#if HELIX_HAS_SNAPMAKER
-#include "ams_backend_snapmaker.h"
-#endif
-#if HELIX_HAS_IFS
-#include "ams_backend_ad5x_ifs.h"
-#endif
 #include "ams_backend_afc.h"
 #include "ams_backend_happy_hare.h"
 #include "ams_backend_toolchanger.h"
 #include "ams_bypass_policy.h"
 #include "display_numbering.h"
 #include "filament_database.h"
+#include "helix_thread.h"
 #include "hh_defaults.h"
 #include "lane_source_store.h"
 #include "lane_translation.h"
@@ -828,7 +822,7 @@ AmsError AmsBackendMock::unload_filament(int slot_index) {
 
 bool AmsBackendMock::supports_tool_park() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return system_info_.type == AmsType::TOOL_CHANGER || system_info_.type == AmsType::SNAPMAKER;
+    return system_info_.type == AmsType::TOOL_CHANGER;
 }
 
 AmsError AmsBackendMock::park_active_tool() {
@@ -873,16 +867,6 @@ BackendTraits AmsBackendMock::traits() const {
     case AmsType::TOOL_CHANGER:
         t = AmsBackendToolChanger::kTraits;
         break;
-#if HELIX_HAS_IFS
-    case AmsType::AD5X_IFS:
-        t = AmsBackendAd5xIfs::kTraits;
-        break;
-#endif
-#if HELIX_HAS_SNAPMAKER
-    case AmsType::SNAPMAKER:
-        t = AmsBackendSnapmaker::kTraits;
-        break;
-#endif
     default:
         break;
     }
@@ -937,13 +921,6 @@ AmsError AmsBackendMock::run_filament_batch(const std::vector<int>& slots, bool 
                 }
             }
         }
-
-#if HELIX_HAS_SNAPMAKER
-        // The real script, not a re-implementation: the mock rehearses what the
-        // printer would be sent (same reasoning as build_preprint_gcode).
-        spdlog::info("[AmsBackendMock] Batch {} G-code: {}", load ? "load" : "unload",
-                     AmsBackendSnapmaker::batch_feed_gcode(slots, load));
-#endif
 
         system_info_.action = load ? AmsAction::LOADING : AmsAction::UNLOADING;
         system_info_.operation_detail = std::string(load ? "Batch load: " : "Batch unload: ") +
@@ -3109,170 +3086,6 @@ bool AmsBackendMock::is_vivid_mixed_mode() const {
     return vivid_mixed_mode_;
 }
 
-void AmsBackendMock::set_ifs_mode(bool enabled) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    ifs_mode_ = enabled;
-    if (enabled) {
-        // IFS: 4 slots, LINEAR topology, AD5X_IFS type
-        topology_ = PathTopology::LINEAR;
-        system_info_.type = AmsType::AD5X_IFS;
-        system_info_.type_name = "AD5X IFS";
-        system_info_.total_slots = 4;
-        system_info_.supports_bypass = true;
-        system_info_.endless_spool_enabled = false;
-        // Must clear the CAPABILITY flag too, not just this bit: the flag is what
-        // get_endless_spool_capabilities() reads, and leaving it at its default
-        // true gave the mock AD5X an editable backup dropdown and endless-spool
-        // arrows that the real AD5X IFS backend does not have.
-        endless_spool_supported_ = false;
-        endless_spool_editable_ = false;
-        system_info_.supports_purge = false;
-
-        // Reinitialize registry as single IFS unit with 4 ports
-        slots_.clear();
-        slots_.initialize("IFS", {"1", "2", "3", "4"});
-
-        // Populate 4 slots with typical IFS filament data
-        auto populate_slot = [this](int gi, const char* material, uint32_t color,
-                                    const char* color_name, SlotStatus status) {
-            auto* entry = slots_.get_mut(gi);
-            if (!entry)
-                return;
-            entry->info.slot_index = gi;
-            entry->info.global_index = gi;
-            entry->info.material = material;
-            entry->info.color_rgb = color;
-            entry->info.color_name = color_name;
-            entry->info.status = status;
-            auto mat_info = filament::find_material(material);
-            if (mat_info) {
-                entry->info.nozzle_temp_min = mat_info->nozzle_min;
-                entry->info.nozzle_temp_max = mat_info->nozzle_max;
-                entry->info.bed_temp = mat_info->bed_temp;
-            }
-        };
-        populate_slot(0, "PLA", 0x000000, "Black", SlotStatus::LOADED);
-        populate_slot(1, "PETG", 0xFFFFFF, "White", SlotStatus::AVAILABLE);
-        populate_slot(2, "PLA", 0x8000FF, "Purple", SlotStatus::AVAILABLE);
-        populate_slot(3, "ABS", 0x804000, "Brown", SlotStatus::AVAILABLE);
-
-        // IFS tool mapping: T0→port1, T1→port2, T2→port3, T3→port4, T4..T15
-        // unmapped — the 16-wide shape the real AmsBackendAd5xIfs publishes.
-        //
-        // set_tool_map() writes BOTH directions from this one vector. Stamping
-        // mapped_tool inside populate_slot() (and the forward map onto
-        // system_info_, which get_system_info() does not read) left the mock
-        // shipping a reverse map with no forward map at all — the exact
-        // asymmetry a test using this mode exists to catch.
-        std::vector<int> ifs_tool_map(16, -1);
-        for (int i = 0; i < 4; ++i) {
-            ifs_tool_map[static_cast<size_t>(i)] = i;
-        }
-        slots_.set_tool_map(ifs_tool_map);
-
-        system_info_.current_tool = 0;
-        system_info_.current_slot = 0;
-        system_info_.filament_loaded = true;
-    }
-}
-
-void AmsBackendMock::set_snapmaker_mode(bool enabled) {
-    std::lock_guard<std::mutex> lock(mutex_);
-#if !HELIX_HAS_SNAPMAKER
-    // Backend compiled out (device targets set HELIX_HAS_SNAPMAKER=0): snapmaker
-    // emulation delegates to the real backend's statics for command fidelity,
-    // so it cannot run here. Refuse the mode rather than emulate a shape the
-    // real firmware would not produce.
-    if (enabled) {
-        spdlog::warn(
-            "[AMS Mock] Snapmaker mode refused: backend not compiled in (HELIX_HAS_SNAPMAKER=0)");
-    }
-    snapmaker_mode_ = false;
-    return;
-#endif
-    snapmaker_mode_ = enabled;
-    if (!enabled) {
-        return;
-    }
-
-    // Disable conflicting modes — mirror the real AmsBackendSnapmaker shape.
-    tool_changer_mode_ = false;
-    afc_mode_ = false;
-    multi_unit_mode_ = false;
-    mixed_topology_mode_ = false;
-    vivid_mixed_mode_ = false;
-    ifs_mode_ = false;
-    htlf_toolchanger_mode_ = false;
-    torture_mode_ = false;
-
-    // 4 slots, PARALLEL topology (each lane is its own toolhead), no tool
-    // mapping editing, no endless spool, no bypass — see AmsBackendSnapmaker.
-    topology_ = PathTopology::PARALLEL;
-    system_info_.type = AmsType::SNAPMAKER;
-    system_info_.type_name = "Snapmaker SnapSwap (Mock)";
-    system_info_.total_slots = 4;
-    system_info_.endless_spool_enabled = false;
-    endless_spool_supported_ = false;
-    endless_spool_editable_ = false;
-    system_info_.supports_bypass = false;
-    system_info_.has_hardware_bypass_sensor = false;
-    system_info_.tip_method = TipMethod::NONE;
-
-    // Reinitialize registry as a single SnapSwap unit with 4 lanes.
-    slots_.clear();
-    slots_.initialize("SnapSwap", {"1", "2", "3", "4"});
-
-    // Slot colors are deliberately DIFFERENT from u1_4color_ring.gcode's header
-    // tool colors (#E2DEDB, #080A0D, #F4C032, #E72F1D) so the two-tone swatch
-    // visibly shows intended(top) vs actual(bottom) mismatch.
-    auto populate_slot = [this](int gi, const char* material, uint32_t color,
-                                const char* color_name, SlotStatus status) {
-        auto* entry = slots_.get_mut(gi);
-        if (!entry) {
-            return;
-        }
-        entry->info.slot_index = gi;
-        entry->info.global_index = gi;
-        entry->info.material = material;
-        entry->info.color_rgb = color;
-        entry->info.color_name = color_name;
-        entry->info.status = status;
-        auto mat_info = filament::find_material(material);
-        if (mat_info) {
-            entry->info.nozzle_temp_min = mat_info->nozzle_min;
-            entry->info.nozzle_temp_max = mat_info->nozzle_max;
-            entry->info.bed_temp = mat_info->bed_temp;
-        }
-    };
-    populate_slot(0, "PLA", 0x1E9E4A, "Green", SlotStatus::AVAILABLE);
-    populate_slot(1, "PLA", 0xC71585, "Magenta", SlotStatus::AVAILABLE);
-    populate_slot(2, "PLA", 0x19C3D6, "Cyan", SlotStatus::AVAILABLE);
-    populate_slot(3, "PLA", 0xF08000, "Orange", SlotStatus::AVAILABLE);
-
-    // Fixed 1:1 tool<->slot identity, like the real U1 (overridable via
-    // HELIX_MOCK_REMAP / apply_remap_overrides()). set_tool_map() writes both
-    // directions; the per-slot stamp this replaces published mapped_tool with
-    // an empty forward map beside it.
-    slots_.set_tool_map({0, 1, 2, 3});
-
-    // Set PARALLEL topology on the registry-built unit metadata so
-    // get_system_info() reports it (registry units default to LINEAR).
-    if (!system_info_.units.empty()) {
-        system_info_.units[0].topology = PathTopology::PARALLEL;
-        system_info_.units[0].name = "SnapSwap";
-        system_info_.units[0].display_name = "SnapSwap";
-    }
-
-    // An idle U1 has no task, so it publishes no routing at all — only the
-    // firmware's default table, which says nothing about any particular file.
-    // set_snapmaker_print_task() (or HELIX_MOCK_REMAP below) stages one.
-    set_snapmaker_task_locked({});
-
-    system_info_.current_tool = 0;
-    system_info_.current_slot = 0;
-    system_info_.filament_loaded = true;
-}
-
 void AmsBackendMock::apply_remap_overrides(const std::string& csv) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!slots_.is_initialized()) {
@@ -3337,9 +3150,6 @@ void AmsBackendMock::apply_remap_overrides(const std::string& csv) {
     // routing in the swatches — working now that the attachment map no longer
     // stands in for the routing. Head N owns lane N there, so the CSV's slot
     // numbers are already head numbers.
-    if (snapmaker_mode_) {
-        set_snapmaker_task_locked(forward);
-    }
 }
 
 void AmsBackendMock::set_htlf_toolchanger_mode(bool enabled) {
@@ -3637,9 +3447,7 @@ void AmsBackendMock::apply_afc_profile_locked(const AfcMockLane* lanes, int lane
     multi_unit_mode_ = false;
     mixed_topology_mode_ = false;
     vivid_mixed_mode_ = false;
-    ifs_mode_ = false;
     htlf_toolchanger_mode_ = false;
-    snapmaker_mode_ = false;
 
     system_info_.type = AmsType::AFC;
     system_info_.type_name = type_name;
@@ -4173,9 +3981,7 @@ AmsError AmsBackendMock::apply_endless_spool_backup(int slot_index, int backup_s
 
 AmsBackendMock::RemapStrategy AmsBackendMock::get_remap_strategy() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (snapmaker_mode_) {
-        return RemapStrategy::PrePrintSend;
-    }
+
     return remap_strategy_;
 }
 
@@ -4184,19 +3990,11 @@ bool AmsBackendMock::remap_ready() const {
     return remap_ready_;
 }
 
-bool AmsBackendMock::owns_tool_mapping_table() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    // The U1 owns none — its extruders are independent. Every other mode stands
-    // in for a backend that does, including the tool changer, whose table is
-    // identity but real and rewritten by ASSIGN_TOOL.
-    return !snapmaker_mode_;
-}
-
 bool AmsBackendMock::carriage_can_be_empty() const {
     // AmsBackendSnapmaker and AmsBackendToolChanger dock their heads; every
     // other mode answers what the backend it stands in for answers.
     std::lock_guard<std::mutex> lock(mutex_);
-    return snapmaker_mode_ || system_info_.type == AmsType::TOOL_CHANGER;
+    return system_info_.type == AmsType::TOOL_CHANGER;
 }
 
 HeadFilamentOps AmsBackendMock::head_filament_ops(int head) const {
@@ -4254,11 +4052,6 @@ std::optional<bool> AmsBackendMock::head_has_filament(int head) const {
     return AmsBackend::head_has_filament(head);
 }
 
-int AmsBackendMock::max_heads_per_filament_op() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return snapmaker_mode_ ? system_info_.total_slots : 1;
-}
-
 void AmsBackendMock::set_remap_strategy(RemapStrategy strategy) {
     std::lock_guard<std::mutex> lock(mutex_);
     remap_strategy_ = strategy;
@@ -4279,26 +4072,6 @@ void AmsBackendMock::set_remap_ready(bool ready) {
     remap_ready_ = ready;
 }
 
-std::string AmsBackendMock::build_preprint_gcode(const std::set<int>& tools_used,
-                                                 const std::map<int, int>& remap) const {
-    bool snapmaker = false;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        snapmaker = snapmaker_mode_;
-    }
-    if (!snapmaker) {
-        return "";
-    }
-#if HELIX_HAS_SNAPMAKER
-    // The real builder, not a re-implementation of it: the mock exists to
-    // rehearse what the printer will be sent, so a divergence here would be a
-    // test rig teaching the wrong command format.
-    return AmsBackendSnapmaker::preprint_gcode(tools_used, remap);
-#else
-    return ""; // Unreachable: set_snapmaker_mode() refuses the mode when gated out.
-#endif
-}
-
 std::vector<int> AmsBackendMock::get_tool_mapping() const {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -4307,57 +4080,7 @@ std::vector<int> AmsBackendMock::get_tool_mapping() const {
         return {};
     }
 
-    if (snapmaker_mode_) {
-#if HELIX_HAS_SNAPMAKER
-        // The real gate, not a re-implementation of it — same reason
-        // build_preprint_gcode() delegates to the real builder. Without it the
-        // mock published the attachment map as this print's routing, and
-        // FilamentMapper::effective_routing() believes any non-empty answer.
-        return AmsBackendSnapmaker::task_routing(snapmaker_extruders_used_,
-                                                 snapmaker_extruder_map_);
-#else
-        return {}; // Unreachable: set_snapmaker_mode() refuses the mode when gated out.
-#endif
-    }
-
     return slots_.build_system_info().tool_to_slot_map;
-}
-
-helix::FirmwareRouting AmsBackendMock::firmware_default_routing() const {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (snapmaker_mode_) {
-#if HELIX_HAS_SNAPMAKER
-            return AmsBackendSnapmaker::default_routing();
-#endif
-            // Unreachable: set_snapmaker_mode() refuses the mode when the backend
-            // is compiled out, so fall through to the base answer.
-        }
-    }
-    // The base reads get_tool_mapping(), which takes mutex_ itself.
-    return AmsBackend::firmware_default_routing();
-}
-
-void AmsBackendMock::set_snapmaker_print_task(std::vector<int> routing) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    set_snapmaker_task_locked(std::move(routing));
-}
-
-void AmsBackendMock::set_snapmaker_task_locked(std::vector<int> routing) {
-    snapmaker_extruder_map_ = std::move(routing);
-    snapmaker_extruders_used_.assign(
-        static_cast<size_t>(system_info_.total_slots > 0 ? system_info_.total_slots : 0), false);
-    for (int head : snapmaker_extruder_map_) {
-        if (head >= 0 && head < static_cast<int>(snapmaker_extruders_used_.size())) {
-            snapmaker_extruders_used_[static_cast<size_t>(head)] = true;
-        }
-    }
-    if (snapmaker_extruder_map_.empty()) {
-        spdlog::debug("[AmsBackendMock] Snapmaker print task cleared - no routing published");
-    } else {
-        spdlog::info("[AmsBackendMock] Snapmaker print task: {} tool(s) routed",
-                     snapmaker_extruder_map_.size());
-    }
 }
 
 // ============================================================================

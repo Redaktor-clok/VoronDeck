@@ -101,26 +101,6 @@ std::optional<bool> read_flag(const nlohmann::json* variables, const char* key) 
 // That same commit also zeroes the live gcode_move offset at print end in the
 // alt-screen config, so post-print the live offset reads 0 while the stored
 // value stands. Reading the stored one is exactly what this provider is for.
-std::optional<int> read_zmod(const nlohmann::json& status) {
-    const nlohmann::json* variables = nested_object(status, "save_variables", "variables");
-    if (!variables) {
-        return std::nullopt;
-    }
-    // ZMOD stores a per-axis dict; LOAD_GCODE_OFFSET iterates it, so sibling
-    // axes are legal and only z concerns us.
-    auto offsets = variables->find("gcode_offsets");
-    if (offsets == variables->end() || !offsets->is_object()) {
-        return std::nullopt;
-    }
-    auto z = offsets->find("z");
-    if (z == offsets->end() || !z->is_number()) {
-        // Seeded as {'z': None} before the first SET_GCODE_OFFSET.
-        return std::nullopt;
-    }
-    // Round rather than truncate: the stored value is an accumulation of
-    // relative Z_ADJUST deltas, so a nominal -0.150 arrives as -0.1499999.
-    return static_cast<int>(std::lround(z->get<double>() * 1000.0));
-}
 
 // ZMOD ships no load_zoffset key. Its `start_led` delayed_gcode runs
 // GET_ZMOD_DATA ten seconds after every Klipper start, which reads
@@ -130,9 +110,6 @@ std::optional<int> read_zmod(const nlohmann::json& status) {
 // a 0 here is always a deliberate user choice. Two consequences for the enable
 // gate: sending the gcode buys nothing on a healthy ZMOD box, and the ten-second
 // window before the key exists must read as unknown rather than off.
-std::optional<bool> read_enabled_zmod(const nlohmann::json& status) {
-    return read_flag(nested_object(status, "save_variables", "variables"), "load_zoffset");
-}
 
 // --- Forge-X (FlashForge Adventurer 5M / Pro mod) ----------------------------
 //
@@ -141,29 +118,12 @@ std::optional<bool> read_enabled_zmod(const nlohmann::json& status) {
 // `mod_params` status object. Its SET_GCODE_OFFSET override persists every
 // offset the user dials in; print start re-applies the stored one only when
 // the load_zoffset param is on, hence the enable command.
-std::optional<int> read_forge_x(const nlohmann::json& status) {
-    const nlohmann::json* variables = nested_object(status, "mod_params", "variables");
-    if (!variables) {
-        return std::nullopt;
-    }
-    auto z = variables->find("z_offset");
-    if (z == variables->end() || !z->is_number()) {
-        // Not written until the firmware's first SET_GCODE_OFFSET Z=.
-        return std::nullopt;
-    }
-    // Same accumulate-and-round treatment as ZMOD: the stored value is the sum
-    // of relative Z_ADJUST deltas, so a nominal -0.150 arrives as -0.1499999.
-    return static_cast<int>(std::lround(z->get<double>() * 1000.0));
-}
 
 // The mod's plugin populates every declared param when it loads, so once
 // mod_params is subscribed the key is always present; the declared default in
 // mod_params.json is 0. An off here is thus the shipped state rather than a user
 // decision, which is what makes the one enable write worth sending on this
 // firmware and not on ZMOD.
-std::optional<bool> read_enabled_forge_x(const nlohmann::json& status) {
-    return read_flag(nested_object(status, "mod_params", "variables"), "load_zoffset");
-}
 
 // --- Helper-Script save-zoffset (Creality K1/K1C/K1 Max and friends) --------
 //
@@ -223,24 +183,6 @@ const std::vector<Provider>& providers() {
     // Row order is match priority: a box exposing two firmwares' macros
     // resolves to the first hit.
     static const std::vector<Provider> table = {
-        {"ZMOD",
-         "SAVE_ZMOD_DATA",
-         {"save_variables"},
-         "SAVE_ZMOD_DATA LOAD_ZOFFSET=1",
-         "SET_GCODE_VARIABLE MACRO=_TEST_POINT VARIABLE=temp_z_offset VALUE=0",
-         &read_zmod,
-         &read_enabled_zmod,
-         // SAVE_ZMOD_DATA belongs to one firmware and means one thing.
-         nullptr},
-        {"Forge-X",
-         "SET_MOD",
-         {"mod_params"},
-         "SET_MOD PARAM=\"load_zoffset\" VALUE=1",
-         nullptr,
-         &read_forge_x,
-         &read_enabled_forge_x,
-         // Likewise SET_MOD: the mod's own plugin registers it, nothing else.
-         nullptr},
         // Keyed on the WRAPPER object. Klipper exposes a builtin command as a
         // printer object ONLY when a [gcode_macro] shadows it (and shadowing a
         // builtin requires rename_existing), so `gcode_macro

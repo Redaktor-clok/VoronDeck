@@ -16,7 +16,6 @@
 #include "ui_update_queue.h"
 
 #include "../test_fixtures.h"
-#include "ams_backend_ad5x_ifs.h"
 #include "filament_catalog.h"
 #include "filament_database.h"
 #include "filament_mapper.h"
@@ -735,51 +734,6 @@ TEST_CASE_METHOD(XMLTestFixture, "family grouping collapses the type dropdown",
 // ===========================================================================
 // AD5X firmware whitelist must still gate variants
 // ===========================================================================
-
-#if HELIX_HAS_IFS
-TEST_CASE_METHOD(XMLTestFixture, "AD5X whitelist filters entries, not just headings",
-                 "[filament][family][whitelist][catalog_selector]") {
-    lv_obj_t* root = make_fragment();
-    REQUIRE(root != nullptr);
-
-    FilamentCatalogSelector sel;
-    sel.attach(root);
-    // Stock AD5X firmware whitelist, derived from the backend rather than re-typed.
-    sel.configure(std::nullopt,
-                  std::vector<std::string>(helix::AmsBackendAd5xIfs::kStockWhitelist.begin(),
-                                           helix::AmsBackendAd5xIfs::kStockWhitelist.end()));
-    sel.populate();
-
-    // Headings collapse to the four allowed families.
-    CHECK(sel.type_options() == "ABS\nPETG\nPLA\nTPU");
-
-    // The PLA heading is only as permissive as the variants behind it: PLA-CF
-    // and SILK are whitelisted and appear, PLA-GF and PLA-AERO are NOT
-    // whitelisted and must not be reachable just because PLA is allowed.
-    auto pla_types = types_of(products_under(sel, "PLA"));
-    INFO("PLA entries: " << pla_types.size());
-    CHECK(contains(pla_types, "PLA"));
-    CHECK(contains(pla_types, "PLA-CF"));
-    CHECK(contains(pla_types, "SILK"));
-    CHECK_FALSE(contains(pla_types, "PLA-GF"));
-    CHECK_FALSE(contains(pla_types, "PLA-AERO"));
-
-    // Same for PETG: PETG-CF allowed, PETG-GF not.
-    auto petg_types = types_of(products_under(sel, "PETG"));
-    CHECK(contains(petg_types, "PETG"));
-    CHECK(contains(petg_types, "PETG-CF"));
-    CHECK_FALSE(contains(petg_types, "PETG-GF"));
-
-    // And ABS: the whitelist has no ABS-CF, so it must not leak in.
-    auto abs_types = types_of(products_under(sel, "ABS"));
-    CHECK(contains(abs_types, "ABS"));
-    CHECK_FALSE(contains(abs_types, "ABS-CF"));
-    CHECK_FALSE(contains(abs_types, "ABS-GF"));
-
-    sel.detach();
-    helix::ui::UpdateQueue::instance().drain();
-}
-#endif // HELIX_HAS_IFS
 
 TEST_CASE_METHOD(XMLTestFixture, "an unwhitelisted family produces no heading at all",
                  "[filament][family][whitelist][catalog_selector]") {

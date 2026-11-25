@@ -9,7 +9,6 @@
 #include "ams_backend.h"
 #include "ams_state.h"
 #include "app_globals.h"
-#include "batch_feed_reconcile.h"
 #include "board_identity.h"
 #include "chamber_heater_backend.h"
 #include "config.h"
@@ -1664,24 +1663,6 @@ void MoonrakerDiscoverySequence::finish_discovery_subscription(const PrinterDisc
             // its state unless its own probe step proves nothing is
             // running.
             screws_tilt::reconcile_on_connect(client_, hw, status);
-            // Same shape, one interlock over: a batch feed interrupted
-            // by a lost connection strands the macro's `doing`, which
-            // refuses every print start until cleared. Clearing is
-            // safe only when no print owns the interlock - the guard
-            // lives in the reconcile itself. The lookup key is the
-            // config-case object name, matching the subscription.
-            const std::string batch_macro =
-                hw.macro_config_name(helix::macro_patterns::AUTO_FEEDING_BATCH);
-            if (!batch_macro.empty()) {
-                // A batch this process dispatched and has not seen
-                // complete owns the interlock, so the reconcile must
-                // not clear it on a mid-batch reconnect. The backends
-                // answer the capability question; which one runs
-                // batches is vendor knowledge that stays there.
-                batch_feeding::reconcile_on_connect(
-                    client_, status, fmt::format("gcode_macro {}", batch_macro),
-                    AmsState::instance().any_filament_batch_in_flight());
-            }
         }
     } else if (sub_response.contains("error")) {
         spdlog::error("[Moonraker Client] Subscription failed: {}", sub_response["error"].dump());

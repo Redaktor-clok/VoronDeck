@@ -357,16 +357,6 @@ TEST_CASE("parse_cli_args: without --test the wizard gate is untouched", "[cli_a
 // to drive them, which is what --real-ams selects. An explicit HELIX_MOCK_AMS
 // names its own topology, so it wins over the persona's implication.
 
-TEST_CASE("parse_cli_args: HELIX_MOCK_PRINTER=creator5_zmod implies --real-ams under --test",
-          "[cli_args][mock]") {
-    ScopedRuntimeConfig scoped_config;
-    ScopedEnv ams{"HELIX_MOCK_AMS", nullptr};
-    ScopedEnv printer{"HELIX_MOCK_PRINTER", "creator5_zmod"};
-    CliArgs args;
-    REQUIRE(parse({"helix-screen", "--test"}, args));
-    REQUIRE(get_runtime_config()->use_real_ams);
-}
-
 TEST_CASE("parse_cli_args: an explicit HELIX_MOCK_AMS wins over the persona", "[cli_args][mock]") {
     ScopedRuntimeConfig scoped_config;
     ScopedEnv ams{"HELIX_MOCK_AMS", "toolchanger"};

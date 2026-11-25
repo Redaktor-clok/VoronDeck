@@ -164,27 +164,3 @@ TEST_CASE("census_processes skips an fd table it cannot read", "[bundle][1692]")
     REQUIRE(box.find(procs, 200) != nullptr);
     CHECK(box.find(procs, 200)->reasons == std::vector<std::string>{"/dev/dri/card0"});
 }
-
-TEST_CASE("competing_ui_names matches the installer's COMPETING_UIS", "[bundle][1692]") {
-    std::ifstream in("scripts/lib/installer/competing_uis.sh");
-    REQUIRE(in.is_open());
-    std::stringstream body;
-    body << in.rdbuf();
-    const std::string text = body.str();
-    const std::string key = "\nCOMPETING_UIS=\"";
-    const auto start = text.find(key);
-    REQUIRE(start != std::string::npos);
-    const auto open = start + key.size();
-    const auto close = text.find('"', open);
-    REQUIRE(close != std::string::npos);
-
-    std::vector<std::string> installer;
-    std::istringstream words(text.substr(open, close - open));
-    for (std::string w; words >> w;) {
-        installer.push_back(w);
-    }
-    auto ours = helix::diag::competing_ui_names();
-    std::sort(installer.begin(), installer.end());
-    std::sort(ours.begin(), ours.end());
-    CHECK(ours == installer);
-}

@@ -43,8 +43,6 @@ inline bool is_deliberate(const CacheCandidate& c) {
  * the platform rung. @p tree matters only to the FlashForge MIPS boards, whose mod
  * (Z-Mod or Forge-X) decides which durable directory holds state.
  */
-std::vector<CacheCandidate> board_cache_candidates(board::Board board, FlashForgeModTree tree,
-                                                   const std::string& subdir);
 
 /**
  * @brief Paths safe to reclaim, given one subdir's candidate list.

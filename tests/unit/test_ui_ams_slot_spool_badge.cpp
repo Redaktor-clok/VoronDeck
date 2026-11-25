@@ -9,11 +9,8 @@
 #include "ui_ams_slot.h"
 
 #include "../lvgl_ui_test_fixture.h"
-#include "../test_helpers/snapmaker_test_access.h"
 #include "../ui_test_utils.h"
-#include "ams_backend_multiace.h"
 #include "ams_state.h"
-#include "multiace_status.h"
 
 #include <fstream>
 #include <memory>
@@ -44,16 +41,6 @@ json ace_fixture() {
     return json{{"ace", j}};
 }
 
-class MultiAceOnMock : public AmsBackendMultiAce {
-  public:
-    MultiAceOnMock() : AmsBackendMultiAce(nullptr, nullptr) {
-        running_.store(true);
-    }
-    void frame(const json& status) {
-        SnapmakerTestAccess::handle_status(*this, status);
-    }
-};
-
 lv_obj_t* create_ams_slot(lv_obj_t* parent, int slot_index) {
     const std::string index_str = std::to_string(slot_index);
     const char* attrs[] = {"slot_index", index_str.c_str(), nullptr};
@@ -67,51 +54,3 @@ std::string badge_text(lv_obj_t* slot) {
 }
 
 } // namespace
-
-TEST_CASE_METHOD(LVGLUITestFixture, "ams_slot badges renumber when routing changes",
-                 "[ui][ams_slot][multiace]") {
-    auto& ams = AmsState::instance();
-    ams.init_subjects(true);
-    auto owned = std::make_unique<MultiAceOnMock>();
-    MultiAceOnMock* backend = owned.get();
-    ams.set_backend(std::move(owned));
-    ui_ams_slot_register();
-
-    // Head 0 routed to ACE 1 bay 1 and head 2 to ACE 3 bay 4, as the fixture
-    // wires them. Badges before: the routed heads wear their bays' numbers;
-    // the spool-owning lanes number 1..18 in global order.
-    backend->frame(ace_fixture());
-    ams.sync_from_backend();
-    process_lvgl(30);
-
-    lv_obj_t* head0 = create_ams_slot(test_screen(), 0);
-    lv_obj_t* head1 = create_ams_slot(test_screen(), 1);
-    lv_obj_t* bay0 = create_ams_slot(test_screen(), multiace::bay_global(0, 0));
-    REQUIRE(head0 != nullptr);
-    REQUIRE(head1 != nullptr);
-    REQUIRE(bay0 != nullptr);
-    process_lvgl(30);
-
-    CHECK(badge_text(head0) == "3"); // aliases bay (0,0): the third own-spooled lane
-    CHECK(badge_text(head1) == "1");
-    CHECK(badge_text(bay0) == "3");
-
-    // Unroute head 0: its lane keeps a spool number of its own now, head 1's
-    // badge changes, and every lane from bay (0,0) onward shifts up by one -
-    // including bay (0,0), whose own status did not move.
-    json unrouted = ace_fixture();
-    unrouted["ace"]["head_source"]["0"] = nullptr;
-    backend->frame(unrouted);
-    ams.sync_from_backend();
-    process_lvgl(30);
-
-    CHECK(badge_text(head0) == "1");
-    CHECK(badge_text(head1) == "2");
-    CHECK(badge_text(bay0) == "4");
-
-    lv_obj_delete(head0);
-    lv_obj_delete(head1);
-    lv_obj_delete(bay0);
-    process_lvgl(30);
-    ams.clear_backends();
-}

@@ -1329,9 +1329,6 @@ class MoonrakerClientMock : public helix::MoonrakerClient {
      *
      * @return true if the script was handled here (the callbacks are owned)
      */
-    bool simulate_nozzle_offset_calibration(
-        const std::string& script, helix::SharedCallback<void(const nlohmann::json&)> success_cb,
-        helix::SharedCallback<void(const MoonrakerError&)> error_cb);
 
     /**
      * @brief Answer an INDX command that blocks for minutes on the real
@@ -1388,11 +1385,9 @@ class MoonrakerClientMock : public helix::MoonrakerClient {
 
     /// The U1 persona's extruder_offset for head @p head (0-3), as the
     /// objects query reports it.
-    [[nodiscard]] std::array<double, 3> nozzle_offset(int head) const;
 
     /// Whether the simulated firmware holds the offset calibration state
     /// (PRESTART ran, EXIT has not). machine_state_manager.main_state reports it.
-    [[nodiscard]] bool nozzle_calibration_active() const;
 
     /// The inverse: which axis a PARAMETER= names, or nullopt for any other
     /// tool parameter (the mock models only the three offsets).
@@ -1463,7 +1458,6 @@ class MoonrakerClientMock : public helix::MoonrakerClient {
      * objects.query/subscribe handlers and republished on _T_IN/_T_OUT/
      * CHANGE_ZCOLOR.
      */
-    json zmod_color_status() const;
 
     /**
      * @brief `[pin_watch io]` status: `{"current_tool": int}`.
@@ -1493,7 +1487,6 @@ class MoonrakerClientMock : public helix::MoonrakerClient {
      * clean_bed.enable follow DEFECT_DETECTION_CONFIG MAIN_ENABLE=0|1 and
      * CLEAN_BED_ENABLE=0|1.
      */
-    nlohmann::json defect_detection_status() const;
 
     /**
      * @brief U1 `purifier` status: the top module's air purifier, whose
@@ -1502,7 +1495,6 @@ class MoonrakerClientMock : public helix::MoonrakerClient {
      * Empty object for every persona but the U1. power_detected is true unless
      * HELIX_MOCK_ENCLOSURE_TOP=0.
      */
-    nlohmann::json purifier_status() const;
 
   private:
     // Test visibility into the chamber-key cache and the synchronous initial
@@ -1523,16 +1515,6 @@ class MoonrakerClientMock : public helix::MoonrakerClient {
     std::vector<PendingPaLine> pending_pa_lines_;
     mutable std::mutex pa_cal_mutex_;
 
-    /// U1 offset calibration state: whether PRESTART entered the firmware's
-    /// calibration state, how many plate checks are still to refuse, and each
-    /// head's extruder_offset. Under nozzle_cal_mutex_.
-    bool nozzle_cal_active_ = false;
-    int nozzle_cal_plate_refusals_ = 0;
-    std::array<std::array<double, 3>, 4> nozzle_offsets_{{{0.073, -0.037, 0.0},
-                                                          {0.089, 0.037, 0.099},
-                                                          {0.012, 0.019, 0.272},
-                                                          {-0.089, -0.016, 0.060}}};
-    mutable std::mutex nozzle_cal_mutex_;
     void service_pending_pa_lines();
 
     /**
@@ -2590,14 +2572,6 @@ class MoonrakerClientMock : public helix::MoonrakerClient {
     // Same shape as the MedusaHC block above: gcode_script() writes on the
     // caller's thread, the RPC object handlers read from any thread, so the
     // tool id is atomic and the slot registry sits behind its own mutex.
-    /// zmod_color.active_tool_id: 0..3 mounted, -1 nothing on the carriage.
-    std::atomic<int> zmod_active_tool_{-1};
-    mutable std::mutex zmod_mutex_;
-    /// (Material, HEX) per head; slot N (1-based, as CHANGE_ZCOLOR names it)
-    /// lives at index N-1.
-    std::array<std::pair<std::string, std::string>, 4> zmod_slots_{
-        {{"PLA", "FFFFFF"}, {"PETG", "0ACC38"}, {"ABS", "161616"}, {"PLA", "F72224"}}};
-
     /// Begin a swap to `tool` (MHC_SET), or with -1 park whatever is on the head
     /// (MHC_DROP; @p close_after re-grips the filament afterwards, as DROP_TOOL
     /// does). Clears the failure latch, as the controller's _begin() does;
@@ -2657,97 +2631,6 @@ class MoonrakerClientMock : public helix::MoonrakerClient {
     /// Advance the armed swap by one notification interval. No-op when idle.
     void advance_medusa_swap();
 
-    // --- Snapmaker U1 feeder simulation --------------------------------------
-    // AUTO_FEEDING (and AUTO_FEEDING_BATCH ACTION=DOING) lines name a channel
-    // with EXTRUDER=n; gcode_script() answers each by publishing the
-    // channel_state sequence the feeder firmware reports, one full
-    // filament_feed frame per state, so the production AmsBackendSnapmaker
-    // status parse sees the same transitions a real U1 sends. State starts at
-    // the rig's resting mix (heads 0/2 loaded, 1/3 preloaded) so the sibling
-    // channel each frame carries alongside the touched one reads plausibly.
-    static constexpr int kU1Channels = 4;
-    std::array<std::string, static_cast<size_t>(kU1Channels)> u1_channel_state_{
-        "load_finish", "preload_finish", "load_finish", "preload_finish"};
-    std::array<bool, static_cast<size_t>(kU1Channels)> u1_filament_detected_{true, true, true,
-                                                                             true};
-    /// defect_detection main_enable and clean_bed.enable, switched by
-    /// DEFECT_DETECTION_CONFIG.
-    std::atomic<bool> u1_defect_main_enable_{true};
-    std::atomic<bool> u1_clean_bed_enable_{true};
-
-    /// One feeder command line: walk the named channel through its states.
-    /// HELIX_MOCK_BATCH_FAIL_SLOT=<n> swaps that channel's terminal for its
-    /// *_fail variant. @return true when the line was an AUTO_FEEDING command.
-    bool apply_u1_feeding_gcode(const std::string& gcode);
-
-    /// Publish one full filament_feed frame for the side owning extruder
-    /// `ext`, carrying BOTH of that side's channels with every field — a
-    /// present-but-partial channel object resets the fields the backend's
-    /// delta parse would otherwise carry forward.
-    void publish_u1_channel_frame(int ext);
-    /// One filament_feed side's channels object, both of its channels whole.
-    [[nodiscard]] nlohmann::json u1_feed_side_json(int ext) const;
-
-    // --- Standalone IFS module mock -----------------------------------------
-    // HELIX_MOCK_AMS=ifs-module: pushes the module's objects (ifs /
-    // ifs_materials plus its stock-named lane/toolhead sensors) so real
-    // discovery sets AmsType::AD5X_IFS and the PRODUCTION AmsBackendAd5xIfs
-    // runs against pushed frames — try_create_mock() declines this value, same
-    // rule as the MedusaHC modes. gcode_script() folds T<n> and the IFS_*
-    // macros into the state below; the periodic notification publishes it.
-    bool is_mock_ifs_module() const;
-    /// The `ifs` object frame.
-    [[nodiscard]] nlohmann::json ifs_module_status_json() const;
-    /// The `ifs_materials` object frame (slot registry view).
-    [[nodiscard]] nlohmann::json ifs_module_materials_json() const;
-    /// The save_variables fragment carrying the module's own records.
-    [[nodiscard]] nlohmann::json ifs_module_vars_json() const;
-    /// Apply one IFS-module gcode command token. @return true when the token
-    /// was one of ours (the caller then stops walking the generic chain).
-    bool apply_ifs_module_gcode(const std::string& cmd, const std::string& gcode);
-
-    // --- multiACE mock hardware ----------------------------------------------
-    // HELIX_MOCK_AMS=multiace: pushes the U1's own objects plus a plain `ace`
-    // so real discovery builds the PRODUCTION AmsBackendMultiAce and runs it
-    // against the engine-shaped frames served here — try_create_mock()
-    // declines this value, the same rule as the MedusaHC / IFS-module / CFS
-    // modes. Pair with HELIX_MOCK_PRINTER=snapmaker_u1. HELIX_MOCK_MULTIACE_MODE
-    // picks head|multi and HELIX_MOCK_MULTIACE_UNITS the connected unit count
-    // (1-4); ACE_LOAD_HEAD / ACE_UNLOAD_HEAD answer by routing a head to its
-    // bay (or clearing it) and walking the head's channel_state the way
-    // multiACE's shadow filament_feed does.
-    /// Apply one ACE_* engine command. @return true when the line was one.
-    bool apply_multiace_gcode(const std::string& gcode);
-
-    /// Routed bay per head ((ace idx, bay), none when the head is unloaded).
-    std::array<std::pair<int, int>, 4> multiace_route_{{{-1, -1}, {-1, -1}, {-1, -1}, {-1, -1}}};
-    /// The engine's swap phase word, walked while a routed load runs.
-    std::string multiace_swap_phase_{"idle"};
-    /// HELIX_MOCK_MULTIACE_UNITS, read once at start (1-4).
-    int multiace_units_{1};
-    /// HELIX_MOCK_MULTIACE_MODE, read once at start ("head" | "multi").
-    std::string multiace_mode_{"head"};
-    /// Whether @p head is fed from the side feeder: head mode wires one unit
-    /// per head, so heads past the unit count have no ACE. Caller holds
-    /// multiace_mutex_.
-    [[nodiscard]] bool multiace_head_is_feeder(int head) const {
-        return multiace_mode_ != "multi" && head >= multiace_units_;
-    }
-    /// Guards the fields above across the simulation and gcode threads.
-    mutable std::mutex multiace_mutex_;
-    /// Read the two HELIX_MOCK_MULTIACE_* knobs into the members (idempotent).
-    void read_multiace_knobs();
-
-    // --- CFS mock (K1 stock dialect) ----------------------------------------
-    // HELIX_MOCK_AMS=cfs: pushes the `box` object so real discovery sets
-    // AmsType::CFS and the PRODUCTION AmsBackendCfs runs; try_create_mock()
-    // declines this value, same rule as the MedusaHC / IFS-module modes. Pair
-    // with HELIX_MOCK_PRINTER=k1 to latch the K1 macro dialect. gcode_script()
-    // answers the K1 calibration macros (BOX_FIND_CUT_POS,
-    // BOX_CUSTOM_COMMAND) with the response lines a real box firmware sends.
-    bool is_mock_cfs() const;
-    /// The K2 Plus's `motor_control` and `fan_feedback` frames.
-    void append_k2_status(json& status) const;
     // --- OpenAMS mock ---------------------------------------------------------
     // HELIX_MOCK_AMS=openams: pushes `oams_manager` so real discovery claims
     // OpenAMS and the PRODUCTION AmsBackendOpenAms runs (mock hardware, real
@@ -2774,33 +2657,7 @@ class MoonrakerClientMock : public helix::MoonrakerClient {
     void service_openams_dryers(double dt_s);
     [[nodiscard]] nlohmann::json openams_device_json(int unit) const;
 
-    /// The `box` object frame, stock K1 shape (T1 unit, four bays).
-    [[nodiscard]] nlohmann::json cfs_box_status_json() const;
-    /// Emit the BOX_FIND_CUT_POS response lines synchronously inside
-    /// gcode_script, so they precede the RPC ack the way streamed gcode
-    /// responses do against real hardware (the real sweep takes ~60s).
-    void simulate_cfs_find_cut_pos();
-    /// Apply one BOX_CUSTOM_COMMAND. @return true when CMD= was one of ours.
-    bool apply_cfs_box_custom_command(const std::string& gcode);
-    /// Apply the K2 CR_BOX_EXTRUDE / CR_BOX_RETRUDE lines of a load, unload or
-    /// swap script to the loaded bay and push the `box` frame.
-    /// @return true when the script held one.
-    bool apply_cfs_cr_box_script(const std::string& gcode);
-    /// Global slot the box reports loaded, or -1 when none is.
-    std::atomic<int> cfs_loaded_slot_{-1};
-
   public:
-    /// The toolhead switch sees filament exactly while a bay is loaded.
-    [[nodiscard]] bool cfs_toolhead_filament_detected() const {
-        return cfs_loaded_slot_.load() >= 0;
-    }
-
-    // --- multiACE mock hardware (public: the frame builder is what the
-    // parity test reads, beside the sibling mock-hardware builders above). ---
-    bool is_mock_multiace() const;
-    /// The `ace` object frame, the engine's get_status() shape.
-    [[nodiscard]] nlohmann::json multiace_status_json() const;
-
     // --- Bondtech INDX mock hardware (public for the mock tests) ---
     bool is_mock_indx() const;
     /// The simulated extruder target (0 = off).
@@ -2825,17 +2682,16 @@ class MoonrakerClientMock : public helix::MoonrakerClient {
     using GcodeResult = std::optional<int>;
     GcodeResult gcode_skip_wrappers(const std::string& gcode);
     GcodeResult gcode_layer_pause(const std::string& gcode);
-    GcodeResult gcode_ifs_module(const std::string& gcode);
+
     GcodeResult gcode_medusa(const std::string& gcode);
     GcodeResult gcode_indx(const std::string& gcode);
     /// RESPOND: echoes MSG on the console the way Klipper's [respond] does, so
     /// an action prompt a script raises reaches the screen.
     GcodeResult gcode_respond(const std::string& gcode);
-    GcodeResult gcode_zmod(const std::string& gcode);
-    GcodeResult gcode_cfs(const std::string& gcode);
+
     GcodeResult gcode_openams(const std::string& script);
     GcodeResult gcode_openams_line(const std::string& gcode);
-    GcodeResult gcode_u1_feeding(const std::string& gcode);
+
     GcodeResult gcode_heater_temperature(const std::string& gcode);
     GcodeResult gcode_temperature_fan_target(const std::string& gcode);
     GcodeResult gcode_panda_dry_start(const std::string& gcode);
@@ -2879,24 +2735,6 @@ class MoonrakerClientMock : public helix::MoonrakerClient {
     GcodeResult gcode_exclude_object_define(const std::string& gcode);
     GcodeResult gcode_set_led_effect(const std::string& gcode);
     GcodeResult gcode_stop_led_effects(const std::string& gcode);
-    /// Lane in the nozzle (1-4, 0 = none) — the module's `ifs_loaded` record.
-    std::atomic<int> ifs_module_loaded_{0};
-    /// The module's `ifs_at_hub` record (1-4, 0 = none): the lane holding the
-    /// shared path.
-    std::atomic<int> ifs_module_at_hub_{0};
-    /// Whether the toolhead switch reads filament. Separate from ifs_loaded,
-    /// which the firmware can lose while filament stays in the head.
-    std::atomic<bool> ifs_module_head_loaded_{false};
-    /// Per-lane silk presence bitmask, bit i = lane i+1.
-    std::atomic<uint8_t> ifs_module_presence_{0x0F};
-    /// Slot -> {type, bare-hex colour}; IFS_SET_MATERIAL writes land here.
-    mutable std::mutex ifs_module_materials_mutex_;
-    std::map<int, std::pair<std::string, std::string>> ifs_module_materials_{
-        {1, {"PLA", "A03CF7"}},
-        {2, {"PETG", "00FF00"}},
-        {3, {"ABS", "FF8800"}},
-        {4, {"TPU", "FFFFFF"}}};
-
     // Additional objects for testing (e.g., "mmu", "AFC", "toolchanger")
     std::vector<std::string> additional_objects_;
 

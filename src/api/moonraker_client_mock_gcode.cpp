@@ -59,25 +59,6 @@ std::string normalize_gcode_command_case(const std::string& raw) {
 // Standalone IFS module commands (HELIX_MOCK_AMS=ifs-module): matched on the
 // command token exactly — a bare T<n> must not be confused with a temperature
 // parameter elsewhere in a line.
-MoonrakerClientMock::GcodeResult MoonrakerClientMock::gcode_ifs_module(const std::string& gcode) {
-    // One script can carry several commands, one per line.
-    bool handled = false;
-    size_t start = 0;
-    while (start < gcode.size()) {
-        size_t end = gcode.find('\n', start);
-        if (end == std::string::npos) {
-            end = gcode.size();
-        }
-        const std::string line = gcode.substr(start, end - start);
-        const size_t ifs_token_end = line.find_first_of(" \t");
-        handled |= apply_ifs_module_gcode(line.substr(0, ifs_token_end), line);
-        start = end + 1;
-    }
-    if (handled) {
-        return 0;
-    }
-    return std::nullopt;
-}
 
 // MedusaHC commands. They match the COMMAND TOKEN exactly, not find() anywhere
 // in the line, so the bare OPEN/CLOSE feeder macros cannot be confused with a
@@ -345,23 +326,6 @@ MoonrakerClientMock::GcodeResult MoonrakerClientMock::gcode_respond(const std::s
 // command token exactly. BOX_FIND_CUT_POS and BOX_CUSTOM_COMMAND are CFS-only vocabulary, and
 // the chute jog script (BOX_CUSTOM_COMMAND aside) falls through to the generic
 // G91/G0 simulation.
-MoonrakerClientMock::GcodeResult MoonrakerClientMock::gcode_cfs(const std::string& gcode) {
-    const size_t token_end = gcode.find_first_of(" \t");
-    const std::string cmd = gcode.substr(0, token_end);
-    if (cmd == "BOX_FIND_CUT_POS") {
-        spdlog::info("[MoonrakerClientMock] CFS cutter calibration sweep (mock)");
-        simulate_cfs_find_cut_pos();
-        return 0;
-    }
-    if (cmd == "BOX_CUSTOM_COMMAND" && apply_cfs_box_custom_command(gcode)) {
-        return 0;
-    }
-    // K2 load, unload and swap scripts: CR_BOX_* lines inside the park envelope.
-    if (apply_cfs_cr_box_script(gcode)) {
-        return 0;
-    }
-    return std::nullopt;
-}
 
 // OPENAMS_UNLOAD / OPENAMS_LOAD GROUP=<name>: flip the lane to the requested
 // group's first ready bay (bays 2 and 3 hold spools; T0 = {0,3}, T1 = {1},
@@ -445,37 +409,6 @@ MoonrakerClientMock::GcodeResult MoonrakerClientMock::gcode_openams_line(const s
 // Snapmaker U1 commands. Unconditional: AUTO_FEEDING, PARK_EXTRUDER and
 // DEFECT_DETECTION_CONFIG are U1-only vocabulary, so no mock printer mode
 // needs to arm them, and no other printer's script can contain the tokens.
-MoonrakerClientMock::GcodeResult MoonrakerClientMock::gcode_u1_feeding(const std::string& gcode) {
-    if (apply_u1_feeding_gcode(gcode)) {
-        return 0;
-    }
-    if (apply_multiace_gcode(gcode)) {
-        return 0;
-    }
-    if (is_command(gcode, "DEFECT_DETECTION_CONFIG")) {
-        if (has_token(gcode, "CLEAN_BED_ENABLE=0")) {
-            u1_clean_bed_enable_ = false;
-        } else if (has_token(gcode, "CLEAN_BED_ENABLE=1")) {
-            u1_clean_bed_enable_ = true;
-        }
-        if (has_token(gcode, "MAIN_ENABLE=0")) {
-            u1_defect_main_enable_ = false;
-        } else if (has_token(gcode, "MAIN_ENABLE=1")) {
-            u1_defect_main_enable_ = true;
-        }
-        spdlog::info("[MoonrakerClientMock] U1 DEFECT_DETECTION_CONFIG: main_enable={} "
-                     "clean_bed.enable={}",
-                     u1_defect_main_enable_.load(), u1_clean_bed_enable_.load());
-        return 0;
-    }
-    // "Detach Toolhead": the head goes back to its dock and nothing is
-    // published about it here, since the mock carries no U1 extruder pins.
-    if (is_command(gcode, "PARK_EXTRUDER")) {
-        spdlog::info("[MoonrakerClientMock] U1 PARK_EXTRUDER: active toolhead docked");
-        return 0;
-    }
-    return std::nullopt;
-}
 
 // Heater and pin targets: M104/M109 S<temp>, M140/M190 S<temp>,
 // SET_HEATER_TEMPERATURE HEATER=<name> TARGET=<temp>, SET_TEMPERATURE_FAN_TARGET,
@@ -1487,9 +1420,7 @@ int MoonrakerClientMock::gcode_script(const std::string& raw_gcode) {
 
     gcode_skip_wrappers(g);
     gcode_layer_pause(g);
-    if (is_mock_ifs_module() && (r = gcode_ifs_module(g))) {
-        return *r;
-    }
+
     if (is_mock_medusahc() && (r = gcode_medusa(g))) {
         return *r;
     }
@@ -1499,16 +1430,8 @@ int MoonrakerClientMock::gcode_script(const std::string& raw_gcode) {
     if ((r = gcode_respond(raw_gcode))) {
         return *r;
     }
-    if (printer_type_ == PrinterType::FLASHFORGE_CREATOR5_ZMOD && (r = gcode_zmod(g))) {
-        return *r;
-    }
-    if (is_mock_cfs() && (r = gcode_cfs(g))) {
-        return *r;
-    }
+
     if (is_mock_openams() && (r = gcode_openams(g))) {
-        return *r;
-    }
-    if ((r = gcode_u1_feeding(g))) {
         return *r;
     }
 

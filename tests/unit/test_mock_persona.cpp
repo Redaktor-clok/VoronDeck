@@ -12,21 +12,8 @@ using helix::mock::PrinterType;
 
 namespace {
 constexpr PrinterType kAllTypes[] = {
-    PrinterType::VORON_24,
-    PrinterType::VORON_TRIDENT,
-    PrinterType::CREALITY_K1,
-    PrinterType::CREALITY_K1_MAX,
-    PrinterType::FLASHFORGE_AD5M,
-    PrinterType::FLASHFORGE_CREATOR5,
-    PrinterType::FLASHFORGE_CREATOR5_ZMOD,
-    PrinterType::GENERIC_COREXY,
-    PrinterType::GENERIC_BEDSLINGER,
-    PrinterType::MULTI_EXTRUDER,
-    PrinterType::DELTA,
-    PrinterType::ELEGOO_CC1,
-    PrinterType::FLASHFORGE_AD5X,
-    PrinterType::CREALITY_K2_PLUS,
-    PrinterType::SNAPMAKER_U1,
+    PrinterType::VORON_24,           PrinterType::VORON_TRIDENT,  PrinterType::GENERIC_COREXY,
+    PrinterType::GENERIC_BEDSLINGER, PrinterType::MULTI_EXTRUDER, PrinterType::DELTA,
 };
 } // namespace
 
@@ -66,7 +53,7 @@ TEST_CASE("resolve_persona: unset and empty are the silent default", "[mock][per
 
 TEST_CASE("resolve_persona: exact, case-sensitive match", "[mock][persona]") {
     bool recognised = false;
-    CHECK(helix::mock::resolve_persona("k1max", &recognised).type == PrinterType::CREALITY_K1_MAX);
+    CHECK(helix::mock::resolve_persona("voron_24", &recognised).type == PrinterType::VORON_24);
     CHECK(recognised);
     CHECK(helix::mock::resolve_persona("AD5M", &recognised).id == "voron_24");
     CHECK_FALSE(recognised);
@@ -87,15 +74,15 @@ TEST_CASE("effective_mock_ams: explicit wins, else the persona default", "[mock]
     using helix::mock::effective_mock_ams;
     CHECK(effective_mock_ams("AFC", "creator5") == "afc");
     CHECK(effective_mock_ams("none", "creator5") == "none");
-    CHECK(effective_mock_ams(nullptr, "creator5") == "toolchanger");
-    CHECK(effective_mock_ams("", "creator5") == "toolchanger");
+    CHECK(effective_mock_ams(nullptr, "creator5").empty());
+    CHECK(effective_mock_ams("", "creator5").empty());
     CHECK(effective_mock_ams(nullptr, "voron_24").empty());
     CHECK(effective_mock_ams(nullptr, "nonsense").empty());
     CHECK(effective_mock_ams(nullptr, nullptr).empty());
-    CHECK(effective_mock_ams(nullptr, "ad5x") == "ifs");
+    CHECK(effective_mock_ams(nullptr, "ad5x").empty());
     CHECK(effective_mock_ams("afc", "ad5x") == "afc");
-    CHECK(effective_mock_ams(nullptr, "k2") == "cfs");
-    CHECK(effective_mock_ams(nullptr, "snapmaker_u1") == "snapmaker");
+    CHECK(effective_mock_ams(nullptr, "k2").empty());
+    CHECK(effective_mock_ams(nullptr, "snapmaker_u1").empty());
 }
 
 TEST_CASE("A persona's own probe stands in for the default cartographer", "[mock][persona]") {
@@ -108,7 +95,7 @@ TEST_CASE("A persona's own probe stands in for the default cartographer", "[mock
 }
 
 TEST_CASE("is_hardware_persona follows the descriptor", "[mock][persona]") {
-    CHECK(helix::mock::is_hardware_persona("creator5_zmod"));
+    CHECK_FALSE(helix::mock::is_hardware_persona("creator5_zmod"));
     CHECK_FALSE(helix::mock::is_hardware_persona("creator5"));
     CHECK_FALSE(helix::mock::is_hardware_persona("CREATOR5_ZMOD"));
     CHECK_FALSE(helix::mock::is_hardware_persona(""));

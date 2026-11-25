@@ -29,10 +29,6 @@ import helix_gcode_reader
 import helix_plr_render
 import helix_plr_scan
 
-try:
-    import helix_plr_qidi
-except ImportError:  # the QIDI adapter is optional; generic PLR runs without it
-    helix_plr_qidi = None
 
 # ============================================================================
 # Storage safety
@@ -942,7 +938,6 @@ class HelixPlr:
         self._follow_future = None  # type: Optional[Any]
         self._follow_at = float("-inf")
         self._follow_executor = None  # type: Optional[Any]
-        self.qidi = None  # type: Optional[Any]
         self._active_backend = "none"
         self._skip_chamber = False
         self.klippy_ready = False
@@ -1126,37 +1121,8 @@ class HelixPlr:
             return
         self.status = {}
         self._merge(status)
-        await self._detect_qidi(apis)
 
-    async def _detect_qidi(self, apis: Any) -> None:
-        """Select the QIDI print_state adapter when Klipper is QIDI's fork AND
-        this Moonraker carries QIDI's resume endpoint. snapshot_objects
-        subscribes gcode_move and virtual_sdcard whole, so the adapter's
-        EXTRA_STATUS_FIELDS arrive with every update."""
-        self.qidi = None
-        if helix_plr_qidi is None:
-            return
-        gcode_help = {}  # type: Any
-        send = getattr(apis, "_send_klippy_request", None)
-        if send is not None:
-            try:
-                gcode_help = await send("gcode/help", {}, {})
-            except Exception:
-                gcode_help = {}
-        if helix_plr_qidi.qidi_print_state_present(gcode_help, self.status.get("gcode_move")) \
-                and helix_plr_qidi.moonraker_resumes_print_state(apis, self.database):
-            self.qidi = helix_plr_qidi.QidiPrintStateAdapter(
-                self.database, apis, mark=self._mark_qidi,
-                unmark=self.helix.unmark_helix_initiated)
-            logging.info("HelixPrint: PLR resumes through QIDI's print_state")
 
-    def _qidi_status(self) -> Dict[str, Any]:
-        fields = helix_plr_qidi.EXTRA_STATUS_FIELDS if helix_plr_qidi is not None else {}
-        out = {}
-        for obj, names in fields.items():
-            have = _obj(self.status, obj)
-            out[obj] = {n: have[n] for n in names if n in have}
-        return out
 
     def _merge(self, status: Any) -> None:
         if not isinstance(status, dict):
@@ -1204,13 +1170,6 @@ class HelixPlr:
             return
         await self._persist(now, record)
         await self._maybe_save_mesh(record)
-        if self.qidi is not None and self._active_backend == "qidi_print_state":
-            try:
-                await self.qidi.on_snapshot(record, self._qidi_status(),
-                                            force=reason in ("event", "pause"))
-            except Exception:
-                # The generic snapshot and the follower carry on regardless.
-                logging.exception("HelixPrint: PLR could not write QIDI's print_state")
         self._maybe_follow(now, record.get("file_position"))
 
     async def _note_print_path(self) -> None:
@@ -1282,10 +1241,6 @@ class HelixPlr:
             name = job.get("filename")
             if gc_path is not None and isinstance(name, str) and name:
                 paths.append(os.path.join(str(gc_path), name))
-        if self.qidi is not None and helix_plr_qidi is not None:
-            cached = helix_plr_qidi.qidi_resume_filename(self.qidi._cache_dir)
-            if cached:
-                paths.append(cached)
         return sorted({q for p in paths for q in (os.path.abspath(p), os.path.realpath(p))})
 
     def protected_index_paths(self) -> List[str]:
@@ -1472,8 +1427,6 @@ class HelixPlr:
             await self._ns_delete(RESUMING_KEY)
         else:
             self._remove_mesh_cfg()
-        if self.qidi is not None:
-            self.qidi.on_job_start()
         self._prune_indexes()
         gc_path = getattr(self.helix, "gc_path", None)
         if gc_path is not None and filename:
@@ -1493,8 +1446,6 @@ class HelixPlr:
         await self._stop_follower(
             self.job.get("file_size") if status == "completed" else None)
         if status in _CLEARED_STATUSES:
-            if self.qidi is not None:
-                self.qidi.on_job_end()
             await self.discard()
             return
         self.job["finished_status"] = status
@@ -1664,19 +1615,12 @@ class HelixPlr:
 
         - tier 0 (an unlisted printer) never acts;
         - tier 2 (trusted Z) needs z_holds_unpowered, else it acts at tier 1;
-        - qidi_print_state needs QIDI's firmware and endpoint (self.qidi), and
-          tier 2: QIDI's sequence declares the snapshot's Z itself, so there
-          is no tier-1 jog on that path;
         - generic needs safe XY homing (effective_tier); tier 3 is not in v1
           and acts at tier 2.
         """
         tier = min(profile.tier, 2)
         if tier >= 2 and not profile.z_holds_unpowered:
             tier = 1
-        if profile.backend == "qidi_print_state":
-            if self.qidi is None or tier < 2:
-                return "none", 0
-            return "qidi_print_state", 2
         if profile.backend != "generic":
             return "none", 0
         homed_tier, _ = effective_tier(profile._replace(tier=tier), self.homing)
@@ -1698,8 +1642,6 @@ class HelixPlr:
                 == self.job.get("job_id"):
             snapshot_job = self.job.get("job_id")
         rows = True
-        if backend == "qidi_print_state":
-            rows = await self.qidi.has_resume_rows()
         inputs = OfferInputs(
             newest_job_status=await self._newest_job_status(newest),
             snapshot_job_id=snapshot_job,
@@ -1842,15 +1784,12 @@ class HelixPlr:
         job = self.job or {}
         warnings = list(point.warnings)
         backend = self.backend(profile)[0]
-        qidi = backend == "qidi_print_state"
-        if not qidi:
-            self._check_printed_file()
+        self._check_printed_file()
         mesh = job.get("mesh")
         profiles = _obj(status, "bed_mesh").get("profiles")
         profiles = profiles if isinstance(profiles, dict) else {}
         mesh_loadable = None
-        # QIDI's own sequence loads the mesh and purges; only the generic one does here.
-        if isinstance(mesh, dict) and not qidi:
+        if isinstance(mesh, dict):
             if mesh.get("saved") and mesh.get("profile") in profiles:
                 mesh_loadable = mesh["profile"]
             elif MESH_SECTION in profiles:
@@ -1879,7 +1818,7 @@ class HelixPlr:
         if "macro_vars" in (snapshot.get("overflow") or []):
             macro_vars = (job.get("overflow") or {}).get("macro_vars")
         purge = None
-        if not profile.purge_gcode and not qidi:
+        if not profile.purge_gcode:
             bed = self._bed_limits(job.get("mesh"))
             if bed is not None:
                 purge = helix_plr_render.generic_purge_xy(objects, bed[0], bed[1])
@@ -1887,15 +1826,13 @@ class HelixPlr:
                 warnings.append("no_purge_location")
         excluded = list(snapshot.get("excluded") or [])
         self._check_open_object(point.state.current_object, excluded)
-        if qidi:
-            self._check_qidi_landing(snapshot, job.get("mesh"))
-        if tier == 1 and not qidi and purge is None and self.park_xy is None:
+        if tier == 1 and purge is None and self.park_xy is None:
             # Nowhere known to be off the part: the nozzle would heat and ooze
             # over the resume point the jog left it at.
             raise self._error("plr_scan_failed", "no_purge_location: no purge line and no XY "
                               "homing position to heat the nozzle at", 400)
         part_top = _part_top_z(scan, point)
-        if tier == 1 and part_top is None and not qidi:
+        if tier == 1 and part_top is None:
             raise self._error("plr_scan_failed", "no_part_top: no extrusion before the resume point",
                               400)
         live = snapshot.get("live_pos") or [0.0, 0.0, 0.0, 0.0]
@@ -1952,18 +1889,6 @@ class HelixPlr:
                                    .required_confirmations(plan.tier, warnings, cold))
         return self._plan
 
-    def _check_qidi_landing(self, snapshot: Dict[str, Any], mesh: Any) -> None:
-        """QIDI's landing move is off by the gcode offset plus the mesh at the
-        cut (helix_plr_qidi.frame_z); refuse when that would press the hot
-        nozzle into the plastic."""
-        offset = snapshot.get("gcode_offset") or [0.0, 0.0, 0.0]
-        live = snapshot.get("live_pos") or snapshot.get("toolhead_pos") or [0.0, 0.0, 0.0]
-        mesh_z = helix_plr_render.mesh_adjustment(mesh, live[0], live[1], live[2],
-                                                  self.mesh_fade) or 0.0
-        landing = (offset[2] or 0.0) + mesh_z
-        if landing < -QIDI_LANDING_TOL_MM:
-            raise self._error("plr_scan_failed",
-                              "qidi_landing_below_part: %.3f mm" % landing, 400)
 
     def _check_open_object(self, name: Optional[str], excluded: List[str]) -> None:
         """The resume must not start inside an excluded object's block:
@@ -1978,9 +1903,8 @@ class HelixPlr:
         carry refuses the plan, before prepare heats or moves anything."""
         try:
             helix_plr_render.render_start(plan)
-            if plan.backend != "qidi_print_state":
-                helix_plr_render.render_commit_script(
-                    plan, profile, "part_top" if plan.tier == 1 else "trusted")
+            helix_plr_render.render_commit_script(
+                plan, profile, "part_top" if plan.tier == 1 else "trusted")
         except helix_plr_render.UnsafeValue as e:
             raise self._error("plr_scan_failed", "unsafe_value: %s" % e, 400)
 
@@ -2164,13 +2088,7 @@ class HelixPlr:
                 raise
             self._skip_chamber = skip_chamber
             try:
-                if plan.backend == "qidi_print_state":
-                    await self.qidi.prepare(self._heat_wait(plan, skip_chamber, nozzle_in_place=True))
-                    # No lift: QIDI declares Z from its row and lands on it.
-                    await self._send(plan_id, "nozzle_standby",
-                                     helix_plr_render.nozzle_standby_lines(plan, profile))
-                else:
-                    await self._heat(plan, skip_chamber, nozzle_in_place=True)
+                await self._heat(plan, skip_chamber, nozzle_in_place=True)
                 if motion is not None:
                     declare, lift = motion
                     for step, lines in helix_plr_render.render_prepare_script(
@@ -2275,24 +2193,19 @@ class HelixPlr:
                 raise
             try:
                 await self._forget_lift()
-                if plan.backend == "qidi_print_state":
-                    await self._commit_qidi(plan)
-                else:
-                    # Rendered before anything moves: a name it cannot send
-                    # refuses the commit here, not after the purge.
-                    start = helix_plr_render.render_start(plan)
-                    # Back to print temperature where the nozzle stands, before
-                    # the tier-1 Z reference or any other move.
-                    await self._heat(plan, self._skip_chamber, nozzle_in_place=True)
-                    for step, lines in helix_plr_render.render_commit_script(
-                            plan, profile, z_reference):
-                        await self._send(plan_id, step, lines, done=step != "heat_nozzle")
-                        if step == "heat_nozzle":
-                            await self._wait_temp(
-                                plan_id, step, "extruder",
-                                plan.nozzle_target - helix_plr_render.HEAT_TOLERANCE_C,
-                                NOZZLE_WAIT_TIMEOUT_S)
-                    await self._start(plan, start)
+                start = helix_plr_render.render_start(plan)
+                # Back to print temperature where the nozzle stands, before
+                # the tier-1 Z reference or any other move.
+                await self._heat(plan, self._skip_chamber, nozzle_in_place=True)
+                for step, lines in helix_plr_render.render_commit_script(
+                        plan, profile, z_reference):
+                    await self._send(plan_id, step, lines, done=step != "heat_nozzle")
+                    if step == "heat_nozzle":
+                        await self._wait_temp(
+                            plan_id, step, "extruder",
+                            plan.nozzle_target - helix_plr_render.HEAT_TOLERANCE_C,
+                            NOZZLE_WAIT_TIMEOUT_S)
+                await self._start(plan, start)
             except Exception:
                 if self._sequence == "committing":
                     self._sequence = "failed"
@@ -2316,49 +2229,9 @@ class HelixPlr:
             raise self._error("plr_stale_plan",
                               "Klipper lost its position since prepare; prepare again", 409)
 
-    def _heat_wait(self, plan: Any, skip_chamber: bool = False,
-                   nozzle_in_place: bool = False) -> Callable[[], Any]:
-        """The heat wait as the coroutine the QIDI adapter awaits."""
-        async def wait() -> None:
-            await self._heat(plan, skip_chamber, nozzle_in_place)
-        return wait
 
-    def _mark_qidi(self, name: str, kind: str) -> None:
-        """The QIDI adapter marks the job immediately before QIDI's resume
-        call; an abort that arrived during its wait stops it here."""
-        self._check_abort()
-        self.helix.mark_helix_initiated(name, kind)
 
-    async def _commit_qidi(self, plan: Any) -> None:
-        self._check_qidi_cache()
-        self._notify(PROGRESS_EVENT, {"plan_id": plan.plan_id, "step": "start", "state": "running"})
-        try:
-            await self.qidi.commit(plan.snapshot, plan.resume_offset, self._plan_file_size,
-                                   self._heat_wait(plan, self._skip_chamber, nozzle_in_place=True),
-                                   plan.state,
-                                   self._qidi_status())
-        except Exception as e:
-            self._notify(PROGRESS_EVENT, {"plan_id": plan.plan_id, "step": "start", "state": "failed"})
-            if getattr(e, "plr_code", None):
-                raise
-            raise self._error("plr_klippy_error", str(e), 500)
-        self._notify(PROGRESS_EVENT, {"plan_id": plan.plan_id, "step": "start", "state": "done"})
 
-    def _check_qidi_cache(self) -> None:
-        """QIDI resumes whatever file sits in its .cache; it must be the
-        file the snapshot and the resume offset are for."""
-        name = helix_plr_qidi.qidi_resume_filename(self.qidi._cache_dir)
-        job = self.job or {}
-        printed = job.get("print_path")
-        expected = job.get("print_identity") or job
-        try:
-            found = file_identity(Path(name)) if name else None
-        except OSError:
-            found = None
-        if found is None or found["file_size"] != expected.get("file_size") \
-                or found["file_hash"] != expected.get("file_hash") \
-                or (printed and Path(printed).resolve() != Path(name).resolve()):
-            raise self._error("plr_scan_failed", "qidi_cache_mismatch: %s" % name, 409)
 
     async def _start(self, plan: Any, start: str) -> None:
         """Mark the job helix-initiated, then the single start command."""
@@ -2402,8 +2275,6 @@ class HelixPlr:
             self._run.aborted = True
         self._sequence = "aborted"
         self._plan = None
-        if plan.backend == "qidi_print_state":
-            self.qidi.abort()
         await self._heaters_off(plan)
         return {"ok": True}
 
@@ -2412,11 +2283,6 @@ class HelixPlr:
             raise self._error("plr_busy", "a resume is running", 409)
         self._plan = None
         self._sequence = None
-        if self.qidi is not None and self.backend(await self.profile())[0] == "qidi_print_state":
-            try:
-                await self.qidi.discard()
-            except Exception as e:
-                raise self._error("plr_klippy_error", "print_state not deleted: %s" % e, 500)
         await self.discard()
         return {"ok": True}
 
@@ -2481,7 +2347,6 @@ CHAMBER_WAIT_TIMEOUT_S = 45 * 60.0
 
 # How far below the plastic QIDI's landing move may end before a QIDI resume
 # is refused.
-QIDI_LANDING_TOL_MM = 0.05
 
 # The include-file mesh section.
 MESH_SECTION = "helix_plr"

@@ -34,6 +34,20 @@ def main():
             parser.error('Production build must record ' + flag)
     names = subprocess.check_output(['git', '-C', str(root), 'ls-files', '-z']).decode().split('\0')
     payload = {'bin/helix-screen': (binary, 0o755)}
+    # The assets prefix is accepted by the original beta installer as well.
+    manager_files = [
+        'scripts/moonraker-vorondeck.py', 'scripts/moonraker-vorondeck-runtime.py',
+        'scripts/install-vorondeck.py', 'scripts/vorondeck-bootstrap.py',
+        'scripts/vorondeck_distribution.py', 'scripts/vorondeck_installer_i18n.py',
+        'scripts/setup-vorondeck-updates.py',
+        'assets/updates/check-vorondeck-update.py',
+        'assets/updates/vorondeck_public_releases.py',
+    ]
+    for name in manager_files:
+        path = root / name
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('Missing updater source: ' + name)
+        payload['assets/updates/manager/' + name] = (path.read_bytes(), 0o644)
     bluetooth = args.binary.parent / 'libhelix-bluetooth.so'
     if bluetooth.is_file():
         data = bluetooth.read_bytes()

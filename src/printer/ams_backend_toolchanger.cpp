@@ -69,7 +69,6 @@ void AmsBackendToolChanger::set_discovery(const helix::PrinterDiscovery& discove
         purge_mm_ = helix::SettingsManager::instance().get_mount_feed_purge_mm();
     }
     set_material_source(addon::resolve_material_source(discovery));
-    tinfo_macro_present_ = discovery.has_macro("T_INFO");
 }
 
 void AmsBackendToolChanger::set_discovered_tools(std::vector<std::string> tool_names) {
@@ -141,33 +140,9 @@ void AmsBackendToolChanger::on_started() {
             }
         }
     }
-
-    register_zmod_marker_listener();
-    query_zmod_tool_state();
-}
-
-void AmsBackendToolChanger::query_zmod_tool_state() {
-    // T_INFO answers state and moves nothing, so the query is safe to fire
-    // whenever the changer row is Z-Mod's. Its value is the boot case: on
-    // firmware whose zmod_color only recomputes active_tool_id inside its own
-    // commands, this is what replaces the stale dock-sensor-error boot state
-    // with where the tools actually sit.
-    if (!api_ || !zmod_c5_row_active() || !tinfo_macro_present_) {
-        return;
-    }
-    // Captureless callbacks only: the query is fire-and-forget (its answer
-    // arrives on the console listener), and a failed probe is log-only —
-    // claiming error ownership here would mute Klipper's own `!!` line.
-    api_->execute_gcode(
-        "T_INFO", nullptr,
-        [](const MoonrakerError& err) {
-            spdlog::debug("[AMS ToolChanger] T_INFO query refused: {}", err.message);
-        },
-        0, false, nullptr, /*caller_surfaces_errors=*/false);
 }
 
 void AmsBackendToolChanger::on_stopping() {
-    unregister_zmod_marker_listener();
     unregister_mount_feed_listener();
 }
 
@@ -177,110 +152,6 @@ void AmsBackendToolChanger::on_stopped() {
     // Here and not in on_stopping(): the unwind takes mutex_ and emits, and
     // stop() holds mutex_ across on_stopping().
     abandon_feed_run_after_disconnect();
-}
-
-void AmsBackendToolChanger::register_zmod_marker_listener() {
-    if (!client_ || !zmod_c5_row_active()) {
-        return;
-    }
-
-    static const std::string handler_name = "toolchanger_zmod_marker_watcher";
-    auto token = lifetime_.token();
-
-    client_->register_method_callback(
-        "notify_gcode_response", handler_name, [this, token](const json& msg) {
-            // BG THREAD: extract the line into a local; no `this` access here.
-            std::string line;
-            if (msg.contains("params") && msg["params"].is_array() && !msg["params"].empty() &&
-                msg["params"][0].is_string()) {
-                line = msg["params"][0].get<std::string>();
-            } else if (msg.is_array() && !msg.empty() && msg[0].is_string()) {
-                line = msg[0].get<std::string>();
-            } else {
-                return;
-            }
-
-            // BG-side pre-filter (queue-pressure economy): notify_gcode_response
-            // fires for EVERY gcode console line — hundreds per second on a busy
-            // print. The parsers only act on the swap narration tokens and
-            // T_INFO's rows, so anything without one never hits the UpdateQueue.
-            if (line.find("Grab attempt for T") == std::string::npos &&
-                line.find("Unload attempt for T") == std::string::npos &&
-                line.find("_T_IN") == std::string::npos &&
-                line.find("_T_OUT") == std::string::npos &&
-                line.find(": home") == std::string::npos &&
-                line.find(": HEAD") == std::string::npos &&
-                line.find("ERROR (both)") == std::string::npos &&
-                line.find("Offset:") == std::string::npos) {
-                return;
-            }
-
-            // MAIN THREAD: on_zmod_marker_line takes mutex_ and writes backend
-            // state.
-            token.defer("AmsBackendToolChanger::zmod_marker_apply",
-                        [this, line = std::move(line)]() mutable { on_zmod_marker_line(line); });
-        });
-
-    // FIRMWARE_RESTART reloads the macros; the tool-state query is what
-    // re-seeds the carriage reading after klippy comes back.
-    client_->register_method_callback(
-        "notify_klippy_ready", handler_name, [this, token](const json& /*msg*/) {
-            token.defer("AmsBackendToolChanger::zmod_klippy_ready_apply",
-                        [this]() { query_zmod_tool_state(); });
-        });
-}
-
-void AmsBackendToolChanger::unregister_zmod_marker_listener() {
-    if (!client_) {
-        return;
-    }
-    client_->unregister_method_callback("notify_gcode_response", "toolchanger_zmod_marker_watcher");
-    client_->unregister_method_callback("notify_klippy_ready", "toolchanger_zmod_marker_watcher");
-}
-
-void AmsBackendToolChanger::on_zmod_marker_line(const std::string& line) {
-    if (auto reading = helix::toolchanger_addon::parse_zmod_marker(line)) {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            // Same path a status frame takes: the marker's phase word drives the
-            // action, the direction latch and the step bar's index, while its
-            // absent fields leave the tool and dock state the object carries alone.
-            apply_tool_sensor_locked(*reading);
-        }
-        emit_event(EVENT_STATE_CHANGED);
-        return;
-    }
-
-    // T_INFO's rows: one dock/carriage fact per line, and the block-end line is
-    // the only place "nothing on the carriage" can be stated.
-    bool block_ended = false;
-    auto reading = helix::toolchanger_addon::parse_zmod_tinfo_line(line, block_ended);
-    bool changed = false;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (reading) {
-            if (reading->current_tool.has_value()) {
-                tinfo_block_saw_head_ = true;
-            }
-            apply_tool_sensor_locked(*reading);
-            changed = true;
-        } else if (block_ended) {
-            if (!tinfo_block_saw_head_) {
-                // Every tool row said home and none said HEAD: the carriage is
-                // empty. Reading it here is the point of the query — firmware
-                // that only recomputes active_tool_id inside its own commands
-                // clears a stale carriage reading through nothing else.
-                helix::toolchanger_addon::ToolReading empty;
-                empty.current_tool = -1;
-                apply_tool_sensor_locked(empty);
-                changed = true;
-            }
-            tinfo_block_saw_head_ = false;
-        }
-    }
-    if (changed) {
-        emit_event(EVENT_STATE_CHANGED);
-    }
 }
 
 // stop(), release_subscriptions(), is_running() provided by AmsSubscriptionBackend
@@ -668,22 +539,7 @@ PathTopology AmsBackendToolChanger::get_topology() const {
 
 helix::printer::EndlessSpoolCapabilities
 AmsBackendToolChanger::get_endless_spool_capabilities() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    using namespace helix::printer;
-    if (!zmod_c5_row_active()) {
-        return {};
-    }
-    // Z-Mod's C5 "endless spool mode" (zmod docs, C5PRO.md): when a head runs
-    // out, the firmware switches to the next spool whose colour AND type both
-    // match. Always on, no toggle to write — the same answer the AD5X IFS
-    // backend gives stock zMod.
-    EndlessSpoolCapabilities caps;
-    caps.availability = EndlessSpoolAvailability::Available;
-    caps.provider = "zmod";
-    caps.enabled = EndlessSpoolEnabled::On;
-    caps.editability = EndlessSpoolEditability::ReadOnly;
-    caps.restriction = EndlessSpoolRestriction::FirmwareManaged;
-    return caps;
+    return {};
 }
 
 PathSegment AmsBackendToolChanger::get_filament_segment() const {

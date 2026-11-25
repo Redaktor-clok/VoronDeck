@@ -191,11 +191,9 @@ bool plr_is_safe_recovery_filename(const std::string& name);
 /// resume path the reopened file's absolute name is compared back against the
 /// sidecar's `file_path` — a mismatch discards the recovery data and restarts
 /// the print. An already-relative name is returned unchanged.
-std::string plr_creality_sdcard_relative_name(const std::string& path);
 
 /// Extract `file_path` from the Creality recovery sidecar JSON. Returns an
 /// empty string for malformed input or a missing/non-string key.
-std::string plr_parse_creality_sidecar(const std::string& json_text);
 
 /// Best-effort read of the probed recovery's filename from the firmware's
 /// on-device sidecar. HelixScreen runs on the printer, so this normally
@@ -224,42 +222,7 @@ inline constexpr const char* kPlrPlanReadyNotify = "notify_plr_plan_ready";
 /// helix_print:plr_status; its payload is the server.helix.plr.status reply.
 inline constexpr const char* kPlrStatusNotify = "notify_plr_status";
 
-/// Snapmaker fork gcode.
-inline constexpr const char* kSnapmakerResumeGcode = "SDCARD_PRINT_PL_RESTORE";
-inline constexpr const char* kSnapmakerDiscardGcode = "SDCARD_PRINT_PL_CLEAR_ENV";
-
-/// Creality fork. The detect endpoint is a Klipper webhook that Moonraker
-/// auto-registers as a JSON-RPC method (klippy_connection.py re-exports every
-/// non-reserved endpoint). It is SIDE-EFFECTFUL — call at most once per
-/// connection, only while print_stats.state == "standby". Never poll it.
-inline constexpr const char* kCrealityDetectRpc = "printer.pause_resume.check_continue_print_state";
-inline constexpr const char* kCrealityDiscardRpc = "printer.pause_resume.cancel_continue_print";
-
-/// Sidecar holding the interrupted job's path, relative to the data root.
-inline constexpr const char* kCrealitySidecarRelPath =
-    "creality/userdata/config/print_file_name.json";
-
-/// Qidi stock firmware (Q2 / Q1 Pro / Plus 4). Both are the plain gcode
-/// scripts the stock screen's Yes/No buttons send; neither takes parameters,
-/// so a recovery filename is display-only for this backend. RESUME_INTERRUPTED
-/// rebuilds the resume gcode from the .temp/ backup, lifts Z clear of the part
-/// before homing X/Y, then prints it.
-inline constexpr const char* kQidiResumeGcode = "RESUME_INTERRUPTED";
-inline constexpr const char* kQidiDiscardGcode = "CLEAR_LAST_FILE";
-/// The boot-time check the stock screen sends. Newer Qidi firmware (Q2
-/// 01.01.02.03 at least) registers RESUME_INTERRUPTED and CLEAR_LAST_FILE as Python commands, which
-/// never appear as gcode_macro objects, so this macro is the one that marks
-/// every Qidi firmware generation.
-inline constexpr const char* kQidiDetectMacro = "DETECT_INTERRUPTION";
-
-/// Whether the connected printer runs a firmware whose resume command is one
-/// the PLR module knows (currently Qidi's stock RESUME_INTERRUPTED, recognised
-/// by DETECT_INTERRUPTION or a RESUME_INTERRUPTED macro - the macro is the
-/// firmware discriminator, because the was_interrupted save_variable it
-/// maintains is user-writable on ANY Klipper). Capability-named on purpose:
-/// generic modules (PrinterState, the subscription builder) call this without
-/// learning the vendor. Out-of-line to keep this header free of the
-/// PrinterDiscovery dependency.
+/// Legacy firmware markers are not supported.
 bool plr_resume_macro_present(const PrinterDiscovery& hw);
 
 /// Status fields the PLR backends read on the discovered firmware, as a

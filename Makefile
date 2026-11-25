@@ -490,45 +490,14 @@ else
     ENABLE_MOCKS ?= yes
 endif
 
-# PWM sysfs buzzer backend — ad5m/ad5m-br probe it; the generic SBC builds
-# (pi, pi32, x86, yocto, native) carry it for a sound.pwm_channel setting, a
-# buzzer the user wired to any board's hardware PWM pin.
-#
-# The backend's own runtime probe is just "does /sys/class/pwm/pwmchip0 exist",
-# which is true on boards whose PWM controller drives something else entirely: a
-# CC1 has 8 channels there, no beeper on any of them, and its backlight on the
-# same controller. So the probe cannot be trusted to decide this — the platform
-# must, or the user naming the channel. M300 (the PRINTER's beeper, over gcode) is deliberately NOT gated and
-# keeps working everywhere. Neither MIPS board exposes a sysfs pwmchip (the
-# FlashForge MIPS boards' piezo goes through jz_pwm below, the K1 has no audio at all).
-#
-# Decided HERE, above APP_OBJS, and not down in the sound-flags section: APP_OBJS
-# is computed from APP_SRCS a few lines below, so a filter-out placed after it is
-# a silent no-op that still compiles and still links the backend.
-ifneq (,$(filter ad5m ad5m-br pi pi-fbdev pi-both pi32 pi32-fbdev pi32-both x86 x86-fbdev x86-both yocto native,$(PLATFORM_TARGET)))
+# Generic SBCs carry PWM sound for an explicitly configured sound.pwm_channel.
+# Do not auto-probe channels: another channel may drive the display backlight.
+ifneq (,$(filter pi pi-fbdev pi-both pi32 pi32-fbdev pi32-both x86 x86-fbdev x86-both yocto native,$(PLATFORM_TARGET)))
     PWM_SOUND_CXXFLAGS := -DHELIX_HAS_PWM_SOUND
-    # Auto-export: the stock AD5M kernel ships the beeper channel unexported
-    # and nothing materializes pwm6, so initialize() writes the channel to
-    # pwmchip0/export first. ad5x is excluded: pwm6 unverified there, no test
-    # rig, large installed base - behavior must not change silently.
-    ifneq (,$(filter ad5m ad5m-br,$(PLATFORM_TARGET)))
-        PWM_AUTO_EXPORT_CXXFLAGS := -DHELIX_PWM_AUTO_EXPORT
-    endif
 else
     APP_SRCS := $(filter-out $(SRC_DIR)/system/pwm_sound_backend.cpp,$(APP_SRCS))
 endif
 
-# The FlashForge MIPS boards' piezo via the jz_pwm DMA engine, exec'd through fx-pwm - there is no
-# sysfs pwmchip on the X2600, so the sysfs PWM backend above cannot drive it.
-# Compiled into the unified MIPS build and probed at runtime (/dev/jz_pwm + the
-# fx-pwm binary): the K1 carries /dev/jz_pwm but no fx-pwm, so the probe fails
-# there and the ladder falls through; a host build that happens to carry the
-# binary simply falls through too, and remote-UI installs keep the M300 path.
-ifneq (,$(filter mips k1 ad5x,$(PLATFORM_TARGET)))
-    JZ_PWM_CXXFLAGS := -DHELIX_HAS_JZ_PWM
-else
-    APP_SRCS := $(filter-out $(SRC_DIR)/system/jz_pwm_sound_backend.cpp,$(APP_SRCS))
-endif
 
 ifneq ($(ENABLE_MOCKS),yes)
     APP_SRCS := $(filter-out $(wildcard $(SRC_DIR)/api/*_mock*.cpp),$(APP_SRCS))
@@ -896,33 +865,14 @@ else ifneq ($(CROSS_COMPILE)$(filter x86 x86-fbdev x86-both,$(PLATFORM_TARGET)),
     # Note: libnl must come AFTER wpa_client (static linking order matters)
     # Note: -L path only for targets that link against host libs (Pi, AD5M);
     # the toolchains below each carry their own sysroot
-    ifeq ($(PLATFORM_TARGET),k1-dynamic)
-        # K1 Dynamic: Mixed static/dynamic linking
-        # Project libraries linked statically, system libraries linked dynamically
-        # -lstdc++fs: GCC 7.5 requires separate library for <experimental/filesystem>
-        LDFLAGS := -Wl,-Bstatic \
-            $(LIBHV_LIBS) $(FMT_LIBS) $(WPA_CLIENT_LIB) $(LIBNL_LIBS) -lstdc++fs \
-            -Wl,-Bdynamic \
-            -lstdc++ -lz -lm -lpthread -lrt -ldl -latomic -lgcc_s
-    else ifneq ($(filter mips k1 ad5x,$(PLATFORM_TARGET)),)
-        # No system library path: these toolchains are self-contained.
-        # The unified MIPS build (mips/k1/ad5x) uses the ct-ng musl toolchain
-        # and links fully static, so nothing resolves from a host or chroot at runtime.
-        # -latomic: Required for 64-bit atomics on 32-bit MIPS (std::atomic<int64_t>)
-        LDFLAGS := $(LIBHV_LIBS) $(FMT_LIBS) $(WPA_CLIENT_LIB) $(LIBNL_LIBS) -latomic -ldl -lz -lm -lpthread
-    else ifeq ($(PLATFORM_TARGET),k2)
-        # K2 uses musl - fully static, no system library paths needed (same as K1)
-        LDFLAGS := $(LIBHV_LIBS) $(FMT_LIBS) $(WPA_CLIENT_LIB) $(LIBNL_LIBS) -ldl -lz -lm -lpthread
-    else
         LDFLAGS := -L/usr/lib/$(TARGET_TRIPLE) $(LIBHV_LIBS) $(FMT_LIBS) $(WPA_CLIENT_LIB) $(LIBNL_LIBS) $(SYSTEMD_LIBS) -ldl -lz -lm -lpthread
         # libusb only available on Pi/x86 targets (ad5m/cc1 use standalone ARM toolchains without it)
         ifneq (,$(filter pi pi-fbdev pi-both pi32 pi32-fbdev pi32-both x86 x86-fbdev x86-both,$(PLATFORM_TARGET)))
             LDFLAGS += -lusb-1.0
             CXXFLAGS += -isystem /usr/include/libusb-1.0 -DHELIX_HAS_LIBUSB=1
         endif
-    endif
     ifeq ($(ENABLE_SSL),yes)
-        ifneq (,$(filter pi pi-fbdev pi-both pi32 pi32-fbdev pi32-both x86 x86-fbdev x86-both k1-dynamic,$(PLATFORM_TARGET)))
+        ifneq (,$(filter pi pi-fbdev pi-both pi32 pi32-fbdev pi32-both x86 x86-fbdev x86-both,$(PLATFORM_TARGET)))
             # Static-link OpenSSL to avoid soname mismatch across OS versions
             # Pi: Bullseye has libssl.so.1.1, Bookworm has libssl.so.3
             # K1-dynamic: K1 firmware may not have OpenSSL shared libs
@@ -937,9 +887,7 @@ else ifneq ($(CROSS_COMPILE)$(filter x86 x86-fbdev x86-both,$(PLATFORM_TARGET)),
     # A DLOPEN_GPU_LIBS build loads all of them at runtime instead (mk/implib.mk).
     ifeq ($(DISPLAY_BACKEND)-$(DLOPEN_GPU_LIBS),drm-)
         LDFLAGS += -ldrm
-        ifneq ($(SNAPMAKER_SKIP_LIBINPUT),yes)
-            LDFLAGS += -linput
-        endif
+        LDFLAGS += -linput
         # EGL/GLES/GBM for the 3D G-code renderer (src/rendering/gcode_gles_renderer.cpp)
         # and any LVGL EGL display path once one is compiled.
         ifneq ($(filter yes,$(ENABLE_OPENGLES) $(ENABLE_GLES_3D)),)
@@ -1144,20 +1092,11 @@ TRACKER_CXXFLAGS :=
 ifneq (,$(filter pi pi-fbdev pi-both pi32 pi32-fbdev pi32-both x86 x86-fbdev x86-both,$(PLATFORM_TARGET)))
     SOUND_CXXFLAGS := -DHELIX_HAS_SOUND
     TRACKER_CXXFLAGS := -DHELIX_HAS_TRACKER
-else ifneq (,$(filter ad5m ad5m-br mips k1 ad5x,$(PLATFORM_TARGET)))
-    # PWM buzzer for tone-mode SFX only. Auto-export still applies to
-    # ad5m/ad5m-br above; only tracker playback is withheld.
-    SOUND_CXXFLAGS := -DHELIX_HAS_SOUND
-    ifneq (,$(filter mips k1 ad5x,$(PLATFORM_TARGET)))
-        # Unified MIPS: the jz_pwm backend drives the tracker's PC-speaker
-        # (synth fallback) path — per-note buffers, no PCM render loop involved.
-        TRACKER_CXXFLAGS := -DHELIX_HAS_TRACKER
-    endif
 else ifneq (,$(filter native x86-desktop,$(PLATFORM_TARGET)))
     SOUND_CXXFLAGS := -DHELIX_HAS_SOUND
     TRACKER_CXXFLAGS := -DHELIX_HAS_TRACKER
 endif
-CXXFLAGS +=$(SOUND_CXXFLAGS) $(TRACKER_CXXFLAGS) $(PWM_SOUND_CXXFLAGS) $(PWM_AUTO_EXPORT_CXXFLAGS) $(JZ_PWM_CXXFLAGS)
+CXXFLAGS +=$(SOUND_CXXFLAGS) $(TRACKER_CXXFLAGS) $(PWM_SOUND_CXXFLAGS) $(PWM_AUTO_EXPORT_CXXFLAGS)
 
 # Feature gates. include/helix_features.h holds every gate's default; each one becomes a
 # make variable here so mk/cross.mk can turn it off for a platform and make logic (the
@@ -1587,7 +1526,7 @@ install:
 		exit 1; \
 	fi
 	@if [ -z "$(BUILD_SUBDIR)" ]; then \
-		echo "$(RED)error: PLATFORM_TARGET must be set (e.g. PLATFORM_TARGET=ad5m-br)$(RESET)" >&2; \
+		echo "$(RED)error: PLATFORM_TARGET must be set (e.g. PLATFORM_TARGET=pi)$(RESET)" >&2; \
 		exit 1; \
 	fi
 	@if [ ! -x "$(BIN_DIR)/helix-screen" ]; then \

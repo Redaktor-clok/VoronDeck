@@ -247,21 +247,6 @@ TEST_CASE_METHOD(NoFilamentSystemCardFixture,
     process_lvgl(100);
 }
 
-TEST_CASE_METHOD(MappingCardRenderFixture, "Card shows on a backend whose mapping is not editable",
-                 "[filament_mapping][visibility]") {
-    // snapmaker_mode_ is the U1 case: RemapStrategy::PrePrintSend, so the
-    // pick IS honored (through the pre-print send) while no tool->slot table is
-    // written and owns_tool_mapping_table() is false. Before the merge this hid
-    // the card and a second surface drew the chips; that surface is gone.
-    // should_show() reads neither, which is the point — card visibility is
-    // decided by the tools the file uses, not by what the backend can remap.
-    mock->set_snapmaker_mode(true);
-    card.update({"#FF0000", "#00FF00"}, {"PLA", "PETG"});
-    CHECK(card.should_show());
-    CHECK(chip_count() == 2);
-    process_lvgl(100);
-}
-
 TEST_CASE_METHOD(MappingCardRenderFixture, "Card hides a single-lane print while bypass is engaged",
                  "[filament_mapping][visibility]") {
     // With bypass engaged a single-tool print takes filament from the external

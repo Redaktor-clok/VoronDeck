@@ -5,6 +5,7 @@
 
 #include "filament_database.h"
 #include "filament_variants.h"
+#include "helix_features.h"
 #include "klipper_extruder_naming.h"
 #include "translation_loader.h"
 
@@ -138,15 +139,8 @@ inline constexpr AmsTypeTraits kAmsTypeTraits[] = {
      AmsBufferRows::SyncDrive, nullptr},
     {AmsType::AFC, "AFC", "AFC (Armored Turtle)", "afc", "AFC", AmsBufferRows::UnitBuffer,
      TR_NOOP("AFC buffer")},
-    {AmsType::ACE, "ACE", "ACE", "ace", "ace", AmsBufferRows::None, nullptr},
     {AmsType::TOOL_CHANGER, "Tool Changer", "Tool Changer", "tool_changer", "toolchanger",
      AmsBufferRows::None, nullptr, false},
-    {AmsType::AD5X_IFS, "AD5X IFS", "FlashForge IFS", "ifs", "ifs", AmsBufferRows::None, nullptr},
-    {AmsType::CFS, "CFS", "Creality CFS", "cfs", "cfs", AmsBufferRows::None, nullptr},
-    {AmsType::SNAPMAKER, "Snapmaker", "Snapmaker SnapSwap", "snapmaker", "snapmaker",
-     AmsBufferRows::None, nullptr, false},
-    {AmsType::QIDI_BOX, "QIDI Box", "QIDI Box", "qidi_box", "qidi_box", AmsBufferRows::None,
-     nullptr, false},
     {AmsType::OPENAMS, "OpenAMS", "OpenAMS", "openams", "openams", AmsBufferRows::None, nullptr,
      false},
     {AmsType::INDX, "INDX", "INDX", "indx", "indx", AmsBufferRows::None, nullptr, false},
@@ -214,27 +208,8 @@ inline AmsType ams_type_from_string(std::string_view str) {
     if (str == "afc" || str == "AFC") {
         return AmsType::AFC;
     }
-    if (str == "valgace" || str == "ValgACE" || str == "bunnyace" || str == "BunnyACE" ||
-        str == "duckace" || str == "DuckACE" || str == "ace" || str == "ACE Pro") {
-        return AmsType::ACE;
-    }
     if (str == "toolchanger" || str == "tool_changer" || str == "Tool Changer") {
         return AmsType::TOOL_CHANGER;
-    }
-    if (str == "ad5x_ifs" || str == "ad5x ifs" || str == "ad5x" || str == "ifs") {
-        return AmsType::AD5X_IFS;
-    }
-    if (str == "cfs" || str == "CFS" || str == "box") {
-        return AmsType::CFS;
-    }
-    if (str == "snapmaker" || str == "Snapmaker" || str == "snapswap" || str == "SnapSwap") {
-        return AmsType::SNAPMAKER;
-    }
-    // QIDI Box: QIDI's 4-slot hub-style filament changer (PLUS4 / Q2 / MAX4).
-    // Note: the bare "box" alias is already claimed by CFS above, so QIDI Box
-    // requires the explicit "qidi_box" / "QIDI Box" spelling.
-    if (str == "qidi_box" || str == "QIDI Box" || str == "qidibox") {
-        return AmsType::QIDI_BOX;
     }
     if (str == "openams" || str == "OpenAMS" || str == "oams_manager") {
         return AmsType::OPENAMS;
@@ -258,7 +233,7 @@ inline AmsType ams_type_from_string(std::string_view str) {
  * @return true if this is a physical tool changer
  */
 inline bool is_tool_changer(AmsType type) {
-    return type == AmsType::TOOL_CHANGER || type == AmsType::SNAPMAKER || type == AmsType::INDX;
+    return type == AmsType::TOOL_CHANGER || type == AmsType::INDX;
 }
 
 /**
@@ -272,9 +247,7 @@ inline bool is_tool_changer(AmsType type) {
  * @return true if this is a filament-switching system
  */
 inline bool is_filament_system(AmsType type) {
-    return type == AmsType::HAPPY_HARE || type == AmsType::AFC || type == AmsType::ACE ||
-           type == AmsType::AD5X_IFS || type == AmsType::CFS || type == AmsType::SNAPMAKER ||
-           type == AmsType::QIDI_BOX || type == AmsType::OPENAMS;
+    return type == AmsType::HAPPY_HARE || type == AmsType::AFC || type == AmsType::OPENAMS;
 }
 
 /**

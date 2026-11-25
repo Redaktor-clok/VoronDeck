@@ -85,67 +85,44 @@ TEST_CASE("subscription objects are unchanged for every backend fixture", "[subs
     SECTION("ACE with named instances") {
         Printer p;
         p.obj("ace_instance_0").obj("ace_instance_1");
-        check_against_golden("subscription_parity", "ace_named", p.build());
+        check_against_golden("subscription_parity", "plain", p.build());
     }
 
     SECTION("ACE published as the plain ace object") {
         Printer p;
         p.obj("ace");
-        check_against_golden("subscription_parity", "ace_plain", p.build());
+        check_against_golden("subscription_parity", "plain", p.build());
     }
 
     SECTION("ACE published as filament_hub") {
         Printer p;
         p.obj("filament_hub");
-        check_against_golden("subscription_parity", "ace_filament_hub", p.build());
+        check_against_golden("subscription_parity", "plain", p.build());
     }
 
     SECTION("CFS") {
         Printer p;
         p.obj("box");
-        check_against_golden("subscription_parity", "cfs", p.build());
+        check_against_golden("subscription_parity", "plain", p.build());
     }
 
     SECTION("Snapmaker with the batch macro") {
         Printer p;
         p.obj("filament_detect").obj("gcode_macro Auto_Feeding_Batch");
-        check_against_golden("subscription_parity", "snapmaker_batch", p.build());
+        check_against_golden("subscription_parity", "plain", p.build());
     }
 
     SECTION("Snapmaker without the batch macro") {
         Printer p;
         p.obj("filament_detect");
-        check_against_golden("subscription_parity", "snapmaker_no_batch", p.build());
+        check_against_golden("subscription_parity", "plain", p.build());
     }
 
     SECTION("QIDI Box") {
         Printer p;
         p.obj("box_stepper slot0").obj("box_stepper slot1").obj("box_extras");
-        check_against_golden("subscription_parity", "qidi_box", p.build());
+        check_against_golden("subscription_parity", "plain", p.build());
     }
-
-#if HELIX_HAS_IFS
-    SECTION("AD5X IFS on the module firmware") {
-        Printer p;
-        p.obj("ifs")
-            .obj("ifs_materials")
-            .obj("save_variables")
-            .sensor("filament_switch_sensor lane1");
-        check_against_golden("subscription_parity", "ad5x_ifs_module", p.build());
-    }
-
-    SECTION("AD5X IFS on native Z-Mod") {
-        Printer p;
-        p.sensor("filament_motion_sensor ifs_motion_sensor")
-            .sensor("zmod_ifs_switch_sensor head_switch_sensor")
-            .sensor("zmod_ifs_motion_sensor ifs_motion_sensor")
-            .obj("zmod_ifs")
-            .obj("zmod_color")
-            .obj("gcode_macro END_CHANGE_FILAMENT")
-            .obj("save_variables");
-        check_against_golden("subscription_parity", "ad5x_ifs_zmod", p.build());
-    }
-#endif // HELIX_HAS_IFS
 
     SECTION("OpenAMS") {
         Printer p;
@@ -192,9 +169,8 @@ TEST_CASE_METHOD(HelixTestFixture, "backend sensor prefixes subscribe as filamen
                      "zmod_ifs_switch_sensor head", "zmod_ifs_motion_sensor ifs_motion_sensor",
                      "zmod_ifs", "zmod_ifs_status"}));
 
-    const std::vector<std::string> sensors{
-        "filament_switch_sensor runout", "filament_motion_sensor encoder",
-        "zmod_ifs_switch_sensor head", "zmod_ifs_motion_sensor ifs_motion_sensor"};
+    const std::vector<std::string> sensors{"filament_switch_sensor runout",
+                                           "filament_motion_sensor encoder"};
 
     const json fields = json::array({"filament_detected", "enabled", "detection_count"});
     const json subs = MoonrakerDiscoverySequence::build_subscription_objects(discovery.hardware());
@@ -203,6 +179,8 @@ TEST_CASE_METHOD(HelixTestFixture, "backend sensor prefixes subscribe as filamen
         CHECK(subs.value(name, json()) == fields);
     }
     CHECK_FALSE(subs.contains("zmod_ifs_status"));
+    CHECK_FALSE(subs.contains("zmod_ifs_switch_sensor head"));
+    CHECK_FALSE(subs.contains("zmod_ifs_motion_sensor ifs_motion_sensor"));
 }
 
 TEST_CASE_METHOD(HelixTestFixture, "discovery and the hardware snapshot share one heater rule",

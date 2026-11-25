@@ -27,7 +27,7 @@
 #include "detection_manager.h"
 #include "helix-xml/src/xml/lv_xml.h"
 #include "settings_manager.h"
-#include "u1_stock_detection_source.h"
+#include "test_helpers/detection_source_stub.h"
 
 #include <lvgl.h>
 #include <memory>
@@ -45,7 +45,7 @@ struct DetectionRowsFixture : public LVGLUITestFixture {
         // Registers detection_available into LVGL's global subject scope at 0
         // (the U1 source starts unavailable; nothing seeds).
         m.reset_for_test();
-        m.register_source(std::make_unique<helix::detection::U1StockSource>(nullptr));
+        m.register_source(std::make_unique<helix::test::DetectionSourceStub>());
         avail_ = m.subject_detection_available();
         REQUIRE(avail_ != nullptr);
 

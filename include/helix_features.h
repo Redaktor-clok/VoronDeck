@@ -23,24 +23,6 @@
 #define HELIX_HAS_LABEL_PRINTER 1
 #endif
 
-// Vendor filament systems tied to one printer family. AFC and Happy Hare are
-// user-installable Klipper add-ons that can appear on any printer, so they have no gate.
-#ifndef HELIX_HAS_CFS
-#define HELIX_HAS_CFS 1
-#endif
-#ifndef HELIX_HAS_IFS
-#define HELIX_HAS_IFS 1
-#endif
-#ifndef HELIX_HAS_ACE
-#define HELIX_HAS_ACE 1
-#endif
-#ifndef HELIX_HAS_QIDI
-#define HELIX_HAS_QIDI 1
-#endif
-#ifndef HELIX_HAS_SNAPMAKER
-#define HELIX_HAS_SNAPMAKER 1
-#endif
-
 // The 2D G-code renderer and the 3D bed-mesh renderer, code and runtime buffers.
 #ifndef HELIX_HAS_GCODE_VIEWER
 #define HELIX_HAS_GCODE_VIEWER 1

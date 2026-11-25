@@ -24,13 +24,10 @@
 #include "ui_update_queue.h"
 
 #include "../lvgl_test_fixture.h"
-#include "../test_helpers/cfs_test_access.h"
 #include "../test_helpers/config_dir_guard.h"
 #include "../test_helpers/print_start_controller_test_access.h"
 #include "../ui_test_utils.h"
-#include "ams_backend_ad5x_ifs.h"
 #include "ams_backend_afc.h"
-#include "ams_backend_cfs.h"
 #include "ams_backend_happy_hare.h"
 #include "ams_state.h"
 #include "config.h"
@@ -67,6 +64,10 @@ namespace {
 class CountingAfcBackend : public AmsBackendAfc {
   public:
     CountingAfcBackend() : AmsBackendAfc(nullptr, nullptr) {}
+    bool no_mapping_table = false;
+    RemapStrategy get_remap_strategy() const override {
+        return no_mapping_table ? RemapStrategy::None : AmsBackendAfc::get_remap_strategy();
+    }
 
     AmsError can_set_tool_mapping(int, int slot_index) const override {
         if (refuse_remaps) {
@@ -676,10 +677,8 @@ TEST_CASE("remap restore: a backend with no mapping table drops the record unsen
     LVGLTestFixture fx;
     ConfigDirGuard config_dir{"remap_no_table"};
     ScopedCountingBackend be{{1, 2}};
-    // An AFC shim over a firmware that maps tools per print has no table.
-    helix::PrinterDiscovery hw;
-    hw.parse_objects(nlohmann::json::array({"AFC", "AFC_unit IFS", "zmod_afclite"}));
-    be.backend->set_discovery(hw);
+    // The controller must discard a saved mapping when the backend has no table.
+    be.backend->no_mapping_table = true;
     REQUIRE(be.backend->get_remap_strategy() == AmsBackend::RemapStrategy::None);
     Harness h;
     h.set_klippy(KlippyState::READY);
@@ -926,15 +925,6 @@ TEST_CASE("remap restore: a tool unmapped before the print is left unmapped",
 namespace {
 
 /// A CFS backend whose gcode is captured instead of sent.
-class CapturingCfsBackend : public helix::printer::AmsBackendCfs {
-  public:
-    CapturingCfsBackend() : AmsBackendCfs(nullptr, nullptr) {}
-    AmsError execute_gcode(const std::string& gcode) override {
-        sent.push_back(gcode);
-        return AmsErrorHelper::success();
-    }
-    std::vector<std::string> sent;
-};
 
 nlohmann::json cfs_unit() {
     return {{"state", "connect"},   {"filament", "None"},    {"vender", {"none"}},
@@ -959,64 +949,6 @@ nlohmann::json cfs_box_frame(int units) {
 // CFS refuses a bay past the attached units. A restore aimed at the second
 // unit's T2B is refused while the box reports one unit and goes out on the
 // frame that reports the second.
-TEST_CASE("remap restore: CFS retries when the box reports the refused bay's unit",
-          "[remap-restore][1684]") {
-    LVGLTestFixture fx;
-    ConfigDirGuard config_dir{"remap_retry_cfs"};
-    AmsState::instance().init_subjects(true);
-    auto owned = std::make_unique<CapturingCfsBackend>();
-    CapturingCfsBackend* cfs = owned.get();
-    AmsState::instance().set_backend(std::move(owned));
-    Harness h;
-    h.set_klippy(KlippyState::READY);
-
-    CfsTestAccess::handle_status(*cfs, cfs_box_frame(1));
-    helix::ui::UpdateQueue::instance().drain();
-    REQUIRE(cfs->get_system_info().total_slots == 4);
-    REQUIRE_FALSE(cfs->can_set_tool_mapping(0, 5).success());
-
-    PrintStartControllerTestAccess::seed_saved_mapping(h.controller, {5}, 0);
-    PrintStartControllerTestAccess::restore(h.controller);
-    helix::ui::UpdateQueue::instance().drain();
-    REQUIRE(cfs->sent.empty());
-    REQUIRE_FALSE(PrintStartControllerTestAccess::saved_mapping(h.controller).empty());
-
-    CfsTestAccess::handle_status(*cfs, cfs_box_frame(1));
-    helix::ui::UpdateQueue::instance().drain();
-    CHECK(cfs->sent.empty());
-
-    SECTION("the box reporting the second unit lands the replay") {
-        CfsTestAccess::handle_status(*cfs, cfs_box_frame(2));
-        helix::ui::UpdateQueue::instance().drain();
-        helix::ui::UpdateQueue::instance().drain();
-        CHECK(cfs->sent == std::vector<std::string>{"BOX_MODIFY_TN T1A=T2B"});
-    }
-
-    SECTION("a backend with no box frame yet replays nothing") {
-        // A rebuilt backend reads total_slots 0, where CFS accepts any
-        // encodable bay: T2B passes the predicate, but nothing has said the
-        // second unit exists.
-        auto fresh_owned = std::make_unique<CapturingCfsBackend>();
-        CapturingCfsBackend* fresh = fresh_owned.get();
-        AmsState::instance().set_backend(std::move(fresh_owned));
-        REQUIRE(fresh->get_system_info().total_slots == 0);
-        REQUIRE(fresh->can_set_tool_mapping(0, 5).success());
-        Harness::ams_data_tick();
-        CHECK(fresh->sent.empty());
-
-        // The first frame shows one unit: still refused, still nothing sent.
-        CfsTestAccess::handle_status(*fresh, cfs_box_frame(1));
-        helix::ui::UpdateQueue::instance().drain();
-        CHECK(fresh->sent.empty());
-
-        CfsTestAccess::handle_status(*fresh, cfs_box_frame(2));
-        helix::ui::UpdateQueue::instance().drain();
-        helix::ui::UpdateQueue::instance().drain();
-        CHECK(fresh->sent == std::vector<std::string>{"BOX_MODIFY_TN T1A=T2B"});
-    }
-
-    AmsState::instance().set_backend(nullptr);
-}
 
 // ============================================================================
 // The gate must not break the normal path
@@ -1219,14 +1151,8 @@ TEST_CASE("remap restore: echoing backends advertise confirmation support",
     CHECK(hh.reports_firmware_tool_mapping());
 
     // AD5X IFS cannot: ZMOD publishes no status object for the mapping.
-    AmsBackendAd5xIfs ifs{nullptr, nullptr};
-    CHECK_FALSE(ifs.reports_firmware_tool_mapping());
 
     // CFS confirms, except on K1 where BOX_MODIFY_TN no-ops.
-    helix::printer::AmsBackendCfs cfs{nullptr, nullptr};
-    CHECK(cfs.reports_firmware_tool_mapping()); // K2 default
-    CfsTestAccess::set_macro_variant_k1(cfs);
-    CHECK_FALSE(cfs.reports_firmware_tool_mapping());
 }
 
 // ============================================================================
@@ -1308,195 +1234,12 @@ nlohmann::json fork_print_map_frame() {
 
 } // namespace
 
-TEST_CASE("pre-print send: a remap to a box that is not answering stops the print",
-          "[print-start][print_map]") {
-    LVGLTestFixture fx;
-    AmsState::instance().init_subjects(true);
-    auto owned = std::make_unique<CapturingCfsBackend>();
-    auto* cfs = owned.get();
-    AmsState::instance().set_backend(std::move(owned));
-    CfsTestAccess::handle_status(*cfs, fork_print_map_frame());
-    REQUIRE(cfs->requires_preprint_send());
-
-    Harness h;
-    h.client.clear_gcode_script_history();
-    std::vector<std::string> errors;
-    helix::ui::set_test_notification_error_hook(
-        [&errors](const std::string& m) { errors.push_back(m); });
-
-    bool done = false;
-    bool aborted = false;
-    const auto send = [&](std::map<int, int> remap) {
-        done = aborted = false;
-        errors.clear();
-        PrintStartControllerTestAccess::send_preprint(
-            h.controller, {0, 1}, remap, [&] { done = true; }, [&] { aborted = true; });
-        helix::ui::UpdateQueue::instance().drain();
-    };
-    const auto print_map_sent = [&] {
-        for (const auto& script : h.client.gcode_script_history()) {
-            if (script.find("BOX_PRINT_MAP") != std::string::npos) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    SECTION("a slot on the offline box") {
-        send({{0, 5}});
-        CHECK(aborted);
-        CHECK_FALSE(done);
-        CHECK_FALSE(print_map_sent());
-        REQUIRE(errors.size() == 1);
-        CHECK(errors[0].find("Disconnected") != std::string::npos);
-    }
-
-    SECTION("a slot on a box that is answering") {
-        send({{0, 9}});
-        CHECK(done);
-        CHECK_FALSE(aborted);
-        CHECK(errors.empty());
-        CHECK(print_map_sent());
-    }
-
-    SECTION("a file whose tools are unknown starts on a cleared map") {
-        PrintStartControllerTestAccess::send_preprint(
-            h.controller, {}, {}, [&] { done = true; }, [&] { aborted = true; });
-        helix::ui::UpdateQueue::instance().drain();
-        CHECK(done);
-        REQUIRE(h.client.gcode_script_history().size() == 1);
-        CHECK(h.client.gcode_script_history()[0] == "BOX_PRINT_MAP MAP=");
-    }
-
-    helix::ui::set_test_notification_error_hook(nullptr);
-    helix::ui::UpdateQueue::instance().drain();
-    AmsState::instance().set_backend(nullptr);
-}
-
 // A Fork box keeps a print map for the next file it loads, so a reprint with no
 // recorded routing still sends the file's tools at their own slots: that is the
 // firmware default, and it overwrites a map a failed remapped start left pending.
-TEST_CASE("reprint: a Fork print-map box sends the identity map for the file's tools",
-          "[print-start][print_map][reprint]") {
-    LVGLTestFixture fx;
-    AmsState::instance().init_subjects(true);
-    auto owned = std::make_unique<CapturingCfsBackend>();
-    auto* cfs = owned.get();
-    AmsState::instance().set_backend(std::move(owned));
-
-    const auto print_map_lines = [](const Harness& h) {
-        std::vector<std::string> lines;
-        for (const auto& script : h.client.gcode_script_history()) {
-            if (script.find("BOX_PRINT_MAP") != std::string::npos) {
-                lines.push_back(script);
-            }
-        }
-        return lines;
-    };
-    const auto reprint = [](Harness& h) {
-        h.client.clear_gcode_script_history();
-        h.controller.initiate_reprint("part.gcode", "part.gcode", {0, 1}, [] {}, [] {});
-        helix::ui::UpdateQueue::instance().drain();
-        helix::ui::UpdateQueue::instance().drain(); // the answer queues work naming this Harness
-    };
-
-    SECTION("revision 4 sends every used tool at its own slot") {
-        CfsTestAccess::handle_status(*cfs, fork_print_map_frame());
-        REQUIRE(cfs->requires_preprint_send());
-        REQUIRE(cfs->last_print_tool_mapping().empty());
-        Harness h;
-        reprint(h);
-        const auto lines = print_map_lines(h);
-        REQUIRE(lines.size() == 1);
-        CHECK(lines[0] == "BOX_PRINT_MAP MAP=0:0,1:1");
-    }
-
-    SECTION("revision 4 with the file's tools unknown clears the pending map") {
-        CfsTestAccess::handle_status(*cfs, fork_print_map_frame());
-        Harness h;
-        h.client.clear_gcode_script_history();
-        h.controller.initiate_reprint("part.gcode", "part.gcode", {}, [] {}, [] {});
-        // With no tools in hand the reprint reads the file first; this one is
-        // not on the printer, so the read answers nothing.
-        for (int i = 0; i < 8; ++i) {
-            helix::ui::UpdateQueue::instance().drain();
-        }
-        const auto lines = print_map_lines(h);
-        REQUIRE(lines.size() == 1);
-        CHECK(lines[0] == "BOX_PRINT_MAP MAP=");
-    }
-
-    SECTION("revision 3 sends no print map") {
-        auto frame = fork_print_map_frame();
-        frame["params"][0]["box"]["api_revision"] = 3;
-        CfsTestAccess::handle_status(*cfs, frame);
-        REQUIRE_FALSE(cfs->requires_preprint_send());
-        Harness h;
-        reprint(h);
-        CHECK(print_map_lines(h).empty());
-    }
-
-    SECTION("revision 2 has no print map to send") {
-        auto frame = fork_print_map_frame();
-        frame["params"][0]["box"]["api_revision"] = 2;
-        CfsTestAccess::handle_status(*cfs, frame);
-        REQUIRE_FALSE(cfs->requires_preprint_send());
-        Harness h;
-        reprint(h);
-        CHECK(print_map_lines(h).empty());
-    }
-
-    SECTION("a stock box sends no print map") {
-        CfsTestAccess::handle_status(*cfs, cfs_box_frame(1));
-        REQUIRE_FALSE(cfs->default_print_routing_is_identity());
-        Harness h;
-        reprint(h);
-        CHECK(print_map_lines(h).empty());
-    }
-
-    helix::ui::UpdateQueue::instance().drain();
-    AmsState::instance().set_backend(nullptr);
-}
 
 // A restart from the beginning carries no routing, so on a Fork print-map box it
 // clears whatever map is pending rather than let it apply to the restarted file.
-TEST_CASE("restart from the beginning: a Fork print-map box clears the pending map",
-          "[print-start][print_map][reprint]") {
-    LVGLTestFixture fx;
-    AmsState::instance().init_subjects(true);
-    auto owned = std::make_unique<CapturingCfsBackend>();
-    auto* cfs = owned.get();
-    AmsState::instance().set_backend(std::move(owned));
-    Harness h;
-    h.client.clear_gcode_script_history();
-    const auto sent = [&h] {
-        std::string out;
-        for (const auto& script : h.client.gcode_script_history()) {
-            out += script + "\n";
-        }
-        return out;
-    };
-
-    SECTION("revision 4 sends the clear after the cancel") {
-        CfsTestAccess::handle_status(*cfs, fork_print_map_frame());
-        helix::ui::restart_print_from_beginning(&h.api, "part.gcode", "[test]", nullptr);
-        helix::ui::UpdateQueue::instance().drain();
-        CHECK(sent().find("CANCEL_PRINT_BASE\nBOX_PRINT_MAP MAP=\n") != std::string::npos);
-    }
-
-    SECTION("revision 3 sends no print map") {
-        auto frame = fork_print_map_frame();
-        frame["params"][0]["box"]["api_revision"] = 3;
-        CfsTestAccess::handle_status(*cfs, frame);
-        helix::ui::restart_print_from_beginning(&h.api, "part.gcode", "[test]", nullptr);
-        helix::ui::UpdateQueue::instance().drain();
-        REQUIRE(sent().find("CANCEL_PRINT_BASE") != std::string::npos);
-        CHECK(sent().find("BOX_PRINT_MAP") == std::string::npos);
-    }
-
-    helix::ui::UpdateQueue::instance().drain();
-    AmsState::instance().set_backend(nullptr);
-}
 
 TEST_CASE("remap send: a pick on a second backend is never sent to the first",
           "[print_start][remap-restore][multi_backend]") {

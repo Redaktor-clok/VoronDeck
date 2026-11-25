@@ -795,32 +795,6 @@ TEST_CASE_METHOD(HelixTestFixture, "PrinterHardware with MoonrakerClientMock dat
         REQUIRE(hw.guess_hotend_sensor() == "extruder");
     }
 
-    SECTION("CREALITY_K1 mock data") {
-        MoonrakerClientMock mock(MoonrakerClientMock::PrinterType::CREALITY_K1);
-        mock.discover_printer([]() {});
-
-        PrinterHardware hw(mock.hardware().heaters(), mock.hardware().sensors(),
-                           mock.hardware().fans(), mock.hardware().leds());
-
-        REQUIRE(hw.guess_bed_heater() == "heater_bed");
-        REQUIRE(hw.guess_hotend_heater() == "extruder");
-        REQUIRE(hw.guess_bed_sensor() == "heater_bed");
-        REQUIRE(hw.guess_hotend_sensor() == "extruder");
-    }
-
-    SECTION("FLASHFORGE_AD5M mock data") {
-        MoonrakerClientMock mock(MoonrakerClientMock::PrinterType::FLASHFORGE_AD5M);
-        mock.discover_printer([]() {});
-
-        PrinterHardware hw(mock.hardware().heaters(), mock.hardware().sensors(),
-                           mock.hardware().fans(), mock.hardware().leds());
-
-        REQUIRE(hw.guess_bed_heater() == "heater_bed");
-        REQUIRE(hw.guess_hotend_heater() == "extruder");
-        REQUIRE(hw.guess_bed_sensor() == "heater_bed");
-        REQUIRE(hw.guess_hotend_sensor() == "extruder");
-    }
-
     SECTION("GENERIC_COREXY mock data") {
         MoonrakerClientMock mock(MoonrakerClientMock::PrinterType::GENERIC_COREXY);
         mock.discover_printer([]() {});

@@ -968,34 +968,6 @@ TEST_CASE_METHOD(HelixTestFixture, "MoonrakerClientMock hardware discovery",
         REQUIRE(std::find(heaters.begin(), heaters.end(), "extruder") != heaters.end());
     }
 
-    SECTION("CREALITY_K1 has correct hardware") {
-        MoonrakerClientMock mock(MoonrakerClientMock::PrinterType::CREALITY_K1);
-        auto hw = mock.hardware();
-
-        const auto& heaters = hw.heaters();
-        const auto& fans = hw.fans();
-
-        REQUIRE(std::find(heaters.begin(), heaters.end(), "heater_bed") != heaters.end());
-        REQUIRE(std::find(heaters.begin(), heaters.end(), "extruder") != heaters.end());
-        REQUIRE(!fans.empty());
-    }
-
-    SECTION("FLASHFORGE_AD5M has correct hardware") {
-        MoonrakerClientMock mock(MoonrakerClientMock::PrinterType::FLASHFORGE_AD5M);
-        auto hw = mock.hardware();
-
-        const auto& heaters = hw.heaters();
-        const auto& fans = hw.fans();
-        const auto& leds = hw.leds();
-
-        REQUIRE(std::find(heaters.begin(), heaters.end(), "heater_bed") != heaters.end());
-        REQUIRE(std::find(heaters.begin(), heaters.end(), "extruder") != heaters.end());
-        CHECK(std::find(fans.begin(), fans.end(), "controller_fan stepper_driver_fan") !=
-              fans.end());
-        // The plain 5M has no chamber light; that LED is the 5M Pro's.
-        CHECK(leds.empty());
-    }
-
     SECTION("GENERIC_COREXY has minimal hardware") {
         MoonrakerClientMock mock(MoonrakerClientMock::PrinterType::GENERIC_COREXY);
         auto hw = mock.hardware();

@@ -18,17 +18,11 @@
 //
 // The per-backend probes come from tests/test_helpers/ams_backend_probes.h.
 
-#include "../test_helpers/ad5x_ifs_test_access.h"
 #include "../test_helpers/ams_backend_probes.h"
 #include "ams_backend.h"
-#include "ams_backend_ace.h"
-#include "ams_backend_ad5x_ifs.h"
 #include "ams_backend_afc.h"
-#include "ams_backend_cfs.h"
 #include "ams_backend_happy_hare.h"
 #include "ams_backend_mock.h"
-#include "ams_backend_qidi.h"
-#include "ams_backend_snapmaker.h"
 #include "ams_backend_toolchanger.h"
 #include "ams_remap.h"
 
@@ -39,8 +33,6 @@ using helix::AmsBackendMock;
 using helix::AmsError;
 using helix::AmsErrorHelper;
 using helix::GcodeRewriteBlock;
-
-using helix::Ad5xIfsTestAccess;
 
 namespace {
 
@@ -165,42 +157,16 @@ TEST_CASE("Native-strategy backends return RemapStrategy::Native", "[ams][strate
         HappyHareProbe hh;
         REQUIRE(hh.get_remap_strategy() == AmsBackend::RemapStrategy::Native);
     }
-    SECTION("CFS") {
-        CfsProbe cfs;
-        REQUIRE(cfs.get_remap_strategy() == AmsBackend::RemapStrategy::Native);
-    }
-    SECTION("AD5X IFS") {
-        Ad5xIfsProbe ad5x;
-        REQUIRE(ad5x.get_remap_strategy() == AmsBackend::RemapStrategy::Native);
-    }
+
     SECTION("ToolChanger") {
         ToolChangerProbe tc;
         REQUIRE(tc.get_remap_strategy() == AmsBackend::RemapStrategy::Native);
-    }
-    SECTION("QIDI Box") {
-        QidiProbe qidi;
-        REQUIRE(qidi.get_remap_strategy() == AmsBackend::RemapStrategy::Native);
-    }
-}
-
-TEST_CASE("Snapmaker returns RemapStrategy::PrePrintSend", "[ams][strategy]") {
-    SECTION("Snapmaker") {
-        SnapmakerProbe sm;
-        REQUIRE(sm.get_remap_strategy() == AmsBackend::RemapStrategy::PrePrintSend);
     }
 }
 
 TEST_CASE("Base AmsBackend default returns RemapStrategy::None", "[ams][strategy]") {
     BaseProbe base;
     REQUIRE(base.get_remap_strategy() == AmsBackend::RemapStrategy::None);
-}
-
-TEST_CASE("ACE returns RemapStrategy::None (GcodeRewrite unimplemented)", "[ams][strategy]") {
-    // ACE uses ACE_CHANGE_TOOL TOOL=n, not the Tn/SM_PRINT_* families that
-    // GcodeToolRemapper handles, so remap is disabled until that command family
-    // is implemented and validated on a real ACE file.
-    AceProbe ace;
-    REQUIRE(ace.get_remap_strategy() == AmsBackend::RemapStrategy::None);
 }
 
 // ---------------------------------------------------------------------------
@@ -218,28 +184,8 @@ TEST_CASE("Backends declare remap readiness, defaulting to ready", "[ams][strate
     SECTION("A backend with no discovery gate is ready on construction") {
         AfcProbe afc;
         REQUIRE(afc.remap_ready());
-        SnapmakerProbe sm;
-        REQUIRE(sm.remap_ready());
         // Ready, and still cannot remap: readiness says the declared route is
         // usable, not that one was declared.
-        AceProbe ace;
-        REQUIRE(ace.remap_ready());
-        REQUIRE_FALSE(helix::printer::can_remap(ace));
-    }
-
-    SECTION("AD5X IFS is not ready until the wire tool_map is discovered") {
-        Ad5xIfsProbe ad5x;
-        REQUIRE(ad5x.get_remap_strategy() == AmsBackend::RemapStrategy::Native);
-        REQUIRE_FALSE(ad5x.remap_ready());
-        REQUIRE_FALSE(helix::printer::can_remap(ad5x));
-
-        // A printer.ifs frame carrying tool_map arms the gate.
-        Ad5xIfsTestAccess::deliver_identity_tool_map(ad5x);
-
-        REQUIRE(ad5x.remap_ready());
-        REQUIRE(helix::printer::can_remap(ad5x));
-        // The strategy is a static declaration and must NOT move with the gate.
-        REQUIRE(ad5x.get_remap_strategy() == AmsBackend::RemapStrategy::Native);
     }
 }
 
@@ -318,37 +264,13 @@ TEST_CASE("remap_is_persistent separates the routes that outlive the send", "[am
 
 TEST_CASE("owns_tool_mapping_table is answered independently of remap capability",
           "[ams][strategy]") {
-    SECTION("Snapmaker can remap and owns no table") {
-        SnapmakerProbe sm;
-        CHECK(helix::printer::can_remap(sm));
-        CHECK_FALSE(sm.owns_tool_mapping_table());
-    }
-
     SECTION("Lane-multiplexing backends own one") {
         AfcProbe afc;
         CHECK(afc.owns_tool_mapping_table());
         HappyHareProbe hh;
         CHECK(hh.owns_tool_mapping_table());
-        CfsProbe cfs;
-        CHECK(cfs.owns_tool_mapping_table());
-        QidiProbe qidi;
-        CHECK(qidi.owns_tool_mapping_table());
         ToolChangerProbe tc;
         CHECK(tc.owns_tool_mapping_table());
-    }
-
-    SECTION("ACE and the base default own none") {
-        AceProbe ace;
-        CHECK_FALSE(ace.owns_tool_mapping_table());
-        BaseProbe base;
-        CHECK_FALSE(base.owns_tool_mapping_table());
-    }
-
-    SECTION("AD5X IFS owns one only once the wire tool_map is discovered") {
-        Ad5xIfsProbe ad5x;
-        CHECK_FALSE(ad5x.owns_tool_mapping_table());
-        Ad5xIfsTestAccess::deliver_identity_tool_map(ad5x);
-        CHECK(ad5x.owns_tool_mapping_table());
     }
 }
 
@@ -362,11 +284,8 @@ TEST_CASE("owns_tool_mapping_table is answered independently of remap capability
 // (e.g. accidentally enabling the pre-send for a Native backend) fails here.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("Only Snapmaker requires a pre-print send", "[ams][strategy][preprint]") {
-    SECTION("Snapmaker requires the pre-print send") {
-        SnapmakerProbe sm;
-        REQUIRE(sm.requires_preprint_send());
-    }
+TEST_CASE("Open filament backends do not require a vendor pre-print send",
+          "[ams][strategy][preprint]") {
     SECTION("AFC does not") {
         AfcProbe afc;
         REQUIRE_FALSE(afc.requires_preprint_send());
@@ -375,26 +294,12 @@ TEST_CASE("Only Snapmaker requires a pre-print send", "[ams][strategy][preprint]
         HappyHareProbe hh;
         REQUIRE_FALSE(hh.requires_preprint_send());
     }
-    SECTION("CFS does not") {
-        CfsProbe cfs;
-        REQUIRE_FALSE(cfs.requires_preprint_send());
-    }
-    SECTION("AD5X IFS does not") {
-        Ad5xIfsProbe ad5x;
-        REQUIRE_FALSE(ad5x.requires_preprint_send());
-    }
+
     SECTION("ToolChanger does not") {
         ToolChangerProbe tc;
         REQUIRE_FALSE(tc.requires_preprint_send());
     }
-    SECTION("QIDI Box does not") {
-        QidiProbe qidi;
-        REQUIRE_FALSE(qidi.requires_preprint_send());
-    }
-    SECTION("ACE does not") {
-        AceProbe ace;
-        REQUIRE_FALSE(ace.requires_preprint_send());
-    }
+
     SECTION("Base default does not") {
         BaseProbe base;
         REQUIRE_FALSE(base.requires_preprint_send());
@@ -407,11 +312,6 @@ TEST_CASE("Only Snapmaker requires a pre-print send", "[ams][strategy][preprint]
 // pins the invariant the controller relies on (gate == has-work-to-do).
 TEST_CASE("requires_preprint_send agrees with build_preprint_gcode output",
           "[ams][strategy][preprint]") {
-    SECTION("Snapmaker: requires send AND emits gcode for a used tool") {
-        SnapmakerProbe sm;
-        REQUIRE(sm.requires_preprint_send());
-        REQUIRE_FALSE(sm.build_preprint_gcode({0}, {}).empty());
-    }
     SECTION("Native backend: no send AND emits nothing") {
         AfcProbe afc;
         REQUIRE_FALSE(afc.requires_preprint_send());
@@ -437,17 +337,6 @@ TEST_CASE("requires_preprint_send agrees with build_preprint_gcode output",
 // why the mock could violate it unnoticed.
 // ---------------------------------------------------------------------------
 
-TEST_CASE("Mock in Snapmaker mode satisfies requires_preprint_send/build agreement",
-          "[ams][strategy][preprint][mock]") {
-    AmsBackendMock mock(4);
-    mock.set_snapmaker_mode(true);
-
-    REQUIRE(mock.requires_preprint_send());
-    // The gate promises there is work to do; an empty string breaks that promise
-    // and silently drops the user's remap.
-    REQUIRE_FALSE(mock.build_preprint_gcode({0}, {}).empty());
-}
-
 TEST_CASE("Mock without Snapmaker mode neither requires a pre-send nor emits gcode",
           "[ams][strategy][preprint][mock]") {
     // The other half of the invariant: a backend that does not gate on the
@@ -460,41 +349,6 @@ TEST_CASE("Mock without Snapmaker mode neither requires a pre-send nor emits gco
     mock.set_tool_changer_mode(true);
     REQUIRE_FALSE(mock.requires_preprint_send());
     REQUIRE(mock.build_preprint_gcode({0, 1, 2}, {{0, 1}}).empty());
-}
-
-TEST_CASE("Mock Snapmaker pre-print gcode is byte-identical to the real backend",
-          "[ams][strategy][preprint][mock]") {
-    // A mock that emits SOMETHING is not enough - it has to emit what the
-    // printer will actually be sent, or the mock teaches the wrong shape and a
-    // format change lands untested on hardware. Compared against the real
-    // builder rather than a literal, so this cannot drift when the format moves.
-    AmsBackendMock mock(4);
-    mock.set_snapmaker_mode(true);
-    SnapmakerProbe real;
-
-    struct Case {
-        std::set<int> tools;
-        std::map<int, int> remap;
-    };
-    const Case cases[] = {
-        {{0}, {}},          // single tool, no remap
-        {{0, 1, 2, 3}, {}}, // every head, identity
-        {{0, 2}, {{0, 3}}}, // the "print T0 from head 4" ask in #962
-        {{0, 1}, {{1, 0}}}, // colliding heads (dedup path)
-        {{5}, {}},          // extended tool -> firmware head 0
-    };
-
-    for (const auto& c : cases) {
-        const std::string from_mock = mock.build_preprint_gcode(c.tools, c.remap);
-        const std::string from_real = real.build_preprint_gcode(c.tools, c.remap);
-        CAPTURE(from_mock, from_real);
-        REQUIRE(from_mock == from_real);
-        REQUIRE_FALSE(from_mock.empty());
-    }
-
-    // Empty tool set is the one input that legitimately yields nothing, on both.
-    REQUIRE(mock.build_preprint_gcode({}, {}).empty());
-    REQUIRE(real.build_preprint_gcode({}, {}).empty());
 }
 
 TEST_CASE("remap_block answers the backend's half before anything else", "[ams][strategy][block]") {

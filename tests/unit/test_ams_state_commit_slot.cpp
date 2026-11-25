@@ -5,7 +5,6 @@
 
 #include "../lvgl_test_fixture.h"
 #include "../ui_test_utils.h"
-#include "ams_backend_ad5x_ifs.h"
 #include "ams_backend_afc.h"
 #include "ams_backend_happy_hare.h"
 #include "ams_backend_mock.h"
@@ -27,7 +26,6 @@
 #include "settings_manager.h"
 #include "spoolman_manager.h"
 #include "spoolman_types.h"
-#include "test_helpers/ad5x_ifs_test_access.h"
 #include "test_helpers/afc_test_access.h"
 #include "test_helpers/happy_hare_test_access.h"
 #include "test_helpers/registered_backend.h"
@@ -1601,42 +1599,6 @@ TEST_CASE("a Happy Hare binding change that reached firmware is filed despite a 
     REQUIRE(sources.local_user.has_value());
     CHECK(sources.local_user->spoolman_id == 99);
     CHECK_FALSE(sources.spoolman.has_value());
-}
-
-TEST_CASE("an AD5X lane shows a re-declared field as soon as the commit returns",
-          "[ams][commit][lane][ad5x_ifs][1652]") {
-    CommitFixture f;
-    helix::test::RegisteredBackend<AmsBackendAd5xIfs> ad5x(nullptr, nullptr);
-
-    // A persisted AD5X edit writes Adventurer5M.json, so give it a file of its own.
-    struct RemoveOnExit {
-        std::filesystem::path path;
-        ~RemoveOnExit() {
-            std::error_code ec;
-            std::filesystem::remove(path, ec);
-        }
-    } json_file{std::filesystem::temp_directory_path() /
-                ("helix_commit_ad5x_" + std::to_string(::getpid()) + ".json")};
-    Ad5xIfsTestAccess::set_local_adventurer_json_path(*ad5x, json_file.path.string());
-
-    Ad5xIfsTestAccess::set_port_presence(*ad5x, 0, true);
-    Ad5xIfsTestAccess::set_color(*ad5x, 0, "898989");
-    Ad5xIfsTestAccess::set_material(*ad5x, 0, "PETG");
-
-    SlotInfo original = ad5x->get_slot_info(0);
-    SlotInfo branded = original;
-    branded.brand = "Sunlu";
-    REQUIRE(AmsState::instance().commit_slot_edit(0, original, branded).success());
-    REQUIRE(ad5x->get_slot_info(0).brand == "Sunlu");
-
-    // AD5X paints the slot from the lane while it applies the edit, and the
-    // lane still holds the first declaration at that moment.
-    original = ad5x->get_slot_info(0);
-    SlotInfo rebranded = original;
-    rebranded.brand = "Elegoo";
-    REQUIRE(AmsState::instance().commit_slot_edit(0, original, rebranded).success());
-
-    CHECK(ad5x->get_slot_info(0).brand == "Elegoo");
 }
 
 TEST_CASE("a same-spool edit on a linked lane files neither brand nor material as the user's",

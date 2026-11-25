@@ -14,13 +14,7 @@
 #include "plr_plugin_rpc.h"
 #include "printer_state.h"
 #include "settings_manager.h"
-#include "snapmaker_print_preferences.h"
 #include "standing_print_options.h"
-
-#if HELIX_HAS_SNAPMAKER
-#include "../test_helpers/snapmaker_test_access.h"
-#include "ams_backend_snapmaker.h"
-#endif
 
 #include <algorithm>
 #include <optional>
@@ -175,19 +169,6 @@ TEST_CASE_METHOD(LVGLTestFixture, "the record joins every backend's standing gco
     CHECK(render_standing_gcode({&silent}).empty());
     CHECK(render_standing_gcode({}).empty());
     CHECK(standing_options_record("M117 one") == json{{"version", 1}, {"gcode", "M117 one"}});
-}
-
-TEST_CASE("a forced preference write carries FORCE=1 last", "[plugin_print_hooks]") {
-    snapmaker::PrintPreferences changes;
-    changes.end_unload_filament = {true, false};
-    changes.force = true;
-    CHECK(snapmaker::write_print_preferences_gcode(changes) ==
-          "SET_PRINT_PREFERENCES END_UNLOAD_FILAMENT=[1,0] FORCE=1");
-
-    INFO("nothing to write stays nothing");
-    snapmaker::PrintPreferences empty;
-    empty.force = true;
-    CHECK(snapmaker::write_print_preferences_gcode(empty).empty());
 }
 
 namespace {
@@ -572,53 +553,3 @@ TEST_CASE("plugin_feature_reported counts an unavailable entry", "[plugin_featur
     CHECK_FALSE(plugin_feature_reported(true, features, "plr", 2));
     CHECK_FALSE(plugin_feature_reported(true, features, "file_analysis", 1));
 }
-
-#if HELIX_HAS_SNAPMAKER
-
-namespace {
-struct StandingU1Fx : LVGLTestFixture {
-    StandingU1Fx() {
-        helix::Config::get_instance();
-        SettingsManager::instance().init_subjects();
-        SettingsManager::instance().set_end_of_print_unload_tools(0b0101);
-    }
-    ~StandingU1Fx() override {
-        SettingsManager::instance().set_end_of_print_unload_tools(0);
-    }
-};
-} // namespace
-
-TEST_CASE_METHOD(StandingU1Fx, "the record carries the unload list the screen's own start sends",
-                 "[plugin_print_hooks][end_unload]") {
-    AmsBackendSnapmaker backend(nullptr, nullptr);
-
-    SECTION("nothing before the firmware reports its heads") {
-        CHECK(backend.standing_print_gcode().empty());
-        CHECK(render_standing_gcode({&backend}).empty());
-    }
-
-    SECTION("the same list, forced for a print already running") {
-        SnapmakerTestAccess::handle_status(
-            backend,
-            json{{"print_task_config", {{"end_unload_filament", {false, false, false, false}}}}});
-        const std::string own_start = backend.build_preprint_gcode({}, {});
-        REQUIRE(own_start == "SET_PRINT_PREFERENCES END_UNLOAD_FILAMENT=[1,0,1,0]");
-        CHECK(backend.standing_print_gcode() == own_start + " FORCE=1");
-        CHECK(render_standing_gcode({&backend}) == own_start + " FORCE=1");
-
-        INFO("a later setting edit changes both alike");
-        SettingsManager::instance().set_end_of_print_unload_tools(0b0010);
-        CHECK(backend.standing_print_gcode() == backend.build_preprint_gcode({}, {}) + " FORCE=1");
-    }
-
-    SECTION("no routing rides along: it is refused once a print runs") {
-        SnapmakerTestAccess::handle_status(
-            backend,
-            json{{"print_task_config", {{"end_unload_filament", {false, false, false, false}}}}});
-        const std::string standing = backend.standing_print_gcode();
-        CHECK(standing.find("SET_PRINT_EXTRUDER_MAP") == std::string::npos);
-        CHECK(standing.find("SET_PRINT_USED_EXTRUDERS") == std::string::npos);
-    }
-}
-
-#endif // HELIX_HAS_SNAPMAKER

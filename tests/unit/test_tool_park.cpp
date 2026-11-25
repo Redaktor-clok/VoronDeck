@@ -15,7 +15,6 @@
 #include "../helix_test_fixture.h"
 #include "ams_backend_happy_hare.h"
 #include "ams_backend_mock.h"
-#include "ams_backend_snapmaker.h"
 #include "ams_backend_toolchanger.h"
 #include "toolchanger_addon.h"
 
@@ -33,24 +32,6 @@ namespace {
 
 /// Real U1 backend with its gcode captured. api_ stays null, so the print gate
 /// passes (unknown print state is not blocked) and only the command is asserted.
-class ParkingSnapmaker : public AmsBackendSnapmaker {
-  public:
-    ParkingSnapmaker() : AmsBackendSnapmaker(nullptr, nullptr) {
-        running_.store(true);
-    }
-
-    std::vector<std::string> sent;
-
-    AmsError execute_gcode(const std::string& gcode) override {
-        sent.push_back(gcode);
-        return AmsErrorHelper::success();
-    }
-
-    void mount(int tool) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        system_info_.current_tool = tool;
-    }
-};
 
 /// Real klipper-toolchanger backend with its gcode captured and acked at once.
 class ParkingToolChanger : public AmsBackendToolChanger {
@@ -99,27 +80,6 @@ class ParkingToolChanger : public AmsBackendToolChanger {
 };
 
 } // namespace
-
-TEST_CASE("the U1 parks its mounted toolhead with PARK_EXTRUDER", "[ams][snapmaker][1784]") {
-    HelixTestFixture fixture;
-    ParkingSnapmaker backend;
-    CHECK(backend.supports_tool_park());
-
-    backend.mount(2);
-    const AmsError err = backend.park_active_tool();
-    CHECK(err.success());
-    CHECK(backend.sent == std::vector<std::string>{"PARK_EXTRUDER"});
-}
-
-TEST_CASE("the U1 has nothing to park with no toolhead mounted", "[ams][snapmaker][1784]") {
-    HelixTestFixture fixture;
-    ParkingSnapmaker backend;
-    backend.mount(-1);
-
-    const AmsError err = backend.park_active_tool();
-    CHECK(err.result == AmsResult::WRONG_STATE);
-    CHECK(backend.sent.empty());
-}
 
 TEST_CASE("klipper-toolchanger parks with the unmount Unload sends", "[ams][toolchanger][1784]") {
     HelixTestFixture fixture;

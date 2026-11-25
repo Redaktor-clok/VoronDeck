@@ -50,58 +50,7 @@ struct MacroProfile {
     const GuidedLoadProfile* guided_load;
 };
 
-// QIDI's screen treats M604 as the first step of a wizard. On firmware
-// 01.01.02.x, `M604 T0` heats and parks over the trash chute, sets
-// print_stats_manager.sub_status to push_filamenting and stops for the user to
-// push filament in; the screen then sends the bite (T1, after its own
-// bit_filamenting status write), offers Extrude again (T1) or Done (T2, an 80mm
-// flush), and the stop path restores main_status. On 1.1.x, T0 already extrudes
-// and T1 is the retry; that firmware has no print_stats_manager object, so the
-// waiting check answers false there and the 01.01.02-only commands are never
-// sent. T2 leaves the nozzle hot.
-constexpr GuidedLoadProfile kQidiM604Wizard{
-    /*temp_param=*/"S",
-    /*default_temp_c=*/250,
-    /*waiting_object=*/"print_stats_manager",
-    /*waiting_field=*/"sub_status",
-    /*waiting_value=*/"push_filamenting",
-    /*feed=*/"SET_PRINT_SUB_STATUS SUB_STATUS=bit_filamenting\nM604 T1 S{temp}",
-    /*retry=*/"M604 T1 S{temp}",
-    /*flush=*/"M604 T2 S{temp}",
-    /*release=*/"SET_PRINT_MAIN_STATUS MAIN_STATUS=ready",
-    /*cleanup=*/"M104 S0\nENABLE_ALL_SENSOR",
-};
-
-// QIDI's stock screen drives M604 to load and M603 to unload. Both take the
-// temperature as `params.S` (default 250) and drive it themselves with
-// `M104 S{hotendtemp}` followed by a blocking `M109 S{hotendtemp}`, so the
-// hotend is already at temperature by the time either extrudes - a preheat in
-// front of one waits for the same heat twice, at whatever temperature we picked
-// rather than the one the macro then commands. AmsBackendQidi drives
-// `M603 S<temp>` for the same reason.
-//
-// Neither spelling means anything in Marlin either (M603 there configures a
-// filament change and there is no M604), so a Klipper config defining them is
-// running QIDI's convention.
-//
-// Both also open with `_CG28`, QIDI's conditional home
-// (`{% if "xyz" not in printer.toolhead.homed_axes %} G28 {% endif %}`), so on
-// the macro tier neither needs a home sent in front of it.
-//
-// That is a claim about these macros run ALONE. AmsBackendQidi composes them
-// with CLEAR_NOZZLE, which has no `_CG28` and reaches Z through MOVE_TO_TRASH's
-// XY-only guard - which is why the backend still answers
-// delegates_homing_to_printer() false and routes through ensure_homed_then().
-//
-// Both also run DISABLE_ALL_SENSOR and nothing turns the filament sensor back on
-// before PRINT_START: M604's wizard ends with ENABLE_ALL_SENSOR in its cleanup,
-// and M603 gets it sent after.
-constexpr std::array<MacroProfile, 2> kMacroProfiles{{
-    {"M604", "QIDI stock", /*heats_hotend=*/true, /*needs_home_first=*/false,
-     /*restore_after=*/"", &kQidiM604Wizard},
-    {"M603", "QIDI stock", /*heats_hotend=*/true, /*needs_home_first=*/false,
-     /*restore_after=*/"ENABLE_ALL_SENSOR", nullptr},
-}};
+constexpr std::array<MacroProfile, 0> kMacroProfiles{};
 
 /// The row for @p macro_name, or nullptr when no firmware we know ships it.
 const MacroProfile* find_profile(const std::string& macro_name) {

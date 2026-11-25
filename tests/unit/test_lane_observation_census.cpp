@@ -13,27 +13,17 @@
 // contract, not the rules inside it.
 
 #include "../lvgl_test_fixture.h"
-#include "ams_backend_ace.h"
-#include "ams_backend_ad5x_ifs.h"
 #include "ams_backend_afc.h"
-#include "ams_backend_cfs.h"
 #include "ams_backend_happy_hare.h"
 #include "ams_backend_mock.h"
-#include "ams_backend_qidi.h"
-#include "ams_backend_snapmaker.h"
 #include "ams_backend_toolchanger.h"
 #include "ams_types.h"
 #include "lane_observation.h"
 #include "lane_source_store.h"
 #include "printer_discovery.h"
-#include "test_helpers/ace_test_access.h"
-#include "test_helpers/ad5x_ifs_test_access.h"
 #include "test_helpers/afc_test_access.h"
-#include "test_helpers/cfs_test_access.h"
 #include "test_helpers/happy_hare_test_access.h"
-#include "test_helpers/qidi_box_test_access.h"
 #include "test_helpers/registered_backend.h"
-#include "test_helpers/snapmaker_test_access.h"
 #include "test_helpers/toolchanger_test_access.h"
 #include "toolchanger_addon.h"
 
@@ -48,26 +38,16 @@
 #include "../catch_amalgamated.hpp"
 #include "hv/json.hpp"
 
-using helix::AceTestAccess;
-using helix::Ad5xIfsTestAccess;
 using helix::AfcTestAccess;
-using helix::AmsBackendAce;
-using helix::AmsBackendAd5xIfs;
 using helix::AmsBackendAfc;
 using helix::AmsBackendHappyHare;
 using helix::AmsBackendMock;
-using helix::AmsBackendQidi;
-using helix::AmsBackendSnapmaker;
 using helix::AmsBackendToolChanger;
-using helix::CfsTestAccess;
 using helix::HappyHareTestAccess;
-using helix::QidiBoxTestAccess;
-using helix::SnapmakerTestAccess;
 using helix::ToolChangerTestAccess;
 using helix::ams::lane_sources;
 using helix::ams::LaneId;
 using helix::ams::Observation;
-using helix::printer::AmsBackendCfs;
 using helix::test::RegisteredBackend;
 
 namespace {
@@ -180,43 +160,6 @@ std::vector<BackendCensus> census_of_every_backend() {
     std::vector<BackendCensus> out;
 
     {
-        RegisteredBackend<AmsBackendAce> harness(nullptr, nullptr);
-        AceTestAccess::handle_status_update(
-            *harness,
-            status_frame("ace", nlohmann::json{
-                                    {"status", "ready"},
-                                    {"slots", nlohmann::json::array({nlohmann::json{
-                                                  {"status", "ready"},
-                                                  {"color", nlohmann::json::array({237, 44, 44})},
-                                                  {"type", "PETG"}}})},
-                                }));
-        out.push_back({"ACE", filed_on(harness.lane(0))});
-    }
-
-    {
-        RegisteredBackend<AmsBackendAd5xIfs> harness(nullptr, nullptr);
-        // The standalone IFS module's own objects. loaded_channels is the
-        // decoded silk bitmask (1-based), and ifs_materials is the module's
-        // slot table; between them this is everything an AD5X states.
-        Ad5xIfsTestAccess::handle_status(
-            *harness, nlohmann::json{{"ifs",
-                                      {{"connected", true},
-                                       {"channel_count", 4},
-                                       {"activity", "ready"},
-                                       {"active_channel", 1},
-                                       {"loaded_channels", nlohmann::json::array({1})}}}});
-        Ad5xIfsTestAccess::handle_status(
-            *harness,
-            nlohmann::json{
-                {"ifs_materials",
-                 {{"available", true},
-                  {"channel_count", 4},
-                  {"enabled", true},
-                  {"slots", {{"1", {{"type", "PETG"}, {"color", "#ED2C2C"}, {"temp", 250.0}}}}}}}});
-        out.push_back({"AD5X IFS", filed_on(harness.lane(0))});
-    }
-
-    {
         RegisteredBackend<AmsBackendAfc> harness(nullptr, nullptr);
         AfcTestAccess::initialize_slots(*harness, std::vector<std::string>{"lane1"});
         AfcTestAccess::handle_status_update(
@@ -236,23 +179,6 @@ std::vector<BackendCensus> census_of_every_backend() {
     }
 
     {
-        RegisteredBackend<AmsBackendCfs> harness(nullptr, nullptr);
-        CfsTestAccess::handle_status(
-            *harness,
-            status_frame("box", nlohmann::json{{"api_version", 1},
-                                               {"slots", nlohmann::json::array({nlohmann::json{
-                                                             {"index", 0},
-                                                             {"material", "PLA"},
-                                                             {"brand", "Creality"},
-                                                             {"name", "Hyper PLA"},
-                                                             {"color", "#ED2C2C"},
-                                                             {"present", true},
-                                                             {"loaded", false},
-                                                             {"spoolman_id", 7}}})}}));
-        out.push_back({"CFS", filed_on(harness.lane(0))});
-    }
-
-    {
         RegisteredBackend<AmsBackendHappyHare> harness(nullptr, nullptr);
         HappyHareTestAccess::handle_status_update(
             *harness,
@@ -269,44 +195,6 @@ std::vector<BackendCensus> census_of_every_backend() {
         RegisteredBackend<AmsBackendMock> harness(4);
         REQUIRE(harness->start().success());
         out.push_back({"Mock", filed_on(harness.lane(0))});
-    }
-
-    {
-        RegisteredBackend<AmsBackendQidi> harness(nullptr, nullptr);
-        QidiBoxTestAccess::apply_filas_list(*harness, kQidiFilasList);
-        // The Box states identity as ids into its own tables and presence as a
-        // per-slot state word, both in save_variables. Unwrapped rather than
-        // enveloped because this backend's handler reads the object directly.
-        QidiBoxTestAccess::handle_status(*harness, nlohmann::json{{"save_variables",
-                                                                   {{"variables",
-                                                                     {{"box_count", 1},
-                                                                      {"slot0", 1},
-                                                                      {"filament_slot0", 12},
-                                                                      {"color_slot0", 5},
-                                                                      {"vendor_slot0", 3}}}}}});
-        out.push_back({"Qidi", filed_on(harness.lane(0))});
-    }
-
-    {
-        RegisteredBackend<AmsBackendSnapmaker> harness(nullptr, nullptr);
-        nlohmann::json frame = status_frame(
-            "filament_detect",
-            nlohmann::json{{"state", nlohmann::json::array({1, 0, 0, 0})},
-                           {"info", nlohmann::json::array({nlohmann::json{
-                                        {"MAIN_TYPE", "PLA"},
-                                        {"SUB_TYPE", "Silk"},
-                                        {"MANUFACTURER", "Snapmaker"},
-                                        {"ARGB_COLOR", 0xFFED2C2C},
-                                        {"WEIGHT", 1000},
-                                        {"CARD_UID", nlohmann::json::array({144, 32, 196, 2})},
-                                    }})}});
-        // Lane presence is the port sensor, not the state array (the
-        // entrance/tag reading), so the census drive needs the feed object
-        // for sensed.present to be filed.
-        frame["params"][0]["filament_feed left"] =
-            nlohmann::json{{"extruder0", nlohmann::json{{"filament_detected", true}}}};
-        SnapmakerTestAccess::handle_status(*harness, frame);
-        out.push_back({"Snapmaker", filed_on(harness.lane(0))});
     }
 
     {
@@ -335,10 +223,10 @@ const std::vector<BackendCensus>& expected_census() {
     static const std::vector<BackendCensus> table = {
         // The hub reports an occupancy status and its own memory of a bay's
         // colour and type. It reads no tag and weighs nothing.
-        {"ACE", {"sensed.present", "vendor_cache.color_rgb", "vendor_cache.material"}},
+
         // Adventurer5M.json remembers colour and type across an eject; the silk
         // sensors answer presence.
-        {"AD5X IFS", {"sensed.present", "vendor_cache.color_rgb", "vendor_cache.material"}},
+
         // The widest producer in the fleet, and the only one that meters: AFC's
         // own store keeps four identity fields and a Spoolman binding, and its
         // weight is a second source rather than more of the same record.
@@ -348,9 +236,7 @@ const std::vector<BackendCensus>& expected_census() {
           "metered.total_weight_g"}},
         // The CFS reads a tag that names a PRODUCT, which is a different
         // question from what a spool is called.
-        {"CFS",
-         {"sensed.present", "vendor_cache.color_rgb", "vendor_cache.material", "vendor_cache.brand",
-          "vendor_cache.product_name", "vendor_cache.spoolman_id"}},
+
         // mmu_vars.cfg remembers a declaration somebody made once. Gate status
         // is the only thing Happy Hare senses.
         {"Happy Hare",
@@ -370,15 +256,11 @@ const std::vector<BackendCensus>& expected_census() {
         {"Mock", {"sensed.present", "vendor_cache.color_rgb", "vendor_cache.material"}},
         // Saved ids resolved against the Box's own tables. A jam still reports
         // filament, so presence comes from the state word.
-        {"Qidi",
-         {"sensed.present", "vendor_cache.color_rgb", "vendor_cache.material",
-          "vendor_cache.brand"}},
+
         // The one firmware in the fleet whose tag states a weight, which makes
         // this the only total_weight_g filed as identity rather than as a meter
         // reading. AFC's total is the meter's.
-        {"Snapmaker",
-         {"sensed.present", "vendor_cache.color_rgb", "vendor_cache.material", "vendor_cache.brand",
-          "vendor_cache.product_name", "vendor_cache.total_weight_g"}},
+
         // klipper-toolchanger senses docking and states nothing else. A lane
         // here carries no identity record at all, and no filament-presence
         // reading either: the dock answer is a toolhead, not a spool, so it
@@ -457,53 +339,6 @@ TEST_CASE_METHOD(LVGLTestFixture, "a firmware name reaches the field its own ven
         CHECK(lane.vendor_cache->spool_name == "Galaxy Black");
         CHECK_FALSE(lane.vendor_cache->product_name.has_value());
     }
-
-    {
-        // The CFS tag's `name` is which PRODUCT the bay holds.
-        RegisteredBackend<AmsBackendCfs> harness(nullptr, nullptr);
-        CfsTestAccess::handle_status(
-            *harness,
-            status_frame("box", nlohmann::json{{"api_version", 1},
-                                               {"slots", nlohmann::json::array({nlohmann::json{
-                                                             {"index", 0},
-                                                             {"material", "PLA"},
-                                                             {"name", "Hyper PLA"},
-                                                             {"present", true},
-                                                             {"loaded", false}}})}}));
-
-        const auto lane = lane_sources(harness.lane(0));
-        REQUIRE(lane.vendor_cache.has_value());
-        CHECK(lane.vendor_cache->product_name == "Hyper PLA");
-        CHECK_FALSE(lane.vendor_cache->spool_name.has_value());
-    }
-}
-
-TEST_CASE_METHOD(LVGLTestFixture, "Snapmaker's observation and its SlotInfo part over SUB_TYPE",
-                 "[lane][ingest][census]") {
-    RegisteredBackend<AmsBackendSnapmaker> harness(nullptr, nullptr);
-
-    SnapmakerTestAccess::handle_status(
-        *harness,
-        status_frame(
-            "filament_detect",
-            nlohmann::json{{"state", nlohmann::json::array({1, 0, 0, 0})},
-                           {"info", nlohmann::json::array({nlohmann::json{
-                                        {"MAIN_TYPE", "PLA"},
-                                        {"SUB_TYPE", "Silk"},
-                                        {"MANUFACTURER", "Snapmaker"},
-                                        {"ARGB_COLOR", 0xFFED2C2C},
-                                        {"CARD_UID", nlohmann::json::array({144, 32, 196, 2})},
-                                    }})}}));
-
-    // One parse, two destinations, and they deliberately disagree: the record
-    // calls SUB_TYPE the product line it is, while SlotInfo keeps the spelling
-    // the UI has always read. Reading one and expecting the other is the
-    // mistake this case exists to catch.
-    const auto lane = lane_sources(harness.lane(0));
-    REQUIRE(lane.vendor_cache.has_value());
-    CHECK(lane.vendor_cache->product_name == "Silk");
-    CHECK_FALSE(lane.vendor_cache->spool_name.has_value());
-    CHECK(harness->get_slot_info(0).spool_name == "Silk");
 }
 
 TEST_CASE_METHOD(LVGLTestFixture, "a tool changer's presence reading is a dock, not a filament",

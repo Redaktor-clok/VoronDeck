@@ -24,13 +24,9 @@
 
 #include "../lvgl_test_fixture.h"
 #include "../test_helpers/trait_probe_backend.h"
-#include "ams_backend_ace.h"
-#include "ams_backend_ad5x_ifs.h"
 #include "ams_backend_afc.h"
-#include "ams_backend_cfs.h"
 #include "ams_backend_happy_hare.h"
 #include "ams_backend_mock.h"
-#include "ams_backend_qidi.h"
 #include "ams_state.h"
 #include "ams_types.h"
 #include "app_globals.h"
@@ -46,7 +42,7 @@ using namespace helix::printer;
 
 namespace {
 
-/// The traits of the real backend @p type names, for the types this file stands in for.
+/// Capability combinations covering host-owned and firmware-owned runout.
 BackendTraits real_traits_for(AmsType type) {
     switch (type) {
     case AmsType::HAPPY_HARE:
@@ -54,13 +50,46 @@ BackendTraits real_traits_for(AmsType type) {
     case AmsType::AFC:
         return AmsBackendAfc::kTraits;
     case AmsType::AD5X_IFS:
-        return AmsBackendAd5xIfs::kTraits;
+        return [] {
+            BackendTraits t;
+            t.hub_on_toolhead = true;
+            t.has_per_slot_loaded_authority = true;
+            t.filament_ops_self_home = true;
+            t.supports_auto_heat_on_load = true;
+            t.supports_auto_heat_on_unload = true;
+            t.supports_force_eject = true;
+            t.has_firmware_spool_persistence = false;
+            t.raises_runout_fault = true;
+            t.unloads_to_hub_between_prints = true;
+            return t;
+        }();
     case AmsType::CFS:
-        return printer::AmsBackendCfs::kTraits;
+        return [] {
+            BackendTraits t;
+            t.has_per_slot_loaded_authority = true;
+            t.supports_auto_heat_on_load = true;
+            t.has_environment_sensors = true;
+            t.can_clear_unaccounted_toolhead = true;
+            t.raises_runout_fault = true;
+            t.raises_runout_fault_during_job = true;
+            return t;
+        }();
     case AmsType::ACE:
-        return AmsBackendAce::kTraits;
+        return [] {
+            BackendTraits t;
+            t.has_per_slot_loaded_authority = true;
+            t.has_environment_sensors = true;
+            return t;
+        }();
     case AmsType::QIDI_BOX:
-        return AmsBackendQidi::kTraits;
+        return [] {
+            BackendTraits t;
+            t.has_per_slot_loaded_authority = true;
+            t.has_environment_sensors = true;
+            t.supports_auto_heat_on_load = true;
+            t.supports_auto_heat_on_unload = true;
+            return t;
+        }();
     default:
         return {};
     }
@@ -216,29 +245,6 @@ TEST_CASE_METHOD(LVGLTestFixture, "A genuine runout lights the indicator",
         ams.sync_from_backend();
         CHECK(indicator() == 0);
     }
-
-    ams.set_backend(nullptr);
-}
-
-TEST_CASE_METHOD(LVGLTestFixture, "Runout raised while already paused counts (AD5X path)",
-                 "[1250][runout-surface][ams]") {
-    auto& ams = AmsState::instance();
-    // PrinterState first: AmsState observes its print_state_enum subject, and an
-    // uninitialized subject swallows lv_subject_set_int without complaint. Same
-    // order as production (subject_initializer.cpp).
-    get_printer_state().init_subjects(false);
-    ams.init_subjects(false);
-    // AmsBackendAd5xIfs::evaluate_runout_locked() only ever raises while the job
-    // is PAUSED, so the arming edge must be accepted in that state too.
-    auto* backend = install(AmsType::AD5X_IFS);
-
-    backend->set_runout(false);
-    set_print_state(PrintJobState::PAUSED);
-    ams.sync_from_backend(); // seed
-
-    backend->set_runout(true);
-    ams.sync_from_backend();
-    CHECK(indicator() == 1);
 
     ams.set_backend(nullptr);
 }

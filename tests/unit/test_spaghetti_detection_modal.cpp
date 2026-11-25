@@ -18,7 +18,7 @@
 #include "moonraker_api.h"
 #include "moonraker_client_mock.h"
 #include "settings_manager.h"
-#include "u1_stock_detection_source.h"
+#include "test_helpers/detection_source_stub.h"
 
 #include <fstream>
 #include <iterator>
@@ -394,12 +394,14 @@ namespace {
 
 class BedCheckPresenterFixture : public PresenterFixture {
   public:
-    BedCheckPresenterFixture() : u1(MoonrakerClientMock::PrinterType::SNAPMAKER_U1) {
+    BedCheckPresenterFixture() : u1(MoonrakerClientMock::PrinterType::VORON_24) {
         SettingsManager::instance().set_detection_enabled(false);
         set_moonraker_client(&u1);
         auto& m = helix::detection::DetectionManager::instance();
-        m.register_source(std::make_unique<helix::detection::U1StockSource>(nullptr));
-        m.apply_objects_list_for_test(nlohmann::json::array({"defect_detection"}));
+        auto owned = std::make_unique<helix::test::DetectionSourceStub>();
+        detector = owned.get();
+        m.register_source(std::move(owned));
+        m.apply_objects_list_for_test(nlohmann::json::array({"test_detector"}));
         printer({{"state", "printing"}, {"filename", "3DBenchy.gcode"}});
         printer({{"state", "paused"}});
 
@@ -439,6 +441,7 @@ class BedCheckPresenterFixture : public PresenterFixture {
         settle();
     }
 
+    helix::test::DetectionSourceStub* detector = nullptr;
     MoonrakerClientMock u1;
     lv_obj_t* dialog = nullptr;
 };
@@ -455,7 +458,8 @@ TEST_CASE_METHOD(BedCheckPresenterFixture, "a dirty bed shows the bed check moda
     // Turn off bed check: the printer is told, the button goes, and the
     // print's Restart/Cancel decision stays on screen.
     click("btn_tertiary");
-    CHECK(u1.last_send_script() == "DEFECT_DETECTION_CONFIG CLEAN_BED_ENABLE=0");
+    CHECK(detector->bed_writes == 1);
+    CHECK_FALSE(detector->bed_enabled);
     CHECK(ModalStack::instance().top_component_name() == "bed_check_modal");
     CHECK(lv_obj_has_flag(turn_off, LV_OBJ_FLAG_HIDDEN));
     REQUIRE(toasts.size() == 1);

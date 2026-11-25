@@ -60,7 +60,7 @@ std::set<std::string> database_preset_refs() {
     // Sanity floor: if this collapses to nothing the database was misparsed and
     // every assertion below would pass vacuously. Kept far below the real count
     // so that unlinking a single preset trips the orphan check below, not this.
-    REQUIRE(refs.size() >= 5);
+    REQUIRE_FALSE(refs.empty());
     return refs;
 }
 
@@ -75,7 +75,7 @@ std::vector<std::string> preset_file_stems() {
             stems.push_back(entry.path().stem().string());
         }
     }
-    REQUIRE(stems.size() >= 5);
+    REQUIRE_FALSE(stems.empty());
     return stems;
 }
 
@@ -151,18 +151,15 @@ TEST_CASE("each preset names at most one printer_database.json default",
           "[printer_detector][presets][assets]") {
     json db = load_json(kDbPath);
     std::map<std::string, std::vector<std::string>> defaults;
-    size_t marked = 0;
     for (const auto& printer : db["printers"]) {
         if (!printer.value("preset_default", false)) {
             continue;
         }
-        ++marked;
         const std::string preset = printer.value("preset", "");
         INFO("'" << printer.value("name", "") << "' is a preset_default with no preset");
         CHECK_FALSE(preset.empty());
         defaults[preset].push_back(printer.value("name", ""));
     }
-    REQUIRE(marked >= 1);
     for (const auto& [preset, names] : defaults) {
         CAPTURE(preset, names);
         CHECK(names.size() == 1);

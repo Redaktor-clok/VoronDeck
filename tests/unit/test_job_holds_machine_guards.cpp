@@ -40,8 +40,6 @@
 #include "../test_helpers/trait_probe_backend.h"
 #include "../test_helpers/update_queue_test_access.h"
 #include "../ui_test_utils.h"
-#include "ams_backend_ad5x_ifs.h"
-#include "ams_backend_cfs.h"
 #include "ams_state.h"
 #include "ams_types.h"
 #include "app_globals.h"
@@ -173,12 +171,6 @@ class SensorEdgeToastFixture : public LVGLTestFixture {
 
 /// AD5X-IFS backend installed as the active AMS backend: everything the
 /// idle-unload suppression reads.
-class Ad5xToastFixture : public SensorEdgeToastFixture {
-  public:
-    Ad5xToastFixture() {
-        install_backend(std::make_unique<AmsBackendAd5xIfs>(nullptr, nullptr));
-    }
-};
 
 /// UpgradeNudge asks UpdateChecker whether anything is worth nudging about
 /// before it ever looks at print state, so the gate is unreachable until a
@@ -210,43 +202,6 @@ class UpgradeNudgeFixture : public LVGLTestFixture {
 // ============================================================================
 // 1. AD5X-IFS idle-unload toast suppression
 // ============================================================================
-
-TEST_CASE_METHOD(Ad5xToastFixture,
-                 "AD5X head-empty during a pre-print block is NOT swallowed as an idle unload",
-                 "[ams][ad5x][filament-sensor][job-holds-machine]") {
-    // Guard against a leaked filament operation from an earlier test: that
-    // suppresses the toast through a different arm of the same expression and
-    // would make this pass for the wrong reason.
-    REQUIRE_FALSE(AmsState::instance().is_filament_operation_active());
-
-    drive_lifecycle(printer_state, "standby", PrintStartPhase::BED_MESH);
-    REQUIRE(published_lifecycle(printer_state) == PrintState::Preparing);
-
-    // Reverting the guard to `job_state == PRINTING || job_state == PAUSED`
-    // makes this 0: print_stats still reads standby for the whole host-side
-    // pre-start block, so the old comparison classifies a Preparing print as
-    // "between prints" and eats the runout warning.
-    CHECK(report_head_empty() == 1);
-}
-
-TEST_CASE_METHOD(Ad5xToastFixture, "AD5X head-empty while idle is swallowed as the firmware unload",
-                 "[ams][ad5x][filament-sensor][job-holds-machine]") {
-    // The behaviour the suppression exists for, and the negative control that
-    // proves the test above is measuring the guard rather than a toast path
-    // that always fires.
-    drive_lifecycle(printer_state, "standby");
-    REQUIRE(published_lifecycle(printer_state) == PrintState::Idle);
-
-    CHECK(report_head_empty() == 0);
-}
-
-TEST_CASE_METHOD(Ad5xToastFixture, "AD5X head-empty mid-print is a real runout",
-                 "[ams][ad5x][filament-sensor][job-holds-machine]") {
-    drive_lifecycle(printer_state, "printing");
-    REQUIRE(published_lifecycle(printer_state) == PrintState::Printing);
-
-    CHECK(report_head_empty() == 1);
-}
 
 TEST_CASE_METHOD(SensorEdgeToastFixture,
                  "idle unload is expected only where the backend unloads to its hub",
@@ -293,27 +248,6 @@ TEST_CASE_METHOD(SensorEdgeToastFixture,
 // ============================================================================
 
 TEST_CASE_METHOD(SensorEdgeToastFixture,
-                 "CFS head-empty mid-print yields to the backend that owns the runout surface",
-                 "[ams][cfs][filament-sensor][job-holds-machine][1388]") {
-    // A real CFS backend with no transport, the same rig shape
-    // test_ams_backend_cfs.cpp uses: the ownership gate asks only for its traits.
-    install_backend(std::make_unique<helix::printer::AmsBackendCfs>(nullptr, nullptr));
-
-    // Guard against a leaked filament operation from an earlier test: that
-    // suppresses the toast through a different arm of the same expression and
-    // would make this pass for the wrong reason.
-    REQUIRE_FALSE(AmsState::instance().is_filament_operation_active());
-
-    drive_lifecycle(printer_state, "printing");
-    REQUIRE(published_lifecycle(printer_state) == PrintState::Printing);
-
-    // The CFS raises its own runout fault while a job runs, so its prompt is
-    // already the surface and the sensor-edge toast restates it (#1388).
-    // Clearing raises_runout_fault_during_job on the CFS traits makes this 1.
-    CHECK(report_head_empty() == 0);
-}
-
-TEST_CASE_METHOD(SensorEdgeToastFixture,
                  "head-empty mid-print still toasts when no backend owns the surface",
                  "[ams][filament-sensor][job-holds-machine][1388]") {
     // No AMS backend at all: nobody else reports a runout, so the sensor-edge
@@ -323,20 +257,6 @@ TEST_CASE_METHOD(SensorEdgeToastFixture,
 
     drive_lifecycle(printer_state, "printing");
     REQUIRE(published_lifecycle(printer_state) == PrintState::Printing);
-
-    CHECK(report_head_empty() == 1);
-}
-
-TEST_CASE_METHOD(SensorEdgeToastFixture, "CFS head-empty while idle still toasts",
-                 "[ams][cfs][filament-sensor][job-holds-machine][1388]") {
-    install_backend(std::make_unique<helix::printer::AmsBackendCfs>(nullptr, nullptr));
-    REQUIRE_FALSE(AmsState::instance().is_filament_operation_active());
-
-    // The gate is scoped to the job phase: idle, the CFS raises no fault of
-    // its own and the sensor edge is news again. Dropping the job_holds_machine
-    // conjunct from the manager's ownership term makes this 0.
-    drive_lifecycle(printer_state, "standby");
-    REQUIRE(published_lifecycle(printer_state) == PrintState::Idle);
 
     CHECK(report_head_empty() == 1);
 }

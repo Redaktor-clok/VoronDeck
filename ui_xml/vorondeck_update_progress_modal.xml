@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<component>
+  <view name="vorondeck_update_progress_modal" extends="ui_dialog" width="90%" height="content"
+        align="center" flex_flow="column" style_pad_all="#space_lg" style_pad_gap="#space_md">
+    <text_heading text="VoronDeck"/>
+    <spinner name="update_spinner" size="md"/>
+    <text_body name="update_stage" width="100%" long_mode="wrap"/>
+    <progress_bar name="stage_progress" width="100%"/>
+    <text_muted name="stage_count" width="100%" long_mode="wrap"/>
+    <text_muted name="update_log" width="100%" long_mode="wrap"/>
+    <text_muted text="Do not power off your printer." width="100%" long_mode="wrap"/>
+    <ui_button name="btn_close" text="Close" width="100%">
+      <event_cb trigger="clicked" callback="on_vorondeck_progress_close"/>
+    </ui_button>
+  </view>
+</component>

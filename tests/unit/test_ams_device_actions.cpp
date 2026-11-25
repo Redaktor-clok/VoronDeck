@@ -11,14 +11,13 @@
  * - ActionType enum (button, toggle, slider, dropdown, info)
  * - Backend device action interfaces
  * - Mock backend default actions and setters
- * - ACE/ToolChanger stub implementations
+ * - ToolChanger stub implementation
  */
 
 #include "../lvgl_test_fixture.h"
 #include "../test_helpers/print_state_test_drivers.h"
-#include "ams_backend_ace.h"
 #include "ams_backend_mock.h"
-#include "ams_backend_qidi.h"
+#include "ams_backend_openams.h"
 #include "ams_backend_toolchanger.h"
 #include "ams_device_action_value.h"
 #include "ams_types.h"
@@ -627,118 +626,6 @@ TEST_CASE("AmsBackendMock execute with different value types", "[ams][device_act
 // ACE Backend Device Action Tests
 // =============================================================================
 
-TEST_CASE("ACE device actions - sections and actions", "[ams][device_actions][ace]") {
-    // Create ACE backend with null dependencies (for structure testing)
-    helix::AmsBackendAce backend(nullptr, nullptr);
-
-    SECTION("get_device_sections returns two sections") {
-        auto sections = backend.get_device_sections();
-        REQUIRE(sections.size() == 2);
-
-        auto it = std::find_if(sections.begin(), sections.end(),
-                               [](const DeviceSection& s) { return s.id == "filament_control"; });
-        REQUIRE(it != sections.end());
-        CHECK(it->label == "Filament Control");
-
-        it = std::find_if(sections.begin(), sections.end(),
-                          [](const DeviceSection& s) { return s.id == "maintenance"; });
-        REQUIRE(it != sections.end());
-        CHECK(it->label == "Maintenance");
-    }
-
-    SECTION("get_device_actions returns three actions") {
-        auto actions = backend.get_device_actions();
-        REQUIRE(actions.size() == 3);
-
-        for (const auto& action : actions) {
-            CHECK_FALSE(action.id.empty());
-            CHECK_FALSE(action.label.empty());
-            CHECK_FALSE(action.section.empty());
-            // Nothing is loaded, which leaves Feed Assist no slot to act on.
-            CHECK(action.enabled == (action.id != "ace_feed_assist_toggle"));
-        }
-    }
-
-    SECTION("ace_manual_feed is a BUTTON in filament_control section") {
-        auto actions = backend.get_device_actions();
-        auto it = std::find_if(actions.begin(), actions.end(),
-                               [](const DeviceAction& a) { return a.id == "ace_manual_feed"; });
-        REQUIRE(it != actions.end());
-        CHECK(it->type == ActionType::BUTTON);
-        CHECK(it->section == "filament_control");
-    }
-
-    SECTION("ace_manual_retract is a BUTTON in filament_control section") {
-        auto actions = backend.get_device_actions();
-        auto it = std::find_if(actions.begin(), actions.end(),
-                               [](const DeviceAction& a) { return a.id == "ace_manual_retract"; });
-        REQUIRE(it != actions.end());
-        CHECK(it->type == ActionType::BUTTON);
-        CHECK(it->section == "filament_control");
-    }
-
-    SECTION("ace_feed_assist_toggle is a TOGGLE in maintenance section") {
-        auto actions = backend.get_device_actions();
-        auto it = std::find_if(actions.begin(), actions.end(), [](const DeviceAction& a) {
-            return a.id == "ace_feed_assist_toggle";
-        });
-        REQUIRE(it != actions.end());
-        CHECK(it->type == ActionType::TOGGLE);
-        CHECK(it->section == "maintenance");
-    }
-}
-
-TEST_CASE("ACE device actions - execute unknown returns not_supported",
-          "[ams][device_actions][ace]") {
-    helix::AmsBackendAce backend(nullptr, nullptr);
-
-    SECTION("unknown action returns not_supported") {
-        auto result = backend.execute_device_action("nonexistent_action");
-        CHECK_FALSE(result);
-        CHECK(result.result == helix::AmsResult::NOT_SUPPORTED);
-    }
-
-    SECTION("unknown action with value returns not_supported") {
-        auto result = backend.execute_device_action("nonexistent_action", 42);
-        CHECK_FALSE(result);
-        CHECK(result.result == helix::AmsResult::NOT_SUPPORTED);
-    }
-}
-
-TEST_CASE("ACE device actions - execute valid actions", "[ams][device_actions][ace]") {
-    // Note: ACE backend requires api_ for execute_gcode, so these tests verify
-    // that execute_device_action recognizes the action IDs (returns NOT_CONNECTED, not
-    // NOT_SUPPORTED)
-    helix::AmsBackendAce backend(nullptr, nullptr);
-
-    SECTION("ace_manual_feed with null API returns not_connected") {
-        auto result = backend.execute_device_action("ace_manual_feed");
-        // Should fail with not_connected (recognized action), not not_supported (unknown action)
-        CHECK_FALSE(result);
-        CHECK(result.result == helix::AmsResult::NOT_CONNECTED);
-    }
-
-    SECTION("ace_manual_retract with null API returns not_connected") {
-        auto result = backend.execute_device_action("ace_manual_retract");
-        CHECK_FALSE(result);
-        CHECK(result.result == helix::AmsResult::NOT_CONNECTED);
-    }
-
-    SECTION("ace_feed_assist_toggle with nothing loaded is refused, either way") {
-        for (const bool enable : {true, false}) {
-            auto result = backend.execute_device_action("ace_feed_assist_toggle", enable);
-            CHECK_FALSE(result);
-            CHECK(result.result == helix::AmsResult::WRONG_STATE);
-        }
-    }
-
-    SECTION("ace_feed_assist_toggle with no value is refused before anything is sent") {
-        auto result = backend.execute_device_action("ace_feed_assist_toggle");
-        CHECK_FALSE(result);
-        CHECK(result.result == helix::AmsResult::WRONG_STATE);
-    }
-}
-
 // =============================================================================
 // device_action_value: the one reader of a control's value
 // =============================================================================
@@ -1022,10 +909,10 @@ TEST_CASE("Mock backend device actions in tool changer mode",
 namespace {
 
 /// A subscription backend whose device actions and follow-up are fixed, so the
-/// base gate is what is tested. QIDI is only the concrete carrier.
-class GatedActionsBackend : public helix::AmsBackendQidi {
+/// base gate is what is tested. OpenAMS is only the concrete carrier.
+class GatedActionsBackend : public helix::AmsBackendOpenAms {
   public:
-    using AmsBackendQidi::AmsBackendQidi;
+    using AmsBackendOpenAms::AmsBackendOpenAms;
 
     std::vector<DeviceAction> get_device_actions() const override {
         DeviceAction off = DeviceAction::button("off", "Off", "setup");
@@ -1047,7 +934,7 @@ class GatedActionsBackend : public helix::AmsBackendQidi {
     helix::AmsError do_run_device_action(const std::string& id, const std::any& value,
                                          DeviceActionDone on_done) override {
         ++runs;
-        return AmsBackendQidi::do_run_device_action(id, value, std::move(on_done));
+        return AmsBackendOpenAms::do_run_device_action(id, value, std::move(on_done));
     }
     helix::AmsError do_run_edit_follow_up(int, const helix::SlotInfo&,
                                           const helix::SlotInfo&) override {

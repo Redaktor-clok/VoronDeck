@@ -7,6 +7,7 @@ BaseDeploy instance without modifying Moonraker's source or executing remote cod
 from __future__ import annotations
 import asyncio
 import importlib.util
+import subprocess
 from pathlib import Path
 
 from .update_manager.base_deploy import BaseDeploy
@@ -40,6 +41,7 @@ class VoronDeckDeploy(BaseDeploy):
         self.remote = None
         self.current = None
         self.last_error = ''
+        self.selected_update_pending = False
         self.loop = server.get_event_loop()
         manager.get_updaters()['vorondeck'] = self
         from ..common import RequestType
@@ -52,19 +54,39 @@ class VoronDeckDeploy(BaseDeploy):
         selection = {key: request.get_str(key) for key in
                      ('kind', 'version', 'tag', 'sha256', 'source_commit', 'installed_source')}
         manager = self.server.lookup_component('update_manager')
-        if not hasattr(manager, 'cmd_request_lock') or not hasattr(manager, 'cmd_helper'):
+        if (not hasattr(manager, 'cmd_request_lock') or not hasattr(manager, 'cmd_helper')
+                or not callable(getattr(manager.cmd_helper, 'is_update_busy', None))):
             raise self.server.error('This Moonraker cannot serialize selected updates')
-        if manager.cmd_request_lock.locked() or manager.cmd_helper.is_app_updating('vorondeck'):
+        if (getattr(self, 'selected_update_pending', False)
+                or manager.cmd_helper.is_update_busy()):
             raise self.server.error('Another update is running', 503)
-        async with manager.cmd_request_lock:
+        self.selected_update_pending = True
+        acquired = False
+        try:
+            try:
+                # Refresh shares this lock. Queue behind it, never bypass it.
+                await asyncio.wait_for(manager.cmd_request_lock.acquire(), timeout=90)
+                acquired = True
+            except asyncio.TimeoutError:
+                raise self.server.error('Update check did not finish within 90 seconds. Try again later.', 503)
             manager.cmd_helper.set_update_info('vorondeck', id(request))
             try:
                 await self.update(selection)
-            except Exception:
+            except Exception as error:
                 manager.cmd_helper.notify_update_response('VoronDeck update failed', is_complete=True)
-                raise
+                if isinstance(error, BlockingIOError):
+                    reason = 'Another update is running'
+                elif isinstance(error, subprocess.TimeoutExpired):
+                    reason = 'Package download timed out. Check the network and beta access.'
+                else:
+                    reason = str(error)[:300] or type(error).__name__
+                raise self.server.error(reason, getattr(error, 'status_code', 500)) from error
             finally:
                 manager.cmd_helper.clear_update_info()
+        finally:
+            if acquired:
+                manager.cmd_request_lock.release()
+            self.selected_update_pending = False
         return 'ok'
 
     async def initialize(self):
@@ -114,6 +136,7 @@ class VoronDeckDeploy(BaseDeploy):
                 'version': version, 'remote_version': available, 'rollback_version': '?',
                 'vorondeck_package': True, 'vorondeck_test_updates': True, 'package_sha256': current_hash,
                 'vorondeck_release_selection': True,
+                'vorondeck_update_progress': 1,
                 'remote_package_sha256': remote_hash,
                 'update_available': bool(non_older and version != available),
                 'last_error': self.last_error, 'warnings': [self.last_error] if self.last_error else [],

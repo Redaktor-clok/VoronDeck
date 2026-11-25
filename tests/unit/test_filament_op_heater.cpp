@@ -23,7 +23,6 @@
 #include "../test_helpers/filament_sensor_widget_test_access.h"
 #include "../test_helpers/scoped_shared_resource.h"
 #include "../test_helpers/update_queue_test_access.h"
-#include "ams_backend_cfs.h"
 #include "ams_backend_mock.h"
 #include "ams_state.h"
 #include "app_globals.h"
@@ -1354,42 +1353,8 @@ TEST_CASE_METHOD(HeaterFixture, "A lane on extruder1 heats and cools extruder1, 
 namespace {
 
 /// CFS, running, with the action script captured instead of sent.
-class CfsCapture : public helix::printer::AmsBackendCfs {
-  public:
-    CfsCapture() : AmsBackendCfs(nullptr, nullptr) {
-        running_ = true;
-    }
-    bool toolhead_homed() const override {
-        return true;
-    }
-    std::vector<std::string> dispatched;
-
-  private:
-    helix::AmsError dispatch_action_script(std::string gcode) override {
-        dispatched.push_back(std::move(gcode));
-        return helix::AmsErrorHelper::success();
-    }
-};
 
 } // namespace
-
-TEST_CASE_METHOD(HeaterFixture, "A CFS bypass unload on a cold nozzle preheats first",
-                 "[filament][preheat][heater][cfs]") {
-    // The bypass unload ends in a raw extruder retract, which Klipper refuses on
-    // a cold nozzle: nothing may skip the preheat in front of it.
-    feed_nozzle(25, 0);
-    auto owned = std::make_unique<CfsCapture>();
-    CfsCapture* cfs = owned.get();
-    helix::AmsState::instance().set_backend(std::move(owned));
-
-    helix::ui::execute_filament_unload(cfs, helix::ui::kExternalSpoolSlot,
-                                       /*target_is_loaded=*/true, "[Test]");
-    drain_all();
-
-    CHECK(heater->get().pending());
-    CHECK(sent(kHeatGcode));
-    CHECK(cfs->dispatched.empty());
-}
 
 // ============================================================================
 // One surface, one op at a time

@@ -8,7 +8,6 @@
  */
 
 #include "ams_backend_mock.h"
-#include "ams_backend_snapmaker.h"
 #include "filament_action_set.h"
 #include "filament_op_execute.h"
 
@@ -57,21 +56,6 @@ FilamentHeadView view_of(std::vector<HeadState> heads) {
 }
 
 /// Four heads, one per lane, as on a Snapmaker U1.
-class FourHeadBackend : public helix::AmsBackendSnapmaker {
-  public:
-    FourHeadBackend() : helix::AmsBackendSnapmaker(nullptr, nullptr) {}
-    helix::AmsSystemInfo get_system_info() const override {
-        helix::AmsSystemInfo info;
-        info.total_slots = 4;
-        return info;
-    }
-    bool can_unload_from_toolhead(int slot_index) const override {
-        return slot_index == 1;
-    }
-    bool slot_filament_parked_in_toolhead(int slot_index) const override {
-        return slot_index == 2;
-    }
-};
 
 } // namespace
 
@@ -327,33 +311,14 @@ TEST_CASE("head picker: an unload row a sensor reports empty is not tickable",
 }
 
 TEST_CASE("backend filament ops: defaults answer one automatic head", "[ams][filament_ops]") {
-    // The plain U1 shape stands in for "any backend" on the base-class
-    // answers it does not override.
-    struct Plain : public helix::AmsBackendSnapmaker {
-        Plain() : helix::AmsBackendSnapmaker(nullptr, nullptr) {}
-    } plain;
+    // Call the base answers explicitly on a generic mock backend.
+    helix::AmsBackendMock plain(4);
     const HeadFilamentOps ops = plain.AmsBackend::head_filament_ops(0);
     CHECK(ops.load == FilamentOpSupport::Automatic);
     CHECK(ops.unload == FilamentOpSupport::Automatic);
     CHECK(ops.load_reason.empty());
     CHECK(plain.AmsBackend::filament_head_count() == 1);
     CHECK(plain.AmsBackend::max_heads_per_filament_op() == 1);
-}
-
-TEST_CASE("backend filament ops: Snapmaker answers four heads, batch of four",
-          "[ams][filament_ops]") {
-    FourHeadBackend backend;
-    CHECK(backend.filament_head_count() == 4);
-    CHECK(backend.max_heads_per_filament_op() == 4);
-    CHECK(backend.head_for_slot(3) == 3);
-    CHECK_FALSE(backend.head_for_slot(4).has_value());
-    CHECK(backend.head_source_slot(2, backend.get_system_info()) == 2);
-    CHECK_FALSE(backend.supports_reset());
-    // Loaded to the nozzle and parked short of it both hold filament.
-    CHECK(backend.head_has_filament(0) == false);
-    CHECK(backend.head_has_filament(1) == true);
-    CHECK(backend.head_has_filament(2) == true);
-    CHECK_FALSE(backend.head_has_filament(4).has_value());
 }
 
 TEST_CASE("runout target: the runout's lane names the head and its source",

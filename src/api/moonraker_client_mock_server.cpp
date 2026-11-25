@@ -1003,6 +1003,10 @@ void register_server_handlers(std::unordered_map<std::string, MethodHandler>& re
                           {{"busy", self->update_manager_busy()},
                            {"github_rate_limit", 60},
                            {"version_info", self->mock_update_components()}}}};
+        if (const auto* scenario = std::getenv("HELIX_MOCK_VORONDECK_UPDATE")) {
+            response["result"]["version_info"]["vorondeck"]["vorondeck_update_progress"] =
+                std::string(scenario) == "outdated" ? 0 : 1;
+        }
         if (std::getenv("HELIX_MOCK_RECOVERY_CONTROL")) {
             response["result"]["version_info"]["vorondeck_recovery"] = {
                 {"version", "1.0.0-beta.1+toggle-1"},
@@ -1016,6 +1020,45 @@ void register_server_handlers(std::unordered_map<std::string, MethodHandler>& re
         return true;
     };
 
+    for (const std::string method :
+         {"machine.update.vorondeck_release", "machine.update.vorondeck_test"}) {
+        registry[method] = [](MoonrakerClientMock* self, const json&,
+                              helix::SharedCallback<void(const json&)> success_cb,
+                              helix::SharedCallback<void(const MoonrakerError&)> error_cb) -> bool {
+            const auto* mode = std::getenv("HELIX_MOCK_VORONDECK_UPDATE");
+            if (!mode)
+                return false;
+            const std::string scenario(mode);
+            if (scenario == "waiting")
+                return true;
+            if (scenario == "busy" || scenario == "timeout" || scenario == "transport" ||
+                scenario == "disk") {
+                MoonrakerError error;
+                error.type = scenario == "transport" ? MoonrakerErrorType::CONNECTION_LOST
+                                                     : MoonrakerErrorType::JSON_RPC_ERROR;
+                error.code = 503;
+                error.message =
+                    scenario == "busy" ? "Another update is running"
+                    : scenario == "timeout"
+                        ? "Update check did not finish within 90 seconds. Try again later."
+                    : scenario == "disk" ? "Not enough free disk space for the package download"
+                                         : "Connection lost";
+                if (error_cb)
+                    error_cb(error);
+                return true;
+            }
+            const char* line = scenario == "activate"
+                                   ? "Activating VoronDeck; screen settings are preserved"
+                                   : "Downloading and verifying the VoronDeck package";
+            self->dispatch_method_callback("notify_update_response",
+                                           {{"params", json::array({{{"application", "vorondeck"},
+                                                                     {"message", line},
+                                                                     {"complete", false}}})}});
+            if (scenario == "success" && success_cb)
+                success_cb({{"result", "ok"}});
+            return true;
+        };
+    }
     registry["machine.update.refresh"] = registry["machine.update.status"];
     for (const std::string name : {"klipper", "moonraker", "system", "client"}) {
         registry["machine.update." + name] =

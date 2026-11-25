@@ -25,7 +25,6 @@
 
 #include "../lvgl_test_fixture.h"
 #include "../test_helpers/mock_printer.h"
-#include "ams_backend_cfs.h"
 #include "app_globals.h"
 #include "async_lifetime_guard.h"
 #include "moonraker_api.h"
@@ -34,7 +33,6 @@
 #include "printer_state.h"
 #include "rpc_error_correlation.h"
 #include "temperature_controller.h"
-#include "test_helpers/cfs_test_access.h"
 #include "test_helpers/update_queue_test_access.h"
 #include "toolhead_homing.h"
 
@@ -136,37 +134,6 @@ TEST_CASE_METHOD(OwnershipFixture,
 // phase tracking and fires best-effort cleanup gcode — so it must declare
 // caller_surfaces_errors=false explicitly rather than inherit the derivation.
 // ============================================================================
-
-TEST_CASE_METHOD(OwnershipFixture,
-                 "CFS action script does not claim the report for a rejected payload",
-                 "[error-center][gcode-ownership][ams][cfs]") {
-    MockPrinter mock_printer;
-    auto& client = mock_printer.client;
-    auto& api = mock_printer.api;
-
-    helix::printer::AmsBackendCfs backend(&api, nullptr);
-
-    constexpr const char* kPayloadRejection = "Extrude below minimum temp";
-    // Scoped to the payload, so the G28 that precedes it (homed_axes is "")
-    // still succeeds and the failure lands on the macro itself.
-    client.force_next_gcode_error(MoonrakerErrorType::JSON_RPC_ERROR, kPayloadRejection,
-                                  "BOX_LOAD");
-
-    auto err = helix::CfsTestAccess::call_dispatch_action_script(backend, "BOX_LOAD LANE=1");
-    REQUIRE(err.success());
-
-    // G28's ack is marshalled through token.defer(); drain so the payload send
-    // (the one that fails) actually happens.
-    helix::ui::UpdateQueueTestAccess::drain_all(helix::ui::UpdateQueue::instance());
-
-    // last_send_* is NOT usable here: the error handler's best-effort unwind
-    // (RESTORE_GCODE_STATE) is dispatched from the same drain and overwrites it.
-    // The history proves the payload really was sent and really was rejected.
-    const auto& history = client.gcode_script_history();
-    REQUIRE(std::find(history.begin(), history.end(), "BOX_LOAD LANE=1") != history.end());
-
-    CHECK_FALSE(helix::rpc_error_correlation::was_recently_handled(kPayloadRejection));
-}
 
 // ============================================================================
 // TemperatureController: opts.toast is the flag that decides whether a human

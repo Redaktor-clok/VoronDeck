@@ -31,18 +31,14 @@
  * Run with: ./build/bin/helix-tests "[ams][toolhead-unaccounted]"
  */
 
-#include "ams_backend_ad5x_ifs.h"
 #include "ams_backend_afc.h"
-#include "ams_backend_cfs.h"
 #include "ams_backend_happy_hare.h"
 #include "ams_backend_mock.h"
 #include "ams_types.h"
 #include "moonraker_api_mock.h"
 #include "moonraker_client_mock.h"
 #include "printer_state.h"
-#include "test_helpers/ad5x_ifs_test_access.h"
 #include "test_helpers/afc_test_access.h"
-#include "test_helpers/cfs_test_access.h"
 
 #include <memory>
 #include <optional>
@@ -158,83 +154,8 @@ TEST_CASE("Default backends answer nullopt (mock, no scenario)", "[ams][toolhead
 
 namespace {
 // CFS ctor needs an API handle (pattern: test_ams_backend_cfs.cpp).
-struct CfsHarness {
-    MoonrakerClientMock client{MoonrakerClientMock::PrinterType::VORON_24};
-    PrinterState state;
-    std::unique_ptr<MoonrakerAPIMock> api;
-    std::unique_ptr<helix::printer::AmsBackendCfs> cfs;
-    CfsHarness() {
-        state.init_subjects(false);
-        api = std::make_unique<MoonrakerAPIMock>(client, state);
-        cfs = std::make_unique<helix::printer::AmsBackendCfs>(api.get(), nullptr);
-    }
-};
+
 } // namespace
-
-TEST_CASE("CFS unaccounted: sensor never published -> nullopt", "[ams][toolhead-unaccounted]") {
-    CfsHarness h;
-    CfsTestAccess::set_filament_sensor(*h.cfs, /*seen=*/false, /*detected=*/false);
-    CHECK_FALSE(h.cfs->toolhead_filament_unaccounted().has_value());
-}
-
-TEST_CASE("CFS unaccounted: detected + no bay named -> true", "[ams][toolhead-unaccounted]") {
-    CfsHarness h;
-    CfsTestAccess::set_filament_sensor(*h.cfs, /*seen=*/true, /*detected=*/true);
-    auto r = h.cfs->toolhead_filament_unaccounted();
-    REQUIRE(r.has_value());
-    CHECK(*r == true);
-}
-
-TEST_CASE("CFS unaccounted: detected but bay seated -> false", "[ams][toolhead-unaccounted]") {
-    CfsHarness h;
-    CfsTestAccess::set_filament_sensor(*h.cfs, /*seen=*/true, /*detected=*/true);
-    CfsTestAccess::set_seated_bay(*h.cfs, 1);
-    auto r = h.cfs->toolhead_filament_unaccounted();
-    REQUIRE(r.has_value());
-    CHECK(*r == false);
-}
-
-TEST_CASE("CFS unaccounted: seen + not detected -> false", "[ams][toolhead-unaccounted]") {
-    CfsHarness h;
-    CfsTestAccess::set_filament_sensor(*h.cfs, /*seen=*/true, /*detected=*/false);
-    auto r = h.cfs->toolhead_filament_unaccounted();
-    REQUIRE(r.has_value());
-    CHECK(*r == false);
-}
-
-TEST_CASE("AD5X IFS unaccounted: switch never seen -> nullopt", "[ams][toolhead-unaccounted]") {
-    AmsBackendAd5xIfs ifs(nullptr, nullptr);
-    Ad5xIfsTestAccess::set_head_switch(ifs, /*seen=*/false, /*present=*/false);
-    CHECK_FALSE(ifs.toolhead_filament_unaccounted().has_value());
-}
-
-TEST_CASE("AD5X IFS unaccounted: switch present + no channel -> true",
-          "[ams][toolhead-unaccounted]") {
-    AmsBackendAd5xIfs ifs(nullptr, nullptr);
-    Ad5xIfsTestAccess::set_head_switch(ifs, /*seen=*/true, /*present=*/true);
-    auto r = ifs.toolhead_filament_unaccounted();
-    REQUIRE(r.has_value());
-    CHECK(*r == true);
-}
-
-TEST_CASE("AD5X IFS unaccounted: switch present but channel seated -> false",
-          "[ams][toolhead-unaccounted]") {
-    AmsBackendAd5xIfs ifs(nullptr, nullptr);
-    Ad5xIfsTestAccess::set_head_switch(ifs, /*seen=*/true, /*present=*/true);
-    Ad5xIfsTestAccess::set_current_slot(ifs, 2);
-    auto r = ifs.toolhead_filament_unaccounted();
-    REQUIRE(r.has_value());
-    CHECK(*r == false);
-}
-
-TEST_CASE("AD5X IFS unaccounted: switch seen + not present -> false",
-          "[ams][toolhead-unaccounted]") {
-    AmsBackendAd5xIfs ifs(nullptr, nullptr);
-    Ad5xIfsTestAccess::set_head_switch(ifs, /*seen=*/true, /*present=*/false);
-    auto r = ifs.toolhead_filament_unaccounted();
-    REQUIRE(r.has_value());
-    CHECK(*r == false);
-}
 
 TEST_CASE("Mock scenario 'unaccounted' drives the gate input", "[ams][toolhead-unaccounted]") {
     AmsBackendMock mock;

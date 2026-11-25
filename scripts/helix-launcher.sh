@@ -1210,55 +1210,6 @@ fi
 
 helix_load_env_file
 
-# Heap-corruption diagnostics on constrained embedded glibc platforms where
-# ASAN is not feasible and crash reports otherwise show only libc frames.
-# MALLOC_CHECK_=3 aborts on malloc metadata corruption and prints a glibc
-# diagnostic line to stderr/syslog BEFORE the SIGABRT — pinpoints the
-# corruption class (double free, invalid pointer, corrupted size) that would
-# otherwise be invisible. MALLOC_PERTURB_=165 poisons freed memory so
-# use-after-free surfaces at the actual read, not six allocations later.
-# Applied ONLY on AD5M/AD5X (Flashforge ZMOD/Forge-X/KlipperMod) where we
-# have no test hardware and AD5X crash bundles have been unactionable.
-# Set MALLOC_CHECK_=0 in helixscreen.env to disable.
-_arch=$(uname -m)
-_kernel=$(uname -r)
-_enable_heap_diag=0
-
-# AD5M / AD5M Pro (armv7l, Flashforge firmware — kernel 5.4.61).
-# Exclude CC1 (OpenCentauri COSMOS) and K2 (Tina Linux) which share armv7l.
-if [ "$_arch" = "armv7l" ] && echo "$_kernel" | grep -q "ad5m\|5.4.61"; then
-    if [ ! -x /usr/bin/update-cosmos ] && [ ! -d /mnt/UDISK ]; then
-        _enable_heap_diag=1
-    fi
-fi
-
-# AD5X (MIPS — ZMOD or Forge-X mod tree on FlashForge AD5X, Ingenic X2600).
-# ZMOD hosts carry the /ZMOD marker or FlashForge's own /usr/prog dir; a
-# Forge-X chroot has neither — and no /usr/data either, since the chroot binds
-# /usr/data at /opt — but the mod's git tree stays reachable and
-# .shell/platform.sh in it is the evidence. K1 shares mips and carries none of
-# the four markers, so the arch alone never arms this. Same rule as
-# helix::flashforge_mod_tree(). Probes resolve under
-# HELIX_AD5X_PROBE_ROOT (default /) so the bats suite can point the predicate
-# at a sandbox root instead of touching the real filesystem.
-_ad5x_root="${HELIX_AD5X_PROBE_ROOT:-/}"
-_ad5x_root="${_ad5x_root%/}"
-if [ "$_arch" = "mips" ] && {
-     [ -f "${_ad5x_root}/ZMOD" ] ||
-     [ -d "${_ad5x_root}/usr/prog" ] ||
-     [ -f "${_ad5x_root}/opt/config/mod/.shell/platform.sh" ] ||
-     [ -f "${_ad5x_root}/usr/data/config/mod/.shell/platform.sh" ]
-   }; then
-    _enable_heap_diag=1
-fi
-unset _ad5x_root
-
-if [ "$_enable_heap_diag" = "1" ]; then
-    [ -z "${MALLOC_CHECK_:-}" ] && export MALLOC_CHECK_=3
-    [ -z "${MALLOC_PERTURB_:-}" ] && export MALLOC_PERTURB_=165
-fi
-unset _arch _kernel _enable_heap_diag
-
 # Cap glibc's per-thread malloc arenas on memory-constrained boards.
 #
 # glibc spawns up to 8*ncores secondary arenas on demand. Each reserves

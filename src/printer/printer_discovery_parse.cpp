@@ -2,7 +2,6 @@
 
 // Out-of-line PrinterDiscovery members: the object-list scan and config parsers.
 
-#include "ace_vocabulary.h"         // ace::kInstanceObjectPrefix
 #include "chamber_heater_backend.h" // chamber::match, chamber::keyword_confidence
 #include "display_numbering.h"      // helix::ui::tool_label
 #include "json_utils.h"
@@ -11,7 +10,6 @@
 #include "printer_discovery.h"
 #include "start_macro_injection.h"
 #include "text_io.h"
-#include "toolchanger_addon.h" // zmod_c5_present
 
 #include <spdlog/spdlog.h>
 
@@ -180,12 +178,7 @@ void PrinterDiscovery::parse_objects(const nlohmann::json& objects) {
         //   3. Native ZMOD:       "filament_motion_sensor ifs_motion_sensor"
         case hw::ObjectKind::FilamentSwitch:
         case hw::ObjectKind::FilamentMotion:
-            if (!has_mmu_ && (name.rfind("filament_switch_sensor _ifs_port_sensor_", 0) == 0 ||
-                              name.rfind("filament_motion_sensor _ifs_motion_sensor_", 0) == 0 ||
-                              name == "filament_motion_sensor ifs_motion_sensor")) {
-                has_mmu_ = true;
-                mmu_type_ = AmsType::AD5X_IFS;
-            }
+
             break;
         default:
             break;
@@ -221,10 +214,7 @@ void PrinterDiscovery::parse_objects(const nlohmann::json& objects) {
         // section it DOES publish get_status(), so objects/list — this
         // path — is the primary detection; parse_config_keys() is the
         // fallback for a printer whose object list does not carry it.
-        else if (name == "auto_screws_tilt_adjust") {
-            has_screws_tilt_ = true;
-            has_snapmaker_auto_screws_tilt_ = true;
-        }
+
         // NOTE: screws_tilt_adjust may not appear in objects/list (no get_status()).
         // Also detected in parse_config_keys() as fallback.
         //
@@ -270,14 +260,7 @@ void PrinterDiscovery::parse_objects(const nlohmann::json& objects) {
         //     BOX_RETRUDE_MATERIAL_WITH_TNN — no CR_ prefix, no fan-save.
         // AmsBackendCfs picks the right dialect from PrinterDetector at
         // construction (#968).
-        else if (name == "box") {
-            has_mmu_ = true;
-            mmu_type_ = AmsType::CFS;
-            if (PrinterDetector::is_creality_k1()) {
-                spdlog::info("[PrinterDiscovery] 'box' object on K1-series printer — "
-                             "enabling CFS backend with K1 macro dialect (BOX_*).");
-            }
-        }
+
         // ACE detection (Anycubic ACE Pro). Native Anycubic GoKlipper
         // (as shipped by Rinkhals firmware) registers the status object as
         // `filament_hub` even though the config section is `[ace]`. The
@@ -292,16 +275,7 @@ void PrinterDiscovery::parse_objects(const nlohmann::json& objects) {
         // subscribes the real object names), but only the first ACE match
         // flips has_mmu_/mmu_type_ — with multiple `ace_instance_N` objects
         // the name-collection must NOT be gated behind the !has_mmu_ guard.
-        else if (name == "ace" || name == "filament_hub" ||
-                 name.rfind(helix::ace::kInstanceObjectPrefix, 0) == 0) {
-            ace_object_names_.push_back(name);
-            if (!has_mmu_) {
-                has_mmu_ = true;
-                mmu_type_ = AmsType::ACE;
-                spdlog::info("[PrinterDiscovery] Detected ACE (Anycubic ACE Pro) via '{}' object",
-                             name);
-            }
-        }
+
         // MMU encoder discovery (Happy Hare)
         else if (name.rfind("mmu_encoder ", 0) == 0) {
             std::string encoder_name = name.substr(12); // Remove "mmu_encoder " prefix
@@ -376,28 +350,15 @@ void PrinterDiscovery::parse_objects(const nlohmann::json& objects) {
         // the UI should still show the slot registry and report
         // not-connected). Either name alone is unambiguous: neither is a
         // stock Klipper object and no other known firmware defines them.
-        else if (!has_mmu_ && (name == "ifs" || name == "ifs_materials")) {
-            has_mmu_ = true;
-            mmu_type_ = AmsType::AD5X_IFS;
-        }
+
         // QIDI Box detection — custom Klipper extension on Plus 4 / Q2 / Max 4
         // registers `box_stepper slot<N>` per physical slot (4 per box,
         // 1-4 boxes chainable to 16 slots). Presence of any `box_stepper
         // slot*` object is the unambiguous detection signal; the per-name
         // count gives the physical slot count.
-        else if (name.rfind("box_stepper slot", 0) == 0) {
-            if (!has_mmu_) {
-                has_mmu_ = true;
-                mmu_type_ = AmsType::QIDI_BOX;
-            }
-            if (mmu_type_ == AmsType::QIDI_BOX) {
-                ++qidi_box_slot_count_;
-            }
-        }
+
         // Snapmaker U1 detection — filament_detect is unique to U1 firmware
-        else if (name == "filament_detect") {
-            has_snapmaker_ = true;
-        }
+
         // Tool changer detection
         else if (name == "toolchanger") {
             has_tool_changer_ = true;
@@ -631,46 +592,6 @@ void PrinterDiscovery::parse_objects(const nlohmann::json& objects) {
     // (prestonbrown/helixscreen#1426). The object names stay recorded: the
     // hardware really does carry them, and nothing subscribes them once the
     // type is no longer ACE.
-    if (has_mmu_ && mmu_type_ == AmsType::ACE && has_snapmaker_) {
-        has_mmu_ = false;
-        spdlog::info("[PrinterDiscovery] ACE object alongside filament_detect: multiACE on a "
-                     "Snapmaker U1. Its slot shape is unreadable, so the Snapmaker backend "
-                     "keeps the printer.");
-    }
-
-    // PAXX's AFC-Lite is a status-only stub that impersonates AFC so Fluidd
-    // and Mainsail will draw their AFC panel for a U1's four extruders. It
-    // reports no extruders and no hubs, so the unit infers as HUB and the
-    // path draws one nozzle behind a hub for a four-toolhead machine. Its
-    // every operation wraps the U1's own AUTO_FEEDING, which the Snapmaker
-    // backend already drives, so yielding costs nothing the stub provided
-    // and restores the four toolheads. Scoped to co-presence with
-    // filament_detect for the same reason the ACE rule above is: a bare
-    // AFC_unit on some other machine is displacing nothing better.
-    if (has_mmu_ && mmu_type_ == AmsType::AFC && has_afc_lite_ && has_snapmaker_) {
-        has_mmu_ = false;
-        spdlog::info("[PrinterDiscovery] AFC_unit alongside filament_detect: PAXX AFC-Lite on "
-                     "a Snapmaker U1. It reports no extruders, so the Snapmaker backend keeps "
-                     "the printer and its four toolheads.");
-    }
-
-    // Z-Mod's afclite shim impersonates AFC so Fluidd and Mainsail draw an AFC
-    // panel for the Creator 5's four heads. It reports no extruders and no
-    // hubs, so an AFC backend infers a hub topology for heads that are each
-    // their own path, and most of the AFC op macros do not exist on this
-    // firmware. The changer fingerprint is what names the machine (the AD5X
-    // Z-Mod publishes zmod_color but has no carriage grab buttons), so the
-    // toolchanger backend keeps the printer. Scoped to that fingerprint for the
-    // same reason the PAXX rule is scoped to filament_detect: a bare
-    // zmod_afclite on some other machine is displacing nothing better.
-    if (has_mmu_ && mmu_type_ == AmsType::AFC && has_zmod_afclite_ &&
-        toolchanger_addon::zmod_c5_present(*this)) {
-        has_mmu_ = false;
-        spdlog::info("[PrinterDiscovery] zmod_afclite alongside the Creator 5 changer "
-                     "fingerprint: Z-Mod's AFC shim on a head changer. The toolchanger "
-                     "backend keeps the printer and its four toolheads.");
-    }
-
     register_detected_ams_systems();
 }
 
@@ -766,10 +687,6 @@ void PrinterDiscovery::register_detected_ams_systems() {
         if (mmu_type_ != AmsType::NONE) {
             detected_ams_systems_.push_back({mmu_type_, ams_type_to_string(mmu_type_)});
         }
-    } else if (has_snapmaker_) {
-        // Native Snapmaker filament system (no aftermarket MMU)
-        mmu_type_ = AmsType::SNAPMAKER;
-        detected_ams_systems_.push_back({mmu_type_, ams_type_to_string(mmu_type_)});
     } else if (has_indx_) {
         // Docked passive nozzles on one extruder: never the tool-changer arm
         // below, which needs several extruders or klipper-toolchanger.
@@ -834,10 +751,6 @@ void PrinterDiscovery::parse_config_keys(const nlohmann::json& config) {
             has_screws_tilt_ = true;
             has_standard_screws_tilt_ = true;
             spdlog::debug("[PrinterDiscovery] screws_tilt_adjust detected from config");
-        } else if (key == "auto_screws_tilt_adjust") {
-            has_screws_tilt_ = true;
-            has_snapmaker_auto_screws_tilt_ = true;
-            spdlog::debug("[PrinterDiscovery] auto_screws_tilt_adjust detected from config");
         }
     }
 

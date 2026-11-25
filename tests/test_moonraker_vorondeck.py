@@ -218,10 +218,11 @@ class Transaction(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.current, Path('/managed/releases/old'))
 
     async def test_test_endpoint_serializes_and_clears_state(self):
+        self.sleep.stop()
         import asyncio
         from unittest.mock import Mock
         manager = types.SimpleNamespace(cmd_request_lock=asyncio.Lock(), cmd_helper=types.SimpleNamespace(
-            is_app_updating=lambda _: False, set_update_info=Mock(), clear_update_info=Mock(),
+            is_update_busy=lambda: False, set_update_info=Mock(), clear_update_info=Mock(),
             notify_update_response=Mock()))
         lookup = self.node.server.lookup_component
         self.node.server.lookup_component = lambda name: manager if name == 'update_manager' else lookup(name)
@@ -236,9 +237,56 @@ class Transaction(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(manager.cmd_request_lock.locked())
         self.assertEqual(manager.cmd_helper.clear_update_info.call_count, 2)
         await manager.cmd_request_lock.acquire()
-        with self.assertRaises(ValueError):
-            await self.node._handle_test_update(request)
+        self.node.update.side_effect = None
+        pending = asyncio.create_task(self.node._handle_test_update(request))
+        await asyncio.sleep(0)
+        self.assertFalse(pending.done())
         self.assertEqual(self.node.update.await_count, 2)
+        with self.assertRaisesRegex(ValueError, 'Another update'):
+            await self.node._handle_test_update(request)
+        manager.cmd_request_lock.release()
+        self.assertEqual(await pending, 'ok')
+        self.assertEqual(self.node.update.await_count, 3)
+        self.assertFalse(self.node.selected_update_pending)
+        manager.cmd_helper.is_update_busy = lambda: True
+        with self.assertRaisesRegex(ValueError, 'Another update'):
+            await self.node._handle_test_update(request)
+        self.assertEqual(self.node.update.await_count, 3)
+        manager.cmd_helper.is_update_busy = lambda: False
+        self.node.update.side_effect = component.subprocess.TimeoutExpired(['ssh', 'private-command'], 30)
+        with self.assertRaisesRegex(ValueError, 'Package download timed out') as failure:
+            await self.node._handle_test_update(request)
+        self.assertNotIn('private-command', str(failure.exception))
+        self.assertFalse(manager.cmd_request_lock.locked())
+        self.assertFalse(self.node.selected_update_pending)
+
+    async def test_refresh_wait_cancel_and_timeout_release_only_owned_lock(self):
+        self.sleep.stop()
+        import asyncio
+        from unittest.mock import Mock
+        manager = types.SimpleNamespace(cmd_request_lock=asyncio.Lock(), cmd_helper=types.SimpleNamespace(
+            is_update_busy=lambda: False, set_update_info=Mock(), clear_update_info=Mock()))
+        self.node.server.lookup_component = lambda _: manager
+        self.node.update = AsyncMock()
+        request = types.SimpleNamespace(get_str=lambda key: key)
+        await manager.cmd_request_lock.acquire()
+        pending = asyncio.create_task(self.node._handle_test_update(request))
+        await asyncio.sleep(0)
+        pending.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await pending
+        self.assertTrue(manager.cmd_request_lock.locked())
+        self.assertFalse(self.node.selected_update_pending)
+        real_wait = asyncio.wait_for
+        async def timeout(awaitable, timeout):
+            return await real_wait(awaitable, .001)
+        with patch.object(component.asyncio, 'wait_for', timeout):
+            with self.assertRaisesRegex(ValueError, '90 seconds'):
+                await self.node._handle_test_update(request)
+        self.node.update.assert_not_awaited()
+        manager.cmd_helper.clear_update_info.assert_not_called()
+        self.assertTrue(manager.cmd_request_lock.locked())
+        self.assertFalse(self.node.selected_update_pending)
         manager.cmd_request_lock.release()
 
     async def test_heating_refused_before_download(self):
@@ -246,6 +294,27 @@ class Transaction(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await self.node.update()
         self.assertFalse(any(e[0] == 'prepare' for e in self.events))
+
+    async def test_printer_becoming_busy_while_waiting_refuses_install(self):
+        self.sleep.stop()
+        import asyncio
+        from unittest.mock import Mock
+        manager = types.SimpleNamespace(cmd_request_lock=asyncio.Lock(), cmd_helper=types.SimpleNamespace(
+            is_update_busy=lambda: False, set_update_info=Mock(), clear_update_info=Mock(),
+            notify_update_response=Mock()))
+        lookup = self.node.server.lookup_component
+        self.node.server.lookup_component = lambda name: manager if name == 'update_manager' else lookup(name)
+        await manager.cmd_request_lock.acquire()
+        pending = asyncio.create_task(self.node._handle_test_update(types.SimpleNamespace(get_str=lambda k: k)))
+        await asyncio.sleep(0)
+        self.busy = True
+        manager.cmd_request_lock.release()
+        with self.assertRaisesRegex(ValueError, 'Printer not idle'):
+            await pending
+        self.assertFalse(any(e[0] in ('prepare', 'switch', 'service') for e in self.events))
+        self.assertFalse(manager.cmd_request_lock.locked())
+        self.assertFalse(self.node.selected_update_pending)
+        manager.cmd_helper.clear_update_info.assert_called_once()
 
     async def test_failed_package_keeps_old_screen(self):
         self.fail_prepare = True

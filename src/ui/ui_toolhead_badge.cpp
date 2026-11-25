@@ -30,10 +30,6 @@ constexpr Extent extent_of(ToolheadStyle style) {
         return {25, 16, 36};
     case ToolheadStyle::STEALTHBURNER:
         return {22, 21, 43};
-    case ToolheadStyle::CREALITY_K1:
-        return {19, 19, 29};
-    case ToolheadStyle::CREALITY_K2:
-        return {13, 13, 27};
     default:
         return {21, 21, 26};
     }
@@ -56,10 +52,6 @@ int32_t top_of(ToolheadStyle style, int32_t nozzle_y, int32_t s) {
         return nozzle_y + (int32_t)((2 - 687) * ((float)(s * 10) / 2400.0f));
     case ToolheadStyle::ANTHEAD:
         return nozzle_y - (81 * ((s * 65) / 10)) / 163;
-    case ToolheadStyle::CREALITY_K1:
-        return nozzle_y - (s * 48) / 10 / 2 - (s * 6) / 10 / 2;
-    case ToolheadStyle::CREALITY_K2:
-        return nozzle_y - (s * 48) / 10 / 2 - (s * 5) / 10 / 2;
     default: {
         // Default body plus its raised cap and bevel (each a tenth of the body).
         const int32_t body_height = s * 4;

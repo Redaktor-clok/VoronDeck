@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Read public VoronDeck prereleases. Never execute downloaded content."""
 import hashlib
+from html.parser import HTMLParser
 import json
 from pathlib import PurePosixPath
 import re
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+import xml.etree.ElementTree as ET
 
 REPO = 'Redaktor-clok/VoronDeck'
 API = 'https://api.github.com/repos/' + REPO
@@ -50,6 +53,63 @@ def asset_url(tag, name):
     return 'https://github.com/' + REPO + '/releases/download/' + quote(tag, safe='') + '/' + quote(name, safe='')
 
 
+def published_tags(read):
+    """The public release feed remains available when the anonymous API is limited."""
+    data = read('https://github.com/' + REPO + '/releases.atom', 2 * 1024**2)
+    if b'<!DOCTYPE' in data.upper() or b'<!ENTITY' in data.upper():
+        raise ValueError('Invalid release feed')
+    try:
+        feed = ET.fromstring(data)
+    except ET.ParseError as error:
+        raise ValueError('Invalid release feed') from error
+    if feed.tag != '{http://www.w3.org/2005/Atom}feed':
+        raise ValueError('Invalid release feed')
+    tags = set()
+    prefix = 'https://github.com/' + REPO + '/releases/tag/'
+    for link in feed.findall('{http://www.w3.org/2005/Atom}entry/{http://www.w3.org/2005/Atom}link')[:100]:
+        url = link.get('href', '')
+        tag = url.removeprefix(prefix)
+        match = VERSION.fullmatch(tag.removeprefix('v'))
+        if url.startswith(prefix) and tag.startswith('v') and match and match.group(4):
+            tags.add(tag)
+    return tags
+
+
+def published_release(tag, read):
+    # Only release assets, never repository files or arbitrary links. A test-version
+    # tag plus its matching test/beta index identifies this fallback's release type.
+    class Assets(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.urls = []
+
+        def handle_starttag(self, name, attrs):
+            if name == 'a':
+                self.urls.append(dict(attrs).get('href', ''))
+
+    parser = Assets()
+    parser.feed(read('https://github.com/' + REPO + '/releases/expanded_assets/' +
+                     quote(tag, safe=''), 2 * 1024**2).decode('utf-8'))
+    prefix = '/' + REPO + '/releases/download/' + tag + '/'
+    names = [url[len(prefix):] for url in parser.urls if url.startswith(prefix)]
+    if names.count('release.json') != 1:
+        raise ValueError('Published release index is missing or ambiguous')
+    raw = read(asset_url(tag, 'release.json'), 65536)
+    index = json.loads(raw)
+    packages = index.get('packages', []) if isinstance(index, dict) else []
+    if not isinstance(packages, list) or len(packages) > 12:
+        raise ValueError('Invalid release packages')
+    assets = [{'name': 'release.json', 'size': len(raw)}]
+    for package in packages:
+        if not isinstance(package, dict) or not isinstance(package.get('path'), str):
+            raise ValueError('Invalid release package')
+        name = PurePosixPath(package['path']).name
+        if names.count(name) != 1:
+            raise ValueError('Published archive is missing or ambiguous')
+        assets.append({'name': name, 'size': package.get('size')})
+    return {'draft': False, 'prerelease': True, 'tag_name': tag, 'assets': assets}
+
+
 def package_from_release(release, arch, libc, read=read_url):
     if not isinstance(release, dict) or release.get('draft') is not False or release.get('prerelease') is not True:
         raise ValueError('Not a published prerelease')
@@ -91,8 +151,21 @@ def package_from_release(release, arch, libc, read=read_url):
                 tag=tag, url=asset_url(tag, path.name), kind='test')
 
 
-def latest(arch, libc, installed, read=read_url):
-    releases = json.loads(read(API + '/releases?per_page=100', 2 * 1024**2))
+def latest(arch, libc, installed=None, read=read_url):
+    """Discover the channel independently; an optional floor filters install offers."""
+    try:
+        releases = json.loads(read(API + '/releases?per_page=100', 2 * 1024**2))
+    except HTTPError as error:
+        if error.code not in (403, 429):
+            raise
+        tags = [tag for tag in published_tags(read)
+                if installed is None or version_key(tag[1:]) > version_key(installed)]
+        for tag in sorted(tags, key=lambda tag: version_key(tag[1:]), reverse=True)[:5]:
+            try:
+                return package_from_release(published_release(tag, read), arch, libc, read)
+            except (ValueError, TypeError, KeyError):
+                continue
+        return None
     if not isinstance(releases, list):
         raise ValueError('Invalid release listing')
     candidates = []
@@ -104,8 +177,9 @@ def latest(arch, libc, installed, read=read_url):
             continue
         version = tag.removeprefix('v')
         try:
-            if version_key(version) > version_key(installed):
-                candidates.append((version_key(version), release))
+            key = version_key(version)
+            if installed is None or key > version_key(installed):
+                candidates.append((key, release))
         except (ValueError, TypeError):
             continue
     # Bound network work even when many published test packages are incomplete.
@@ -125,7 +199,12 @@ def selected(selection, arch, libc, installed, read=read_url):
             or selection['tag'] != 'v' + selection.get('version', '')
             or version_key(selection['version']) <= version_key(installed)):
         raise ValueError('Invalid or outdated test selection')
-    release = json.loads(read(API + '/releases/tags/' + quote(selection['tag'], safe=''), 2 * 1024**2))
+    try:
+        release = json.loads(read(API + '/releases/tags/' + quote(selection['tag'], safe=''), 2 * 1024**2))
+    except HTTPError as error:
+        if error.code not in (403, 429):
+            raise
+        release = published_release(selection['tag'], read)
     package = package_from_release(release, arch, libc, read)
     if any(package[key] != selection.get(key) for key in ('version', 'tag', 'sha256', 'source_commit')):
         raise ValueError('The selected release changed; check updates again')

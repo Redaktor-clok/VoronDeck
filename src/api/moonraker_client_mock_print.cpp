@@ -45,9 +45,6 @@ void register_print_handlers(std::unordered_map<std::string, MethodHandler>& reg
 
         // The U1's offset calibration steps each block for a heat, a wipe or a
         // probe pass, and answer only when it ends.
-        if (self->simulate_nozzle_offset_calibration(script, success_cb, error_cb)) {
-            return true;
-        }
 
         // INDX's calibrations and tool cycle answer only when they end.
         if (self->simulate_indx_blocking(script, success_cb, error_cb)) {

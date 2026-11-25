@@ -78,8 +78,6 @@ constexpr Row kRows[] = {
     {Match::Prefix, "filament_motion_sensor ", ObjectKind::FilamentMotion,
      chip_of(helix::FilamentSensorType::MOTION), Scope::Both},
     // A filament system's own sensor objects, published instead of the stock sections.
-    {Match::Prefix, "zmod_ifs_switch_sensor ", ObjectKind::BackendFilamentSensor, 0, Scope::Both},
-    {Match::Prefix, "zmod_ifs_motion_sensor ", ObjectKind::BackendFilamentSensor, 0, Scope::Both},
     {Match::Exact, "hall_filament_width_sensor", ObjectKind::WidthSensor,
      chip_of(WidthSensorType::HALL), Scope::Both},
     {Match::Exact, "tsl1401cl_filament_width_sensor", ObjectKind::WidthSensor,

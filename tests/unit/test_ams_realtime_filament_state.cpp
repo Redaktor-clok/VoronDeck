@@ -20,7 +20,6 @@
 #include "../test_helpers/backend_user_edit.h"
 #include "../test_helpers/update_queue_test_access.h"
 #include "ams_backend_mock.h"
-#include "ams_backend_snapmaker.h"
 #include "ams_state.h"
 #include "ams_types.h"
 
@@ -39,16 +38,7 @@ using json = nlohmann::json;
 namespace helix {
 
 // Friend-class shim mirroring the one in test_ams_backend_snapmaker.cpp.
-class SnapmakerRealtimeTestAccess {
-  public:
-    static void handle_status(AmsBackendSnapmaker& b, const json& n) {
-        b.handle_status(n);
-    }
-    static void set_sensor_present(AmsBackendSnapmaker& b, int slot_index, bool present) {
-        std::lock_guard<std::mutex> lock(b.mutex_);
-        b.sensor_filament_present_[slot_index] = present;
-    }
-};
+
 } // namespace helix
 
 namespace {
@@ -107,135 +97,9 @@ TEST_CASE_METHOD(LVGLTestFixture,
     backend.stop();
 }
 
-TEST_CASE_METHOD(LVGLTestFixture,
-                 "Snapmaker overrides slot LIVE accessors from sensor + LOADED status",
-                 "[ams][realtime][snapmaker]") {
-    AmsBackendSnapmaker backend(nullptr, nullptr);
-
-    // Slot 0 active (LOADED), slots 1 & 3 hold filament (AVAILABLE), slot 2 empty.
-    json status = json{
-        {"toolhead", json{{"extruder", "extruder"}}}, // active tool = slot 0
-        {"filament_feed left",
-         json{{"extruder0", json{{"filament_detected", true}, {"channel_state", "load_finish"}}}}},
-        {"print_task_config", json{{"filament_exist", json::array({true, true, false, true})}}}};
-    SnapmakerRealtimeTestAccess::handle_status(backend, status);
-
-    REQUIRE(backend.get_slot_info(0).status == SlotStatus::LOADED);
-    REQUIRE(backend.get_slot_info(1).status == SlotStatus::AVAILABLE);
-
-    SECTION("slot_is_actively_loaded true only for the LOADED slot") {
-        CHECK(backend.slot_is_actively_loaded(0));
-        CHECK_FALSE(backend.slot_is_actively_loaded(1));
-        CHECK_FALSE(backend.slot_is_actively_loaded(2));
-        CHECK_FALSE(backend.slot_is_actively_loaded(3));
-    }
-
-    SECTION("slot_has_filament_at_toolhead reflects the channel_state load latch") {
-        // Loaded state now comes from channel_state, NOT the motion sensor
-        // (which fails to clear after an unload on current firmware). Latch
-        // tools 0 and 1 loaded via load_finish.
-        SnapmakerRealtimeTestAccess::handle_status(
-            backend, json{{"filament_feed left",
-                           json{{"extruder0", json{{"filament_detected", true},
-                                                   {"channel_state", "load_finish"}}},
-                                {"extruder1", json{{"filament_detected", true},
-                                                   {"channel_state", "load_finish"}}}}}});
-        CHECK(backend.slot_has_filament_at_toolhead(0));
-        CHECK(backend.slot_has_filament_at_toolhead(1));
-
-        // Unload tool 1 (channel_state unload_finish). The latch clears even
-        // though filament_detected stays true — the exact firmware condition.
-        SnapmakerRealtimeTestAccess::handle_status(
-            backend, json{{"filament_feed left",
-                           json{{"extruder1", json{{"filament_detected", true},
-                                                   {"channel_state", "unload_finish"}}}}}});
-        CHECK_FALSE(backend.slot_has_filament_at_toolhead(1));
-        // Other tools unaffected.
-        CHECK(backend.slot_has_filament_at_toolhead(0));
-    }
-
-    SECTION("out-of-range indices are safe") {
-        CHECK_FALSE(backend.slot_has_filament_at_toolhead(-1));
-        CHECK_FALSE(backend.slot_has_filament_at_toolhead(99));
-        CHECK_FALSE(backend.slot_is_actively_loaded(-1));
-        CHECK_FALSE(backend.slot_is_actively_loaded(99));
-    }
-}
-
 // ============================================================================
 // Part 2 — AmsState per-slot LIVE subjects
 // ============================================================================
-
-TEST_CASE_METHOD(LVGLTestFixture, "AmsState publishes per-slot LIVE subjects on sync",
-                 "[ams][realtime][ams_state]") {
-    auto& ams = AmsState::instance();
-    ams.init_subjects(false);
-
-    auto backend = std::make_unique<AmsBackendSnapmaker>(nullptr, nullptr);
-    auto* backend_ptr = backend.get();
-    ams.set_backend(std::move(backend));
-
-    // Drive a known state: slot 0 LOADED, slot 1 AVAILABLE, slot 2 empty.
-    json status = json{
-        {"toolhead", json{{"extruder", "extruder"}}},
-        {"filament_feed left",
-         json{{"extruder0", json{{"filament_detected", true}, {"channel_state", "load_finish"}}}}},
-        {"print_task_config", json{{"filament_exist", json::array({true, true, false, false})}}}};
-    SnapmakerRealtimeTestAccess::handle_status(*backend_ptr, status);
-
-    ams.sync_from_backend();
-    drain();
-
-    SECTION("accessors return non-null subjects in range and null out of range") {
-        CHECK(ams.get_slot_segment_subject(0) != nullptr);
-        CHECK(ams.get_slot_toolhead_present_subject(0) != nullptr);
-        CHECK(ams.get_slot_active_loaded_subject(0) != nullptr);
-        CHECK(ams.get_slot_segment_subject(-1) == nullptr);
-        CHECK(ams.get_slot_segment_subject(AmsState::kMaxSlots) == nullptr);
-    }
-
-    SECTION("active-loaded subject reflects backend per-slot loaded state") {
-        CHECK(lv_subject_get_int(ams.get_slot_active_loaded_subject(0)) == 1);
-        CHECK(lv_subject_get_int(ams.get_slot_active_loaded_subject(1)) == 0);
-        CHECK(lv_subject_get_int(ams.get_slot_active_loaded_subject(2)) == 0);
-    }
-
-    SECTION("toolhead-present subject reflects the channel_state load latch") {
-        // Latch tool 0 loaded via channel_state (the authoritative signal).
-        SnapmakerRealtimeTestAccess::handle_status(
-            *backend_ptr, json{{"filament_feed left",
-                                json{{"extruder0", json{{"filament_detected", true},
-                                                        {"channel_state", "load_finish"}}}}}});
-        ams.sync_from_backend();
-        drain();
-        CHECK(lv_subject_get_int(ams.get_slot_toolhead_present_subject(0)) == 1);
-
-        // Unload tool 0 (channel_state unload_finish) → latch clears → subject
-        // updates on next sync, even though the motion sensor never dropped.
-        SnapmakerRealtimeTestAccess::handle_status(
-            *backend_ptr, json{{"filament_feed left",
-                                json{{"extruder0", json{{"filament_detected", true},
-                                                        {"channel_state", "unload_finish"}}}}}});
-        ams.sync_from_backend();
-        drain();
-        CHECK(lv_subject_get_int(ams.get_slot_toolhead_present_subject(0)) == 0);
-    }
-
-    SECTION("segment subject matches the backend per-slot segment") {
-        int expected = static_cast<int>(backend_ptr->get_slot_filament_segment(0));
-        CHECK(lv_subject_get_int(ams.get_slot_segment_subject(0)) == expected);
-    }
-
-    SECTION("SubjectLifetime overload returns the same subject + the subjects lifetime") {
-        SubjectLifetime lt;
-        lv_subject_t* s = ams.get_slot_active_loaded_subject(0, lt);
-        CHECK(s == ams.get_slot_active_loaded_subject(0));
-        CHECK(lt == ams.get_subjects_lifetime());
-    }
-
-    ams.clear_backends();
-    ams.deinit_subjects();
-}
 
 // ============================================================================
 // Phase 2 — Reactive chain: observers on per-slot LIVE subjects fire on change
@@ -245,122 +109,6 @@ TEST_CASE_METHOD(LVGLTestFixture, "AmsState publishes per-slot LIVE subjects on 
 // these subjects. This pins the observable contract those panels depend on: a
 // sensor change → sync → the subject value changes AND a registered observer
 // fires. If this breaks, the panel silently stops redrawing on push/pull.
-
-TEST_CASE_METHOD(LVGLTestFixture, "Per-slot LIVE subjects notify observers on sensor change",
-                 "[ams][realtime][reactive]") {
-    auto& ams = AmsState::instance();
-    ams.init_subjects(false);
-
-    auto backend = std::make_unique<AmsBackendSnapmaker>(nullptr, nullptr);
-    auto* backend_ptr = backend.get();
-    ams.set_backend(std::move(backend));
-
-    json status = json{
-        {"toolhead", json{{"extruder", "extruder"}}}, // active tool = slot 0
-        {"print_task_config", json{{"filament_exist", json::array({true, true, false, false})}}}};
-    SnapmakerRealtimeTestAccess::handle_status(*backend_ptr, status);
-    // Latch tool 1 loaded to its toolhead via channel_state (the source that
-    // now drives the toolhead-present subject).
-    SnapmakerRealtimeTestAccess::handle_status(
-        *backend_ptr,
-        json{{"filament_feed left", json{{"extruder1", json{{"filament_detected", true},
-                                                            {"channel_state", "load_finish"}}}}}});
-    ams.sync_from_backend();
-    drain();
-
-    // Tool 1 is loaded to its toolhead.
-    REQUIRE(lv_subject_get_int(ams.get_slot_toolhead_present_subject(1)) == 1);
-
-    // Attach an observer to slot 1's toolhead-present subject (mirrors how the
-    // panel observes it to redraw the lane path).
-    int fire_count = 0;
-    int last_value = -1;
-    struct Ctx {
-        int* count;
-        int* value;
-    } ctx{&fire_count, &last_value};
-    lv_observer_t* obs = lv_subject_add_observer(
-        ams.get_slot_toolhead_present_subject(1),
-        [](lv_observer_t* o, lv_subject_t* s) {
-            auto* c = static_cast<Ctx*>(lv_observer_get_user_data(o));
-            (*c->count)++;
-            *c->value = lv_subject_get_int(s);
-        },
-        &ctx);
-    REQUIRE(obs != nullptr);
-    int baseline = fire_count;
-
-    // Unload tool 1 (channel_state unload_finish) → the load latch clears.
-    SnapmakerRealtimeTestAccess::handle_status(
-        *backend_ptr, json{{"filament_feed left",
-                            json{{"extruder1", json{{"filament_detected", true},
-                                                    {"channel_state", "unload_finish"}}}}}});
-    ams.sync_from_backend();
-    drain();
-
-    CHECK(lv_subject_get_int(ams.get_slot_toolhead_present_subject(1)) == 0);
-    CHECK(fire_count > baseline); // observer fired → panel would redraw the lane
-    CHECK(last_value == 0);
-
-    lv_observer_remove(obs);
-    ams.clear_backends();
-    ams.deinit_subjects();
-}
-
-TEST_CASE_METHOD(LVGLTestFixture, "Active-loaded subject is the single highlight source on unload",
-                 "[ams][realtime][reactive][badge]") {
-    auto& ams = AmsState::instance();
-    ams.init_subjects(false);
-
-    auto backend = std::make_unique<AmsBackendSnapmaker>(nullptr, nullptr);
-    auto* backend_ptr = backend.get();
-    ams.set_backend(std::move(backend));
-
-    json loaded = json{
-        {"toolhead", json{{"extruder", "extruder"}}},
-        {"filament_feed left",
-         json{{"extruder0", json{{"filament_detected", true}, {"channel_state", "load_finish"}}}}},
-        {"print_task_config", json{{"filament_exist", json::array({true, false, false, false})}}}};
-    SnapmakerRealtimeTestAccess::handle_status(*backend_ptr, loaded);
-    ams.sync_from_backend();
-    drain();
-    REQUIRE(lv_subject_get_int(ams.get_slot_active_loaded_subject(0)) == 1);
-
-    // Observe slot 0's active-loaded subject (the SINGLE source the bottom
-    // T-badge now binds to). It must fire and drop to 0 on unload — previously
-    // the badge read current_slot + filament_loaded separately and stayed lit.
-    int fire_count = 0;
-    int last_value = -1;
-    struct Ctx {
-        int* count;
-        int* value;
-    } ctx{&fire_count, &last_value};
-    lv_observer_t* obs = lv_subject_add_observer(
-        ams.get_slot_active_loaded_subject(0),
-        [](lv_observer_t* o, lv_subject_t* s) {
-            auto* c = static_cast<Ctx*>(lv_observer_get_user_data(o));
-            (*c->count)++;
-            *c->value = lv_subject_get_int(s);
-        },
-        &ctx);
-    REQUIRE(obs != nullptr);
-    int baseline = fire_count;
-
-    json unloaded =
-        json{{"filament_feed left", json{{"extruder0", json{{"filament_detected", true},
-                                                            {"channel_state", "unload_finish"}}}}}};
-    SnapmakerRealtimeTestAccess::handle_status(*backend_ptr, unloaded);
-    ams.sync_from_backend();
-    drain();
-
-    CHECK(lv_subject_get_int(ams.get_slot_active_loaded_subject(0)) == 0);
-    CHECK(fire_count > baseline); // badge observer fired → highlight drops
-    CHECK(last_value == 0);
-
-    lv_observer_remove(obs);
-    ams.clear_backends();
-    ams.deinit_subjects();
-}
 
 // ============================================================================
 // Part 2b — Per-slot FILL subject: sync writes the canonical display_fill_pct
@@ -643,51 +391,6 @@ TEST_CASE_METHOD(LVGLTestFixture, "AMS loaded-card fill follows the loaded slot'
 // ============================================================================
 // Part 3b — filament_loaded cleared on unload (active-lane subject clears)
 // ============================================================================
-
-TEST_CASE_METHOD(LVGLTestFixture, "AMS clears filament_loaded after unload completes",
-                 "[ams][realtime][unload]") {
-    auto& ams = AmsState::instance();
-    ams.init_subjects(false);
-
-    auto backend = std::make_unique<AmsBackendSnapmaker>(nullptr, nullptr);
-    auto* backend_ptr = backend.get();
-    ams.set_backend(std::move(backend));
-
-    // Load slot 0: active tool = extruder0, filament present.
-    json loaded = json{
-        {"toolhead", json{{"extruder", "extruder"}}},
-        {"filament_feed left",
-         json{{"extruder0", json{{"filament_detected", true}, {"channel_state", "load_finish"}}}}},
-        {"print_task_config", json{{"filament_exist", json::array({true, false, false, false})}}}};
-    SnapmakerRealtimeTestAccess::handle_status(*backend_ptr, loaded);
-    ams.sync_from_backend();
-    drain();
-
-    REQUIRE(backend_ptr->is_filament_loaded());
-    REQUIRE(lv_subject_get_int(ams.get_filament_loaded_subject()) == 1);
-    REQUIRE(lv_subject_get_int(ams.get_slot_active_loaded_subject(0)) == 1);
-
-    // Unload completes: the firmware retracts to the buffer and reports the
-    // channel state as unload_finish for that tool.
-    json unloaded =
-        json{{"filament_feed left", json{{"extruder0", json{{"filament_detected", true},
-                                                            {"channel_state", "unload_finish"}}}}}};
-    SnapmakerRealtimeTestAccess::handle_status(*backend_ptr, unloaded);
-    ams.sync_from_backend();
-    drain();
-
-    // filament_loaded must be cleared so the active-lane highlight drops.
-    CHECK_FALSE(backend_ptr->is_filament_loaded());
-    CHECK(lv_subject_get_int(ams.get_filament_loaded_subject()) == 0);
-    // No slot is actively loaded after unload.
-    for (int i = 0; i < 4; ++i) {
-        CHECK_FALSE(backend_ptr->slot_is_actively_loaded(i));
-        CHECK(lv_subject_get_int(ams.get_slot_active_loaded_subject(i)) == 0);
-    }
-
-    ams.clear_backends();
-    ams.deinit_subjects();
-}
 
 // ============================================================================
 // Part 3 — per-slot error state subjects (ams_slot_<n>_has_error /

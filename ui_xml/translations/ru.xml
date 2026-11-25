@@ -348,6 +348,7 @@
   <translation tag="Anonymous data to help improve HelixScreen" ru="Анонимные данные для улучшения HelixScreen"/>
   <translation tag="Anonymous stats — no personal data, ever." ru="Анонимная статистика — никаких личных данных."/>
   <translation tag="Anonymous usage statistics" ru="Анонимная статистика использования"/>
+  <translation tag="Another component is being updated. Wait for it to finish, then try again." ru="Сейчас обновляется другой компонент. Дождитесь завершения и повторите попытку."/>
   <translation tag="Any notes..." ru="Заметки..."/>
   <translation tag="App Background" ru="Фон приложения"/>
   <translation tag="App startup encountered an error. Some features may be unavailable." ru="При запуске приложения произошла ошибка. Некоторые функции могут быть недоступны."/>
@@ -377,6 +378,7 @@
   <translation tag="At {}°C, about {} minutes._few" ru="При {}°C около {} минут."/>
   <translation tag="At {}°C, about {} minutes._many" ru="При {}°C около {} минут."/>
   <translation tag="At {}°C, about {} minutes._one" ru="При {}°C около {} минуты."/>
+  <translation tag="Authenticated update check failed" ru="Не удалось получить пакет: проверьте сеть и доступ к выбранному каналу."/>
   <translation tag="Authentication failed" ru="Ошибка аутентификации"/>
   <translation tag="Auto" ru="Авто"/>
   <translation tag="Auto Bed Mesh" ru="Авто сетка стола"/>
@@ -740,6 +742,7 @@
   <translation tag="Checking slots..." ru="Проверка слотов..."/>
   <translation tag="Checking the PEI sheet is off..." ru="Проверка, что лист PEI снят..."/>
   <translation tag="Checking the printer..." ru="Проверка принтера..."/>
+  <translation tag="Checking the update manager..." ru="Проверка менеджера обновлений…"/>
   <translation tag="Checking timelapse plugin..." ru="Проверка плагина таймлапса..."/>
   <translation tag="Checking webcam" ru="Проверка веб-камеры"/>
   <translation tag="Checking..." ru="Проверка..."/>
@@ -913,6 +916,7 @@
   <translation tag="Connection restored" ru="Соединение восстановлено"/>
   <translation tag="Connection successful!" ru="Соединение успешно!"/>
   <translation tag="Connection timeout" ru="Тайм-аут соединения"/>
+  <translation tag="Connection to Moonraker was lost or timed out. The update may still be running. Check component versions before retrying." ru="Связь с Moonraker потеряна или истекло время ожидания. Обновление может ещё выполняться. Перед повтором проверьте версии компонентов."/>
   <translation tag="Connection to printer lost - attempting to reconnect..." ru="Соединение с принтером потеряно - переподключение..."/>
   <translation tag="Connection to printer lost — operation may still be running" ru="Связь с принтером потеряна — операция может ещё выполняться"/>
   <translation tag="Connection to printer lost." ru="Соединение с принтером потеряно."/>
@@ -1152,6 +1156,7 @@
   <translation tag="Download update?" ru="Загрузить обновление?"/>
   <translation tag="Download v{}?" ru="Загрузить v{}?"/>
   <translation tag="Downloading and verifying VoronDeck. The screen will restart." ru="Загрузка и проверка VoronDeck. Экран перезапустится."/>
+  <translation tag="Downloading and verifying the package..." ru="Загрузка и проверка пакета…"/>
   <translation tag="Downloading..." ru="Загрузка..."/>
   <translation tag="Downloading... {:.1f}/{:.1f} MB" ru="Загрузка... {:.1f}/{:.1f} МБ"/>
   <translation tag="Draw a ripple at each touch — helps diagnose offsets" ru="Рисовать круг при каждом касании — помогает диагностировать смещения"/>
@@ -1919,6 +1924,7 @@
   <translation tag="Installation timed out" ru="Время установки истекло"/>
   <translation tag="Installation timed out. The script may be stuck." ru="Время установки истекло. Скрипт мог зависнуть."/>
   <translation tag="Installed" ru="Установлено"/>
+  <translation tag="Installing the package and restarting the screen..." ru="Установка пакета и перезапуск экрана…"/>
   <translation tag="Installing..." ru="Установка..."/>
   <translation tag="Intensity" ru="Интенсивность"/>
   <translation tag="Interactive calibration for all lanes" ru="Интерактивная калибровка всех каналов"/>
@@ -2308,14 +2314,17 @@
   <translation tag="Moonraker answered at {}." ru="Moonraker ответил по адресу {}."/>
   <translation tag="Moonraker at {} rejected the API key." ru="Moonraker по адресу {} отклонил API-ключ."/>
   <translation tag="Moonraker at {} requires an API key." ru="Moonraker по адресу {} требует API-ключ."/>
+  <translation tag="Moonraker cannot restart VoronDeck. Repair the update manager using the installer." ru="Moonraker не может перезапустить VoronDeck. Восстановите менеджер обновлений через установщик."/>
   <translation tag="Moonraker config is not writable from VoronDeck." ru="VoronDeck не может изменить конфигурацию Moonraker."/>
   <translation tag="Moonraker has no G-code folder." ru="У Moonraker нет папки G-code."/>
   <translation tag="Moonraker is connected to Spoolman, which tracks your spools and how much filament is left. Browse them on the Spoolman screen." ru="Moonraker подключен к Spoolman, который учитывает ваши катушки и остаток филамента. Просматривайте их на экране Spoolman."/>
   <translation tag="Moonraker is not responding at {}. It runs on this printer, so check that the Klipper and Moonraker services started." ru="Moonraker не отвечает по адресу {}. Он работает на этом принтере, поэтому проверьте, запущены ли службы Klipper и Moonraker."/>
   <translation tag="Moonraker keeps a queue of prints to run one after another. View it in the job queue." ru="Moonraker ведет очередь печатей, которые выполняются одна за другой. Смотрите ее в очереди заданий."/>
   <translation tag="Moonraker refused the login" ru="Moonraker отклонил вход"/>
+  <translation tag="Moonraker rejected the update:" ru="Moonraker отклонил обновление:"/>
   <translation tag="Moonraker restarted but Spoolman not connected. Check server." ru="Moonraker перезапущен, но Spoolman не подключен. Проверьте сервер."/>
   <translation tag="Moonraker restarting...&#10;Waiting for reconnection..." ru="Moonraker перезапускается...&#10;Ожидание переподключения..."/>
+  <translation tag="Moonraker returned an unexpected update response. Check component versions." ru="Moonraker вернул неожиданный ответ. Проверьте версии компонентов."/>
   <translation tag="Moonraker&apos;s Python is too old for this feature." ru="Python в Moonraker слишком старый для этой функции."/>
   <translation tag="Moonraker&apos;s config file is not writable from VoronDeck. Add the [spoolman] section by hand — see the log for details." ru="VoronDeck не может изменить файл конфигурации Moonraker. Добавьте раздел [spoolman] вручную — подробности в журнале."/>
   <translation tag="Moonraker, Klipper and other configured components" ru="Moonraker, Klipper и подключённые компоненты"/>
@@ -2477,6 +2486,7 @@
   <translation tag="No network. Scan QR code to report on your phone." ru="Нет сети. Отсканируйте QR-код, чтобы отправить отчёт с телефона."/>
   <translation tag="No networks found" ru="Сети не найдены"/>
   <translation tag="No new mesh was stored as &apos;{}&apos;" ru="Новая сетка не сохранена как &apos;{}&apos;"/>
+  <translation tag="No newer test release" ru="Нового тестового выпуска нет"/>
   <translation tag="No notifications" ru="Нет уведомлений"/>
   <translation tag="No objects" ru="Нет объектов"/>
   <translation tag="No objects defined for this print" ru="Для этой печати не определены объекты"/>
@@ -2546,6 +2556,7 @@
   <translation tag="Not connected to the printer" ru="Нет подключения к принтеру"/>
   <translation tag="Not detected" ru="Не обнаружено"/>
   <translation tag="Not drying" ru="Не сушится"/>
+  <translation tag="Not enough free disk space to download the update." ru="Недостаточно свободного места для загрузки обновления."/>
   <translation tag="Not enough free space on the printer for this file. Free some in Settings &gt; System &gt; Storage." ru="На принтере недостаточно свободного места для этого файла. Освободите место в разделе Настройки &gt; Система &gt; Хранилище."/>
   <translation tag="Not enough frequency data from the sweeps. Try again." ru="Недостаточно данных о частоте по результатам измерений. Попробуйте снова."/>
   <translation tag="Not enough room for the selected heaters. Enlarge this tile first." ru="Недостаточно места для выбранных нагревателей. Сначала увеличьте эту плитку."/>
@@ -2695,6 +2706,8 @@
   <translation tag="PRINTING" ru="ПЕЧАТЬ"/>
   <translation tag="PROBE SENSORS" ru="ДАТЧИКИ ЗОНДА"/>
   <translation tag="PTFE tube connection loose" ru="Соединение трубки PTFE ослабло"/>
+  <translation tag="Package download timed out. Check the network and beta access." ru="Истекло время загрузки пакета. Проверьте сеть и доступ к бета-каналу."/>
+  <translation tag="Package verification failed. Check updates and download again." ru="Пакет не прошёл проверку. Проверьте обновления и повторите загрузку."/>
   <translation tag="Packages" ru="Пакеты"/>
   <translation tag="Pair" ru="Сопряжение"/>
   <translation tag="Pair Bluetooth Printer" ru="Подключить Bluetooth-принтер"/>
@@ -3696,6 +3709,7 @@
   <translation tag="Stable release" ru="Стабильный выпуск"/>
   <translation tag="Stable releases and optional test updates" ru="Стабильные версии и тестовые обновления по желанию"/>
   <translation tag="Stage" ru="Этап"/>
+  <translation tag="Stage {} of 3" ru="Этап {} из 3"/>
   <translation tag="Stall detection setup failed for the Z motor — power-cycle to retry" ru="Не удалась настройка детектирования заклинивания двигателя Z. Выключите и включите питание"/>
   <translation tag="Stall detection setup failed for the extruder — power-cycle to retry" ru="Не удалась настройка детектирования заклинивания экструдера. Выключите и включите питание"/>
   <translation tag="Standard" ru="Стандартный"/>
@@ -3907,6 +3921,7 @@
   <translation tag="The PEI sheet is still on the bed. Take it off, then tap Next." ru="Лист PEI всё ещё на столе. Снимите его и нажмите «Далее»."/>
   <translation tag="The Spoolman spool currently loaded" ru="Текущая катушка Spoolman"/>
   <translation tag="The animated screensaver has been turned off on this device to prevent it from interfering with prints. You can re-enable it in Settings &gt; Display." ru="Анимированная заставка была отключена на данном устройстве, чтобы она не мешала печати. Вы можете снова включить её в Настройки &gt; Дисплей."/>
+  <translation tag="The background update check did not finish within 90 seconds. Try again later." ru="Фоновая проверка обновлений не завершилась за 90 секунд. Повторите попытку позже."/>
   <translation tag="The bed and nozzle heat together before anything moves, so the print re-grips and the nozzle lets go of it." ru="Стол и сопло нагреваются вместе до любого движения, чтобы печать снова прилипла, а сопло отделилось от неё."/>
   <translation tag="The bed has cooled. Take the spools off the plate, then confirm." ru="Стол остыл. Снимите катушки со стола, затем подтвердите."/>
   <translation tag="The bed heater. Set its temperature and watch its graph on the bed temperature screen." ru="Нагреватель стола. Температура задается, а график виден на экране температуры стола."/>
@@ -3948,6 +3963,7 @@
   <translation tag="The heater was turned off at the heater." ru="Нагреватель был выключен на самом нагревателе."/>
   <translation tag="The heater will cycle on and off several times." ru="Нагреватель будет несколько раз включаться и выключаться."/>
   <translation tag="The helper macros are installed and activate after Klipper restarts." ru="Вспомогательные макросы установлены и активируются после перезапуска Klipper."/>
+  <translation tag="The installed version is newer" ru="Установлена более новая версия"/>
   <translation tag="The latch opens and {} can drop. Hold it before you continue, then put it in its dock." ru="Защелка откроется, и {} может упасть. Придержите его, прежде чем продолжить, затем поставьте в док."/>
   <translation tag="The left RFID reader in this CFS unit may need service" ru="Левому RFID-считывателю этого блока CFS может требоваться обслуживание"/>
   <translation tag="The loaded slot is not known yet" ru="Загруженный слот пока неизвестен"/>
@@ -4005,6 +4021,7 @@
   <translation tag="The printer lost power while printing {}. Resume where it left off?" ru="Принтер потерял питание при печати {}. Продолжить с места остановки?"/>
   <translation tag="The printer lost power while printing {}. The resumed layer may not line up exactly." ru="Принтер потерял питание при печати {}. Возобновлённый слой может не совпасть точно."/>
   <translation tag="The printer moves the toolhead and measures its motors." ru="Принтер перемещает печатающую головку и измеряет моторы."/>
+  <translation tag="The printer must be idle with heaters off before updating." ru="Перед обновлением завершите печать и выключите нагреватели."/>
   <translation tag="The printer no longer has a print to resume." ru="У принтера больше нет печати для продолжения."/>
   <translation tag="The printer reads the file up to the last saved position. A large file can take a minute." ru="Принтер читает файл до последней сохранённой позиции. Большой файл может занять минуту."/>
   <translation tag="The printer records lane {} in the toolhead, not this one" ru="По записи принтера в печатающей головке канал {}, а не этот"/>
@@ -4018,6 +4035,7 @@
   <translation tag="The right RFID reader in this CFS unit may need service" ru="Правому RFID-считывателю этого блока CFS может требоваться обслуживание"/>
   <translation tag="The runout sensor indicates no filament is loaded. Start print anyway?" ru="Датчик окончания филамента показывает, что филамент не загружен. Всё равно начать печать?"/>
   <translation tag="The saved position is kept. Reconnect or restart the screen to be offered the resume again." ru="Сохранённая позиция остаётся. Переподключитесь или перезапустите экран, чтобы снова получить предложение продолжить."/>
+  <translation tag="The selected or installed version has changed. Check updates again." ru="Выбранная или установленная версия изменилась. Проверьте обновления ещё раз."/>
   <translation tag="The sensor in this CFS unit cannot be read. Check its connection, or the unit may need service" ru="Не удаётся считать датчик этого блока CFS. Проверьте подключение, иначе блоку требуется обслуживание"/>
   <translation tag="The speed of one fan you choose" ru="Скорость выбранного вентилятора"/>
   <translation tag="The time, date, and system uptime" ru="Время, дата и время работы системы"/>
@@ -4102,6 +4120,7 @@
   <translation tag="This printer&apos;s network service manages saved WiFi networks" ru="Сохранёнными сетями WiFi управляет сетевая служба этого принтера"/>
   <translation tag="This printer&apos;s screen has not shared a layout" ru="Экран этого принтера не поделился раскладкой"/>
   <translation tag="This profile is used by a filament and cannot be renamed" ru="Профиль используется записью пластика — переименование недоступно"/>
+  <translation tag="This release is installed" ru="Этот выпуск установлен"/>
   <translation tag="This removes the plugin&apos;s Moonraker component and restarts Moonraker. The printer will briefly disconnect. If old phase-tracking lines are still in PRINT_START, they are removed too, with backups kept. A Klipper restart applies that." ru="Это удаляет компонент Moonraker плагина и перезапускает Moonraker. Принтер ненадолго отключится. Если в PRINT_START всё ещё остались старые строки отслеживания фаз, они также удаляются, при этом резервные копии сохраняются. Перезапуск Klipper применяет эти изменения."/>
   <translation tag="This replaces the printer&apos;s helper macros with the current version and restarts Klipper." ru="Это заменит вспомогательные макросы принтера текущей версией и перезапустит Klipper."/>
   <translation tag="This replaces the printer&apos;s helper macros with the current version. A print is running, so Klipper restarts after it finishes." ru="Это заменит вспомогательные макросы принтера текущей версией. Идёт печать, поэтому Klipper перезапустится после её завершения."/>
@@ -4336,6 +4355,7 @@
   <translation tag="Update Success" ru="Обновление успешно"/>
   <translation tag="Update available" ru="Доступно обновление"/>
   <translation tag="Update check failed. Check the network and beta SSH access." ru="Не удалось проверить обновления. Проверьте сеть и SSH-доступ к бета-репозиторию."/>
+  <translation tag="Update check failed. Tap to retry." ru="Ошибка проверки. Нажмите для повтора."/>
   <translation tag="Update checks are available on an installed VoronDeck screen" ru="Проверка доступна на установленном экране VoronDeck"/>
   <translation tag="Update completed. Check component versions." ru="Обновление завершено. Проверьте версии компонентов."/>
   <translation tag="Update component?" ru="Обновить компонент?"/>
@@ -4343,14 +4363,19 @@
   <translation tag="Update heater model?" ru="Обновить модель нагревателя?"/>
   <translation tag="Update in Spoolman" ru="Обновить в Spoolman"/>
   <translation tag="Update installed!" ru="Обновление установлено!"/>
+  <translation tag="Update manager" ru="Менеджер обновлений"/>
   <translation tag="Update manager is outdated. Run the VoronDeck installer again." ru="Менеджер обновлений устарел. Повторно запустите установщик VoronDeck."/>
+  <translation tag="Update manager ready. Check updates again." ru="Менеджер обновлён. Проверьте обновления ещё раз."/>
+  <translation tag="Update manager repair failed. Check that the printer is idle and local Moonraker is available." ru="Не удалось обновить менеджер. Убедитесь, что принтер простаивает и локальный Moonraker доступен."/>
   <translation tag="Update recovery macros to enable this switch, then restart Klipper." ru="Обновите макросы восстановления и перезапустите Klipper, чтобы включить управление."/>
   <translation tag="Update the INDX heater model too? {} now holds {}: density {:.2f}, heat capacity {:.2f}." ru="Обновить и модель нагревателя INDX? В {} теперь {}: плотность {:.2f}, теплоёмкость {:.2f}."/>
   <translation tag="Update the VoronDeck recovery plugin" ru="Обновите плагин восстановления VoronDeck"/>
+  <translation tag="Update the local update manager? Moonraker will restart. Printer settings are preserved. Then check updates again." ru="Обновить менеджер обновлений? Moonraker перезапустится. Настройки принтера сохранятся. Затем проверьте обновления ещё раз."/>
   <translation tag="Update was not confirmed. Check component updates before retrying." ru="Обновление не подтверждено. Перед повтором проверьте обновления компонентов."/>
   <translation tag="Update your security PIN" ru="Обновите ваш PIN-код"/>
   <translation tag="Updates" ru="Обновления"/>
   <translation tag="Updating Configuration..." ru="Обновление конфигурации..."/>
+  <translation tag="Updating the update manager..." ru="Обновление менеджера…"/>
   <translation tag="Upgrade to AFC 1.2.0 or newer for multi-color spools. It also adds filament names, which otherwise need Spoolman." ru="Обновите AFC до 1.2.0 или новее для многоцветных катушек. Также добавляются названия филаментов, для которых иначе требуется Spoolman."/>
   <translation tag="Upload" ru="Отправить"/>
   <translation tag="Upload Debug Bundle" ru="Отправить пакет диагностики"/>
@@ -4446,6 +4471,7 @@
   <translation tag="Waiting for bed to reach temperature for accurate calibration." ru="Ожидание нагрева стола для точной калибровки."/>
   <translation tag="Waiting for chamber {} / {}°C" ru="Ожидание камеры {} / {}°C"/>
   <translation tag="Waiting for chamber {}°C" ru="Ожидание камеры {}°C"/>
+  <translation tag="Waiting for the background check to finish..." ru="Ожидание завершения фоновой проверки…"/>
   <translation tag="Waiting for the chamber to heat" ru="Ожидание нагрева камеры"/>
   <translation tag="Waiting for the filament system to report its state" ru="Ожидание состояния системы филамента"/>
   <translation tag="Waiting for the printer" ru="Ожидание принтера"/>

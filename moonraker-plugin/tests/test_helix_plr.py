@@ -1252,12 +1252,6 @@ def test_status_blocks_an_edited_file(plr, helix, resume):
     assert run(plr.handle_status(Req()))["offer"]["blocked_by"] == ["file_changed"]
 
 
-def test_a_qidi_profile_without_qidis_firmware_is_not_resumed(plr, helix, resume):
-    run(helix.database.insert_item("helix-screen", "plr_profile",
-                                   {"tier": 2, "backend": "qidi_print_state"}))
-    reply = run(plr.handle_status(Req()))
-    assert reply["backend"] == "none" and reply["tier"] == 0
-    assert reply["offer"]["blocked_by"] == ["not_supported"]
 
 
 def test_status_for_an_unlisted_printer(plr, helix, resume):
@@ -1670,125 +1664,26 @@ def test_the_plr_endpoints_are_registered(helix):
 
 from unittest.mock import AsyncMock  # noqa: E402
 
-import helix_plr_qidi  # noqa: E402
 
 
-class ConfigTable:
-    """QIDI's config-table methods on its Moonraker database."""
-
-    def __init__(self, db):
-        self.rows = {}
-        db.update_value_from_config = self.update
-        db.delete_value_from_config = self.delete
-        db.get_value_from_config = self.get
-
-    async def update(self, section, key, value):
-        assert section == "print_state"
-        self.rows[key] = value
-
-    async def delete(self, section, key):
-        if key is None:
-            self.rows = {}
-
-    async def get(self, section, key):
-        value = self.rows.get(key)
-
-        class Cursor:
-            async def fetchone(self_inner):
-                return {"value": value} if value is not None else None
-
-        return Cursor()
 
 
-@pytest.fixture
-def qidi_printer(plr, helix, tmp_path):
-    run(helix.database.insert_item("helix-screen", "plr_profile",
-                                   {"tier": 2, "backend": "qidi_print_state",
-                                    "z_holds_unpowered": True}))
-    table = ConfigTable(helix.database)
-    apis = helix.klippy_apis
-    apis.power_off_print = AsyncMock(return_value="ok")
-    apis._send_klippy_request = AsyncMock(
-        return_value={"SDCARD_POWER_OFF_CONTINUES_PINT_FILE": "resume"})
-    apis.get_object_list.return_value = ["print_stats", "virtual_sdcard", "gcode_move",
-                                         "toolhead", "extruder", "heater_bed"]
-    apis.subscribe_objects.return_value = {
-        "gcode_move": {"speed_factor_2": 1.5 / 60.0, "speed_2": 2.0, "base_position": [0, 0, 0, 0]},
-        "virtual_sdcard": {"plate_index": 1}}
-    run(plr.on_klippy_ready())
-    cache = tmp_path / ".cache"
-    cache.mkdir()
-    plr.qidi._cache_dir = str(cache)
-    plr.qidi._clock = plr.clock
-    return table, cache
 
 
-def test_qidi_is_selected_only_with_both_checks(plr, helix, qidi_printer):
-    assert isinstance(plr.qidi, helix_plr_qidi.QidiPrintStateAdapter)
-    del helix.klippy_apis.power_off_print
-    run(plr._detect_qidi(helix.klippy_apis))
-    assert plr.qidi is None
 
 
-def test_qidi_on_mainline_klipper_is_not_selected(plr, helix):
-    helix.klippy_apis.power_off_print = AsyncMock()
-    ConfigTable(helix.database)
-    helix.klippy_apis._send_klippy_request = AsyncMock(return_value={"G28": "home"})
-    run(plr._detect_qidi(helix.klippy_apis))
-    assert plr.qidi is None
 
 
-def test_qidi_loop_writes_print_state_rows(plr, qidi_printer):
-    table, cache = qidi_printer
-    added(plr, job_id="0000E5")
-    tick(plr, 0.5, **printing_status(100))
-    assert table.rows == {}                      # QIDI deletes the section at start; wait
-    tick(plr, 3.0, **printing_status(200))
-    assert table.rows["file_position"] == "200"
-    assert table.rows["speed_factor"].startswith("0.025")       # QIDI's own speed_factor_2
 
 
-@pytest.fixture
-def qidi_resume(plr, helix, resume, qidi_printer):
-    table, cache = qidi_printer
-    (cache / "part.gcode").write_bytes(resume)
-    table.rows["file_position"] = "1"
-    return table, cache
 
 
-@pytest.fixture
-def qidi_resume_in_object(plr, helix, resume_in_object, qidi_printer):
-    table, cache = qidi_printer
-    (cache / "part.gcode").write_bytes(resume_in_object)
-    table.rows["file_position"] = "1"
-    return table, cache
 
 
-def test_qidi_resumes_inside_an_object_it_cannot_enter(plr, helix, qidi_resume_in_object):
-    """Known gap: QIDI starts the file inside the block with no object
-    entered; Klipper prints it and reports the END as not matching."""
-    _, cache = qidi_resume_in_object
-    data = (cache / "part.gcode").read_bytes()
-    reply = run(plr.handle_plan(Req()))
-    layer4 = data.index(b"SET_PRINT_STATS_INFO CURRENT_LAYER=4")
-    assert data.index(b"EXCLUDE_OBJECT_START", layer4) < reply["resume_offset"] \
-        < data.index(b"EXCLUDE_OBJECT_END", layer4)
 
 
-def test_qidi_resumes_after_an_excluded_object_open_at_the_cut(plr, helix, qidi_resume_in_object):
-    _, cache = qidi_resume_in_object
-    exclude(plr, "BOX.STL_ID_0_COPY_0")
-    reply = run(plr.handle_plan(Req()))
-    assert reply["resume_offset"] == peg_in_layer4((cache / "part.gcode").read_bytes())
 
 
-def test_qidi_status_and_offer(plr, helix, qidi_resume):
-    table, _ = qidi_resume
-    reply = run(plr.handle_status(Req()))
-    assert (reply["backend"], reply["tier"]) == ("qidi_print_state", 2)
-    assert reply["offer"] == {"available": True, "blocked_by": []}
-    table.rows.clear()
-    assert run(plr.handle_status(Req()))["offer"]["blocked_by"] == ["no_snapshot"]
 
 
 class ReadyKlippy:
@@ -1798,45 +1693,10 @@ class ReadyKlippy:
         return True
 
 
-def reconnect_with_a_slow_qidi_check(plr, helix):
-    """Klippy restarts; on the new connection gcode/help takes a while."""
-    plr.on_klippy_gone()
-    helix.server.components["klippy_connection"] = ReadyKlippy()
-
-    async def slow_help(*args):
-        for _ in range(20):
-            await asyncio.sleep(0)
-        return {"SDCARD_POWER_OFF_CONTINUES_PINT_FILE": "resume"}
-
-    helix.klippy_apis._send_klippy_request = slow_help
-
-    async def yielding_sleep(seconds):
-        plr.clock.t += seconds
-        await asyncio.sleep(0)
-
-    plr._sleep = yielding_sleep
 
 
-def test_status_asked_at_klippy_ready_waits_for_the_qidi_check(plr, helix, qidi_resume):
-    reconnect_with_a_slow_qidi_check(plr, helix)
-
-    async def scenario():
-        status = asyncio.ensure_future(plr.handle_status(Req()))
-        await asyncio.sleep(0)
-        await plr.on_klippy_ready()
-        return await status
-
-    reply = run(scenario())
-    assert (reply["backend"], reply["tier"]) == ("qidi_print_state", 2)
-    assert reply["offer"] == {"available": True, "blocked_by": []}
 
 
-def test_the_wait_for_klippy_ready_is_bounded(plr, helix, qidi_resume):
-    reconnect_with_a_slow_qidi_check(plr, helix)
-    started = plr.clock.t
-    reply = run(plr.handle_status(Req()))           # on_klippy_ready never runs
-    assert "klippy_not_ready" in reply["offer"]["blocked_by"]
-    assert plr.clock.t - started == pytest.approx(helix_plr.READY_WAIT_S, abs=1.0)
 
 
 class StartingKlippy:
@@ -1855,130 +1715,22 @@ def restart_moonraker(plr, helix):
     plr.qidi = None
 
 
-def test_a_qidi_check_slower_than_15s_still_answers_its_backend(plr, helix, qidi_resume):
-    restart_moonraker(plr, helix)
-    started = plr.clock.t
-
-    async def slower_help(*args):
-        for _ in range(20):
-            plr.clock.t += 1.0
-            await asyncio.sleep(0)
-        return {"SDCARD_POWER_OFF_CONTINUES_PINT_FILE": "resume"}
-
-    helix.klippy_apis._send_klippy_request = slower_help
-
-    async def scenario():
-        status = asyncio.ensure_future(plr.handle_status(Req()))
-        await asyncio.sleep(0)
-        await plr.on_klippy_ready()
-        return await status
-
-    reply = run(scenario())
-    assert (reply["backend"], reply["tier"]) == ("qidi_print_state", 2)
-    assert plr.clock.t - started >= 20.0
 
 
-def test_status_asked_while_klippy_starts_waits_for_its_ready(plr, helix, qidi_resume):
-    restart_moonraker(plr, helix)
-    starting = StartingKlippy()
-    helix.server.components["klippy_connection"] = starting
-
-    async def scenario():
-        status = asyncio.ensure_future(plr.handle_status(Req()))
-        for _ in range(40):                 # 10 s of Klippy startup
-            await asyncio.sleep(0)
-        helix.server.components["klippy_connection"] = ReadyKlippy()
-        await plr.on_klippy_ready()
-        return await status
-
-    reply = run(scenario())
-    assert (reply["backend"], reply["tier"]) == ("qidi_print_state", 2)
 
 
-def test_a_failed_backend_detection_answers_at_once(plr, helix, qidi_resume, monkeypatch):
-    restart_moonraker(plr, helix)
-
-    def broken(*args):
-        raise RuntimeError("no gcode_move")
-
-    monkeypatch.setattr(helix_plr_qidi, "qidi_print_state_present", broken)
-    helix.klippy_apis._send_klippy_request = AsyncMock(return_value={})
-    plr.events.clear()
-    started = plr.clock.t
-
-    async def scenario():
-        status = asyncio.ensure_future(plr.handle_status(Req()))
-        await asyncio.sleep(0)
-        await plr.on_klippy_ready()
-        return await status
-
-    reply = run(scenario())
-    assert reply["backend"] == "none"
-    assert plr.clock.t - started < 1.0
-    announced = [p for e, p in plr.events if e == "helix_print:plr_status"]
-    assert len(announced) == 1 and announced[0]["backend"] == "none"
 
 
-def test_klippy_ready_announces_the_status_it_decided(plr, helix, qidi_resume):
-    reconnect_with_a_slow_qidi_check(plr, helix)
-    plr.events.clear()
-    run(plr.on_klippy_ready())
-    announced = [p for e, p in plr.events if e == "helix_print:plr_status"]
-    assert len(announced) == 1
-    assert announced[0]["backend"] == "qidi_print_state"
-    assert announced[0]["offer"] == {"available": True, "blocked_by": []}
-    assert announced[0] == run(plr.handle_status(Req()))
 
 
-def test_qidi_unlisted_printer_stays_off(plr, helix, qidi_resume):
-    run(helix.database.insert_item("helix-screen", "plr_profile", {"tier": 0}))
-    reply = run(plr.handle_status(Req()))
-    assert (reply["backend"], reply["tier"]) == ("none", 0)
 
 
-def test_qidi_plan_prepare_commit(plr, helix, qidi_resume, monkeypatch):
-    table, cache = qidi_resume
-    marks = []
-    plr.qidi._mark = lambda *a: marks.append(a)
-    reply = run(plr.handle_plan(Req()))
-    assert reply["tier"] == 2 and reply["method"] == "measured"
-    assert "mesh_unavailable" not in reply["warnings"] and "no_purge_location" not in reply["warnings"]
-    assert plr._plan.purge_xy is None and plr._plan.mesh_loadable is None   # QIDI's sequence purges
-    run(plr.handle_prepare(Req(plan_id=reply["plan_id"])))
-    # The heat wait, then standby in place: no lift, QIDI lands on its own Z.
-    assert sent(helix) == ["M140 S60", "M104 S220", "M83\nG1 E-1 F2100\nM104 S150"]
-    done = run(plr.handle_commit(Req(plan_id=reply["plan_id"], z_reference="trusted",
-                                     confirmations={"part_attached": True, "z_confirmed": True})))
-    assert done == {"ok": True, "job_started": True}
-    assert helix.klippy_apis.power_off_print.await_count == 1
-    assert table.rows["file_position"] == str(reply["resume_offset"] + 4096)
-    assert marks == [(str(cache / "part.gcode"), "plr_resume")]
-    assert sent(helix)[-2:] == ["M140 S60", "M104 S220"]  # waited again inside commit
-    assert not any(s.startswith("M23") for s in sent(helix))
 
 
-def test_qidi_commit_failure_is_a_klippy_error_with_heaters_off(plr, helix, qidi_resume):
-    helix.klippy_apis.power_off_print.side_effect = RuntimeError("no file")
-    plan_id = run(plr.handle_plan(Req()))["plan_id"]
-    run(plr.handle_prepare(Req(plan_id=plan_id)))
-    with pytest.raises(Exception, match="plr_klippy_error: no file"):
-        run(plr.handle_commit(Req(plan_id=plan_id, z_reference="trusted",
-                                  confirmations={"part_attached": True, "z_confirmed": True})))
-    assert sent(helix)[-1] == HEATERS_OFF
 
 
-def test_qidi_abort_keeps_the_rows_and_turns_heaters_off(plr, helix, qidi_resume):
-    table, _ = qidi_resume
-    plan_id = run(plr.handle_plan(Req()))["plan_id"]
-    run(plr.handle_abort(Req(plan_id=plan_id)))
-    assert table.rows == {"file_position": "1"}
-    assert sent(helix)[-1] == HEATERS_OFF
 
 
-def test_qidi_discard_deletes_rows_and_snapshot(plr, helix, qidi_resume):
-    table, _ = qidi_resume
-    run(plr.handle_discard(Req()))
-    assert table.rows == {} and plr.store.load() is None
 
 
 def test_scan_follows_the_file_klipper_reads(plr, helix, resume):
@@ -2174,23 +1926,6 @@ def test_a_tier1_commit_reheats_the_nozzle_before_its_z_reference(plr, helix, re
     assert moved_before_hot(plr.printer, since=before) == []
 
 
-def test_qidi_heats_the_nozzle_in_place_in_prepare_and_again_before_qidis_resume(
-        plr, helix, qidi_resume):
-    """QIDI's sequence lifts and homes XY before its M109."""
-    plr.printer.nozzle_rate = 40.0
-    plan_id = run(plr.handle_plan(Req()))["plan_id"]
-    run(plr.handle_prepare(Req(plan_id=plan_id)))
-    assert plr.printer.nozzle >= 219.0
-    plr.printer.nozzle = 25.0                       # cooled while the screen asked
-    at_resume = []
-
-    async def resume_call(*a):
-        at_resume.append(plr.printer.nozzle)
-        return "ok"
-
-    helix.klippy_apis.power_off_print.side_effect = resume_call
-    commit(plr, plan_id)
-    assert at_resume and at_resume[0] >= 219.0
 
 
 def test_abort_during_the_in_place_nozzle_wait_stops_before_any_motion(plr, helix, resume):
@@ -2367,30 +2102,8 @@ def test_a_failed_background_plan_reports_its_error_once(plr, resume, monkeypatc
     assert len(submits) == 1
 
 
-def test_qidi_abort_before_quidis_resume_call_stops_it(plr, helix, qidi_resume):
-    plan_id = run(plr.handle_plan(Req()))["plan_id"]
-    run(plr.handle_prepare(Req(plan_id=plan_id)))
-    write = plr.qidi._write
-
-    async def write_then_abort(rows):
-        ok = await write(rows)
-        await plr.handle_abort(Req(plan_id=plan_id))
-        return ok
-
-    plr.qidi._write = write_then_abort
-    with pytest.raises(Exception, match="aborted"):
-        commit(plr, plan_id)
-    assert helix.klippy_apis.power_off_print.await_count == 0
 
 
-def test_qidi_refuses_a_cache_file_that_is_not_the_snapshots(plr, helix, qidi_resume):
-    _, cache = qidi_resume
-    (cache / "part.gcode").write_bytes(b"G1 X1\n" * 10)
-    plan_id = run(plr.handle_plan(Req()))["plan_id"]
-    run(plr.handle_prepare(Req(plan_id=plan_id)))
-    with pytest.raises(Exception, match="plr_scan_failed: qidi_cache_mismatch"):
-        commit(plr, plan_id)
-    assert helix.klippy_apis.power_off_print.await_count == 0
 
 
 # --------------------------------------------------------------------------
@@ -2454,21 +2167,8 @@ def test_homing_overrides_that_may_move_z(override, reason):
     assert check == HomingCheck(reason is None, reason, True)
 
 
-def test_qidi_refuses_a_landing_below_the_plastic(plr, helix, qidi_resume):
-    record = plr.store.load()
-    record["gcode_offset"] = [0.0, 0.0, -0.1, 0.0]
-    plr.store.write(fit_record(record)[0])
-    with pytest.raises(Exception, match="plr_scan_failed: qidi_landing_below_part"):
-        run(plr.handle_plan(Req()))
-    record["gcode_offset"] = [0.0, 0.0, -0.04, 0.0]
-    plr.store.write(fit_record(record)[0])
-    assert run(plr.handle_plan(Req()))["method"] == "measured"
 
 
-def test_qidi_landing_counts_the_mesh(plr, helix, qidi_resume):
-    plr.job["mesh"] = {"points": [[-0.2, -0.2], [-0.2, -0.2]], "min": [0, 0], "max": [220, 220]}
-    with pytest.raises(Exception, match="qidi_landing_below_part"):
-        run(plr.handle_plan(Req()))
 
 
 # --------------------------------------------------------------------------
@@ -2553,27 +2253,6 @@ def test_a_waiting_snapshots_index_is_protected(plr, helix):
         helix_gcode_reader.layer_index_path(helix.gc_path, "sub/part.gcode")]
 
 
-def test_a_waiting_qidi_snapshots_external_index_is_protected(plr, helix, tmp_path):
-    """QIDI prints from printer_data/.cache, outside gcodes: the index the
-    snapshot resumes from lives under .external and the prune keeps it."""
-    cache = tmp_path / "printer_data" / ".cache"
-    cache.mkdir(parents=True)
-    printed = cache / "part.gcode"
-    printed.write_bytes(layered_gcode())
-    (helix.gc_path / "sub" / "part.gcode").write_bytes(layered_gcode())
-    added(plr)
-    plr.job["print_path"] = str(printed)
-    plr.job["print_identity"] = helix_plr.file_identity(printed)
-    plr.follower = None
-    index = helix_gcode_reader.layer_index_path(helix.gc_path, ".external/part.gcode")
-    assert plr.protected_index_paths() == [index]
-    other = helix_gcode_reader.layer_index_path(helix.gc_path, ".external/old.gcode")
-    for path in (index, other):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        open(path, "w").write("{}\n")
-    plr._follow_executor = SyncExecutor()
-    plr._prune_indexes()
-    assert os.path.exists(index) and not os.path.exists(other)
 
 
 def test_a_follower_never_writes_into_a_complete_index(gfile):
@@ -2626,7 +2305,7 @@ def test_two_status_frames_at_once_save_one_snapshot(plr):
         ({"tier": 2, "z_holds_unpowered": True}, False, False, ("none", 0)),  # unsafe G28 X Y
         ({"tier": 2, "z_holds_unpowered": True}, True, True, ("generic", 2)),  # QIDI fw, generic
         ({"tier": 2, "z_holds_unpowered": True, "backend": "qidi_print_state"}, True, False,
-         ("qidi_print_state", 2)),
+         ("none", 0)),
         ({"tier": 2, "z_holds_unpowered": True, "backend": "qidi_print_state"}, False, True,
          ("none", 0)),                                                   # no QIDI endpoint
         ({"tier": 1, "backend": "qidi_print_state"}, True, True, ("none", 0)),   # no jog on QIDI
@@ -2640,27 +2319,8 @@ def test_backend_selection(plr, profile, qidi, safe, expected):
     assert plr.backend(parse_profile(profile)) == expected
 
 
-def test_qidi_refuses_a_cache_file_other_than_the_one_printed(plr, helix, qidi_resume):
-    _, cache = qidi_resume
-    other = cache.parent / "elsewhere.gcode"
-    other.write_bytes((cache / "part.gcode").read_bytes())
-    plr.job["print_path"] = str(other)
-    plr.job["print_identity"] = helix_plr.file_identity(other)
-    plan_id = run(plr.handle_plan(Req()))["plan_id"]
-    run(plr.handle_prepare(Req(plan_id=plan_id)))
-    with pytest.raises(Exception, match="qidi_cache_mismatch"):
-        commit(plr, plan_id)
 
 
-def test_a_failing_qidi_row_write_does_not_stop_the_snapshot_loop(plr, helix, qidi_printer):
-    async def boom(*a, **k):
-        raise RuntimeError("bad row")
-
-    plr.qidi.on_snapshot = boom
-    added(plr, job_id="0000G1")
-    tick(plr, 3.0, **printing_status(100))
-    tick(plr, 1.0, **printing_status(200))
-    assert plr.store.load()["file_position"] == 200
 
 
 def test_a_skipped_chamber_wait_is_not_waited_for_in_commit(plr, helix, resume):

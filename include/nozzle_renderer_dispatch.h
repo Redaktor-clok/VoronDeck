@@ -8,8 +8,6 @@
 #include "nozzle_renderer_a4t.h"
 #include "nozzle_renderer_anthead.h"
 #include "nozzle_renderer_bambu.h"
-#include "nozzle_renderer_creality_k1.h"
-#include "nozzle_renderer_creality_k2.h"
 #include "nozzle_renderer_jabberwocky.h"
 #include "nozzle_renderer_stealthburner.h"
 #include "settings_manager.h"
@@ -31,12 +29,6 @@ inline void draw_nozzle_for_style(lv_layer_t* layer, int32_t cx, int32_t cy,
         break;
     case helix::ToolheadStyle::STEALTHBURNER:
         draw_nozzle_stealthburner(layer, cx, cy, filament, scale_unit, opa);
-        break;
-    case helix::ToolheadStyle::CREALITY_K1:
-        draw_nozzle_creality_k1(layer, cx, cy, filament, scale_unit, opa);
-        break;
-    case helix::ToolheadStyle::CREALITY_K2:
-        draw_nozzle_creality_k2(layer, cx, cy, filament, scale_unit, opa);
         break;
     default:
         draw_nozzle_bambu(layer, cx, cy, filament, scale_unit, opa);

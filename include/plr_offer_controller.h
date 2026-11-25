@@ -95,19 +95,12 @@ class PlrOfferController {
     helix::PlrCapabilitySignals read_signals() const;
     void on_snapshot_valid_changed(int snapshot_valid);
     void on_plr_interrupted_flag_changed(int was_interrupted);
-    void on_probe_capable_changed(int capable);
     void on_connection_state_changed(int new_conn_state);
     void on_wizard_active_changed(int wizard_active);
     /// A held -> Idle edge retries the recovery probe and, for the backends
     /// plr_reoffers_after_job_drop names, re-evaluates the offer the dead job's
     /// lifecycle held back.
     void on_print_lifecycle_changed(PrintState next);
-
-    /// Fire the recovery probe at most once per connection, and only from
-    /// STANDBY. See the warning on plr_rpc::request_recovery_probe — this call
-    /// has side effects.
-    void probe_once();
-    void on_probe_result(const helix::PlrDetectResult& result);
 
     /// Ask the plugin for its recovery status once per connection, when the
     /// link is up, Klipper is ready and the `plr` feature is Ready.

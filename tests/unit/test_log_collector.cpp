@@ -7,7 +7,6 @@
 // exercise the real journalctl path — that's validated on-device.
 
 #include "system/log_collector.h"
-#include "test_helpers/flashforge_layout_fixture.h"
 #include "test_helpers/unique_temp_dir.h"
 
 #include <algorithm>
@@ -22,8 +21,6 @@
 #include "../catch_amalgamated.hpp"
 
 namespace fs = std::filesystem;
-
-using helix::test::make_flashforge_layout;
 
 namespace {
 
@@ -266,52 +263,6 @@ TEST_CASE("helix::logs::default_file_paths always includes /var/log and /tmp", "
     REQUIRE(paths.front() == "/var/log/helix-screen.log");
     // Last entry is the tmp fallback
     REQUIRE(paths.back() == "/tmp/helixscreen.log");
-}
-
-// ============================================================================
-// default_file_paths() mod_data gating — AD5X mod-tree recognition (ZMOD or
-// Forge-X) is helix::flashforge_mod_tree(); its own tests live
-// in test_platform_info.cpp, pinned to the launcher's heap-diag gate
-// (tests/shell/test_helix_launcher_env.bats, "heap diag:" cases). Here we pin
-// the consumer side: which log paths the cascade gains on each layout.
-// ============================================================================
-
-TEST_CASE("helix::logs::default_file_paths gates the AD5X mod_data logs on the layout",
-          "[log_collector]") {
-    // The mod_data cascade entries (app log + init-script stdout redirect, in
-    // both bind-mount spellings) belong on hosts that carry an AD5X mod tree —
-    // ZMOD or Forge-X — and nowhere else. On a plain host they were dead stat
-    // probes pointing at paths no helix install ever wrote.
-    constexpr std::array<const char*, 4> mod_data_paths = {
-        "/opt/config/mod_data/log/helix.log",
-        "/usr/data/config/mod_data/log/helix.log",
-        "/opt/config/mod_data/log/helixscreen.log",
-        "/usr/data/config/mod_data/log/helixscreen.log",
-    };
-    auto has_all = [&](const std::vector<std::string>& paths) {
-        for (const char* want : mod_data_paths) {
-            if (std::find(paths.begin(), paths.end(), want) == paths.end())
-                return false;
-        }
-        return true;
-    };
-
-    TempDirGuard tmp;
-    REQUIRE(has_all(
-        helix::logs::default_file_paths(make_flashforge_layout(tmp.path, "zmod-prog").string())));
-    REQUIRE(has_all(
-        helix::logs::default_file_paths(make_flashforge_layout(tmp.path, "zmod-marker").string())));
-    REQUIRE(has_all(
-        helix::logs::default_file_paths(make_flashforge_layout(tmp.path, "forgex").string())));
-
-    auto plain =
-        helix::logs::default_file_paths(make_flashforge_layout(tmp.path, "plain").string());
-    for (const char* absent : mod_data_paths) {
-        REQUIRE(std::find(plain.begin(), plain.end(), absent) == plain.end());
-    }
-    // Everything a plain host legitimately has is still there.
-    REQUIRE(std::find(plain.begin(), plain.end(), "/var/log/helix-screen.log") != plain.end());
-    REQUIRE(std::find(plain.begin(), plain.end(), "/tmp/helixscreen.log") != plain.end());
 }
 
 TEST_CASE("helix::logs::default_file_paths honors XDG_DATA_HOME when set", "[log_collector]") {

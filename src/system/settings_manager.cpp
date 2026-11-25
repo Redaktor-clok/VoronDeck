@@ -391,10 +391,6 @@ bool SettingsManager::set_maintenance_record(const std::string& printer_prefix,
 /// Maps a printer-database toolhead_style string to the enum; AUTO means "no
 /// opinion".
 static ToolheadStyle toolhead_style_from_name(const std::string& name) {
-    if (name == "creality_k1")
-        return ToolheadStyle::CREALITY_K1;
-    if (name == "creality_k2")
-        return ToolheadStyle::CREALITY_K2;
     if (name == "anthead")
         return ToolheadStyle::ANTHEAD;
     if (name == "default")
@@ -404,6 +400,9 @@ static ToolheadStyle toolhead_style_from_name(const std::string& name) {
 
 ToolheadStyle SettingsManager::get_effective_toolhead_style() const {
     auto style = get_toolhead_style();
+    if (style == ToolheadStyle::CREALITY_K1 || style == ToolheadStyle::CREALITY_K2) {
+        return ToolheadStyle::DEFAULT;
+    }
     if (style != ToolheadStyle::AUTO) {
         return style;
     }

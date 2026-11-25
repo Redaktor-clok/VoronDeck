@@ -165,22 +165,6 @@ TEST_CASE_METHOD(HelixTestFixture, "PrinterHardware guessing works for multiple 
         mock.disconnect();
     }
 
-    SECTION("CREALITY_K1 printer type") {
-        MoonrakerClientMock mock(MoonrakerClientMock::PrinterType::CREALITY_K1);
-        mock.connect("ws://mock/websocket", []() {}, []() {});
-        mock.discover_printer([]() {});
-
-        PrinterHardware hw(mock.hardware().heaters(), mock.hardware().sensors(),
-                           mock.hardware().fans(), mock.hardware().leds());
-
-        // Just verify these return something sensible
-        REQUIRE_FALSE(hw.guess_bed_heater().empty());
-        REQUIRE_FALSE(hw.guess_hotend_heater().empty());
-
-        mock.stop_temperature_simulation();
-        mock.disconnect();
-    }
-
     SECTION("MULTI_EXTRUDER printer type") {
         MoonrakerClientMock mock(MoonrakerClientMock::PrinterType::MULTI_EXTRUDER);
         mock.connect("ws://mock/websocket", []() {}, []() {});

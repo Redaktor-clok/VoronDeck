@@ -10,7 +10,7 @@
 #include "moonraker_client_mock.h"
 #include "non_filament_pause.h"
 #include "settings_manager.h"
-#include "u1_stock_detection_source.h"
+#include "test_helpers/detection_source_stub.h"
 
 #include "../catch_amalgamated.hpp"
 
@@ -133,9 +133,9 @@ TEST_CASE_METHOD(HelixTestFixture, "DetectionManager source_can_tune asks the so
     REQUIRE_FALSE(m.source_can_tune("stub"));
     REQUIRE_FALSE(m.source_can_tune("nobody"));
 
-    auto u1 = std::make_unique<U1StockSource>(nullptr);
+    auto u1 = std::make_unique<helix::test::DetectionSourceStub>();
     m.register_source(std::move(u1));
-    REQUIRE(m.source_can_tune(U1StockSource::kSourceId));
+    REQUIRE(m.source_can_tune(helix::test::DetectionSourceStub::kSourceId));
 }
 
 TEST_CASE_METHOD(HelixTestFixture, "DetectionManager tune_source dispatches, gated on can_tune",
@@ -160,25 +160,23 @@ TEST_CASE_METHOD(HelixTestFixture, "DetectionManager tune_source dispatches, gat
         CHECK(raw->tune_calls == 0);
     }
 
-    SECTION("the U1 source sends its own tuning macro") {
-        MoonrakerClientMock client(MoonrakerClientMock::PrinterType::VORON_24);
-        set_moonraker_client(&client);
-        m.register_source(std::make_unique<U1StockSource>(nullptr));
-        m.tune_source(U1StockSource::kSourceId);
-        set_moonraker_client(nullptr);
-        REQUIRE(client.last_send_method() == "printer.gcode.script");
-        CHECK(client.last_send_script() == "DEFECT_DETECTION_CONFIG NOODLE_SENSITIVITY=low");
+    SECTION("a tuneable source receives the request") {
+        auto source = std::make_unique<helix::test::DetectionSourceStub>();
+        auto* raw = source.get();
+        m.register_source(std::move(source));
+        m.tune_source(helix::test::DetectionSourceStub::kSourceId);
+        CHECK(raw->tune_calls == 1);
     }
 }
 
-TEST_CASE_METHOD(HelixTestFixture, "DetectionManager capability probe sets U1 source available",
+TEST_CASE_METHOD(HelixTestFixture, "DetectionManager capability probe sets a source available",
                  "[detection][manager]") {
     auto& m = DetectionManager::instance();
     m.reset_for_test();
 
     // U1 source starts unavailable (capable_ defaults false). No PrinterState needed:
     // apply_objects_list_for_test() only drives the capability flag, not the observer.
-    auto u1 = std::make_unique<U1StockSource>(nullptr);
+    auto u1 = std::make_unique<helix::test::DetectionSourceStub>();
     auto* raw = u1.get();
     m.register_source(std::move(u1));
     REQUIRE_FALSE(raw->available());
@@ -189,7 +187,7 @@ TEST_CASE_METHOD(HelixTestFixture, "DetectionManager capability probe sets U1 so
 
     // objects.list WITH defect_detection -> becomes available.
     REQUIRE(
-        m.apply_objects_list_for_test(json::array({"gcode_move", "defect_detection", "toolhead"})));
+        m.apply_objects_list_for_test(json::array({"gcode_move", "test_detector", "toolhead"})));
     REQUIRE(raw->available());
 
     // Probe again without it -> capability is re-cleared (idempotent, reflects state).
@@ -307,12 +305,12 @@ TEST_CASE_METHOD(HelixTestFixture, "DetectionManager availability subject tracks
     auto& m = DetectionManager::instance();
     m.reset_for_test();
 
-    auto u1 = std::make_unique<U1StockSource>(nullptr);
+    auto u1 = std::make_unique<helix::test::DetectionSourceStub>();
     m.register_source(std::move(u1));
     CHECK(lv_subject_get_int(m.subject_detection_available()) == 0);
 
     // The probe path (defect_detection present) flips both source and subject.
-    m.apply_objects_list_for_test(json::array({"defect_detection"}));
+    m.apply_objects_list_for_test(json::array({"test_detector"}));
     CHECK(lv_subject_get_int(m.subject_detection_available()) == 1);
     // The U1's firmware pauses by itself, so even capable the pause setting
     // does not apply to it.
@@ -328,68 +326,6 @@ void drain() {
     helix::ui::UpdateQueueTestAccess::drain_all(helix::ui::UpdateQueue::instance());
 }
 } // namespace
-
-TEST_CASE_METHOD(HelixTestFixture, "DetectionManager bed check follows the printer",
-                 "[detection][manager][bed_check]") {
-    auto& m = DetectionManager::instance();
-    m.reset_for_test();
-    MoonrakerClientMock client(MoonrakerClientMock::PrinterType::SNAPMAKER_U1);
-    set_moonraker_client(&client);
-    m.register_source(std::make_unique<U1StockSource>(nullptr));
-    lv_subject_t* available = m.subject_bed_check_available();
-    lv_subject_t* enabled = m.subject_bed_check_enabled();
-
-    SECTION("no defect_detection object: no row, and the switch sends nothing") {
-        m.apply_objects_list_for_test(json::array({"gcode_move"}));
-        CHECK(lv_subject_get_int(available) == 0);
-        client.clear_gcode_script_history();
-        CHECK_FALSE(m.set_bed_check_enabled(false));
-        CHECK(client.gcode_script_history().empty());
-    }
-
-    SECTION("the row reads the printer's value, not a default") {
-        m.apply_objects_list_for_test(json::array({"defect_detection"}));
-        REQUIRE(lv_subject_get_int(available) == 1);
-        // Turned off at the printer, behind HelixScreen's back.
-        client.gcode_script("DEFECT_DETECTION_CONFIG CLEAN_BED_ENABLE=0");
-        REQUIRE(lv_subject_get_int(enabled) == 1);
-        m.refresh_bed_check();
-        drain();
-        CHECK(lv_subject_get_int(enabled) == 0);
-
-        client.gcode_script("DEFECT_DETECTION_CONFIG CLEAN_BED_ENABLE=1");
-        m.refresh_bed_check();
-        drain();
-        CHECK(lv_subject_get_int(enabled) == 1);
-        CHECK(lv_subject_get_int(m.subject_bed_check_switchable()) == 1);
-    }
-
-    SECTION("the module switched off as a whole reads off, and the row cannot switch it") {
-        m.apply_objects_list_for_test(json::array({"defect_detection"}));
-        client.gcode_script("DEFECT_DETECTION_CONFIG MAIN_ENABLE=0");
-        m.refresh_bed_check();
-        drain();
-        // clean_bed.enable is still true, but nothing runs it.
-        CHECK(lv_subject_get_int(enabled) == 0);
-        CHECK(lv_subject_get_int(m.subject_bed_check_switchable()) == 0);
-    }
-
-    SECTION("the switch sends CLEAN_BED_ENABLE and the subject follows") {
-        m.apply_objects_list_for_test(json::array({"defect_detection"}));
-        CHECK(m.set_bed_check_enabled(false));
-        drain();
-        CHECK(client.last_send_script() == "DEFECT_DETECTION_CONFIG CLEAN_BED_ENABLE=0");
-        CHECK(lv_subject_get_int(enabled) == 0);
-
-        CHECK(m.set_bed_check_enabled(true));
-        drain();
-        CHECK(client.last_send_script() == "DEFECT_DETECTION_CONFIG CLEAN_BED_ENABLE=1");
-        CHECK(lv_subject_get_int(enabled) == 1);
-    }
-
-    set_moonraker_client(nullptr);
-    m.reset_for_test();
-}
 
 TEST_CASE_METHOD(HelixTestFixture, "DetectionManager bed check needs a source that has one",
                  "[detection][manager][bed_check]") {
@@ -490,28 +426,14 @@ TEST_CASE_METHOD(HelixTestFixture, "DetectionManager bed check switch waits for 
     m.reset_for_test();
 }
 
-TEST_CASE_METHOD(HelixTestFixture, "Built-in source table registers each source with its policy",
+TEST_CASE_METHOD(HelixTestFixture, "No retired detection sources are registered",
                  "[detection][manager]") {
     auto& m = DetectionManager::instance();
     m.reset_for_test();
-    auto& sm = SettingsManager::instance();
-    const int saved = sm.get_detection_policy_u1();
-    sm.set_detection_policy_u1(static_cast<int>(DetectionPolicy::Off));
-
     register_builtin_sources(m, nullptr);
-
-    // Both sources registered (each answers to its own id), U1 under its
-    // stored policy, the K2 with no policy setting under the default.
-    CHECK(m.source_can_tune("u1_stock"));
-    CHECK(m.policy("u1_stock") == DetectionPolicy::Off);
-    CHECK(m.policy("k2_stock") == DetectionPolicy::DeferToSource);
-    CHECK(builtin_sources().size() == 2);
-
-    // The U1 decides its own capability from the objects list.
+    CHECK(builtin_sources().empty());
     CHECK_FALSE(m.any_available());
-    m.apply_objects_list_for_test(json::array({"defect_detection"}));
-    CHECK(m.any_available());
-
-    sm.set_detection_policy_u1(saved);
+    CHECK_FALSE(m.source_can_tune("u1_stock"));
+    CHECK_FALSE(m.source_can_tune("k2_stock"));
     m.reset_for_test();
 }

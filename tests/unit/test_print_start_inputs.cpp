@@ -23,9 +23,7 @@
 #include "../test_helpers/planted_gcode.h"
 #include "../test_helpers/scoped_cache_dir.h"
 #include "../test_helpers/scoped_mock_ams.h"
-#include "../test_helpers/snapmaker_test_access.h"
 #include "../ui_test_utils.h"
-#include "ams_backend_snapmaker.h"
 #include "app_globals.h"
 #include "moonraker_api_mock.h"
 #include "moonraker_client_mock.h"
@@ -450,47 +448,8 @@ constexpr const char* kT0T2Footer = "; filament_type = PLA;PLA;PETG\n"
                                     "; filament used [g] = 1.50, 0.00, 2.25\n";
 } // namespace
 
-TEST_CASE_METHOD(LoaderFixture,
-                 "a reprint with no tools in hand reads them from the file for the pre-print step",
-                 "[print_start_inputs][reprint]") {
-    get_printer_state().update_from_status(nlohmann::json{{"webhooks", {{"state", "ready"}}}});
-    helix::test::RegisteredBackend<helix::AmsBackendSnapmaker> backend_reg(api.get(), nullptr);
-    // The last print ran configured (T0, T2 at their own heads), so a reprint
-    // has its routing; only the tools are missing.
-    helix::SnapmakerTestAccess::handle_status(
-        *backend_reg, nlohmann::json{{"print_task_config",
-                                      {{"extruders_used", {true, false, true, false}},
-                                       {"extruder_map_table", {0, 1, 2, 3, 0, 0, 0, 0}}}}});
-    helix::PlantedGcode file("reprint_t0t2.gcode", "", kT0T2Footer);
-    helix::ui::PrintStartController controller(get_printer_state(), api.get());
-    client.clear_gcode_script_history();
-
-    bool started = false;
-    controller.initiate_reprint(
-        file.name(), "", /*tools_used=*/{}, [&started]() { started = true; }, []() {});
-    drain();
-
-    const auto history = client.gcode_script_history();
-    bool used_heads = false;
-    for (const auto& script : history) {
-        if (script.find("SET_PRINT_USED_EXTRUDERS EXTRUDERS=0,2") != std::string::npos) {
-            used_heads = true;
-        }
-    }
-    INFO("gcode sent: " << history.size() << " script(s)");
-    CHECK(used_heads);
-    CHECK(started);
-}
-
 namespace {
 /// A U1 backend whose firmware is not known to reset its routing.
-class NoResetSnapmaker : public helix::AmsBackendSnapmaker {
-  public:
-    using AmsBackendSnapmaker::AmsBackendSnapmaker;
-    [[nodiscard]] bool print_routing_resets_to_identity() const override {
-        return false;
-    }
-};
 
 std::vector<std::string> scripts_containing(MoonrakerClientMock& client, const std::string& what) {
     std::vector<std::string> out;
@@ -509,57 +468,3 @@ nlohmann::json unconfigured_task(const std::vector<int>& map) {
          {{"extruders_used", {false, false, false, false}}, {"extruder_map_table", map}}}};
 }
 } // namespace
-
-TEST_CASE_METHOD(LoaderFixture, "an unrouted U1 reprint names the file's heads and writes no map",
-                 "[print_start_inputs][reprint]") {
-    get_printer_state().update_from_status(nlohmann::json{{"webhooks", {{"state", "ready"}}}});
-    helix::test::RegisteredBackend<helix::AmsBackendSnapmaker> backend_reg(api.get(), nullptr);
-    helix::PlantedGcode file("reprint_unrouted.gcode", "", kT0T2Footer);
-    helix::ui::PrintStartController controller(get_printer_state(), api.get());
-
-    SECTION("the firmware map at its default: the heads go, no map") {
-        helix::SnapmakerTestAccess::handle_status(*backend_reg,
-                                                  unconfigured_task({0, 1, 2, 3, 0, 0, 0, 0}));
-        client.clear_gcode_script_history();
-        controller.initiate_reprint(file.name(), "", {}, [] {}, [] {});
-        drain();
-        CHECK(scripts_containing(client, "SET_PRINT_USED_EXTRUDERS EXTRUDERS=0,2").size() == 1);
-        CHECK(scripts_containing(client, "SET_PRINT_EXTRUDER_MAP").empty());
-    }
-    SECTION("a map left pending routes elsewhere: no heads") {
-        helix::SnapmakerTestAccess::handle_status(*backend_reg,
-                                                  unconfigured_task({2, 1, 0, 3, 0, 0, 0, 0}));
-        client.clear_gcode_script_history();
-        controller.initiate_reprint(file.name(), "", {}, [] {}, [] {});
-        drain();
-        CHECK(scripts_containing(client, "SET_PRINT_USED_EXTRUDERS").empty());
-        CHECK(scripts_containing(client, "SET_PRINT_EXTRUDER_MAP").empty());
-    }
-    SECTION("a file whose tools cannot be read: no heads") {
-        helix::SnapmakerTestAccess::handle_status(*backend_reg,
-                                                  unconfigured_task({0, 1, 2, 3, 0, 0, 0, 0}));
-        client.clear_gcode_script_history();
-        controller.initiate_reprint("not_on_the_printer.gcode", "", {}, [] {}, [] {});
-        drain();
-        CHECK(scripts_containing(client, "SET_PRINT_USED_EXTRUDERS").empty());
-    }
-}
-
-TEST_CASE_METHOD(LoaderFixture,
-                 "an unrouted reprint on firmware that keeps its routing sends no heads",
-                 "[print_start_inputs][reprint]") {
-    get_printer_state().update_from_status(nlohmann::json{{"webhooks", {{"state", "ready"}}}});
-    helix::test::RegisteredBackend<NoResetSnapmaker> backend_reg(api.get(), nullptr);
-    helix::SnapmakerTestAccess::handle_status(*backend_reg,
-                                              unconfigured_task({0, 1, 2, 3, 0, 0, 0, 0}));
-    helix::PlantedGcode file("reprint_noreset.gcode", "", kT0T2Footer);
-    helix::ui::PrintStartController controller(get_printer_state(), api.get());
-    client.clear_gcode_script_history();
-
-    bool started = false;
-    controller.initiate_reprint(file.name(), "", {}, [&started] { started = true; }, [] {});
-    drain();
-    CHECK(scripts_containing(client, "SET_PRINT_USED_EXTRUDERS").empty());
-    CHECK(scripts_containing(client, "SET_PRINT_EXTRUDER_MAP").empty());
-    CHECK(started);
-}

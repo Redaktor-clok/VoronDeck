@@ -78,51 +78,6 @@ struct PersonaDescriptor {
     using namespace default_object;
     constexpr AxisMax standard{250.0, 250.0, 300.0};
     switch (type) {
-    case PrinterType::CREALITY_K1:
-        return {"k1c-mock", {229.0, 227.0, 255.0}, "corexy", NONE, "", false};
-    case PrinterType::CREALITY_K1_MAX:
-        return {"k1max-mock", {300.0, 307.5, 300.0}, "corexy", NONE, "", false};
-    case PrinterType::FLASHFORGE_AD5M:
-        return {"ad5m-mock", {220.0, 220.0, 220.0}, "corexy", NONE, "", false};
-    case PrinterType::FLASHFORGE_CREATOR5:
-        return {"mock-printer", standard, "corexy", NONE, "toolchanger", false};
-    case PrinterType::ELEGOO_CC1:
-        return {"cosmos",
-                {256.0, 265.0, 258.0},
-                "corexy",
-                kHappyHareMmu | CARTOGRAPHER | kBme280Chamber | kHtu21dDryer | kEbbCanMcu |
-                    kWidthSensor | kRunoutSensor | kLedEffects,
-                "",
-                false,
-                "load_cell_probe"};
-    case PrinterType::FLASHFORGE_AD5X:
-        return {"ad5x-mock",
-                {220.0, 220.0, 220.0},
-                "corexy",
-                kHappyHareMmu | CARTOGRAPHER | kBme280Chamber | kHtu21dDryer | kEbbCanMcu |
-                    kWidthSensor | kRunoutSensor | kLedEffects,
-                "ifs",
-                false,
-                "loadcell"};
-    case PrinterType::CREALITY_K2_PLUS:
-        // Chamber reads from "temperature_sensor chamber_temp", not the default one.
-        return {"K2Plus-50C1",
-                {352.5, 400.0, 360.0},
-                "corexy",
-                kHappyHareMmu | CARTOGRAPHER | kBme280Chamber | kHtu21dDryer | kEbbCanMcu |
-                    CHAMBER_SENSOR | kWidthSensor | kRunoutSensor | kLedEffects,
-                "cfs",
-                false};
-    case PrinterType::SNAPMAKER_U1:
-        return {"snapmaker-u1",
-                {270.0, 270.0, 400.0},
-                "cartesian",
-                kHappyHareMmu | CARTOGRAPHER | kBme280Chamber | kHtu21dDryer | kEbbCanMcu |
-                    CHAMBER_SENSOR | kWidthSensor | kRunoutSensor,
-                "snapmaker",
-                false};
-    case PrinterType::FLASHFORGE_CREATOR5_ZMOD:
-        return {"mock-printer", standard, "corexy", kHappyHareMmu, "", true};
     case PrinterType::VORON_24:
         return {"mock-printer",       {175.0, 175.0, 300.0}, "corexy", NONE, "", false, {},
                 {-175.0, -175.0, 0.0}};
@@ -136,6 +91,8 @@ struct PersonaDescriptor {
     case PrinterType::GENERIC_BEDSLINGER:
     case PrinterType::MULTI_EXTRUDER:
         return {"mock-printer", standard, "cartesian", NONE, "", false};
+    default:
+        break;
     }
     return {"mock-printer", standard, "corexy", NONE, "", false};
 }
@@ -158,22 +115,13 @@ struct PersonaEntry {
 /// Every HELIX_MOCK_PRINTER value. Row 0 is the default persona. One row per
 /// line: scripts/screenshot.sh extracts the ids with sed.
 // clang-format off
-inline constexpr std::array<PersonaEntry, 15> kPersonas = {{
+inline constexpr std::array<PersonaEntry, 6> kPersonas = {{
     {"voron_24", PrinterType::VORON_24, "Voron 2.4", ""},
     {"voron_trident", PrinterType::VORON_TRIDENT, "Voron Trident", ""},
-    {"k1", PrinterType::CREALITY_K1, "Creality K1", "Creality K1C"},
-    {"k1max", PrinterType::CREALITY_K1_MAX, "Creality K1 Max", "Creality K1 Max"},
-    {"ad5m", PrinterType::FLASHFORGE_AD5M, "Flashforge AD5M", ""},
-    {"creator5", PrinterType::FLASHFORGE_CREATOR5, "FlashForge Creator 5 Pro", ""},
-    {"creator5_zmod", PrinterType::FLASHFORGE_CREATOR5_ZMOD, "FlashForge Creator 5 Pro (Z-Mod)", ""},
     {"generic_corexy", PrinterType::GENERIC_COREXY, "Generic CoreXY", ""},
     {"generic_bedslinger", PrinterType::GENERIC_BEDSLINGER, "Generic Bedslinger", ""},
     {"multi_extruder", PrinterType::MULTI_EXTRUDER, "Multi-Extruder", ""},
     {"delta", PrinterType::DELTA, "Generic Delta", ""},
-    {"snapmaker_u1", PrinterType::SNAPMAKER_U1, "Snapmaker U1", ""},
-    {"cc1", PrinterType::ELEGOO_CC1, "Elegoo Centauri Carbon", ""},
-    {"ad5x", PrinterType::FLASHFORGE_AD5X, "Flashforge AD5X (mock IFS)", ""},
-    {"k2", PrinterType::CREALITY_K2_PLUS, "Creality K2 Plus", ""},
 }};
 // clang-format on
 

@@ -21,13 +21,8 @@
  * base class, and belongs in the file that needs it.
  */
 
-#include "ams_backend_ace.h"
-#include "ams_backend_ad5x_ifs.h"
 #include "ams_backend_afc.h"
-#include "ams_backend_cfs.h"
 #include "ams_backend_happy_hare.h"
-#include "ams_backend_qidi.h"
-#include "ams_backend_snapmaker.h"
 #include "ams_backend_toolchanger.h"
 
 class AfcProbe : public helix::AmsBackendAfc {
@@ -40,32 +35,7 @@ class HappyHareProbe : public helix::AmsBackendHappyHare {
     HappyHareProbe() : helix::AmsBackendHappyHare(nullptr, nullptr) {}
 };
 
-class CfsProbe : public helix::printer::AmsBackendCfs {
-  public:
-    CfsProbe() : helix::printer::AmsBackendCfs(nullptr, nullptr) {}
-};
-
-class Ad5xIfsProbe : public helix::AmsBackendAd5xIfs {
-  public:
-    Ad5xIfsProbe() : helix::AmsBackendAd5xIfs(nullptr, nullptr) {}
-};
-
 class ToolChangerProbe : public helix::AmsBackendToolChanger {
   public:
     ToolChangerProbe() : helix::AmsBackendToolChanger(nullptr, nullptr) {}
-};
-
-class SnapmakerProbe : public helix::AmsBackendSnapmaker {
-  public:
-    SnapmakerProbe() : helix::AmsBackendSnapmaker(nullptr, nullptr) {}
-};
-
-class AceProbe : public helix::AmsBackendAce {
-  public:
-    AceProbe() : helix::AmsBackendAce(nullptr, nullptr) {}
-};
-
-class QidiProbe : public helix::AmsBackendQidi {
-  public:
-    QidiProbe() : helix::AmsBackendQidi(nullptr, nullptr) {}
 };

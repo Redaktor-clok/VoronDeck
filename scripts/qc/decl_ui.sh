@@ -467,32 +467,6 @@ fi
 
 echo ""
 
-SECTION_START=$(date +%s)
-echo -n "🗺️  Checking the platform manifest against its consumers..."
-
-# Advisory while the consumers are migrated onto assets/config/platforms.json.
-# It reports drift between the manifest and the build files, install-root lists
-# and renders that derive from it; --strict makes the same findings fail once
-# every consumer reads the manifest.
-# Without --strict it exits 0 on findings, so a non-zero exit is the script
-# itself failing to run.
-python3 scripts/check_platform_manifest.py --quiet >/tmp/platform_manifest.out 2>&1
-PLATFORM_MANIFEST_RC=$?
-if [ "$PLATFORM_MANIFEST_RC" -ne 0 ]; then
-  section_time $SECTION_START
-  echo ""
-  cat /tmp/platform_manifest.out
-  EXIT_CODE=1
-elif [ -s /tmp/platform_manifest.out ]; then
-  section_time $SECTION_START
-  echo ""
-  echo "ℹ️  platform manifest findings (advisory):"
-  cat /tmp/platform_manifest.out
-else
-  section_time $SECTION_START
-  echo ""
-  echo "✅ platform manifest agrees with its consumers"
-fi
 
 echo ""
 

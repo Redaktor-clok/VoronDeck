@@ -7,10 +7,6 @@
 #include "toolchanger_addon.h"
 #include "translation_loader.h"
 
-#if HELIX_HAS_SNAPMAKER
-#include "snapmaker_nozzle_offset.h"
-#endif
-
 namespace helix::tool_offset_calibration {
 
 namespace {
@@ -54,10 +50,6 @@ bool prompt_detect(const PrinterDiscovery& hw) {
 
 /// Precedence order: the first row that detects wins.
 const Row kRows[] = {
-#if HELIX_HAS_SNAPMAKER
-    {"Snapmaker nozzle offset", snapmaker::nozzle_offset::supported, ProcedureKind::GuidedFlow,
-     snapmaker::nozzle_offset::kGuidedFlowId, kMeasureDescription},
-#endif
     {"INDX seat by hand", indx::supports_seat_by_hand, ProcedureKind::GuidedFlow,
      indx::kSeatByHandFlowId, TR_NOOP("Seat a tool by hand for the first Z home")},
     {"klipper-toolchanger", panel_detect, ProcedureKind::Panel, kPanelMacro, kMeasureDescription},

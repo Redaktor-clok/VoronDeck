@@ -4,8 +4,6 @@
 #include "ui_icon_codepoints.h"
 
 #include "afc_defaults.h"
-#include "ams_backend_ace.h"
-#include "ams_backend_cfs.h"
 #include "ams_device_sections.h"
 #include "ams_types.h"
 #include "hh_defaults.h"
@@ -137,30 +135,6 @@ TEST_CASE("Happy Hare default actions keep their shipped field values",
     CHECK(by_id(actions, "servo_buzz").type == ActionType::BUTTON);
 }
 
-TEST_CASE("ACE and CFS device actions keep their shipped field values",
-          "[ams][ace][cfs][device_actions]") {
-    const auto ace = helix::AmsBackendAce(nullptr, nullptr).get_device_actions();
-    REQUIRE(ace.size() == 3);
-    CHECK(ace[0].id == "ace_manual_feed");
-    CHECK(ace[0].section == "filament_control");
-    CHECK(ace[0].description == "Feed filament from current slot");
-    CHECK(ace[0].type == ActionType::BUTTON);
-    // Manual feed and retract push filament through the toolhead path.
-    CHECK(ace[0].moves_machine);
-    CHECK(ace[1].moves_machine);
-    CHECK_FALSE(ace[0].allowed_while_paused);
-    CHECK(ace[2].id == "ace_feed_assist_toggle");
-    CHECK(ace[2].type == ActionType::TOGGLE);
-    CHECK_FALSE(ace[2].current_value.has_value());
-
-    const auto cfs = AmsBackendCfs(nullptr, nullptr).get_device_actions();
-    REQUIRE(cfs.size() == 3);
-    CHECK(cfs[1].id == "nozzle_clean");
-    CHECK(cfs[1].section == "maintenance");
-    CHECK(cfs[2].label == "Communication Test");
-    CHECK(cfs[2].enabled);
-}
-
 TEST_CASE("every default device action names an icon the font has",
           "[ams][device_actions][icons]") {
     for (const auto& actions : {afc_default_actions(), hh_default_actions()}) {
@@ -171,33 +145,6 @@ TEST_CASE("every default device action names an icon the font has",
             }
         }
     }
-}
-
-TEST_CASE("every backend's sections come from the shared vocabulary with a real icon",
-          "[ams][device_actions][device_sections]") {
-    for (const auto& kind : helix::printer::kDeviceSectionKinds) {
-        INFO(kind.id);
-        CHECK(helix::ui::icon::lookup_codepoint(kind.icon) != nullptr);
-    }
-
-    std::vector<std::vector<DeviceSection>> all = {
-        afc_default_sections(),
-        hh_default_sections(),
-        helix::AmsBackendAce(nullptr, nullptr).get_device_sections(),
-        AmsBackendCfs(nullptr, nullptr).get_device_sections(),
-    };
-    for (const auto& sections : all) {
-        REQUIRE_FALSE(sections.empty());
-        for (const auto& section : sections) {
-            INFO(section.id);
-            const auto* kind = helix::printer::find_device_section_kind(section.id);
-            REQUIRE(kind != nullptr);
-            CHECK(section.label == kind->label);
-            CHECK(section.icon == kind->icon);
-        }
-    }
-    // One word for one kind of section, whichever system declares it.
-    CHECK(afc_default_sections()[1].label == hh_default_sections()[1].label);
 }
 
 TEST_CASE("tool_offsets is a section kind", "[ams][sections]") {

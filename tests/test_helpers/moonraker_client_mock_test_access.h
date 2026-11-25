@@ -29,22 +29,6 @@ class MoonrakerClientMockTestAccess {
         c.dispatch_initial_state();
     }
 
-    // The standalone IFS module mock's pushed objects, as the simulation tick
-    // publishes them, and its toolhead switch reading.
-    static nlohmann::json ifs_module_status(const MoonrakerClientMock& c) {
-        return c.ifs_module_status_json();
-    }
-    static nlohmann::json ifs_module_vars(const MoonrakerClientMock& c) {
-        return c.ifs_module_vars_json();
-    }
-    // The CFS `box` frame the mock publishes, as HELIX_MOCK_CFS_BOXES shapes it.
-    static nlohmann::json cfs_box_status(const MoonrakerClientMock& c) {
-        return c.cfs_box_status_json();
-    }
-    static bool ifs_module_head_loaded(const MoonrakerClientMock& c) {
-        return c.ifs_module_head_loaded_.load();
-    }
-
     // One notification interval of the MedusaHC swap simulation.
     static void advance_secondary_extruders(MoonrakerClientMock& c, double dt) {
         c.advance_secondary_extruders(dt);

@@ -205,13 +205,6 @@ std::optional<MaterialReading> read_materials(const nlohmann::json& status, int 
 /// Whether any provider claims this printer.
 bool present(const PrinterDiscovery& hw);
 
-/// Whether the Z-Mod Creator 5 changer row claims this printer: `zmod_color`
-/// plus the carriage grab buttons. The AD5X Z-Mod also publishes `zmod_color`
-/// but has no carriage buttons, so it cannot match. Backend selection asks this
-/// to tell Z-Mod's afclite AFC shim (which publishes the `AFC` objects an AFC
-/// panel wants) from a machine that is really a head changer.
-bool zmod_c5_present(const PrinterDiscovery& hw);
-
 /// Whether the firmware picks each tool's lane itself at print time. Z-Mod's
 /// afclite, a lane-picking shim that publishes AFC-shaped objects, asks for the
 /// lanes in its own material prompt when the print starts, and refuses SET_MAP.
@@ -221,34 +214,6 @@ bool firmware_picks_lanes_at_print(const PrinterDiscovery& hw);
 /// or a ToolSensor's provider_name can ask whether the active row speaks the
 /// Z-Mod dialect — whose swap phases arrive as gcode-response markers rather
 /// than a status object's phase word.
-inline constexpr const char* kZmodC5ProviderName = "Creator 5 Pro";
-
-/// Classify one gcode-response line from Z-Mod's Creator 5 changer macros into
-/// the phase word the changer state machine consumes. Z-Mod narrates a swap
-/// through respond_info lines — the grab/unload retry loops ("Grab attempt for
-/// T0: 1 of 5...") and the per-head offset echoes that bracket `_T_IN` /
-/// `_T_OUT` ("X-Offset: 0.0000 _T_IN") — and each marker spells the swap
-/// direction, so each maps onto the picking/dropping vocabulary the MedusaHC
-/// controllers publish. nullopt for every other console line. If a firmware
-/// build does not echo the markers, nothing matches and the operation step bar
-/// stays suppressed — a marker that never arrives cannot paint a wrong step.
-std::optional<ToolReading> parse_zmod_marker(const std::string& line);
-
-/// Classify one line of Z-Mod's T_INFO output (`T_INFO` is read-only: it
-/// answers state, it moves nothing). Each tool row is one dock/carriage fact —
-/// "T1: HEAD" puts tool 1 on the carriage, "T0: home" seats it in its dock,
-/// "ERROR (both)" is a sensor fault, "?" is no news for that tool — so each
-/// line applies on its own and no block buffering is needed. The `Offset:`
-/// line closes the block (it is always last), which is the only place the
-/// answer "nothing is on the carriage" can be stated: every tool row said
-/// `home` and none said HEAD. nullopt for every other console line.
-std::optional<ToolReading> parse_zmod_tinfo_line(const std::string& line, bool& block_ended_out);
-
-/// What Z-Mod's afclite shim said in one status frame. The object is the
-/// firmware's own AFC compat surface; the fields read here are the ones whose
-/// semantics a boolean or the bundle evidence fixes. `current_state` is
-/// deliberately carried as an opaque word: its vocabulary beyond "idle" is
-/// unverified, so callers log it rather than act on it.
 struct AfcStateReading {
     std::string current_state; ///< As published; empty when the frame did not say
     bool error_state = false;  ///< The shim's own fault flag

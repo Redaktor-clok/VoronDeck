@@ -54,19 +54,6 @@ void abort(IMoonrakerAPI& api, const std::string& plan_id, helix::SharedCallback
 
 void discard(IMoonrakerAPI& api, helix::SharedCallback<void()> on_ok, ErrorCallback on_error);
 
-/// Fire the firmware's active recovery probe (kCrealityDetectRpc).
-/// SIDE-EFFECTFUL: on a JSON parse failure the Klipper handler deletes the
-/// recovery sidecar, it clears exclude_object_info when the state is false, and
-/// it sets print_stats.power_loss = 1 when both states are true in standby.
-/// Call at most once per connection, only while print_stats.state ==
-/// "standby", never poll it. That last effect is also why the call is mandatory
-/// before resuming: the stock sensorless-homing macro gates its pre-homing Z
-/// clearance lift on power_loss == 1. @p on_result gets every reply; an
-/// unusable one leaves `completed` false, which forbids the resume downstream.
-void request_recovery_probe(IMoonrakerAPI& api,
-                            helix::SharedCallback<void(const PlrDetectResult&)> on_result,
-                            ErrorCallback on_error);
-
 /// Discard through @p plan's discard RPC: the plugin's own, or the firmware's.
 /// Touches no motion.
 void discard_with_rpc(IMoonrakerAPI& api, const PlrRecoveryPlan& plan,

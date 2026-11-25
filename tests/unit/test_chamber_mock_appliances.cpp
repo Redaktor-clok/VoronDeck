@@ -399,7 +399,8 @@ TEST_CASE_METHOD(HelixTestFixture, "mock runs the stock drying cycle",
     CHECK(diag.at("remaining_seconds").get<int>() == 0);
 }
 
-TEST_CASE_METHOD(HelixTestFixture, "mock screenshot heater inventories use native discovery and limits",
+TEST_CASE_METHOD(HelixTestFixture,
+                 "mock screenshot heater inventories use native discovery and limits",
                  "[mock][heater_generic][heater-inventory]") {
     for (const int count : {1, 3, 4, 6}) {
         INFO("heater count " << count);
@@ -427,16 +428,16 @@ TEST_CASE_METHOD(HelixTestFixture, "mock screenshot heater inventories use nativ
         for (int i = 1; i <= count - 2; ++i) {
             const std::string bare = "auxiliary_" + std::to_string(i);
             const std::string heater = "heater_generic " + bare;
-            REQUIRE(client.gcode_script("SET_HEATER_TEMPERATURE HEATER=" + bare +
-                                        " TARGET=55") == 0);
+            REQUIRE(client.gcode_script("SET_HEATER_TEMPERATURE HEATER=" + bare + " TARGET=55") ==
+                    0);
             REQUIRE(frame.contains(heater));
             CHECK(frame[heater]["target"].get<double>() == 55.0);
         }
 
         json response;
-        client.send_jsonrpc(
-            "printer.objects.query", json{{"objects", {{"configfile", {"settings"}}}}},
-            [&response](const json& r) { response = r; });
+        client.send_jsonrpc("printer.objects.query",
+                            json{{"objects", {{"configfile", {"settings"}}}}},
+                            [&response](const json& r) { response = r; });
         REQUIRE(response.contains("result"));
         const auto& settings = response["result"]["status"]["configfile"]["settings"];
         for (int i = 1; i <= count - 2; ++i) {
@@ -474,73 +475,3 @@ TEST_CASE_METHOD(HelixTestFixture, "mock simulates a non-chamber heater_generic"
 // configured resting target (35C, the stock configfile value) with the heater
 // at 0 — the wire shape a Gcode CHAMBER_TEMP of 35 leaves the printer in, and
 // the only frame that reads as Resting rather than Off or Maintaining.
-TEST_CASE_METHOD(HelixTestFixture, "mock materializes the K2 Plus chamber thermostat pair",
-                 "[chamber][mock]") {
-    MoonrakerClientMock client(MoonrakerClientMock::PrinterType::CREALITY_K2_PLUS);
-
-    SECTION("object list carries both chamber objects") {
-        const json response = query_object_list(client);
-        REQUIRE(object_list_contains(response, "heater_generic chamber_heater"));
-        REQUIRE(object_list_contains(response, "temperature_fan chamber_fan"));
-    }
-
-    SECTION("status parks the thermostat at its resting target") {
-        json frame;
-        client.register_notify_update(
-            [&frame](const json& notification) { frame = first_status_param(notification); });
-        MoonrakerClientMockTestAccess::dispatch_initial_state(client);
-        REQUIRE(frame.contains("temperature_fan chamber_fan"));
-        const json& fan = frame["temperature_fan chamber_fan"];
-        CHECK(fan.at("target").get<double>() == 35.0);
-        CHECK(fan.contains("temperature"));
-        CHECK(fan.contains("speed"));
-        REQUIRE(frame.contains("heater_generic chamber_heater"));
-        CHECK(frame["heater_generic chamber_heater"].at("target").get<double>() == 0.0);
-    }
-
-    SECTION("configfile publishes the fan's resting target_temp") {
-        json response;
-        client.send_jsonrpc(
-            "printer.objects.query",
-            json{{"objects", json::object({{"configfile", json::array({"config"})}})}},
-            [&response](const json& r) { response = r; });
-        REQUIRE(response.contains("result"));
-        const json& config = response["result"]["status"]["configfile"]["config"];
-        REQUIRE(config.contains("temperature_fan chamber_fan"));
-        CHECK(config.at("temperature_fan chamber_fan")["target_temp"].get<double>() == 35.0);
-    }
-
-    SECTION("every pushed frame parks the thermostat at its resting target") {
-        // connect() pushes the historical burst, the initial state, then one
-        // live frame per simulation tick; the thermostat must read its resting
-        // 35C in all three shapes, the way a real K2 reports it at idle.
-        MoonrakerClientMock live(MoonrakerClientMock::PrinterType::CREALITY_K2_PLUS);
-        std::mutex mu;
-        std::vector<json> frames;
-        const auto sub = live.register_notify_update([&](const json& notification) {
-            std::lock_guard<std::mutex> lock(mu);
-            frames.push_back(first_status_param(notification));
-        });
-        live.connect("ws://mock/websocket", [] {}, [] {});
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-        while (MoonrakerClientMockTestAccess::tick_count(live) < 2 &&
-               std::chrono::steady_clock::now() < deadline) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-        REQUIRE(MoonrakerClientMockTestAccess::tick_count(live) >= 2);
-        live.unsubscribe_notify_update(sub);
-
-        std::lock_guard<std::mutex> lock(mu);
-        size_t fan_frames = 0;
-        for (size_t i = 0; i < frames.size(); i++) {
-            INFO("frame " << i << " of " << frames.size());
-            if (frames[i].contains("temperature_fan chamber_fan")) {
-                fan_frames++;
-                CHECK(frames[i].at("temperature_fan chamber_fan").at("target").get<double>() ==
-                      35.0);
-            }
-        }
-        // At least one frame of each shape (historical, initial, live).
-        REQUIRE(fan_frames >= 3);
-    }
-}

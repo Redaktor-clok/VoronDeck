@@ -43,6 +43,11 @@
 #include "printer_state.h"
 #include "test_helpers/printer_state_test_access.h"
 
+#include <filesystem>
+#include <fstream>
+#include <memory>
+#include <unistd.h>
+
 #include "../catch_amalgamated.hpp"
 #include "hv/json.hpp"
 
@@ -51,246 +56,14 @@ using helix::PrintStartPhase;
 using helix::ui::PlrOfferController;
 using json = nlohmann::json;
 
-namespace {
-
-class PlrOfferPreparingFixture : public LVGLTestFixture {
-  public:
-    PlrOfferPreparingFixture() {
-        auto& ps = get_printer_state();
-        // The global PrinterState is shared across the shard: reset and
-        // re-init, or a prior case's subjects decide this one's answers.
-        PrinterStateTestAccess::reset(ps);
-        ps.init_subjects(false);
-        if (ps.print_state().has_preparing_job()) {
-            ps.print_state().retire_preparing(helix::PreparingExit::Superseded);
-        }
-        // A validated Snapmaker snapshot: the passive backend, so availability
-        // needs no probe and the offer decision reduces to the idle signal.
-        ps.update_from_status(
-            json{{"print_stats", {{"state", "standby"}}},
-                 {"virtual_sdcard",
-                  {{"pl_env_valid", true}, {"file_path", "gcodes/interrupted.gcode"}}}});
-        ps.print_state().set_print_start_state(PrintStartPhase::IDLE, "", 0);
-        settle();
-        REQUIRE(ps.print_state().is_plr_snapshot_valid());
-        REQUIRE_FALSE(ps.print_state().pl_recovery_file().empty());
-    }
-
-    ~PlrOfferPreparingFixture() override {
-        auto& ps = get_printer_state();
-        if (ps.print_state().has_preparing_job()) {
-            ps.print_state().retire_preparing(helix::PreparingExit::Superseded);
-        }
-        ps.print_state().set_print_start_state(PrintStartPhase::IDLE, "", 0);
-        helix::test::set_wire_state(ps, PrintJobState::STANDBY);
-        settle();
-    }
-
-    /// set_print_start_state defers, and its callback republishes the lifecycle.
-    static void settle() {
-        helix::ui::UpdateQueueTestAccess::drain_all(helix::ui::UpdateQueue::instance());
-    }
-
-    /// Put the app in the state it is in while running the user's own pre-start
-    /// block: committed to a job, printer still reporting standby.
-    static void enter_host_side_preparing(helix::PrinterState& ps) {
-        ps.print_state().begin_preparing(helix::PrintJobRef{"chosen.gcode", "", ""});
-        ps.print_state().set_print_start_state(PrintStartPhase::HOMING, "", 0);
-        settle();
-        REQUIRE(ps.print_state().get_print_job_state() == PrintJobState::STANDBY);
-        REQUIRE(ps.print_state().get_print_lifecycle() == PrintState::Preparing);
-    }
-};
-
-} // namespace
-
-TEST_CASE_METHOD(PlrOfferPreparingFixture, "PLR offers recovery when the printer is truly idle",
-                 "[plr][print_state]") {
-    // Non-vacuity baseline. Without this, every suppression assertion below
-    // would also pass against a controller that never offers at all.
-    PlrOfferController controller;
-    settle();
-
-    CHECK(PlrOfferControllerTestAccess::prompted(controller));
-}
-
-TEST_CASE_METHOD(PlrOfferPreparingFixture, "PLR does not offer while a print is running",
-                 "[plr][print_state]") {
-    auto& ps = get_printer_state();
-
-    SECTION("printing") {
-        helix::test::set_wire_state(ps, PrintJobState::PRINTING);
-    }
-    SECTION("paused") {
-        helix::test::set_wire_state(ps, PrintJobState::PAUSED);
-    }
-    settle();
-
-    PlrOfferController controller;
-    settle();
-
-    CHECK_FALSE(PlrOfferControllerTestAccess::prompted(controller));
-}
-
-TEST_CASE_METHOD(PlrOfferPreparingFixture, "PLR does not offer during a host-side pre-print block",
-                 "[plr][print_state]") {
-    // THE BUG. print_stats still says standby, so the wire-only idle test said
-    // "idle" and the recovery prompt landed on top of the start.
-    auto& ps = get_printer_state();
-    enter_host_side_preparing(ps);
-
-    PlrOfferController controller;
-    settle();
-
-    CHECK_FALSE(PlrOfferControllerTestAccess::prompted(controller));
-}
-
-TEST_CASE_METHOD(PlrOfferPreparingFixture,
-                 "PLR does not offer during a firmware-side PRINT_START either",
-                 "[plr][print_state]") {
-    // The other half of Preparing: Klipper already reports printing because the
-    // pre-print work lives inside PRINT_START. The wire caught this one already;
-    // it must stay caught.
-    auto& ps = get_printer_state();
-    helix::test::set_wire_state(ps, PrintJobState::PRINTING);
-    ps.print_state().set_print_start_state(PrintStartPhase::HOMING, "", 0);
-    settle();
-    REQUIRE(ps.print_state().get_print_lifecycle() == PrintState::Preparing);
-
-    PlrOfferController controller;
-    settle();
-
-    CHECK_FALSE(PlrOfferControllerTestAccess::prompted(controller));
-}
+namespace {} // namespace
 
 // ===========================================================================
 // Qidi backend: was_interrupted is the availability signal, so the offer
 // decision reduces to the idle signal exactly as on Snapmaker.
 // ===========================================================================
 
-namespace {
-
-class QidiPlrOfferFixture : public LVGLTestFixture {
-  public:
-    QidiPlrOfferFixture() {
-        auto& ps = get_printer_state();
-        PrinterStateTestAccess::reset(ps);
-        ps.init_subjects(false);
-        // Discovery found the stock macros (set_hardware's half), then the
-        // boot status carried the still-true was_interrupted a power loss
-        // leaves behind (update_from_status's half).
-        lv_subject_set_int(ps.print_state().get_plr_resume_macro_subject(), 1);
-        ps.update_from_status(
-            json{{"print_stats", {{"state", "standby"}}},
-                 {"save_variables", {{"variables", {{"was_interrupted", true}}}}}});
-        ps.print_state().set_print_start_state(PrintStartPhase::IDLE, "", 0);
-        settle();
-        REQUIRE(ps.print_state().is_plr_interrupted_flag());
-    }
-
-    ~QidiPlrOfferFixture() override {
-        auto& ps = get_printer_state();
-        ps.print_state().set_print_start_state(PrintStartPhase::IDLE, "", 0);
-        helix::test::set_wire_state(ps, PrintJobState::STANDBY);
-        settle();
-    }
-
-    static void settle() {
-        helix::ui::UpdateQueueTestAccess::drain_all(helix::ui::UpdateQueue::instance());
-    }
-};
-
-} // namespace
-
-TEST_CASE_METHOD(QidiPlrOfferFixture, "Qidi PLR offers recovery when the printer is idle",
-                 "[plr][qidi]") {
-    // Non-vacuity baseline: the Qidi path reaches the prompt at all.
-    PlrOfferController controller;
-    settle();
-
-    CHECK(PlrOfferControllerTestAccess::prompted(controller));
-}
-
-TEST_CASE_METHOD(QidiPlrOfferFixture, "Qidi PLR does not offer while a print is running",
-                 "[plr][qidi]") {
-    // was_interrupted stays true through every normal print (only
-    // CLEAR_LAST_FILE clears it), so the idle gate is the whole defence
-    // against offering a resume on top of the print in progress.
-    auto& ps = get_printer_state();
-    helix::test::set_wire_state(ps, PrintJobState::PRINTING);
-    settle();
-
-    PlrOfferController controller;
-    settle();
-
-    CHECK_FALSE(PlrOfferControllerTestAccess::prompted(controller));
-}
-
-TEST_CASE_METHOD(QidiPlrOfferFixture, "Qidi PLR does not offer without the macro capability",
-                 "[plr][qidi]") {
-    // A was_interrupted variable on a printer without the stock recovery
-    // macros: the variable alone must not select the backend (any Klipper user
-    // can SAVE_VARIABLE that name).
-    auto& ps = get_printer_state();
-    lv_subject_set_int(ps.print_state().get_plr_resume_macro_subject(), 0);
-    settle();
-
-    PlrOfferController controller;
-    settle();
-
-    CHECK_FALSE(PlrOfferControllerTestAccess::prompted(controller));
-}
-
-TEST_CASE_METHOD(QidiPlrOfferFixture, "Qidi PLR capability is wired from discovery",
-                 "[plr][qidi]") {
-    // Drives the real set_hardware wire rather than poking the subject: the
-    // discovery snapshot's RESUME_INTERRUPTED macro is what marks the printer
-    // as running Qidi stock firmware.
-    auto& ps = get_printer_state();
-    lv_subject_set_int(ps.print_state().get_plr_resume_macro_subject(), 0);
-
-    helix::PrinterDiscovery hw;
-    hw.parse_objects(json::array({"gcode_macro RESUME_INTERRUPTED"}));
-    ps.set_hardware(std::move(hw));
-    settle();
-
-    CHECK(ps.print_state().is_plr_resume_macro_present());
-}
-
-TEST_CASE_METHOD(QidiPlrOfferFixture, "Qidi PLR: a disconnect reset lets a reconnect re-offer",
-                 "[plr][qidi]") {
-    auto& ps = get_printer_state();
-
-    // CONNECTED before construction: the controller seeds its connection
-    // baseline from the live subject, so only then does the drop below count
-    // as a CONNECTED -> not-CONNECTED edge.
-    lv_subject_set_int(ps.network_state().get_printer_connection_state_subject(),
-                       static_cast<int>(ConnectionState::CONNECTED));
-
-    PlrOfferController controller;
-    settle();
-    REQUIRE(PlrOfferControllerTestAccess::prompted(controller));
-
-    // Printer drops: the controller must force the PLR subjects back to 0, or
-    // the subjects' same-value guard swallows the reconnect's identical
-    // status and no observer ever fires again.
-    lv_subject_set_int(ps.network_state().get_printer_connection_state_subject(),
-                       static_cast<int>(ConnectionState::DISCONNECTED));
-    settle();
-    CHECK_FALSE(ps.print_state().is_plr_resume_macro_present());
-    CHECK_FALSE(ps.print_state().is_plr_interrupted_flag());
-
-    // Reconnect: discovery re-runs (the macro subject) and the boot status
-    // re-arrives (was_interrupted), each a genuine 0 -> 1 edge back into the
-    // observers, so the one-shot latch re-arms and the offer fires again.
-    lv_subject_set_int(ps.network_state().get_printer_connection_state_subject(),
-                       static_cast<int>(ConnectionState::CONNECTED));
-    lv_subject_set_int(ps.print_state().get_plr_resume_macro_subject(), 1);
-    ps.update_from_status(json{{"save_variables", {{"variables", {{"was_interrupted", true}}}}}});
-    settle();
-
-    CHECK(PlrOfferControllerTestAccess::prompted(controller));
-}
+namespace {} // namespace
 
 // ===========================================================================
 // HelixPrint plugin (GENERIC): the plugin's status reply is the availability
@@ -300,8 +73,20 @@ TEST_CASE_METHOD(QidiPlrOfferFixture, "Qidi PLR: a disconnect reset lets a recon
 namespace {
 
 class PluginPlrOfferFixture : public LVGLTestFixture {
+    std::filesystem::path test_config_;
+    std::unique_ptr<helix::ScopedEnv> config_env_;
+
   public:
     PluginPlrOfferFixture() {
+        test_config_ =
+            std::filesystem::temp_directory_path() / ("vorondeck-plr-" + std::to_string(getpid()));
+        std::filesystem::create_directories(test_config_);
+        std::ofstream(test_config_ / "printer_database.json") << R"({"printers":[{
+            "id":"generic_plr_fixture", "name":"Generic PLR fixture", "manufacturer":"Custom",
+            "plr":{"tier":2,"backend":"generic","z_holds_unpowered":true,"storage":"emmc"}
+        }]})";
+        config_env_ = std::make_unique<helix::ScopedEnv>("HELIX_CONFIG_DIR", test_config_.c_str());
+        PrinterDetector::reload();
         auto& ps = get_printer_state();
         PrinterStateTestAccess::reset(ps);
         ps.init_subjects(false);
@@ -312,6 +97,9 @@ class PluginPlrOfferFixture : public LVGLTestFixture {
     }
 
     ~PluginPlrOfferFixture() override {
+        config_env_.reset();
+        std::filesystem::remove_all(test_config_);
+        PrinterDetector::reload();
         auto& ps = get_printer_state();
         ps.plugin_status_state().set_features({});
         ps.plugin_status_state().set_installed(false);
@@ -400,40 +188,6 @@ TEST_CASE_METHOD(PluginPlrOfferFixture,
     PlrOfferControllerTestAccess::plugin_status_arrived(controller, status);
     settle();
     CHECK_FALSE(PlrOfferControllerTestAccess::has_plugin_status(controller));
-    CHECK_FALSE(PlrOfferControllerTestAccess::prompted(controller));
-}
-
-TEST_CASE_METHOD(PluginPlrOfferFixture,
-                 "Plugin PLR: the legacy QIDI macros offer until the plugin answers",
-                 "[plr][generic][qidi]") {
-    auto& ps = get_printer_state();
-    // The firmware layout both serve: the legacy macros and their flag.
-    lv_subject_set_int(ps.print_state().get_plr_resume_macro_subject(), 1);
-    ps.update_from_status(json{{"save_variables", {{"variables", {{"was_interrupted", true}}}}}});
-    settle();
-
-    PlrOfferController controller;
-    settle();
-    // Before the plugin answers, the legacy backend is all there is.
-    REQUIRE(PlrOfferControllerTestAccess::prompted(controller));
-}
-
-TEST_CASE_METHOD(PluginPlrOfferFixture,
-                 "Plugin PLR print_state adapter outranks the legacy QIDI macros",
-                 "[plr][generic][qidi]") {
-    auto& ps = get_printer_state();
-    PlrOfferController controller;
-    settle();
-
-    // The plugin answers first, with no resume to offer: the adapter owns this
-    // layout, so the legacy macros' flag arriving afterwards offers nothing.
-    auto status = offering(helix::PlrPluginBackend::QidiPrintState);
-    status.offer_available = false;
-    status.blocked_by = {"too_early"};
-    PlrOfferControllerTestAccess::plugin_status_arrived(controller, status);
-    lv_subject_set_int(ps.print_state().get_plr_resume_macro_subject(), 1);
-    ps.update_from_status(json{{"save_variables", {{"variables", {{"was_interrupted", true}}}}}});
-    settle();
     CHECK_FALSE(PlrOfferControllerTestAccess::prompted(controller));
 }
 
@@ -587,7 +341,7 @@ TEST_CASE_METHOD(PluginPlrOfferFixture,
     MoonrakerClientMock client{MoonrakerClientMock::PrinterType::VORON_24};
     MoonrakerAPIMock api{client, ps};
     set_moonraker_api(&api);
-    ps.set_printer_type_sync("Qidi Q2");
+    ps.set_printer_type_sync("Generic PLR fixture");
     lv_subject_set_int(ps.network_state().get_printer_connection_state_subject(),
                        static_cast<int>(ConnectionState::CONNECTED));
     PlrOfferController controller;
@@ -667,7 +421,7 @@ TEST_CASE_METHOD(PluginPlrOfferFixture,
     MoonrakerClientMock client{MoonrakerClientMock::PrinterType::VORON_24};
     MoonrakerAPIMock api{client, ps};
     set_moonraker_api(&api);
-    ps.set_printer_type_sync("Qidi Q2");
+    ps.set_printer_type_sync("Generic PLR fixture");
     // Disabled: the plugin can run but is not saving, which is what a missing
     // profile (tier 0) leaves it at.
     set_plr_feature(true, false);
@@ -682,7 +436,7 @@ TEST_CASE_METHOD(PluginPlrOfferFixture,
     set_moonraker_api(nullptr);
     REQUIRE(profile.is_object());
     CHECK(profile["tier"] == 2);
-    CHECK(profile["backend"] == "qidi_print_state");
+    CHECK(profile["backend"] == "generic");
     CHECK(profile["storage_hint"] == "emmc");
     ps.set_printer_type_sync("");
 }
@@ -698,7 +452,7 @@ TEST_CASE_METHOD(PluginPlrOfferFixture,
     MoonrakerClientMock client{MoonrakerClientMock::PrinterType::VORON_24};
     MoonrakerAPIMock api{client, ps};
     set_moonraker_api(&api);
-    ps.set_printer_type_sync("Qidi Q2");
+    ps.set_printer_type_sync("Generic PLR fixture");
     lv_subject_set_int(ps.network_state().get_printer_connection_state_subject(),
                        static_cast<int>(ConnectionState::CONNECTED));
     PlrOfferController controller;
@@ -758,7 +512,7 @@ TEST_CASE_METHOD(PluginPlrOfferFixture,
     REQUIRE(ps.plugin_status_state().plugin_feature(helix::kPlrFeatureName,
                                                     helix::kPlrFeatureMinVersion) ==
             helix::PluginFeatureState::Absent);
-    ps.set_printer_type_sync("Qidi Q2");
+    ps.set_printer_type_sync("Generic PLR fixture");
     lv_subject_set_int(ps.network_state().get_printer_connection_state_subject(),
                        static_cast<int>(ConnectionState::CONNECTED));
     PlrOfferController controller;
@@ -780,11 +534,11 @@ TEST_CASE_METHOD(PluginPlrOfferFixture,
     MoonrakerAPIMock api{client, ps};
     set_moonraker_api(&api);
     ps.plugin_status_state().set_features(not_listed_plr());
-    ps.set_printer_type_sync("Qidi Q2");
+    ps.set_printer_type_sync("Generic PLR fixture");
     client.mock_db_set(helix::kPlrDbNamespace, helix::kPlrProfileKey,
                        helix::plr_profile_json(helix::plr_resolve_profile(
-                           PrinterDetector::get_plr_block("Qidi Q2"), helix::PlrUserOverride{},
-                           helix::PlrHomingCheck{})));
+                           PrinterDetector::get_plr_block("Generic PLR fixture"),
+                           helix::PlrUserOverride{}, helix::PlrHomingCheck{})));
     const int status_reads = client.call_count("server.helix.status");
     lv_subject_set_int(ps.network_state().get_printer_connection_state_subject(),
                        static_cast<int>(ConnectionState::CONNECTED));
@@ -805,7 +559,7 @@ TEST_CASE_METHOD(PluginPlrOfferFixture, "Plugin PLR writes the profile again aft
     MoonrakerAPIMock api{client, ps};
     set_moonraker_api(&api);
     ps.plugin_status_state().set_features(not_listed_plr());
-    ps.set_printer_type_sync("Qidi Q2");
+    ps.set_printer_type_sync("Generic PLR fixture");
     client.fail_next("server.database.post_item");
     lv_subject_set_int(ps.network_state().get_printer_connection_state_subject(),
                        static_cast<int>(ConnectionState::CONNECTED));
@@ -836,7 +590,7 @@ TEST_CASE_METHOD(PluginPlrOfferFixture, "Plugin PLR writes no profile without a 
     SECTION("no plugin") {
         ps.plugin_status_state().set_installed(false);
     }
-    ps.set_printer_type_sync("Qidi Q2");
+    ps.set_printer_type_sync("Generic PLR fixture");
     lv_subject_set_int(ps.network_state().get_printer_connection_state_subject(),
                        static_cast<int>(ConnectionState::CONNECTED));
     PlrOfferController controller;
@@ -856,12 +610,12 @@ TEST_CASE_METHOD(PluginPlrOfferFixture, "Plugin PLR leaves an identical stored p
     MoonrakerClientMock client{MoonrakerClientMock::PrinterType::VORON_24};
     MoonrakerAPIMock api{client, ps};
     set_moonraker_api(&api);
-    ps.set_printer_type_sync("Qidi Q2");
+    ps.set_printer_type_sync("Generic PLR fixture");
     // Another screen on this printer already wrote the same profile.
     client.mock_db_set(helix::kPlrDbNamespace, helix::kPlrProfileKey,
                        helix::plr_profile_json(helix::plr_resolve_profile(
-                           PrinterDetector::get_plr_block("Qidi Q2"), helix::PlrUserOverride{},
-                           helix::PlrHomingCheck{})));
+                           PrinterDetector::get_plr_block("Generic PLR fixture"),
+                           helix::PlrUserOverride{}, helix::PlrHomingCheck{})));
     lv_subject_set_int(ps.network_state().get_printer_connection_state_subject(),
                        static_cast<int>(ConnectionState::CONNECTED));
     PlrOfferController controller;
@@ -905,76 +659,4 @@ TEST_CASE_METHOD(PluginPlrOfferFixture,
     helix::test::set_wire_state(ps, PrintJobState::STANDBY);
     settle();
     CHECK(PlrOfferControllerTestAccess::offers_shown(controller) == 1);
-}
-
-TEST_CASE_METHOD(QidiPlrOfferFixture, "Qidi PLR does not offer when a normal print ends",
-                 "[plr][qidi][print_state]") {
-    // PRINT_END runs CLEAR_LAST_FILE then SDCARD_RESET_FILE, so a finished
-    // print drops straight from printing to standby with no Complete between.
-    auto& ps = get_printer_state();
-    helix::test::set_wire_state(ps, PrintJobState::PRINTING);
-    settle();
-    PlrOfferController controller;
-    settle();
-    REQUIRE(PlrOfferControllerTestAccess::offers_shown(controller) == 0);
-
-    bool flag_after_end = false;
-    SECTION("the flag clears in the standby frame") {
-        flag_after_end = false;
-    }
-    SECTION("the flag lags the standby frame") {
-        flag_after_end = true;
-    }
-    ps.update_from_status(
-        json{{"print_stats", {{"state", "standby"}}},
-             {"save_variables", {{"variables", {{"was_interrupted", flag_after_end}}}}}});
-    settle();
-    REQUIRE(ps.print_state().get_print_lifecycle() == PrintState::Idle);
-    CHECK(PlrOfferControllerTestAccess::offers_shown(controller) == 0);
-}
-
-TEST_CASE_METHOD(PlrOfferPreparingFixture,
-                 "Snapmaker PLR does not offer when a paused print is reset to idle",
-                 "[plr][print_state]") {
-    // The U1's restart-from-beginning sends SDCARD_RESET_FILE and
-    // CANCEL_PRINT_BASE: Paused drops straight to standby while pl_env_valid
-    // may still read true.
-    auto& ps = get_printer_state();
-    helix::test::set_wire_state(ps, PrintJobState::PAUSED);
-    settle();
-    PlrOfferController controller;
-    settle();
-    REQUIRE(PlrOfferControllerTestAccess::offers_shown(controller) == 0);
-
-    helix::test::set_wire_state(ps, PrintJobState::STANDBY);
-    settle();
-    REQUIRE(ps.print_state().get_print_lifecycle() == PrintState::Idle);
-    CHECK(PlrOfferControllerTestAccess::offers_shown(controller) == 0);
-}
-
-TEST_CASE_METHOD(PluginPlrOfferFixture,
-                 "Creality PLR probes once the dead job's lifecycle drops to idle",
-                 "[plr][print_state]") {
-    // The probe is refused outside standby, so a capability edge that lands
-    // while the lifecycle still reads the dead job must be retried.
-    auto& ps = get_printer_state();
-    MoonrakerClientMock client{MoonrakerClientMock::PrinterType::VORON_24};
-    MoonrakerAPIMock api{client, ps};
-    set_moonraker_api(&api);
-    helix::test::set_wire_state(ps, PrintJobState::PRINTING);
-    settle();
-    PlrOfferController controller;
-    settle();
-
-    ps.update_from_status(json{{"print_stats", {{"power_loss", 0}}}});
-    settle();
-    REQUIRE(lv_subject_get_int(ps.print_state().get_plr_power_loss_signal_subject()) == 1);
-    const int while_printing = client.call_count(helix::kCrealityDetectRpc);
-
-    helix::test::set_wire_state(ps, PrintJobState::STANDBY);
-    settle();
-    const int after_idle = client.call_count(helix::kCrealityDetectRpc);
-    set_moonraker_api(nullptr);
-    CHECK(while_printing == 0);
-    CHECK(after_idle == 1);
 }

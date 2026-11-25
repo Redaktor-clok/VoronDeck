@@ -74,7 +74,8 @@ TEST_CASE_METHOD(PlrStateTestFixture, "PLR state: default is invalid with no rec
     REQUIRE(pl_recovery_file().empty());
 }
 
-TEST_CASE_METHOD(PlrStateTestFixture, "PLR state: pl_env_valid=true + file_path parses",
+TEST_CASE_METHOD(PlrStateTestFixture,
+                 "PLR state: retired snapshot flag is ignored, generic file_path parses",
                  "[plr][state]") {
     json status = {{"virtual_sdcard",
                     {{"progress", 0.0},
@@ -84,7 +85,7 @@ TEST_CASE_METHOD(PlrStateTestFixture, "PLR state: pl_env_valid=true + file_path 
                      {"pl_env_valid", true},
                      {"file_path", "benchy.gcode"}}}};
     state().update_from_status(status);
-    REQUIRE(pl_env_valid() == true);
+    REQUIRE_FALSE(pl_env_valid());
     REQUIRE(pl_recovery_file() == "benchy.gcode");
 }
 
@@ -141,7 +142,7 @@ TEST_CASE_METHOD(PlrStateTestFixture,
                     {"pl_env_valid", true},
                     {"file_path", "interrupted.gcode"}}}};
     state().update_from_status(valid);
-    REQUIRE(pl_env_valid() == true);
+    REQUIRE_FALSE(pl_env_valid());
     REQUIRE(pl_recovery_file() == "interrupted.gcode");
 
     // The offer controller performs exactly this on a CONNECTED->not-CONNECTED
@@ -151,24 +152,6 @@ TEST_CASE_METHOD(PlrStateTestFixture,
     state().print_state().clear_pl_recovery_file();
     REQUIRE(pl_env_valid() == false);
     REQUIRE(pl_recovery_file().empty());
-}
-
-TEST_CASE_METHOD(PlrStateTestFixture, "PLR state: pl_env_valid flips true then back to false",
-                 "[plr][state]") {
-    json valid = {{"virtual_sdcard",
-                   {{"progress", 0.0},
-                    {"is_active", false},
-                    {"pl_env_valid", true},
-                    {"file_path", "recovered.gcode"}}}};
-    state().update_from_status(valid);
-    REQUIRE(pl_env_valid() == true);
-
-    // Boot-time recovery consumed (e.g. SDCARD_PRINT_PL_CLEAR_ENV or a fresh
-    // print start clears the env) — firmware reports false on the next update.
-    json cleared = {
-        {"virtual_sdcard", {{"progress", 0.0}, {"is_active", false}, {"pl_env_valid", false}}}};
-    state().update_from_status(cleared);
-    REQUIRE(pl_env_valid() == false);
 }
 
 // ===========================================================================
@@ -183,54 +166,6 @@ TEST_CASE_METHOD(PlrStateTestFixture, "PLR signal: default is unset", "[plr][sta
     REQUIRE(plr_power_loss_signal() == false);
 }
 
-TEST_CASE_METHOD(PlrStateTestFixture,
-                 "PLR capability: print_stats.power_loss==0 still marks Creality capable",
-                 "[plr][state][creality]") {
-    // This is the normal idle value on a K1C/K2. Gating on the VALUE would make
-    // the backend undetectable until after a probe we would never fire.
-    json status = {{"print_stats", {{"state", "standby"}, {"power_loss", 0}}}};
-    state().update_from_status(status);
-    REQUIRE(plr_power_loss_signal() == true);
-}
-
-TEST_CASE_METHOD(PlrStateTestFixture, "PLR capability: explicit null power_loss is NOT capability",
-                 "[plr][state][creality]") {
-    // Moonraker answers a subscribed-but-unpopulated field with an explicit
-    // null. Treating that as presence would fire the side-effectful Creality
-    // probe at every mainline-Klipper printer.
-    json status = {{"print_stats", {{"state", "standby"}, {"power_loss", nullptr}}}};
-    state().update_from_status(status);
-    REQUIRE(plr_power_loss_signal() == false);
-}
-
-TEST_CASE_METHOD(PlrStateTestFixture, "PLR capability: absent power_loss key is NOT capability",
-                 "[plr][state][creality]") {
-    json status = {{"print_stats", {{"state", "standby"}}}};
-    state().update_from_status(status);
-    REQUIRE(plr_power_loss_signal() == false);
-}
-
-TEST_CASE_METHOD(PlrStateTestFixture, "PLR capability: latches up, survives a status delta",
-                 "[plr][state][creality]") {
-    // Moonraker sends DELTAS: a later print_stats notification carrying only
-    // print_duration has no power_loss key. Capability must not flicker off, or
-    // the offer controller would see a spurious 1->0->1 edge and re-probe.
-    json first = {{"print_stats", {{"state", "standby"}, {"power_loss", 0}}}};
-    state().update_from_status(first);
-    REQUIRE(plr_power_loss_signal() == true);
-
-    json delta = {{"print_stats", {{"print_duration", 12.0}}}};
-    state().update_from_status(delta);
-    REQUIRE(plr_power_loss_signal() == true);
-}
-
-TEST_CASE_METHOD(PlrStateTestFixture, "PLR capability: power_loss==1 is also capability",
-                 "[plr][state][creality]") {
-    json status = {{"print_stats", {{"state", "standby"}, {"power_loss", 1}}}};
-    state().update_from_status(status);
-    REQUIRE(plr_power_loss_signal() == true);
-}
-
 // ===========================================================================
 // Qidi backend - save_variables.variables.was_interrupted
 //
@@ -240,97 +175,6 @@ TEST_CASE_METHOD(PlrStateTestFixture, "PLR capability: power_loss==1 is also cap
 // (the whole `variables` dict arrives when it changes), so a frame without the
 // key must leave the flag alone.
 // ===========================================================================
-
-TEST_CASE_METHOD(PlrStateTestFixture, "Qidi signal: default is not interrupted",
-                 "[plr][state][qidi]") {
-    REQUIRE(qidi_was_interrupted() == false);
-    REQUIRE(qidi_plr_capable() == false);
-}
-
-TEST_CASE_METHOD(PlrStateTestFixture, "Qidi signal: was_interrupted=true parses",
-                 "[plr][state][qidi]") {
-    json status = {
-        {"save_variables", {{"variables", {{"was_interrupted", true}, {"print_temp", 220}}}}}};
-    state().update_from_status(status);
-    REQUIRE(qidi_was_interrupted() == true);
-}
-
-TEST_CASE_METHOD(PlrStateTestFixture, "Qidi signal: was_interrupted=false parses as clear",
-                 "[plr][state][qidi]") {
-    // CLEAR_LAST_FILE's write after a normal end or cancel.
-    json status = {{"save_variables", {{"variables", {{"was_interrupted", false}}}}}};
-    state().update_from_status(status);
-    REQUIRE(qidi_was_interrupted() == false);
-}
-
-TEST_CASE_METHOD(PlrStateTestFixture, "Qidi signal: true then false edge clears",
-                 "[plr][state][qidi]") {
-    json interrupted = {{"save_variables", {{"variables", {{"was_interrupted", true}}}}}};
-    state().update_from_status(interrupted);
-    REQUIRE(qidi_was_interrupted() == true);
-
-    // The discard action (CLEAR_LAST_FILE) must actually drop the flag, or a
-    // reconnect within the same session would re-offer a recovery the user
-    // just refused.
-    json cleared = {{"save_variables", {{"variables", {{"was_interrupted", false}}}}}};
-    state().update_from_status(cleared);
-    REQUIRE(qidi_was_interrupted() == false);
-}
-
-TEST_CASE_METHOD(PlrStateTestFixture, "Qidi signal: non-boolean value is not our signal",
-                 "[plr][state][qidi]") {
-    // save_variables values are Python literals Klipper re-parses; another
-    // type with this name is someone else's variable. Not-available means
-    // never available AND never a clear.
-    json string_val = {{"save_variables", {{"variables", {{"was_interrupted", "True"}}}}}};
-    state().update_from_status(string_val);
-    REQUIRE(qidi_was_interrupted() == false);
-
-    json interrupted = {{"save_variables", {{"variables", {{"was_interrupted", true}}}}}};
-    state().update_from_status(interrupted);
-    REQUIRE(qidi_was_interrupted() == true);
-
-    json number_val = {{"save_variables", {{"variables", {{"was_interrupted", 1}}}}}};
-    state().update_from_status(number_val);
-    REQUIRE(qidi_was_interrupted() == true);
-}
-
-TEST_CASE_METHOD(PlrStateTestFixture, "Qidi signal: explicit nulls leave the default",
-                 "[plr][state][qidi]") {
-    // Moonraker answers a subscribed-but-unpopulated object with an explicit
-    // null; the type checks must reject the whole chain.
-    json status = {{"save_variables", nullptr}};
-    state().update_from_status(status);
-    REQUIRE(qidi_was_interrupted() == false);
-
-    json null_vars = {{"save_variables", {{"variables", nullptr}}}};
-    state().update_from_status(null_vars);
-    REQUIRE(qidi_was_interrupted() == false);
-}
-
-TEST_CASE_METHOD(PlrStateTestFixture, "Qidi signal: a delta without save_variables does not clear",
-                 "[plr][state][qidi]") {
-    json interrupted = {{"save_variables", {{"variables", {{"was_interrupted", true}}}}}};
-    state().update_from_status(interrupted);
-    REQUIRE(qidi_was_interrupted() == true);
-
-    json delta = {{"print_stats", {{"print_duration", 12.0}}}};
-    state().update_from_status(delta);
-    REQUIRE(qidi_was_interrupted() == true);
-}
-
-TEST_CASE_METHOD(PlrStateTestFixture, "Qidi signal: variables without the key does not clear",
-                 "[plr][state][qidi]") {
-    // Another SAVE_VARIABLE rewrites the whole dict; a missing was_interrupted
-    // key is not evidence the print was not interrupted.
-    json interrupted = {{"save_variables", {{"variables", {{"was_interrupted", true}}}}}};
-    state().update_from_status(interrupted);
-    REQUIRE(qidi_was_interrupted() == true);
-
-    json other_var = {{"save_variables", {{"variables", {{"bed_temp", 60}}}}}};
-    state().update_from_status(other_var);
-    REQUIRE(qidi_was_interrupted() == true);
-}
 
 // The disconnect-edge reset of these subjects is covered at the controller
 // level in test_plr_offer_preparing.cpp: a reset performed by the test itself

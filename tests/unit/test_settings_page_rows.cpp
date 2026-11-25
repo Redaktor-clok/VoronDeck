@@ -83,8 +83,7 @@ TEST_CASE_METHOD(PageRowsFixture, "settings pages: every row lives on its page",
          {"row_dark_mode", "row_theme_settings", "row_animations", "row_widget_labels",
           "row_bed_mesh_mode"}},
         {"settings_sound_overlay",
-         {"row_sounds", "row_volume", "row_ui_sounds", "row_sound_theme", "row_audio_device",
-          "row_preview_sounds", "row_test_tracker"}},
+         {"row_sounds", "row_volume", "row_sound_theme", "row_audio_device", "row_preview_sounds"}},
         {"settings_language_time_overlay", {"row_language", "row_timezone", "row_time_format"}},
         {"settings_touch_overlay",
          {"row_system_keyboard", "row_keep_navbar", "row_page_scroll_buttons"}},
@@ -94,7 +93,8 @@ TEST_CASE_METHOD(PageRowsFixture, "settings pages: every row lives on its page",
          {"row_remote_screen", "row_remote_webcam", "row_remote_control", "row_remote_pair_code",
           "row_remote_forget"}},
         {"settings_updates_overlay",
-         {"row_vorondeck_check", "vorondeck_update_status", "row_component_updates"}},
+         {"row_stable_release", "row_test_release", "row_beta_release", "vorondeck_update_status",
+          "row_component_updates"}},
     };
     for (const auto& p : placements) {
         build(p.view);
@@ -108,13 +108,12 @@ TEST_CASE_METHOD(PageRowsFixture, "settings pages: every row lives on its page",
 TEST_CASE_METHOD(PageRowsFixture,
                  "settings pages: each plugin feature's switch is on the page the overview opens",
                  "[settings][settings_pages][plugin_feature]") {
-    // PluginFeatureHome: Devices, Safety, System > Storage, Spoolman.
+    // PluginFeatureHome: Devices, Safety, System, Spoolman.
     const std::vector<Placement> placements = {
         {"settings_hardware_overlay", {"row_print_photos"}},
         {"settings_safety_overlay", {"row_fit_check_blocks_autostart"}},
         {"settings_system_overlay", {"row_storage"}},
         {"spoolman_settings", {"row_filament_accounting"}},
-        {"settings_storage_overlay", {"row_storage_auto_cleanup"}},
     };
     for (const auto& p : placements) {
         build(p.view);

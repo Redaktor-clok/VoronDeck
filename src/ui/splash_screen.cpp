@@ -7,6 +7,7 @@
 
 #include "helix_timing.h"
 #include "helix_version.h"
+#include "splash_branding.h"
 #include "theme_manager.h"
 
 #include <spdlog/spdlog.h>
@@ -28,12 +29,9 @@ void show_splash_screen(int screen_width, int screen_height) {
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
     const bool dark_mode = theme_manager_is_dark_mode();
-    // Native text stays sharp at every panel size and never falls back to upstream artwork.
-    lv_obj_t* splash_widget = lv_label_create(screen);
-    lv_label_set_text(splash_widget, "VoronDeck");
-    lv_obj_set_style_text_font(splash_widget, theme_manager_get_font("font_heading"), 0);
-    lv_obj_set_style_text_color(splash_widget, theme_manager_get_color("text"), LV_PART_MAIN);
-    lv_obj_center(splash_widget);
+    lv_obj_t* splash_widget =
+        create_splash_branding(screen, screen_width, screen_height, theme_manager_get_color("text"),
+                               theme_manager_get_font("font_heading"));
     lv_obj_set_style_opa(splash_widget, LV_OPA_TRANSP, LV_PART_MAIN);
 
     // Version number in upper-left corner (subtle, theme-aware)

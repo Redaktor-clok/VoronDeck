@@ -100,6 +100,7 @@ jobs:
           python -m pytest -q --junitxml=build/quality/regressions.xml \
             .github/actions/tests/ tests/test_vorondeck_update_check.py \
             tests/test_vorondeck_public_releases.py \
+            tests/test_vorondeck_updater_repair.py \
             tests/test_vorondeck_updates_setup.py tests/test_moonraker_vorondeck.py \
             tests/python/test_vorondeck_distribution.py \
             tests/python/test_vorondeck_installer_linux.py \

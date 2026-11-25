@@ -202,12 +202,6 @@ class AmsBackendToolChanger : public AmsSubscriptionBackend {
     /// until an Unload of it completes; nullopt otherwise.
     [[nodiscard]] std::optional<bool> head_has_filament(int head) const override;
 
-    /// Z-Mod's Creator 5 has no automatic unload: the user cuts the filament at
-    /// the head and pulls it out by hand.
-    [[nodiscard]] bool unload_is_manual() const override {
-        return zmod_c5_row_active();
-    }
-
     [[nodiscard]] helix::ui::LaneNoun lane_noun() const override {
         return helix::ui::LaneNoun::Tool;
     }
@@ -497,16 +491,6 @@ class AmsBackendToolChanger : public AmsSubscriptionBackend {
     /// Dock-sensor reader. When set, its answer overrides toolchanger.tool_number.
     void set_tool_sensor(helix::toolchanger_addon::ToolSensor sensor) {
         tool_sensor_ = std::move(sensor);
-        // The Z-Mod row's phase source is gcode-response markers, and its
-        // markers name the direction by construction (Grab/_T_IN is a pick,
-        // Unload/_T_OUT is a dock). The direction capability is therefore known
-        // from the provider row itself, not only once a marker arrives — which
-        // matters because the step bar snapshots this latch when it is built,
-        // and a bar built at dispatch time (before the macro's first marker)
-        // would otherwise pin a direction-less, suppressed sequence forever.
-        if (zmod_c5_row_active()) {
-            direction_reported_ = true;
-        }
     }
     /// Swap commands for a machine without klipper-toolchanger. Absent leaves
     /// SELECT_TOOL/UNSELECT_TOOL in place.
@@ -797,20 +781,6 @@ class AmsBackendToolChanger : public AmsSubscriptionBackend {
     /// "Tool 3 (T2)" for a valid @p target. Caller holds mutex_.
     [[nodiscard]] std::string target_tool_label_locked(int target) const;
 
-    /// Z-Mod's Creator 5 row narrates its swaps through gcode-response markers
-    /// (toolchanger_addon::parse_zmod_marker) rather than a status object, so
-    /// on_started() subscribes notify_gcode_response for that row alone and
-    /// on_stopping() tears the subscription down.
-    void register_zmod_marker_listener();
-    void unregister_zmod_marker_listener();
-    /// Main-thread half of the marker listener: classifies the line and folds a
-    /// matching marker into the same phase machinery a status frame drives.
-    void on_zmod_marker_line(const std::string& line);
-    /// Whether the active provider row is Z-Mod's Creator 5 changer.
-    [[nodiscard]] bool zmod_c5_row_active() const {
-        return tool_sensor_.present &&
-               tool_sensor_.provider_name == toolchanger_addon::kZmodC5ProviderName;
-    }
     /// Fold one afclite status frame in: fault flag to the error surface,
     /// activity word and lane map to the log.
     void apply_afc_state_locked(const helix::toolchanger_addon::AfcStateReading& afc);
@@ -818,10 +788,6 @@ class AmsBackendToolChanger : public AmsSubscriptionBackend {
     /// lane_data re-read. Caller holds mutex_.
     void
     apply_afc_lane_spools_locked(const std::vector<helix::toolchanger_addon::AfcLaneSpool>& spools);
-    /// Ask Z-Mod where every tool sits (T_INFO is read-only). Its answer fixes
-    /// the boot state on firmware whose active_tool_id only recomputes inside
-    /// its own commands.
-    void query_zmod_tool_state();
 
   private:
     /// Feeder this machine exposes; absent unless set_feeder() said otherwise.
@@ -867,11 +833,9 @@ class AmsBackendToolChanger : public AmsSubscriptionBackend {
     std::string last_lane_map_logged_;
     /// Whether the printer's macro list carries T_INFO (the read-only tool
     /// state query Z-Mod ships on the C5).
-    bool tinfo_macro_present_ = false;
     /// Whether the T_INFO block currently in flight on the console has named a
     /// HEAD row; the block-end line is what turns "no HEAD row" into "the
     /// carriage is empty".
-    bool tinfo_block_saw_head_ = false;
     /// Frame-side gripper, and whether this machine reports it AT ALL. The
     /// second flag is what get_operation_step_model() keys on: a controller that
     /// publishes feeder_open earns the release/grip steps, and a machine that

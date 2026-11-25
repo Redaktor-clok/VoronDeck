@@ -125,14 +125,6 @@ class ToolChangerTestAccess {
         return b.feed_last_toast_severity_;
     }
 
-    /// Deliver one gcode-response line to the Z-Mod marker handler, the
-    /// main-thread half the notify_gcode_response listener drives on a real
-    /// client. The listener itself needs a client, which the unit-test helper
-    /// does not wire.
-    static void feed_zmod_marker(AmsBackendToolChanger& b, const std::string& line) {
-        b.on_zmod_marker_line(line);
-    }
-
     /// The controller's latched phase word.
     static std::string last_operation_word(const AmsBackendToolChanger& b) {
         std::lock_guard<std::mutex> lock(b.mutex_);

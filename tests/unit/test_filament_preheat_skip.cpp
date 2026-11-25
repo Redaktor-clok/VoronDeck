@@ -22,9 +22,7 @@
 
 #include "../lvgl_test_fixture.h"
 #include "ams_backend_afc.h"
-#include "ams_backend_cfs.h"
 #include "ams_backend_happy_hare.h"
-#include "ams_backend_snapmaker.h"
 #include "ams_backend_toolchanger.h"
 #include "filament_macro_profiles.h"
 #include "filament_op_dispatch.h"
@@ -93,17 +91,9 @@ struct PreheatSkipFixture : public LVGLTestFixture {
 // Which macro names carry the "heats itself" claim
 // ============================================================================
 
-TEST_CASE("macro_heats_hotend: QIDI's stock load/unload heat in their own body",
-          "[filament][preheat]") {
-    // M604 sets the hotend with `M104 S{hotendtemp}`; M603 heats before it
-    // retracts, which is why AmsBackendQidi drives it as `M603 S<temp>`.
-    REQUIRE(helix::filament_macros::macro_heats_hotend("M604"));
-    REQUIRE(helix::filament_macros::macro_heats_hotend("M603"));
-}
-
-TEST_CASE("macro_heats_hotend: Klipper macro names are case-insensitive", "[filament][preheat]") {
-    REQUIRE(helix::filament_macros::macro_heats_hotend("m604"));
-    REQUIRE(helix::filament_macros::macro_heats_hotend("m603"));
+TEST_CASE("macro_heats_hotend: retired stock macros do not claim heating", "[filament][preheat]") {
+    REQUIRE_FALSE(helix::filament_macros::macro_heats_hotend("m604"));
+    REQUIRE_FALSE(helix::filament_macros::macro_heats_hotend("m603"));
 }
 
 TEST_CASE("macro_heats_hotend: a generic name proves nothing about the body",
@@ -180,25 +170,6 @@ TEST_CASE_METHOD(PreheatSkipFixture, "preheat_skip_reason: a backend that does n
                                            nullptr) == PreheatSkip::None);
 }
 
-TEST_CASE_METHOD(PreheatSkipFixture, "preheat_skip_reason: a self-heating macro, tier 2 only",
-                 "[filament][preheat]") {
-    // A QIDI whose op has fallen through to the macro tier: M604 is what runs,
-    // and it commands its own temperature. Preheating in front of it makes the
-    // user wait twice and settles on OUR material temp first.
-    detect_with({"M604"});
-    REQUIRE(StandardMacros::instance().get(StandardMacroSlot::LoadFilament).get_macro() == "M604");
-
-    REQUIRE(helix::ui::preheat_skip_reason(plan_at(FilamentTier::Macro),
-                                           StandardMacroSlot::LoadFilament,
-                                           nullptr) == PreheatSkip::MacroSelfHeats);
-
-    // Not on the raw-gcode fallback: a bare G1 E move needs the hotend above
-    // min_extrude_temp or Klipper rejects it, and no macro runs there to heat.
-    REQUIRE(helix::ui::preheat_skip_reason(plan_at(FilamentTier::RawGcode),
-                                           StandardMacroSlot::LoadFilament,
-                                           nullptr) == PreheatSkip::None);
-}
-
 TEST_CASE_METHOD(PreheatSkipFixture, "preheat_skip_reason: an ordinary macro still preheats",
                  "[filament][preheat]") {
     detect_with({"LOAD_FILAMENT"});
@@ -212,7 +183,7 @@ TEST_CASE_METHOD(PreheatSkipFixture, "preheat_skip_reason: a refused plan heats 
     // Nothing is about to run, so there is nothing to be redundant with. The
     // caller returns on the refusal before it ever asks, but answering None here
     // keeps "skip" from ever meaning "dispatch".
-    detect_with({"M604"});
+    detect_with({"LOAD_FILAMENT"});
     REQUIRE(helix::ui::preheat_skip_reason(plan_at(FilamentTier::Refused),
                                            StandardMacroSlot::LoadFilament,
                                            nullptr) == PreheatSkip::None);
@@ -277,8 +248,8 @@ TEST_CASE_METHOD(PreheatSkipFixture,
 TEST_CASE_METHOD(PreheatSkipFixture, "needs_prerequisite_home: a macro carrying its own home",
                  "[filament][preheat][homing]") {
     // M604 opens with _CG28, so a G28 of ours in front of it adds nothing.
-    detect_with({"M604"});
-    REQUIRE_FALSE(helix::filament_macros::macro_needs_home_first("M604"));
+    detect_with({"LOAD_FILAMENT"});
+    REQUIRE_FALSE(helix::filament_macros::macro_needs_home_first("LOAD_FILAMENT"));
     REQUIRE_FALSE(helix::ui::needs_prerequisite_home(plan_at(FilamentTier::Macro),
                                                      StandardMacroSlot::LoadFilament, nullptr,
                                                      /*toolhead_homed=*/false));
@@ -329,29 +300,5 @@ TEST_CASE_METHOD(PreheatSkipFixture, "preheat_skip_reason: an unload answers to 
     REQUIRE_FALSE(changer.supports_auto_heat_on_unload());
     FilamentOpPlan load = plan_at(FilamentTier::AmsBackend);
     CHECK(helix::ui::preheat_skip_reason(load, StandardMacroSlot::LoadFilament, &changer) ==
-          PreheatSkip::None);
-}
-
-TEST_CASE_METHOD(PreheatSkipFixture, "preheat_skip_reason: an unload claim is per unload",
-                 "[filament][preheat][skip]") {
-    FilamentOpPlan unload = plan_at(FilamentTier::AmsBackend);
-    unload.ams_call = helix::ui::AmsCall::Unload;
-
-    // No CFS unload script we send heats; the bypass one ends in a raw retract.
-    helix::printer::AmsBackendCfs cfs(nullptr, nullptr);
-    unload.ams_arg = helix::ui::kExternalSpoolSlot;
-    CHECK(helix::ui::preheat_skip_reason(unload, StandardMacroSlot::UnloadFilament, &cfs) ==
-          PreheatSkip::None);
-    unload.ams_arg = 0;
-    CHECK(helix::ui::preheat_skip_reason(unload, StandardMacroSlot::UnloadFilament, &cfs) ==
-          PreheatSkip::None);
-
-    // The U1's AUTO_FEEDING unload heats; with no slot to name it falls back to
-    // the bare INNER_FILAMENT_UNLOAD leaf, which does not.
-    helix::AmsBackendSnapmaker u1(nullptr, nullptr);
-    CHECK(u1.unload_heats_hotend(0));
-    CHECK_FALSE(u1.unload_heats_hotend(-1)); // nothing loaded to resolve
-    unload.ams_arg = -1;
-    CHECK(helix::ui::preheat_skip_reason(unload, StandardMacroSlot::UnloadFilament, &u1) ==
           PreheatSkip::None);
 }

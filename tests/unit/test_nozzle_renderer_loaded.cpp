@@ -4,8 +4,6 @@
 #include "../test_fixtures.h"
 #include "nozzle_renderer_a4t.h"
 #include "nozzle_renderer_bambu.h"
-#include "nozzle_renderer_creality_k1.h"
-#include "nozzle_renderer_creality_k2.h"
 #include "nozzle_renderer_jabberwocky.h"
 #include "nozzle_renderer_stealthburner.h"
 
@@ -51,8 +49,6 @@ TEST_CASE_METHOD(XMLTestFixture, "Nozzle tip shows loaded black and grey filamen
     } renderers[] = {
         {"a4t", draw_nozzle_a4t},
         {"bambu", draw_nozzle_bambu},
-        {"creality_k1", draw_nozzle_creality_k1},
-        {"creality_k2", draw_nozzle_creality_k2},
         {"jabberwocky", draw_nozzle_jabberwocky},
         {"stealthburner", draw_nozzle_stealthburner},
     };

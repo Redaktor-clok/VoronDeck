@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from urllib.error import HTTPError
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('public_releases', ROOT / 'assets/updates/vorondeck_public_releases.py')
@@ -53,6 +54,10 @@ class PublicReleases(unittest.TestCase):
         self.assertLess(public.version_key('1.0.2-T.9'), public.version_key('1.0.2-T.10'))
         self.assertLess(public.version_key('1.0.2-T.10'), public.version_key('1.0.2'))
         self.assertIsNone(self.latest('1.0.2'))
+
+    def test_channel_discovery_without_installed_version_filter(self):
+        self.assertEqual(self.latest(None)['version'], '1.0.2-T.1')
+        self.assertIsNone(self.latest('1.0.2-beta.2'))
 
     def test_draft_and_stable_entries_are_not_test_offers(self):
         for change in ({'draft': True}, {'prerelease': False}, {'tag_name': 'v1.0.2'}):
@@ -122,6 +127,42 @@ class PublicReleases(unittest.TestCase):
         self.index['packages'] = []
         self.assertIsNone(self.latest())
         self.assertEqual(len(self.calls), 6)
+
+
+    def limited_read(self, url, limit):
+        if url.startswith(public.API):
+            raise HTTPError(url, 403, 'rate limit', {}, None)
+        if url.endswith('/releases.atom'):
+            return ('<feed xmlns="http://www.w3.org/2005/Atom"><entry><link href="https://github.com/' +
+                    public.REPO + '/releases/tag/v1.0.2-T.1"/></entry></feed>').encode()
+        if '/expanded_assets/' in url:
+            return ('<a href="/' + public.REPO + '/releases/download/v1.0.2-T.1/release.json">index</a>' +
+                    '<a href="/' + public.REPO + '/releases/download/v1.0.2-T.1/' +
+                    Path(self.package['path']).name + '">archive</a>').encode()
+        return self.read(url, limit)
+
+    def test_rate_limit_fallback_and_exact_selection(self):
+        offer = public.latest('aarch64', 'glibc', '1.0.1', self.limited_read)
+        self.assertEqual(offer['version'], '1.0.2-T.1')
+        self.assertEqual(public.selected(offer, 'aarch64', 'glibc', '1.0.1', self.limited_read), offer)
+        self.package['sha256'] = 'e' * 64
+        with self.assertRaises(ValueError):
+            public.selected(offer, 'aarch64', 'glibc', '1.0.1', self.limited_read)
+
+    def test_fallback_rejects_missing_archive_and_stable_index(self):
+        def missing(url, limit):
+            if '/expanded_assets/' in url:
+                return ('<a href="/' + public.REPO + '/releases/download/v1.0.2-T.1/release.json">index</a>').encode()
+            return self.limited_read(url, limit)
+        self.assertIsNone(public.latest('aarch64', 'glibc', '1.0.1', missing))
+        self.index['channel'] = 'stable'
+        self.assertIsNone(public.latest('aarch64', 'glibc', '1.0.1', self.limited_read))
+
+    def test_feed_is_bounded_and_external_tags_ignored(self):
+        self.assertEqual(public.published_tags(lambda *_: b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><link href="https://other/releases/tag/v9.0.0-T.1"/></entry></feed>'), set())
+        for data in (b'bad xml', b'<!DOCTYPE feed><feed/>', b'<html/>'):
+            with self.assertRaises(ValueError):
+                public.published_tags(lambda *_: data)
 
 
 if __name__ == '__main__':

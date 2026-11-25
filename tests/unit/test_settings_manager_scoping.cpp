@@ -43,7 +43,6 @@
 
 #include "../helix_test_fixture.h"
 #include "../test_helpers/config_test_access.h"
-#include "ams_backend_cfs.h"
 #include "ams_state.h"
 #include "config.h"
 #include "settings_manager.h"
@@ -666,15 +665,16 @@ TEST_CASE_METHOD(SettingsScopeFixture,
     SECTION("the database names the style") {
         CHECK(effective("PFA Micron") == ToolheadStyle::ANTHEAD);
         CHECK(effective("PFA Stealthfork") == ToolheadStyle::ANTHEAD);
-        CHECK(effective("Creality K1") == ToolheadStyle::CREALITY_K1);
+        CHECK(effective("Creality K1") == ToolheadStyle::DEFAULT);
         CHECK(effective("Voron 2.4") == ToolheadStyle::DEFAULT);
     }
 
-    SECTION("a backend hint applies only where the database has no style") {
-        AmsState::instance().set_backend(
-            std::make_unique<helix::printer::AmsBackendCfs>(nullptr, nullptr));
-        CHECK(effective("Some Custom Printer") == ToolheadStyle::CREALITY_K2);
-        CHECK(effective("PFA Micron") == ToolheadStyle::ANTHEAD);
+    SECTION("saved retired styles use the default renderer without changing settings") {
+        for (const auto style : {ToolheadStyle::CREALITY_K1, ToolheadStyle::CREALITY_K2}) {
+            sm.set_toolhead_style(style);
+            CHECK(sm.get_effective_toolhead_style() == ToolheadStyle::DEFAULT);
+            CHECK(sm.get_toolhead_style() == style);
+        }
     }
 
     AmsState::instance().set_backend(nullptr);

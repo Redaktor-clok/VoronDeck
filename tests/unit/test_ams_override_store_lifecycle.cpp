@@ -21,12 +21,10 @@
 
 #include "ui_update_queue.h"
 
-#include "../test_helpers/ace_test_access.h"
 #include "../test_helpers/afc_test_access.h"
 #include "../test_helpers/backend_user_edit.h"
 #include "../test_helpers/happy_hare_test_access.h"
 #include "../test_helpers/mock_printer.h"
-#include "ams_backend_ace.h"
 #include "ams_backend_afc.h"
 #include "ams_backend_happy_hare.h"
 #include "ams_types.h"
@@ -201,49 +199,6 @@ class StoreBackedAfc : public helix::AmsBackendAfc {
         nlohmann::json notification;
         notification["params"] = nlohmann::json::array({params, 0.0});
         helix::AfcTestAccess::handle_status_update(*this, notification);
-    }
-};
-
-class StoreBackedAce : public helix::AmsBackendAce {
-  public:
-    /// Unlike the AFC and Happy Hare fixtures above, this one needs a client:
-    /// AmsBackendAce::on_started() sends its Klipper query through client_
-    /// without a null guard.
-    StoreBackedAce(helix::IMoonrakerAPI* api, helix::IMoonrakerClient* client)
-        : helix::AmsBackendAce(api, client) {
-        running_ = true;
-    }
-
-    ~StoreBackedAce() override {
-        helix::ui::UpdateQueue::instance().drain();
-    }
-
-    helix::AmsError execute_gcode(const std::string&) override {
-        return helix::AmsErrorHelper::success();
-    }
-    helix::AmsError execute_gcode(const std::string&, helix::SharedCallback<void()>) override {
-        return helix::AmsErrorHelper::success();
-    }
-
-    /// The REAL on_started(), which is where the backend acquires its loaded
-    /// store.
-    using helix::AmsBackendAce::on_started;
-
-    /// A filament_hub frame stating each bay's own status, colour and type.
-    /// The hub reports no identity of its own, so what it carries here is its
-    /// memory of what was last in the bay, which the backend files as a vendor
-    /// cache.
-    void feed_hub_bays(const std::vector<std::tuple<std::string, uint32_t, std::string>>& bays) {
-        nlohmann::json slots = nlohmann::json::array();
-        for (const auto& [status, rgb, material] : bays) {
-            slots.push_back(nlohmann::json{
-                {"status", status},
-                {"color",
-                 nlohmann::json::array({(rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF})},
-                {"type", material}});
-        }
-        helix::AceTestAccess::parse_ace(
-            *this, nlohmann::json{{"model", "ACE Pro"}, {"status", "ready"}, {"slots", slots}});
     }
 };
 
@@ -499,41 +454,6 @@ TEST_CASE("Happy Hare keeps the material and colour the user typed when the gate
                                  {0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000});
 
         const auto slot = fresh.get_slot_info(1);
-        CHECK(slot.material == "PETG");
-        CHECK(slot.color_rgb == 0x1E5AA8u);
-    }
-}
-
-TEST_CASE("ACE keeps the material and colour the user typed when the hub disagrees after a restart",
-          "[ams][ace][filament_slot_override]") {
-    ScopedOverrideCacheDir cache("ace_authorship");
-    MockPrinter mock_printer;
-    auto& client = mock_printer.client;
-    auto& api = mock_printer.api;
-
-    const std::vector<std::tuple<std::string, uint32_t, std::string>> hub_says_red_pla{
-        {"ready", 0xFF0000, "PLA"},
-        {"empty", 0x000000, ""},
-        {"empty", 0x000000, ""},
-        {"empty", 0x000000, ""},
-    };
-
-    {
-        helix::test::RegisteredBackend<StoreBackedAce> ace_reg(&api, &client);
-        StoreBackedAce& ace = *ace_reg;
-        ace.on_started();
-        ace.feed_hub_bays(hub_says_red_pla);
-        REQUIRE(helix::test::apply_edit(ace, 0, unlinked_user_edit()).success());
-    }
-
-    {
-        helix::test::RegisteredBackend<StoreBackedAce> fresh_reg(&api, &client);
-        StoreBackedAce& fresh = *fresh_reg;
-        fresh.on_started();
-
-        fresh.feed_hub_bays(hub_says_red_pla);
-
-        const auto slot = fresh.get_slot_info(0);
         CHECK(slot.material == "PETG");
         CHECK(slot.color_rgb == 0x1E5AA8u);
     }

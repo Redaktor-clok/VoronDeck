@@ -22,7 +22,6 @@
 // those predicates are now unconditional. Prefer fixing the data over adding an
 // allowlist back; an allowlist that outlives its fix is just a slower drift.
 
-#include "ams_backend_ad5x_ifs.h"
 #include "ams_backend_mock.h"
 #include "filament_catalog.h"
 #include "filament_database.h"
@@ -525,25 +524,6 @@ TEST_CASE("MATERIALS - names survive JSON and Orca string matching",
 // Cross-consumer guards — independent hardcoded lists that drift apart
 // ============================================================================
 
-#if HELIX_HAS_IFS
-TEST_CASE("AD5X firmware material whitelist all resolves", "[filament][database][invariant]") {
-    // Derived from AmsBackendAd5xIfs::kStockWhitelist — the same array
-    // get_supported_materials() seeds from, so this cannot drift from the thing it
-    // guards. The stock AD5X firmware rejects anything outside the list, so these
-    // are the only types that printer's picker can offer. If one stops resolving in
-    // Layer A it inherits a 0 °C bed and no drying data, and the picker breaks.
-    for (const auto* type : helix::AmsBackendAd5xIfs::kStockWhitelist) {
-        INFO("AD5X whitelist type: " << type);
-        auto mat = find_material(type);
-        REQUIRE(mat.has_value());
-        CHECK(mat->nozzle_min > 0);
-        CHECK(mat->bed_temp > 0);
-        CHECK(mat->density_g_cm3 > 0.0f);
-        CHECK(std::string_view(mat->compat_group) != "");
-    }
-}
-#endif // HELIX_HAS_IFS
-
 TEST_CASE("DEFAULT_PRESET_MATERIALS all resolve", "[filament][database][invariant]") {
     // include/material_settings_manager.h — the four types the settings UI seeds
     // temperature-override presets for.
@@ -584,8 +564,6 @@ TEST_CASE_METHOD(HelixTestFixture, "every mock-backend fixture material resolves
         {"mixed_topology", [](helix::AmsBackendMock& b) { b.set_mixed_topology_mode(true); }},
         {"vivid_mixed", [](helix::AmsBackendMock& b) { b.set_vivid_mixed_mode(true); }},
         {"htlf_toolchanger", [](helix::AmsBackendMock& b) { b.set_htlf_toolchanger_mode(true); }},
-        {"ifs", [](helix::AmsBackendMock& b) { b.set_ifs_mode(true); }},
-        {"snapmaker", [](helix::AmsBackendMock& b) { b.set_snapmaker_mode(true); }},
     };
 
     size_t checked = 0;

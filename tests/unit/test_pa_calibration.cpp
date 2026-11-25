@@ -49,9 +49,6 @@ PrinterDiscovery with_objects(const std::vector<std::string>& objects) {
 
 /// A Snapmaker U1 as its object list reports it: the flow calibrator has no
 /// status object, filament_parameters (which it depends on) does.
-PrinterDiscovery u1() {
-    return with_objects({"extruder", "filament_parameters"});
-}
 
 } // namespace
 
@@ -71,98 +68,16 @@ TEST_CASE("PA calibration is unsupported on a printer with no measuring firmware
     REQUIRE_FALSE(pacal::procedure_for(hw, 0, 245).has_value());
 }
 
-TEST_CASE("PA calibration recognises the U1 by its filament_parameters object",
-          "[pa_calibration]") {
-    REQUIRE_FALSE(pacal::is_supported(with_objects({"extruder", "toolchanger"})));
-
-    const PrinterDiscovery hw = u1();
-    REQUIRE(pacal::is_supported(hw));
-    REQUIRE_FALSE(pacal::provider_name(hw).empty());
-    REQUIRE(pacal::is_per_tool(hw));
-}
-
-TEST_CASE("U1 procedure runs FLOW_CALIBRATE at the chosen temperature", "[pa_calibration]") {
-    // SM_PRINT_FLOW_CALIBRATE is the print-job wrapper and returns without a
-    // word outside a print, so the screen must drive FLOW_CALIBRATE itself.
-    const auto p = pacal::procedure_for(u1(), 2, 245).value();
-    REQUIRE(p.start_gcode == "FLOW_CALIBRATE TEMP=245");
-    REQUIRE(p.command_word == "FLOW_CALIBRATE");
-    REQUIRE(p.applies_result);
-}
-
-TEST_CASE("U1 patterns match the flow calibrator's own lines", "[pa_calibration]") {
-    const auto proc = pacal::procedure_for(u1(), 0, 245).value();
-    const std::regex result_re(proc.result_pattern);
-    const std::regex attempt_re(proc.attempt_pattern);
-    const std::regex failure_re(proc.failure_pattern);
-    std::smatch m;
-
-    // Lines copied from flow_calibrator.py's format strings.
-    const std::string candidate = "measure k: 0.02000";
-    REQUIRE(std::regex_search(candidate, m, attempt_re));
-    REQUIRE(m[1].str() == "0.02000");
-    REQUIRE_FALSE(std::regex_search(candidate, m, result_re));
-
-    const std::string result = "Got pressure advance: 0.0412";
-    REQUIRE(std::regex_search(result, m, result_re));
-    REQUIRE(m[1].str() == "0.0412");
-
-    // A SET_PRESSURE_ADVANCE echo is not this firmware's result.
-    const std::string echo = "pressure_advance: 0.041200";
-    REQUIRE_FALSE(std::regex_search(echo, result_re));
-
-    const std::string out_of_range = "flow k is out of range, use default value:0.02";
-    const std::string aborted = "abort calibration: filament runout";
-    REQUIRE(std::regex_search(out_of_range, failure_re));
-    REQUIRE(std::regex_search(aborted, failure_re));
-    REQUIRE_FALSE(std::regex_search(result, failure_re));
-}
-
-TEST_CASE("PA calibration detects a firmware advertised by printer object", "[pa_calibration]") {
-    // FF_PA_CALIBRATE is registered by the [ff_pa] klippy extra, so it never
-    // appears as a gcode_macro - only as the extra's config-section object.
-    PrinterDiscovery hw = with_objects({"extruder", "toolchanger"});
-    REQUIRE_FALSE(pacal::is_supported(hw));
-
-    hw.set_printer_objects({"extruder", "toolchanger", "ff_pa"});
-    REQUIRE(pacal::is_supported(hw));
-    REQUIRE(pacal::is_per_tool(hw));
-
-    auto p2 = pacal::procedure_for(hw, 2, 245);
-    REQUIRE(p2.has_value());
-    REQUIRE(p2->start_gcode == "FF_PA_CALIBRATE TOOL=2");
-    REQUIRE(p2->command_word == "FF_PA_CALIBRATE");
-    REQUIRE_FALSE(p2->applies_result);
-}
-
-TEST_CASE("FlashForge result pattern skips the sweep's candidate echoes", "[pa_calibration]") {
-    PrinterDiscovery hw = with_objects({"extruder"});
-    hw.set_printer_objects({"extruder", "ff_pa"});
-    const auto proc = pacal::procedure_for(hw, 0, 245).value();
-
-    const std::regex result_re(proc.result_pattern);
-    const std::regex attempt_re(proc.attempt_pattern);
-
-    // Every candidate the sweep tries is installed through Klipper's
-    // SET_PRESSURE_ADVANCE, which echoes this ':' shape. Reading it as the
-    // result would finish the run on the FIRST candidate - it must only ever
-    // count as progress.
-    const std::string echo = "// pressure_advance: 0.010000";
-    std::smatch m;
-    REQUIRE_FALSE(std::regex_search(echo, m, result_re));
-    REQUIRE(std::regex_search(echo, m, attempt_re));
-    REQUIRE(m[1].str() == "0.010000");
-
-    // The real result is the '=' line FF_PA_CALIBRATE prints once, at the end.
-    const std::string final_line =
-        "// ff_pa: T0 pressure_advance = 0.021667   (mean of 3 sweep winners:"
-        " 0.0200, 0.0250, 0.0200)";
-    REQUIRE(std::regex_search(final_line, m, result_re));
-    REQUIRE(m[1].str() == "0.021667");
+TEST_CASE("Retired firmware objects do not offer automatic PA calibration", "[pa_calibration]") {
+    for (const char* object : {"filament_parameters", "ff_pa"}) {
+        const auto hw = with_objects({"extruder", object});
+        REQUIRE_FALSE(pacal::is_supported(hw));
+        REQUIRE_FALSE(pacal::procedure_for(hw, 0, 245));
+    }
 }
 
 TEST_CASE("PA plausibility band brackets a healthy direct-drive value", "[pa_calibration]") {
-    const PrinterDiscovery hw = u1();
+    const PrinterDiscovery hw = with_objects({"extruder"});
 
     const auto range = pacal::sane_range(hw);
     REQUIRE(range.low < range.high);
@@ -187,8 +102,15 @@ class PACalibrateTestFixture : public LVGLTestFixture {
         state_.set_klippy_state_sync(helix::KlippyState::READY);
         api_ = std::make_unique<MoonrakerAPI>(mock_client_, state_);
 
-        hw_ = u1();
-        proc_ = pacal::procedure_for(hw_, 0, 245).value();
+        proc_.provider = "Test measuring macro";
+        proc_.start_gcode = "TEST_PA_MEASURE";
+        proc_.command_word = "TEST_PA_MEASURE";
+        proc_.result_pattern = R"(Got pressure advance:\s*([0-9]*\.?[0-9]+))";
+        proc_.attempt_pattern = R"(measure k:\s*([0-9]*\.?[0-9]+))";
+        proc_.failure_pattern = "flow k is out of range|abort calibration:";
+        proc_.expected_attempts = 5;
+        proc_.applies_result = true;
+        proc_.timeout_ms = 600000;
     }
     ~PACalibrateTestFixture() {
         api_.reset();
@@ -267,13 +189,13 @@ TEST_CASE_METHOD(PACalibrateTestFixture,
                  "PA collector reports a missing command as a capability problem",
                  "[pa_collector]") {
     start();
-    say("!! Unknown command:\"FLOW_CALIBRATE\"");
+    say("!! Unknown command:\"TEST_PA_MEASURE\"");
 
     REQUIRE(error_received_.load());
     REQUIRE_FALSE(result_received_.load());
     // The message has to say the printer cannot do this, not that the run went
     // wrong: they call for completely different things from the user.
-    REQUIRE(captured_error_.find("FLOW_CALIBRATE") != std::string::npos);
+    REQUIRE(captured_error_.find("TEST_PA_MEASURE") != std::string::npos);
 }
 
 TEST_CASE_METHOD(PACalibrateTestFixture, "PA collector ends on the firmware's own failure line",

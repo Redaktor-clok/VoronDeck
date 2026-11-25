@@ -3573,47 +3573,14 @@ void UpdateChecker::detach(helix::IMoonrakerClient& client) {
 }
 
 void UpdateChecker::start_auto_check() {
-    // Firmware-managed devices own updates externally — nothing to schedule. A
-    // non-writable install tree still auto-checks: the notification tells the user
-    // a newer version exists, which on that layout is the only prompt they will
-    // ever get to go re-run the installer.
-    if (update_checks_suppressed()) {
-        spdlog::info("[UpdateChecker] Auto-check disabled: updates are firmware-managed");
-        return;
-    }
-
+    // The installer disables the inherited updater. VoronDeck's read-only package
+    // checks must still run; installation remains an explicit Moonraker action.
     if (auto_check_timer_) {
         spdlog::debug("[UpdateChecker] Auto-check timer already running");
         return;
     }
 
-    // A machine that can check but cannot install. Report it: this state shipped
-    // in v0.99.96 and was found in v0.99.113 only because one user kept pushing on
-    // Discord — in aggregate it would have shown as a cohort of installs that
-    // never once fetched a manifest. Emitted here rather than from init() because
-    // TelemetryManager::init() runs after UpdateChecker::init() (application.cpp),
-    // and after the auto_check_timer_ guard so a Moonraker reconnect does not
-    // re-send it. Firmware-managed installs returned above and are not reported:
-    // that is a deliberate configuration, not a fault.
-    //
-    // The context is a SHAPE, not a path. install_root embeds a username and
-    // record_error()'s contract is pre-defined strings only; which of the two
-    // writability terms was missing is the whole diagnostic value anyway.
-    if (update_install_suppressed()) {
-        const std::string root = app_get_install_root();
-        const std::string parent = root.empty() ? std::string() : helix::paths::dirname(root);
-        TelemetryManager::instance().record_error(
-            "updates", "install_suppressed",
-            fmt::format("parent_writable={},root_writable={},escalate={}",
-                        !parent.empty() && helix::paths::probe_writable(parent) ? 1 : 0,
-                        !root.empty() && helix::paths::probe_writable(root) ? 1 : 0,
-                        root_escalation_available() ? 1 : 0));
-        spdlog::warn("[UpdateChecker] Install is not self-updatable ({}); checking anyway so the "
-                     "user can be told to re-run the installer",
-                     suppression_reason());
-    }
-
-    spdlog::info("[UpdateChecker] Starting VoronDeck package check (15s initial delay, hourly)");
+    spdlog::info("[UpdateChecker] Starting VoronDeck package check (15s initial delay, daily)");
 
     // One-shot 15s timer for initial check after startup
     auto_check_timer_ = lv_timer_create(
@@ -3623,9 +3590,11 @@ void UpdateChecker::start_auto_check() {
                 return;
 
             // VoronDeck packages use their authenticated index, not upstream releases.
-            helix::settings::get_updates_settings_overlay().check_vorondeck_updates(true);
+            const bool started =
+                helix::settings::get_updates_settings_overlay().check_vorondeck_updates(true);
 
-            lv_timer_set_period(timer, 60u * 60u * 1000u);
+            // Defer checks skipped during setup, printing or an active update.
+            lv_timer_set_period(timer, started ? 24u * 60u * 60u * 1000u : 60u * 1000u);
             lv_timer_reset(timer);
         },
         15000, this);

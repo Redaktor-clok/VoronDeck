@@ -16,7 +16,6 @@
 #include "lvgl.h"
 #include "printer_discovery.h"
 #include "printer_state.h"
-#include "snapmaker_nozzle_offset.h"
 #include "system_settings_manager.h"
 #include "tool_offset_calibration.h"
 
@@ -116,17 +115,6 @@ TEST_CASE("tool offset calibration: the gcode is the bare macro, or nothing", "[
     CHECK(resolved_panel_gcode(printer_with({"toolchanger", "tool T0"})).empty());
 }
 
-TEST_CASE("tool offset calibration: a U1 calibrates through its own guided flow",
-          "[tool_offset_cal]") {
-    const PrinterDiscovery u1 = snapmaker_u1();
-    CHECK(cal::supported(u1));
-    CHECK(resolved_guided_flow(u1) == helix::snapmaker::nozzle_offset::kGuidedFlowId);
-    CHECK(resolved_panel_gcode(u1).empty());
-
-    // A macro-calibrating tool changer names no flow: the macro panel runs it.
-    CHECK(resolved_guided_flow(calibrating_toolchanger()).empty());
-}
-
 // ============================================================================
 // A changer firmware whose calibration opens a printer-side prompt
 // ============================================================================
@@ -151,16 +139,6 @@ PrinterDiscovery zmod_c5(bool with_calibrate_macro) {
 }
 
 } // namespace
-
-TEST_CASE("tool offset calibration: a Z-Mod Creator 5 hands the run to its own prompt",
-          "[tool_offset_cal]") {
-    const PrinterDiscovery c5 = zmod_c5(/*with_calibrate_macro=*/true);
-    CHECK(cal::supported(c5));
-    CHECK(resolved_prompt_gcode(c5) == "CALIBRATE_EXTRUDERS");
-    // The panel never runs a prompt-only macro: its rpc answers before the run.
-    CHECK(resolved_panel_gcode(c5).empty());
-    CHECK(resolved_guided_flow(c5).empty());
-}
 
 TEST_CASE("tool offset calibration: the prompt needs the macro and the changer",
           "[tool_offset_cal]") {
@@ -232,7 +210,6 @@ TEST_CASE("tool offset calibration: an INDX seats a tool by hand", "[tool_offset
 TEST_CASE("tool offset calibration: the entry describes what it does", "[tool_offset_cal]") {
     const std::string measure = "Measure every tool's XYZ offset automatically";
     CHECK(resolved_entry_description(calibrating_toolchanger()) == measure);
-    CHECK(resolved_entry_description(snapmaker_u1()) == measure);
     CHECK(resolved_entry_description(indx_printer(true)) ==
           "Seat a tool by hand for the first Z home");
 }
@@ -315,11 +292,6 @@ TEST_CASE("tool offset calibration: each procedure outranks the ones after it",
         return hw;
     };
 
-#if HELIX_HAS_SNAPMAKER
-    const cal::Procedure all = cal::resolve_procedure(build(true, true, true, true));
-    CHECK(all.kind == cal::ProcedureKind::GuidedFlow);
-    CHECK(all.flow_id == helix::snapmaker::nozzle_offset::kGuidedFlowId);
-#endif
     const cal::Procedure no_u1 = cal::resolve_procedure(build(false, true, true, true));
     CHECK(no_u1.kind == cal::ProcedureKind::GuidedFlow);
     CHECK(no_u1.flow_id == "indx_seat_by_hand");

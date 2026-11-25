@@ -78,7 +78,7 @@ def compare_release(installed, release_name, index, libc, channel='beta'):
     current = (release_name == installed['version'] + '-' + package['sha256'][:12]
                and installed['source_commit'] == package['source_commit']
                and installed['version'] == version)
-    return {'status': 'current' if current else 'available',
+    return {'status': ('current' if current else 'older' if public.version_key(version) < public.version_key(installed['version']) else 'available'),
             'installed_version': installed['version'], 'available_version': version,
             'installed_build': installed['source_commit'][:8],
             'available_build': package['source_commit'][:8],
@@ -173,6 +173,35 @@ def notification_id(result):
     return ':'.join((channel, available, build))
 
 
+def check_test_channel(result, installed, release_name, libc):
+    """Always report the latest public test; only newer packages become install offers."""
+    try:
+        package = public.latest(installed['architecture'], libc)
+        state = 'none'
+        if package:
+            floor = installed['version']
+            stable = result.get('channels', {}).get('stable', {}).get('version', '')
+            if VERSION.fullmatch(stable) and public.version_key(stable) > public.version_key(floor):
+                floor = stable
+            current = (installed['version'] == package['version']
+                       and installed['source_commit'] == package['source_commit']
+                       and release_name == package['version'] + '-' + package['sha256'][:12])
+            state = ('current' if current else
+                     'available' if public.version_key(package['version']) > public.version_key(floor)
+                     else 'older')
+            if state == 'available':
+                offer = {key: package[key] for key in
+                         ('kind', 'version', 'display_version', 'tag', 'sha256', 'source_commit')}
+                offer['notification_id'] = 'test:' + package['version'] + ':' + package['sha256']
+                result['offers'].append(offer)
+        result['test_status'] = state
+        result['channels']['test'] = {'status': state,
+                                     'version': package['display_version'] if package else ''}
+    except (OSError, ValueError, TypeError, KeyError):
+        result['test_status'] = 'unavailable'
+        result['channels']['test'] = {'status': 'unavailable', 'version': ''}
+
+
 def check(selected_channel=None):
     root = Path(__file__).resolve().parents[2]
     manifest = root / 'vorondeck-release.json'
@@ -196,19 +225,7 @@ def check(selected_channel=None):
     result = check_channels(installed, root.name, libc, has_beta_key,
                             selected_channel=selected_channel)
     result['installed_source'] = installed.get('source_commit', '')
-    try:
-        floor = installed['version']
-        stable_version = result.get('channels', {}).get('stable', {}).get('version', '')
-        if VERSION.fullmatch(stable_version) and public.version_key(stable_version) > public.version_key(floor):
-            floor = stable_version
-        offer = public.latest(installed['architecture'], libc, floor)
-        result['test_status'] = 'available' if offer else 'none'
-        if offer:
-            result['offers'].append({key: offer[key] for key in
-                                    ('kind', 'version', 'display_version', 'tag', 'sha256', 'source_commit')})
-            result['offers'][-1]['notification_id'] = 'test:' + offer['version'] + ':' + offer['sha256']
-    except (OSError, ValueError, TypeError, KeyError):
-        result['test_status'] = 'unavailable'
+    check_test_channel(result, installed, root.name, libc)
     return result
 
 

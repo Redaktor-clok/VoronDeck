@@ -97,10 +97,20 @@ struct AutoMatchFixture : public LVGLTestFixture {
         NeitherRoute, ///< ACE: RemapStrategy::None — no picker exists
     };
 
+    class RemapShapeMock : public AmsBackendMock {
+      public:
+        RemapShapeMock() : AmsBackendMock(4) {}
+        helix::BackendTraits traits() const override {
+            auto result = AmsBackendMock::traits();
+            result.requires_preprint_send = get_remap_strategy() == RemapStrategy::PrePrintSend;
+            return result;
+        }
+    };
+
     static AmsBackendMock* install_backend(Shape shape) {
-        auto mock = std::make_unique<AmsBackendMock>(4);
+        auto mock = std::make_unique<RemapShapeMock>();
         if (shape == Shape::PreprintOnly) {
-            mock->set_snapmaker_mode(true);
+            mock->set_remap_strategy(AmsBackend::RemapStrategy::PrePrintSend);
         } else if (shape == Shape::NeitherRoute) {
             // Declared explicitly rather than borrowed from tool-changer mode,
             // which used to answer "no route" only because the mock contradicted

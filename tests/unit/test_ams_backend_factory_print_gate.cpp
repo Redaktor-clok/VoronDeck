@@ -75,23 +75,7 @@ constexpr int kAmsTypeProbeLimit = 64;
 /// silently goes stale each time another backend becomes gateable. Still a
 /// lower bound that catches "create() silently stopped producing anything" -
 /// it is NOT the coverage list; the loops below cover whatever exists.
-constexpr int kExpectedBackendCount = 3
-#if HELIX_HAS_IFS
-                                      + 1
-#endif
-#if HELIX_HAS_CFS
-                                      + 1
-#endif
-#if HELIX_HAS_ACE
-                                      + 1
-#endif
-#if HELIX_HAS_QIDI
-                                      + 1
-#endif
-#if HELIX_HAS_SNAPMAKER
-                                      + 1
-#endif
-    ;
+constexpr int kExpectedBackendCount = 3;
 
 /// True when @p e is the Layer 2 print-active refusal specifically, as opposed
 /// to any other failure a backend might return first. Derived from the error

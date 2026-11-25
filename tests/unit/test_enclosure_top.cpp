@@ -88,36 +88,3 @@ TEST_CASE("enclosure top: a flag of the wrong type says nothing", "[enclosure_to
         fitted_from_status(hw, json{{"purifier", {{"power_detected", nullptr}}}}).has_value());
     CHECK_FALSE(fitted_from_status(hw, json{{"purifier", true}}).has_value());
 }
-
-TEST_CASE_METHOD(HelixTestFixture, "enclosure top: the U1 mock reports its top fitted",
-                 "[enclosure_top][mock]") {
-    // Both answers a client reads status from: the discovery subscribe and a query.
-    auto fitted_via = [](MoonrakerClientMock& mock, const char* method) {
-        json response;
-        mock.send_jsonrpc(method, json{{"objects", {{"purifier", {"power_detected"}}}}},
-                          [&response](const json& r) { response = r; });
-        REQUIRE(response.contains("result"));
-        return fitted_from_status(mock.hardware(), response["result"]["status"]);
-    };
-
-    {
-        helix::ScopedEnv env("HELIX_MOCK_ENCLOSURE_TOP", nullptr);
-        MoonrakerClientMock u1(MoonrakerClientMock::PrinterType::SNAPMAKER_U1);
-        REQUIRE(firmware_reports_enclosure_top(u1.hardware()));
-        for (const char* method : {"printer.objects.query", "printer.objects.subscribe"}) {
-            CAPTURE(method);
-            CHECK(fitted_via(u1, method) == std::optional<bool>(true));
-        }
-    }
-    {
-        helix::ScopedEnv env("HELIX_MOCK_ENCLOSURE_TOP", "0");
-        MoonrakerClientMock u1(MoonrakerClientMock::PrinterType::SNAPMAKER_U1);
-        for (const char* method : {"printer.objects.query", "printer.objects.subscribe"}) {
-            CAPTURE(method);
-            CHECK(fitted_via(u1, method) == std::optional<bool>(false));
-        }
-    }
-
-    MoonrakerClientMock voron(MoonrakerClientMock::PrinterType::VORON_24);
-    CHECK(voron.purifier_status().empty());
-}

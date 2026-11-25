@@ -171,12 +171,6 @@ TEST_CASE_METHOD(LVGLTestFixture, "Every persona reports its descriptor on every
 
 TEST_CASE_METHOD(LVGLTestFixture, "Omitted defaults drop only the persona's own objects",
                  "[mock][persona][descriptor]") {
-    SECTION("creator5_zmod omits the Happy Hare mmu") {
-        PersonaEnv env("creator5_zmod");
-        MoonrakerClientMock mock(helix::mock::PrinterType::FLASHFORGE_CREATOR5_ZMOD);
-        CHECK_FALSE(lists(discovered_objects(mock), "mmu"));
-    }
-
     SECTION("voron_24 keeps every inherited default") {
         PersonaEnv env("voron_24");
         MoonrakerClientMock mock(helix::mock::PrinterType::VORON_24);
@@ -199,8 +193,8 @@ TEST_CASE_METHOD(LVGLTestFixture, "Omitted defaults drop only the persona's own 
 
 TEST_CASE_METHOD(LVGLTestFixture, "Width sensor status follows the persona on every pushed frame",
                  "[mock][persona][descriptor]") {
-    // voron_24 keeps the default width sensor, ad5x omits it.
-    for (const char* id : {"voron_24", "ad5x"}) {
+    // Retained personas keep the default width sensor.
+    for (const char* id : {"voron_24"}) {
         DYNAMIC_SECTION(id) {
             PersonaEnv env(id);
             const auto* p = helix::mock::find_persona(id);

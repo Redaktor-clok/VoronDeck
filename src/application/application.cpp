@@ -181,7 +181,6 @@
 #include "screensaver.h"
 #endif
 #include "display_metrics.h"
-#include "k2_stock_detection_source.h"
 #include "led/ui_led_control_overlay.h"
 #include "platform_info.h"
 #include "printer_detector.h"
@@ -197,7 +196,6 @@
 #include "system/update_checker.h"
 #include "system_settings_manager.h"
 #include "theme_manager.h"
-#include "u1_stock_detection_source.h"
 #include "upgrade_banner.h"
 #include "wifi_link_monitor.h"
 #include "wifi_manager.h"

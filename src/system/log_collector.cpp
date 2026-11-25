@@ -138,35 +138,6 @@ std::vector<std::string> default_file_paths(const std::string& probe_root) {
     if (const char* home = std::getenv("HOME"); home && home[0] != '\0') {
         paths.push_back(std::string(home) + "/.local/share/helix-screen/helix.log");
     }
-    // AD5X mod tree (ZMOD or Forge-X — see flashforge_mod_tree()). /opt/config
-    // is a bind-mount of the durable mod config dir, visible at /usr/data/config
-    // too, so each file has two path spellings. Two DIFFERENT streams live under
-    // mod_data/log:
-    //
-    //   helixscreen.log — ghzserg's S80helixscreen (their fork of our init
-    //     script) hardcodes LOGFILE to it and redirects the launcher subshell
-    //     `>> "$LOGFILE" 2>&1`. It carries the launcher's own [helix-launcher]
-    //     echoes plus crash/glibc stderr — NOT the app log. spdlog's console
-    //     sink does not land here: because that redirect makes stdout a regular
-    //     file, should_add_console() deliberately skips the console sink
-    //     (logging_init.h — a console sink there would double-log every line).
-    //   helix.log — the app's own rotating file sink, pointed here by
-    //     hooks-ad5m-zmod.sh / hooks-ad5x-forgex.sh. This is the structured
-    //     helix-screen log. It lives under /opt/config precisely so the mod's
-    //     config archiver captures it (ZMOD's TAR_CONFIG collects /opt/config/,
-    //     never /data/ — see issue #1249).
-    //
-    // Both are worth collecting; tail_file() picks whichever is freshest. Gated
-    // on the layout so a plain host's cascade carries only paths a helix
-    // install could ever have written — on hosts without the mod tree these
-    // were dead stat probes.
-    if (helix::flashforge_mod_tree(probe_root) != helix::FlashForgeModTree::None) {
-        paths.emplace_back("/opt/config/mod_data/log/helix.log");
-        paths.emplace_back("/usr/data/config/mod_data/log/helix.log");
-        paths.emplace_back("/opt/config/mod_data/log/helixscreen.log");
-        paths.emplace_back("/usr/data/config/mod_data/log/helixscreen.log");
-    }
-
     // helixscreen.init's launcher-subshell shell-stdout-redirect file.
     // Preferred FHS path (used when /var/log is persistent).
     paths.emplace_back("/var/log/helixscreen/launcher.log");

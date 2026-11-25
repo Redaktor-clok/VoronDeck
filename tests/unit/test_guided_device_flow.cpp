@@ -25,7 +25,6 @@
 #include "ams_state.h"
 #include "helix-xml/src/xml/lv_xml_expr.h"
 #include "indx_contract.h"
-#include "snapmaker_nozzle_offset.h"
 #include "static_panel_registry.h"
 #include "theme_manager.h"
 
@@ -184,23 +183,6 @@ TEST_CASE_METHOD(GuidedFlowFixture, "an unregistered guided flow never executes 
         CHECK(backend->cutter_calibrations == 0);
         CHECK(ModalStack::instance().empty());
     }
-
-#if HELIX_HAS_CFS
-    SECTION("after registration the confirmation gates the action") {
-        helix::ui::register_cfs_device_flows();
-        click(btn);
-        // A registered CFS flow asks before it moves the printer.
-        CHECK(helix::ui::find_guided_device_flow("cfs_cutter") != nullptr);
-        CHECK_FALSE(ModalStack::instance().empty());
-        CHECK(backend->cutter_calibrations == 0);
-        CHECK(last_executed().empty());
-
-        lv_obj_t* confirm = lv_obj_find_by_name(lv_screen_active(), "btn_primary");
-        REQUIRE(confirm != nullptr);
-        click(confirm);
-        CHECK(backend->cutter_calibrations == 1);
-    }
-#endif
 }
 
 TEST_CASE_METHOD(GuidedFlowFixture, "a flow's status attach runs once per section build",
@@ -603,12 +585,6 @@ TEST_CASE_METHOD(GuidedFlowFixture, "a dropdown with no value it lists shows a p
 TEST_CASE("the built-in registrar registers every vendor's flows", "[ams][guided-flow]") {
     std::vector<std::string> expected = {helix::indx::kSeatByHandFlowId, "indx_cycle_all",
                                          "indx_heater_calibration", "indx_fan_calibration"};
-#if HELIX_HAS_CFS
-    expected.insert(expected.end(), {"cfs_purge_chute", "cfs_cutter"});
-#endif
-#if HELIX_HAS_SNAPMAKER
-    expected.push_back(helix::snapmaker::nozzle_offset::kGuidedFlowId);
-#endif
     for (const auto& id : expected) {
         helix::ui::unregister_guided_device_flow(id);
     }

@@ -4,7 +4,6 @@
 
 #include "lvgl.h"
 #include "printer_discovery.h"
-#include "snapmaker_exceptions.h"
 
 #include <spdlog/fmt/fmt.h>
 
@@ -37,79 +36,7 @@ struct Provider {
     std::optional<FaultNotification> (*read_notification)(const nlohmann::json& params0);
 };
 
-ErrorSeverity severity_of_event(const snapmaker::ExceptionSeverity& s) {
-    switch (s) {
-    case snapmaker::ExceptionSeverity::Informational:
-        return ErrorSeverity::INFO;
-    case snapmaker::ExceptionSeverity::Pause:
-        return ErrorSeverity::WARNING;
-    case snapmaker::ExceptionSeverity::Cancel:
-        return ErrorSeverity::CRITICAL;
-    }
-    return ErrorSeverity::CRITICAL;
-}
-
-/// The vendor's translation of `level-id-index-code` text into an event.
-std::optional<ErrorEvent> classify_snapmaker(const Provider& p, const std::string& text) {
-    const auto code = snapmaker::decode_exception_code(text);
-    if (!code) {
-        return std::nullopt;
-    }
-    ErrorEvent e;
-    e.source = p.source;
-    e.severity = severity_of_event(snapmaker::severity_of(code->level));
-    e.code = snapmaker::format_exception_code(*code);
-    e.raw_detail = text;
-    // A fault we have no wording for still classifies, carrying the
-    // firmware's own sentence rather than a fabricated one.
-    if (const auto known = snapmaker::exception_message(*code); !known.empty()) {
-        // The table holds the English source; this is where the wording
-        // becomes user-facing, so it translates here.
-        e.detail = lv_tr(std::string(known).c_str());
-    } else {
-        e.detail = text;
-    }
-    return e;
-}
-
-/// The vendor's standing-fault lines. Each entry becomes a console-equivalent
-/// `!!` line carrying the code and the firmware's own message, so the consumer
-/// can feed it through the same classify path a console line takes.
-std::optional<std::vector<std::string>> read_standing_snapmaker(const nlohmann::json& status) {
-    if (!snapmaker::status_carries_exceptions(status)) {
-        return std::nullopt;
-    }
-    std::vector<std::string> lines;
-    for (const auto& active : snapmaker::read_active_exceptions(status)) {
-        lines.push_back(snapmaker::coded_line(active));
-    }
-    return lines;
-}
-
-/// The vendor's raise notifications. params[0] is one exception entry in the
-/// same field shape the standing list carries, so it reads through the same
-/// entry reader and line formatter the status path uses.
-std::optional<FaultNotification> read_notification_snapmaker(const nlohmann::json& params0) {
-    const auto fault = snapmaker::read_exception_entry(params0);
-    if (!fault) {
-        return std::nullopt;
-    }
-    return FaultNotification{snapmaker::coded_line(*fault), fault->message};
-}
-
-/// The provider table. Adding a firmware with the same capability is one row
-/// here and no call-site change.
-const std::array<Provider, 1> kProviders{{
-    {"exception_manager",
-     {"exception_manager"},
-     ErrorSource::SNAPMAKER,
-     classify_snapmaker,
-     read_standing_snapmaker,
-     // Moonraker sends event "snapmaker:exception_notification" to websocket
-     // clients as "notify_" + the part after the colon.
-     "notify_exception_notification",
-     read_notification_snapmaker},
-}};
+const std::array<Provider, 0> kProviders{};
 
 const Provider* provider_for(const PrinterDiscovery& hw) {
     const auto& objects = hw.printer_objects();

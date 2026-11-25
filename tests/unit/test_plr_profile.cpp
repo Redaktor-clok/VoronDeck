@@ -177,15 +177,3 @@ TEST_CASE("plr_profile_json and plr_user_json: the contract's shapes", "[plr][pr
 
     CHECK(helix::plr_user_json(true) == json{{"enabled", true}});
 }
-
-TEST_CASE("Printer database: Qidi Q2 is listed for the plugin's print_state adapter",
-          "[plr][profile]") {
-    auto q2 = PrinterDetector::get_plr_block("Qidi Q2");
-    REQUIRE(q2.has_value());
-    CHECK(q2->backend == PlrBackendKind::QidiPrintState);
-    CHECK(q2->storage == StorageHint::Emmc);
-    CHECK(helix::plr_resolve_profile(q2, PlrUserOverride{}, kSafeHoming).tier == 2);
-    // Creality's own recovery serves the K1 line; it stays unlisted here.
-    CHECK_FALSE(PrinterDetector::get_plr_block("Creality K1C").has_value());
-    CHECK_FALSE(PrinterDetector::get_plr_block("No Such Printer").has_value());
-}

@@ -184,8 +184,10 @@ TEST_CASE_METHOD(XMLTestFixture, "AMS sidebar paints the loaded spool's colour a
             info.total_weight_g = 1000;
             REQUIRE(helix::test::apply_edit(*backend, 1, info).success());
             settle();
-            CHECK(lv_subject_get_int(fill) == (remaining < 0 ? -1 : static_cast<int>(remaining / 10)));
-            CHECK(ui_spool_canvas_get_fill_level(spool) == Catch::Approx(remaining < 0 ? 0 : remaining / 1000));
+            CHECK(lv_subject_get_int(fill) ==
+                  (remaining < 0 ? -1 : static_cast<int>(remaining / 10)));
+            CHECK(ui_spool_canvas_get_fill_level(spool) ==
+                  Catch::Approx(remaining < 0 ? 0 : remaining / 1000));
             CHECK(rgb(ui_spool_canvas_get_color(spool)) == 0x2266AA);
         }
     }
@@ -256,11 +258,10 @@ void check_action_labels(XMLTestFixture& fx, std::initializer_list<const char*> 
             whole = whole || std::strcmp(w, lang) == 0;
         }
 
-        for (const char* backend : {"happy_hare", "afc", "snapmaker"}) {
+        for (const char* backend : {"happy_hare", "afc"}) {
             CAPTURE(backend);
             auto mock = std::make_unique<AmsBackendMock>(4);
             mock->set_afc_mode(std::strcmp(backend, "afc") == 0);
-            mock->set_snapmaker_mode(std::strcmp(backend, "snapmaker") == 0);
             REQUIRE(mock->start().success());
             AmsState::instance().set_backend(std::move(mock));
             AmsState::instance().init_subjects(true);
@@ -339,17 +340,17 @@ void check_action_labels(XMLTestFixture& fx, std::initializer_list<const char*> 
 TEST_CASE_METHOD(XMLTestFixture,
                  "AMS sidebar action labels stay inside their buttons in every language",
                  "[ui_integration][ams][i18n]") {
+    helix::test::ScopedGeometry landscape(800, 480);
     // A component keeps the tokens of the screen it was registered on.
     reregister_ams_components();
     check_action_labels(*this, {"en", "de", "fr", "es", "pt", "it", "ru", "ja", "zh"});
 }
 
-// The Snapmaker U1's screen: two half-width cells of a 145px column, icon over
-// label. English shows whole; a longer translation ellipsizes on one line.
-TEST_CASE_METHOD(XMLTestFixture, "AMS sidebar action labels fit at 480x320",
+// Portrait layout on a seven-inch Linux touchscreen.
+TEST_CASE_METHOD(XMLTestFixture, "AMS sidebar action labels fit at 480x800",
                  "[ui_integration][ams][i18n]") {
     ReregisterAmsComponentsOnExit restore_tokens;
-    helix::test::ScopedGeometry tiny(480, 320);
+    helix::test::ScopedGeometry portrait(480, 800);
     reregister_ams_components();
     check_action_labels(*this, {"en"});
 }

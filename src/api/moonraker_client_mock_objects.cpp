@@ -3,7 +3,6 @@
 
 #include "env_knobs.h"
 #include "moonraker_client_mock_internal.h"
-#include "snapmaker_nozzle_offset.h"
 #include "text_io.h"
 
 #include <spdlog/spdlog.h>
@@ -124,14 +123,7 @@ static json toolchanger_configfile_sections(const MoonrakerClientMock* self) {
 // the printer announces a door opening itself.
 static json input_button_configfile_sections(const MoonrakerClientMock* self) {
     json sections = json::object();
-    if (self->get_printer_type() == helix::mock::PrinterType::FLASHFORGE_CREATOR5_ZMOD) {
-        for (const char* door : {"frontDoor", "topDoor"}) {
-            sections[std::string("gcode_button ") + door] = {
-                {"pin", "!PB0"},
-                {"press_gcode", "\nRESPOND TYPE=command MSG=action:prompt_end"},
-                {"release_gcode", "\nRESPOND TYPE=command MSG=action:prompt_begin Door is Open!"}};
-        }
-    }
+
     return sections;
 }
 
@@ -657,21 +649,11 @@ void register_object_handlers(std::unordered_map<std::string, MethodHandler>& re
                 status_obj["oams_manager"] = self->openams_status_json();
             }
             // Z-Mod's colour registry (creator5_zmod persona).
-            if (objects.contains("zmod_color")) {
-                status_obj["zmod_color"] = self->zmod_color_status();
-            }
+
             // The U1 defect_detection module's stored config.
-            if (objects.contains("defect_detection")) {
-                if (auto dd = self->defect_detection_status(); !dd.empty()) {
-                    status_obj["defect_detection"] = dd;
-                }
-            }
+
             // The U1 top module's purifier, which reports the top fitted.
-            if (objects.contains("purifier")) {
-                if (auto purifier = self->purifier_status(); !purifier.empty()) {
-                    status_obj["purifier"] = purifier;
-                }
-            }
+
             for (auto it = objects.begin(); it != objects.end(); ++it) {
                 if (it.key() != "pin_watch" && it.key().rfind("pin_watch ", 0) != 0) {
                     continue;
@@ -739,24 +721,6 @@ void register_object_handlers(std::unordered_map<std::string, MethodHandler>& re
             // The U1 reports each head's calibrated offset and its fitted nozzle
             // (stock: 0.4 mm standard, kept outside the config) on its extruder,
             // and the offset calibration state on machine_state_manager.
-            if (self->get_printer_type() == MoonrakerClientMock::PrinterType::SNAPMAKER_U1) {
-                if (objects.contains("machine_state_manager")) {
-                    status_obj["machine_state_manager"]["main_state"] =
-                        self->nozzle_calibration_active()
-                            ? helix::snapmaker::nozzle_offset::kMainStateXyzOffsetCalibrate
-                            : 0;
-                }
-                for (int head = 0; head < 4; ++head) {
-                    const std::string name =
-                        head == 0 ? std::string("extruder") : "extruder" + std::to_string(head);
-                    if (objects.contains(name)) {
-                        const auto o = self->nozzle_offset(head);
-                        status_obj[name]["extruder_offset"] = {o[0], o[1], o[2]};
-                        status_obj[name]["nozzle_diameter"] = 0.4;
-                        status_obj[name]["nozzle_volume_type"] = "standard";
-                    }
-                }
-            }
 
             // Test-set status objects (set_object_status()): served only when
             // the query asks for the object, like every branch above.
@@ -971,21 +935,11 @@ void register_object_handlers(std::unordered_map<std::string, MethodHandler>& re
                 }
             }
             // Z-Mod's colour registry (creator5_zmod persona).
-            if (objects.contains("zmod_color")) {
-                status_obj["zmod_color"] = self->zmod_color_status();
-            }
+
             // The U1 defect_detection module's stored config.
-            if (objects.contains("defect_detection")) {
-                if (auto dd = self->defect_detection_status(); !dd.empty()) {
-                    status_obj["defect_detection"] = dd;
-                }
-            }
+
             // The U1 top module's purifier, which reports the top fitted.
-            if (objects.contains("purifier")) {
-                if (auto purifier = self->purifier_status(); !purifier.empty()) {
-                    status_obj["purifier"] = purifier;
-                }
-            }
+
             for (auto it = objects.begin(); it != objects.end(); ++it) {
                 if (it.key() != "pin_watch" && it.key().rfind("pin_watch ", 0) != 0) {
                     continue;
@@ -1011,13 +965,7 @@ void register_object_handlers(std::unordered_map<std::string, MethodHandler>& re
                     it.key().rfind("filament_motion_sensor ", 0) == 0) {
                     const auto env = helix::sim::mock_filament_sensor_env_state(
                         it.key().substr(it.key().find(' ') + 1));
-                    // The K2 Plus's toolhead switch follows the loaded bay.
-                    const bool detected = it.key() == "filament_switch_sensor filament_sensor" &&
-                                                  self->get_printer_type() ==
-                                                      helix::mock::PrinterType::CREALITY_K2_PLUS
-                                              ? self->cfs_toolhead_filament_detected()
-                                              : env.filament_detected;
-                    status_obj[it.key()] = {{"filament_detected", detected},
+                    status_obj[it.key()] = {{"filament_detected", env.filament_detected},
                                             {"enabled", env.enabled},
                                             {"detection_count", 0}};
                 }

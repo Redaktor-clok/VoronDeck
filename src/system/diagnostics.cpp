@@ -143,7 +143,7 @@ Diagnostics collect() {
     // --- Identity ----------------------------------------------------------
     d.identity.platform_key = helix::platform::current_key();
     d.identity.board = board::current_info().key;
-    d.identity.mod_flavor = flashforge_mod_tree_name(flashforge_mod_tree());
+    d.identity.mod_flavor = "none";
     d.identity.printer_model = get_saved_printer_type();
     d.identity.host_arch = host_arch_string();
 

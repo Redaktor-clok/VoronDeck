@@ -1226,63 +1226,17 @@ std::string PrinterDetector::get_preset_for_name(const std::string& printer_name
     return printer_field(printer_name, "preset");
 }
 
-std::string PrinterDetector::apply_preset_with_variants(helix::Config* config,
-                                                        const std::string& preset,
-                                                        const helix::PrinterDiscovery& discovery) {
+std::string
+PrinterDetector::apply_preset_with_variants(helix::Config* config, const std::string& preset,
+                                            const helix::PrinterDiscovery& /*discovery*/) {
     if (!config || preset.empty()) {
         return "";
     }
 
-    // Firmware-variant detection: ZMOD renames standard Klipper objects
-    // (e.g. "fan" → "fan_generic fanM106"). Probe for the variant signature
-    // and prefer the "_zmod" preset when present.
-    //
-    // ForgeX is a DIFFERENT firmware modification — mutually exclusive with ZMOD.
-    // ForgeX happens to use the same `fan_generic fanM106` / `heater_fan heat_fan`
-    // names for its part/hotend fans, so the fanM106 marker alone is NOT a
-    // ZMOD discriminator. If the printer DB resolved a `_forgex` preset, the
-    // detector already locked onto ForgeX (typically via SUPPORT_FORGE_X macro
-    // or the chamber-LED heuristic) — never try a `_zmod` variant on top of
-    // that, it would either miss-load or compound rename errors.
-    auto& objects = discovery.printer_objects();
-    // Match the variant suffix exactly (preset name ends with `_forgex`) rather
-    // than substring — a future preset whose name happens to contain "_forgex"
-    // for unrelated reasons should not silently disable ZMOD detection.
-    static constexpr const char* kForgeXSuffix = "_forgex";
-    constexpr size_t kForgeXLen = 7; // strlen("_forgex")
-    bool preset_is_forgex =
-        preset.size() >= kForgeXLen &&
-        preset.compare(preset.size() - kForgeXLen, kForgeXLen, kForgeXSuffix) == 0;
-    auto has_object = [&objects](const char* name) {
-        return std::find(objects.begin(), objects.end(), name) != objects.end();
-    };
-    // Stock Creator 5 / 5 Pro firmware names its part fan fanM106 too, so on
-    // those presets only Z-Mod's own `zmod` object identifies it.
-    bool preset_is_creator5 = preset.rfind("creator5", 0) == 0;
-    const char* zmod_signal = has_object("zmod") ? "zmod"
-                              : (!preset_is_creator5 && has_object("fan_generic fanM106"))
-                                  ? "fan_generic fanM106"
-                                  : nullptr;
-    bool is_zmod = !preset_is_forgex && zmod_signal != nullptr;
-
-    std::string applied = preset;
-    if (is_zmod) {
-        std::string zmod_preset = preset + "_zmod";
-        spdlog::info("[PrinterDetector] ZMOD firmware detected ({}), trying preset '{}'",
-                     zmod_signal, zmod_preset);
-        if (config->apply_preset_file(zmod_preset)) {
-            applied = zmod_preset;
-        } else {
-            spdlog::info("[PrinterDetector] No ZMOD preset variant, using '{}'", preset);
-            if (!config->apply_preset_file(preset)) {
-                return "";
-            }
-        }
-    } else {
-        if (!config->apply_preset_file(preset)) {
-            return "";
-        }
+    if (!config->apply_preset_file(preset)) {
+        return "";
     }
+    const std::string applied = preset;
 
     config->set_preset(applied);
     helix::reload_sensor_roles_after_preset();

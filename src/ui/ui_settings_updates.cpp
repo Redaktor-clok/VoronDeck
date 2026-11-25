@@ -4,6 +4,7 @@
 #include "ui_settings_updates.h"
 
 #include "ui_callback_helpers.h"
+#include "ui_icon.h"
 #include "ui_info_qr_modal.h"
 #include "ui_modal.h"
 #include "ui_settings_printer_maintenance.h"
@@ -20,6 +21,7 @@
 #include "platform_info.h"
 #include "print_lifecycle_state.h"
 #include "printer_state.h"
+#include "replace_method_callback.h"
 #include "system/config_trust.h"
 #include "system/run_capture.h"
 #include "system/update_checker.h"
@@ -61,8 +63,14 @@ helix::OfferedRelease offered_release() {
 
 void UpdatesSettingsOverlay::register_callbacks() {
     register_xml_callbacks({
-        {"on_vorondeck_check_updates",
-         [](lv_event_t*) { get_updates_settings_overlay().check_vorondeck_updates(); }},
+        {"on_vorondeck_progress_close",
+         [](lv_event_t*) {
+             auto& self = get_updates_settings_overlay();
+             if (self.package_progress_modal_) {
+                 helix::ui::modal_hide(self.package_progress_modal_);
+                 self.package_progress_modal_ = nullptr;
+             }
+         }},
         {"on_vorondeck_component_updates",
          [](lv_event_t*) { get_printer_maintenance_overlay().open(lv_screen_active(), true); }},
         {"on_vorondeck_test_update",
@@ -177,60 +185,78 @@ void UpdatesSettingsOverlay::on_activate() {
 }
 
 void UpdatesSettingsOverlay::publish_vorondeck_status() {
-    const bool busy = vorondeck_check_busy_ || vorondeck_install_busy_;
-    if (auto* group = helix::ui::find_optional(overlay_root_, "group_release_offers")) {
-        lv_obj_set_flag(group, LV_OBJ_FLAG_HIDDEN,
-                        test_offer_.empty() && stable_offer_.empty() && beta_offer_.empty());
-    }
-    for (const auto* name : {"row_stable_release", "row_beta_release", "row_test_release"}) {
-        if (auto* row = helix::ui::find_optional(overlay_root_, name)) {
-            const bool stable = std::string(name) == "row_stable_release";
-            const bool beta = std::string(name) == "row_beta_release";
+    const auto result = release_status_.empty() ? json::object() : json::parse(release_status_);
+    const auto channels = result.value("channels", json::object());
+    for (const auto* kind : {"stable", "test", "beta"}) {
+        if (auto* row = helix::ui::find_optional(
+                overlay_root_, (std::string("row_") + kind + "_release").c_str())) {
+            const bool stable = std::string(kind) == "stable";
+            const bool beta = std::string(kind) == "beta";
             const auto& offer = stable ? stable_offer_ : beta ? beta_offer_ : test_offer_;
-            const bool empty = offer.empty();
-            lv_obj_set_flag(row, LV_OBJ_FLAG_HIDDEN, empty);
-            lv_obj_set_state(row, LV_STATE_DISABLED, busy);
-            if (!empty) {
-                const auto version = json::parse(offer).value("display_version", std::string{});
-                if (auto* label = helix::ui::find_optional(row, "label")) {
-                    const auto text = std::string(lv_tr(stable ? "Stable release"
-                                                        : beta ? "Beta"
-                                                               : "Test release")) +
-                                      " · " + version;
-                    lv_label_set_text(label, text.c_str());
-                    lv_obj_set_style_text_color(
-                        label, theme_manager_get_color(stable ? "success" : "warning"), 0);
-                }
+            const auto channel = channels.value(kind, json::object());
+            const auto version = channel.value("version", std::string{});
+            const auto state = channel.value("status", std::string{});
+            lv_obj_set_state(row, LV_STATE_DISABLED,
+                             vorondeck_install_busy_ ||
+                                 (vorondeck_check_busy_ && !vorondeck_check_background_));
+            if (auto* icon = helix::ui::find_optional(row, "row_icon")) {
+                helix::ui::icon::set_source(icon, state == "current" ? "check" : "download");
             }
+            if (auto* label = helix::ui::find_optional(row, "label")) {
+                auto text = std::string(lv_tr(stable ? "Stable release"
+                                              : beta ? "Beta"
+                                                     : "Test release"));
+                if (!version.empty())
+                    text += " · " + version;
+                lv_label_set_text(label, text.c_str());
+                lv_obj_set_style_text_color(
+                    label, theme_manager_get_color(stable ? "success" : "warning"), 0);
+            }
+            const char* description = "Check for updates";
+            if (vorondeck_check_busy_)
+                description = "Checking VoronDeck updates...";
+            else if (!offer.empty())
+                description = stable ? "Completed release"
+                                     : "Optional prerelease · install only if you choose";
+            else if (state == "access_required")
+                description = "Beta access required";
+            else if (state == "current")
+                description = "This release is installed";
+            else if (state == "older")
+                description = "The installed version is newer";
+            else if (state == "none")
+                description = "No newer test release";
+            else if (!state.empty() || !release_status_.empty())
+                description = "Update check failed. Tap to retry.";
+            if (auto* label = helix::ui::find_optional(row, "description"))
+                lv_label_set_text(label, lv_tr(description));
         }
     }
     if (auto* label = helix::ui::find_optional(overlay_root_, "vorondeck_update_status")) {
         lv_label_set_text(label, vorondeck_update_text_.c_str());
     }
-    if (auto* row = helix::ui::find_optional(overlay_root_, "row_vorondeck_check")) {
-        if (busy)
-            lv_obj_add_state(row, LV_STATE_DISABLED);
-        else
-            lv_obj_remove_state(row, LV_STATE_DISABLED);
-    }
 }
 
-void UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
+bool UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
     if (vorondeck_check_busy_ || vorondeck_install_busy_)
-        return;
+        return false;
     const int selected_channel = SystemSettingsManager::instance().get_update_channel();
     if (selected_channel != 0 && selected_channel != 1)
-        return;
+        return false;
     if (background && (is_wizard_active() ||
                        job_holds_machine(get_printer_state().print_state().get_print_lifecycle())))
-        return;
+        return false;
     auto& worker = helix::http::HttpExecutor::slow();
     if (!worker.running())
-        return;
+        return false;
     vorondeck_check_busy_ = true;
-    test_offer_.clear();
-    stable_offer_.clear();
-    beta_offer_.clear();
+    vorondeck_check_background_ = background;
+    if (!background) {
+        test_offer_.clear();
+        stable_offer_.clear();
+        beta_offer_.clear();
+        release_status_.clear();
+    }
     vorondeck_update_text_ = lv_tr("Checking VoronDeck updates...");
     publish_vorondeck_status();
     // Finish the object-owned check even if its overlay is closed meanwhile.
@@ -258,6 +284,8 @@ void UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
         token.defer("UpdatesSettings::vorondeck_check", [this, result, background,
                                                          selected_channel]() {
             vorondeck_check_busy_ = false;
+            if (vorondeck_install_busy_)
+                return;
             if (selected_channel != SystemSettingsManager::instance().get_update_channel()) {
                 vorondeck_update_text_ = std::string("VoronDeck ") + HELIX_VERSION;
                 publish_vorondeck_status();
@@ -267,35 +295,23 @@ void UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
             const auto offers = result.find("offers");
             const bool has_offers =
                 offers != result.end() && offers->is_array() && !offers->empty();
-            if (state == "current" || state == "available" || has_offers) {
-                const auto installed = result.value("installed_version", std::string{});
-                vorondeck_update_text_ = std::string("VoronDeck ") + installed + "\n" +
-                                         lv_tr(has_offers ? "A new VoronDeck package is available"
-                                                          : "VoronDeck is up to date");
-            } else {
-                vorondeck_update_text_ =
-                    std::string("VoronDeck ") + HELIX_VERSION + "\n" +
-                    lv_tr(state == "not_installed"
-                              ? "Update checks are available on an installed VoronDeck screen"
-                              : "Update check failed. Check the network and beta SSH access.");
+            vorondeck_update_text_ = std::string("VoronDeck ") +
+                                     result.value("installed_version", std::string(HELIX_VERSION));
+            if (has_offers) {
+                vorondeck_update_text_ +=
+                    "\n" + std::string(lv_tr("A new VoronDeck package is available"));
+            } else if (!result.contains("channels")) {
+                vorondeck_update_text_ +=
+                    "\n" +
+                    std::string(
+                        lv_tr(state == "not_installed"
+                                  ? "Update checks are available on an installed VoronDeck screen"
+                                  : "Update check failed. Check the network and beta SSH access."));
             }
-            if (auto channels = result.find("channels");
-                channels != result.end() && channels->is_object()) {
-                for (const auto* name : {"stable", "beta"}) {
-                    const auto channel = channels->value(name, json::object());
-                    const auto version = channel.value("version", std::string{});
-                    vorondeck_update_text_ +=
-                        "\n" +
-                        std::string(lv_tr(name == std::string("stable") ? "Stable" : "Beta")) +
-                        ": ";
-                    vorondeck_update_text_ +=
-                        !version.empty()
-                            ? version
-                            : lv_tr(channel.value("status", std::string{}) == "access_required"
-                                        ? "Beta access required"
-                                        : "No release available or access denied");
-                }
-            }
+            release_status_ = result.dump();
+            test_offer_.clear();
+            stable_offer_.clear();
+            beta_offer_.clear();
             if (auto offers = result.find("offers"); offers != result.end() && offers->is_array()) {
                 for (const auto& offer : *offers) {
                     if (!offer.is_object())
@@ -312,13 +328,6 @@ void UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
                     }
                 }
             }
-            if (result.value("test_status", std::string{}) == "unavailable") {
-                vorondeck_update_text_ +=
-                    "\n" + std::string(lv_tr("Test release check failed. Try again later."));
-            }
-            if (!stable_offer_.empty() || !beta_offer_.empty() || !test_offer_.empty())
-                vorondeck_update_text_ +=
-                    "\n" + std::string(lv_tr("Select a release below to install."));
             publish_vorondeck_status();
             const auto& notice_offer = !test_offer_.empty()     ? test_offer_
                                        : !stable_offer_.empty() ? stable_offer_
@@ -327,9 +336,10 @@ void UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
             const auto notice =
                 test.value("notification_id", result.value("notification_id", std::string{}));
             auto* config = Config::get_instance();
-            if (background && !notice.empty() && config && !is_wizard_active() &&
+            if (!notice.empty() && config && !is_wizard_active() &&
                 !job_holds_machine(get_printer_state().print_state().get_print_lifecycle()) &&
-                config->get<std::string>("/update/vorondeck_notified_package", "") != notice) {
+                (!background ||
+                 config->get<std::string>("/update/vorondeck_notified_package", "") != notice)) {
                 const auto channel =
                     test.value("kind", result.value("active_channel", std::string{}));
                 const auto message = fmt::format(
@@ -347,6 +357,7 @@ void UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
             }
         });
     });
+    return true;
 }
 
 void UpdatesSettingsOverlay::confirm_test_update() {
@@ -359,8 +370,12 @@ void UpdatesSettingsOverlay::confirm_release_update(const std::string& kind) {
     const auto selection = kind == "stable" ? stable_offer_
                            : kind == "beta" ? beta_offer_
                                             : test_offer_;
-    if (selection.empty() || vorondeck_check_busy_ || vorondeck_install_busy_)
+    if ((vorondeck_check_busy_ && !vorondeck_check_background_) || vorondeck_install_busy_)
         return;
+    if (selection.empty()) {
+        check_vorondeck_updates();
+        return;
+    }
     auto* client = get_moonraker_client();
     const auto printer = Config::get_instance()->get_active_printer_id();
     const auto version = json::parse(selection).value("display_version", std::string{});
@@ -386,19 +401,79 @@ void UpdatesSettingsOverlay::confirm_release_update(const std::string& kind) {
         options);
 }
 
-void UpdatesSettingsOverlay::install_test_update(const std::string& selection) {
-    auto* client = get_moonraker_client();
-    if (selection.empty() ||
-        (selection != test_offer_ && selection != stable_offer_ && selection != beta_offer_) ||
-        vorondeck_install_busy_ || vorondeck_check_busy_)
+namespace {
+std::string package_error(const MoonrakerError& error) {
+    if (error.is_transport_loss())
+        return lv_tr("Connection to Moonraker was lost or timed out. The update may still be "
+                     "running. Check component versions before retrying.");
+    const auto& message = error.message;
+    if (message.find("Another update is running") != std::string::npos)
+        return lv_tr("Another component is being updated. Wait for it to finish, then try again.");
+    if (message.find("90 seconds") != std::string::npos)
+        return lv_tr(
+            "The background update check did not finish within 90 seconds. Try again later.");
+    if (message.find("disk space") != std::string::npos)
+        return lv_tr("Not enough free disk space to download the update.");
+    if (message.find("idle") != std::string::npos || message.find("heater") != std::string::npos)
+        return lv_tr("The printer must be idle with heaters off before updating.");
+    if (message.find("changed") != std::string::npos)
+        return lv_tr("The selected or installed version has changed. Check updates again.");
+    if (message.find("moonraker.asvc") != std::string::npos)
+        return lv_tr(
+            "Moonraker cannot restart VoronDeck. Repair the update manager using the installer.");
+    if (message.find("SHA256") != std::string::npos ||
+        message.find("Package differs") != std::string::npos)
+        return lv_tr("Package verification failed. Check updates and download again.");
+    return std::string(lv_tr("Moonraker rejected the update:")) + " " +
+           (message.empty() ? std::to_string(error.code)
+                            : std::string(lv_tr(message.c_str())).substr(0, 300));
+}
+} // namespace
+
+void UpdatesSettingsOverlay::show_package_progress(const std::string& stage,
+                                                   const std::string& line, int step) {
+    if (!package_progress_modal_)
+        package_progress_modal_ = helix::ui::modal_show("vorondeck_update_progress_modal");
+    if (!package_progress_modal_)
         return;
+    auto set = [this](const char* name, const std::string& text) {
+        if (auto* label = helix::ui::find_optional(package_progress_modal_, name))
+            lv_label_set_text(label, text.c_str());
+    };
+    set("update_stage", stage);
+    set("update_log", line.substr(0, 240));
+    set("stage_count", step <= 0 ? "" : fmt::format(lv_tr("Stage {} of 3"), step));
+    if (auto* spinner = helix::ui::find_optional(package_progress_modal_, "update_spinner")) {
+        if (step < 0 || step == 3)
+            lv_obj_add_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_remove_flag(spinner, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (auto* bar = helix::ui::find_optional(package_progress_modal_, "stage_progress")) {
+        lv_bar_set_value(bar, step < 0 ? 0 : step * 100 / 3, LV_ANIM_OFF);
+        if (step < 0)
+            lv_obj_add_flag(bar, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_remove_flag(bar, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void UpdatesSettingsOverlay::install_test_update(const std::string& selection, bool manager_ready) {
+    auto* client = get_moonraker_client();
+    if (selection.empty() || vorondeck_install_busy_ ||
+        (vorondeck_check_busy_ && !vorondeck_check_background_))
+        return;
+    if (selection != test_offer_ && selection != stable_offer_ && selection != beta_offer_) {
+        show_package_progress(
+            lv_tr("The selected or installed version has changed. Check updates again."), "", -1);
+        return;
+    }
     if (!client || client->get_connection_state() != ConnectionState::CONNECTED ||
         job_holds_machine(get_printer_state().print_state().get_print_lifecycle())) {
         ToastManager::instance().show(ToastSeverity::WARNING,
                                       lv_tr("Printer or update manager is busy"), 4000);
         return;
     }
-    // Offers describe this screen's package, never a remote printer's screen.
     const auto host = helix::extract_host_from_websocket_url(client->get_last_url());
     helix::invalidate_host_identity_cache();
     if (host.empty() || !helix::is_moonraker_on_same_host(host)) {
@@ -407,44 +482,184 @@ void UpdatesSettingsOverlay::install_test_update(const std::string& selection) {
             lv_tr("Connect to this screen's local Moonraker before installing its update."), 6000);
         return;
     }
-    auto params = json::parse(selection);
-    params.erase("display_version");
-    params.erase("notification_id");
     const auto printer = Config::get_instance()->get_active_printer_id();
     auto token = object_lifetime_.token();
     vorondeck_install_busy_ = true;
-    vorondeck_update_text_ = lv_tr("Downloading and verifying VoronDeck. The screen will restart.");
-    publish_vorondeck_status();
-    auto finish = [this, token, client, printer](bool success, bool outdated = false) {
-        token.defer("UpdatesSettings::test_install", [this, client, printer, success, outdated] {
+    const auto attempt = ++package_update_attempt_;
+    auto valid = [this, client, printer, attempt] {
+        return attempt == package_update_attempt_ && client == get_moonraker_client() &&
+               printer == Config::get_instance()->get_active_printer_id();
+    };
+    auto finish = [this, token, valid](bool success, std::string reason = "",
+                                       bool outdated = false) {
+        token.defer("UpdatesSettings::install_finish", [this, valid, success, reason, outdated] {
             vorondeck_install_busy_ = false;
-            if (client != get_moonraker_client() ||
-                printer != Config::get_instance()->get_active_printer_id()) {
+            if (!valid()) {
+                if (package_progress_modal_) {
+                    helix::ui::modal_hide(package_progress_modal_);
+                    package_progress_modal_ = nullptr;
+                }
                 test_offer_.clear();
                 stable_offer_.clear();
                 beta_offer_.clear();
                 vorondeck_update_text_ = std::string("VoronDeck ") + HELIX_VERSION;
             } else {
-                vorondeck_update_text_ = lv_tr(
-                    outdated ? "Update manager is outdated. Run the VoronDeck installer again."
-                    : success
-                        ? "VoronDeck updated successfully"
-                        : "Update was not confirmed. Check component updates before retrying.");
+                vorondeck_update_text_ = success ? lv_tr("VoronDeck updated successfully") : reason;
+                show_package_progress(vorondeck_update_text_, "", success ? 3 : -1);
             }
             publish_vorondeck_status();
+            if (outdated && valid()) {
+                if (package_progress_modal_) {
+                    helix::ui::modal_hide(package_progress_modal_);
+                    package_progress_modal_ = nullptr;
+                }
+                repair_update_manager();
+            }
         });
     };
+    auto failed = [finish, token](const MoonrakerError& error) {
+        token.defer("UpdatesSettings::install_error", [finish, error] {
+            finish(false, package_error(error), error.code == -32601 || error.code == 404);
+        });
+    };
+    if (!manager_ready) {
+        show_package_progress(lv_tr("Checking the update manager..."), "machine.update.status", 0);
+        client->send_jsonrpc(
+            "machine.update.status", json::object(),
+            [this, token, valid, selection, finish](const json& response) {
+                token.defer("UpdatesSettings::manager_ready", [this, valid, selection, response,
+                                                               finish] {
+                    if (!valid()) {
+                        finish(false);
+                        return;
+                    }
+                    const auto result = response.value("result", json::object());
+                    const auto info = result.value("version_info", json::object());
+                    const auto component = info.value("vorondeck", json::object());
+                    if (component.value("vorondeck_update_progress", 0) < 1) {
+                        finish(
+                            false,
+                            lv_tr("Update manager is outdated. Run the VoronDeck installer again."),
+                            true);
+                        return;
+                    }
+                    vorondeck_install_busy_ = false;
+                    install_test_update(selection, true);
+                });
+            },
+            failed, 15000, true);
+        return;
+    }
+    vorondeck_update_text_ = lv_tr("Waiting for the background check to finish...");
+    show_package_progress(vorondeck_update_text_, "machine.update.vorondeck_release", 0);
+    publish_vorondeck_status();
+    helix::replace_method_callback(
+        *client, "notify_update_response", "vorondeck_install_progress",
+        [this, token, valid](const json& message) {
+            if (!message.contains("params") || !message["params"].is_array() ||
+                message["params"].empty())
+                return;
+            const auto& data = message["params"][0];
+            if (!data.is_object() || !data.contains("application") ||
+                !data["application"].is_string() || data["application"] != "vorondeck" ||
+                !data.contains("message") || !data["message"].is_string())
+                return;
+            const auto line = data["message"].get<std::string>();
+            token.defer("UpdatesSettings::install_progress", [this, valid, line] {
+                if (!valid() || !vorondeck_install_busy_)
+                    return;
+                int step = 1;
+                const char* stage = lv_tr("Downloading and verifying the package...");
+                if (line.find("Activating") != std::string::npos) {
+                    step = 2;
+                    stage = lv_tr("Installing the package and restarting the screen...");
+                } else if (line.find("successfully") != std::string::npos ||
+                           line.find("already up to date") != std::string::npos) {
+                    step = 3;
+                    stage = lv_tr("VoronDeck updated successfully");
+                }
+                vorondeck_update_text_ = stage;
+                // Closing the console hides progress, but never cancels installation.
+                if (package_progress_modal_)
+                    show_package_progress(vorondeck_update_text_, line, step);
+                publish_vorondeck_status();
+            });
+        });
+    auto params = json::parse(selection);
+    params.erase("display_version");
+    params.erase("notification_id");
     client->send_jsonrpc(
         params.value("kind", std::string{}) == "test" ? "machine.update.vorondeck_test"
                                                       : "machine.update.vorondeck_release",
         params,
-        [finish](const json& response) {
-            finish(response.contains("result") && response["result"] == "ok");
+        [finish, token](const json& response) {
+            token.defer("UpdatesSettings::install_response", [finish, response] {
+                const bool ok = response.contains("result") && response["result"] == "ok";
+                finish(ok, ok ? ""
+                              : lv_tr("Moonraker returned an unexpected update response. Check "
+                                      "component versions."));
+            });
         },
-        [finish](const MoonrakerError& error) {
-            finish(false, error.code == -32601 || error.code == 404);
+        failed, 1800000, true);
+}
+
+void UpdatesSettingsOverlay::repair_update_manager() {
+    auto* client = get_moonraker_client();
+    auto* config = Config::get_instance();
+    if (!client || !config || vorondeck_install_busy_ ||
+        (vorondeck_check_busy_ && !vorondeck_check_background_))
+        return;
+    const auto printer = config->get_active_printer_id();
+    const int port = config->get<int>(config->df() + "moonraker_port", 7125);
+    if (port < 1 || port > 65535)
+        return;
+    helix::ui::ConfirmOptions options;
+    options.cancel_text = lv_tr("Not now");
+    options.owner_token = object_lifetime_.token();
+    helix::ui::modal_confirm(
+        lv_tr("Update manager"),
+        lv_tr("Update the local update manager? Moonraker will restart. Printer settings are "
+              "preserved. Then check updates again."),
+        ModalSeverity::Warning, lv_tr("Update"),
+        [this, client, printer, port] {
+            if (client != get_moonraker_client() ||
+                printer != Config::get_instance()->get_active_printer_id() ||
+                client->get_connection_state() != ConnectionState::CONNECTED ||
+                job_holds_machine(get_printer_state().print_state().get_print_lifecycle()) ||
+                !helix::is_moonraker_on_same_host(
+                    helix::extract_host_from_websocket_url(client->get_last_url())))
+                return;
+            auto& worker = helix::http::HttpExecutor::slow();
+            if (!worker.running())
+                return;
+            vorondeck_install_busy_ = true;
+            vorondeck_update_text_ = lv_tr("Updating the update manager...");
+            publish_vorondeck_status();
+            auto token = object_lifetime_.token();
+            worker.submit([this, token, client, printer, port] {
+                int code = -1;
+                try {
+                    // Only a validated integer enters this constant local command.
+                    helix::run_capture(
+                        "python3 assets/updates/repair-vorondeck-updater.py --port " +
+                            std::to_string(port) + " 2>/dev/null",
+                        code);
+                } catch (const std::exception&) {
+                }
+                token.defer("UpdatesSettings::repair", [this, client, printer, code] {
+                    vorondeck_install_busy_ = false;
+                    if (client == get_moonraker_client() &&
+                        printer == Config::get_instance()->get_active_printer_id()) {
+                        vorondeck_update_text_ =
+                            lv_tr(code == 0 ? "Update manager ready. Check updates again."
+                                            : "Update manager repair failed. Check that the "
+                                              "printer is idle and local Moonraker is available.");
+                    }
+                    publish_vorondeck_status();
+                });
+            });
         },
-        1800000);
+        options);
 }
 
 void UpdatesSettingsOverlay::show_update_download_modal(bool start_immediately) {

@@ -177,19 +177,6 @@ endif
 #   - ad5m / ad5m-br scale: the root partition is 91-95% full.
 #   - cc1, k1, k1-dynamic, mips and yocto scale: MIPS or ~110MB boards.
 #   - ESP32 builds its own font set (firmware/helixscreen-esp32) and is untouched.
-EXTRA_ICON_FONTS :=
-ifeq ($(PLATFORM_TARGET),snapmaker-u1)
-    EXTRA_ICON_FONTS := 96
-else ifeq ($(PLATFORM_TARGET),k2)
-    EXTRA_ICON_FONTS := 128
-endif
-ifneq ($(FONT_TIERS),all)
-    TIER_FONT_SRCS := $(sort $(TIER_FONT_SRCS) \
-                      $(foreach n,$(EXTRA_ICON_FONTS),assets/fonts/mdi_icons_$(n).c))
-    CFLAGS += $(foreach n,$(EXTRA_ICON_FONTS),-DHELIX_HAS_MDI_ICONS_$(n)=1)
-    CXXFLAGS += $(foreach n,$(EXTRA_ICON_FONTS),-DHELIX_HAS_MDI_ICONS_$(n)=1)
-endif
-
 # Link only the Orbitron sizes corresponding to this platform's Noto faces.
 # Light Noto faces share Orbitron Regular (its lightest available weight is 400).
 NEMESIS_FONT_SRCS := $(patsubst assets/fonts/noto_sans_%,assets/fonts/orbitron_%,\

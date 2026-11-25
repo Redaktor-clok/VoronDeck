@@ -56,14 +56,6 @@ PlrOfferController::PlrOfferController() {
         [](PlrOfferController* self, int value) { self->on_plr_interrupted_flag_changed(value); },
         ps.get_subjects_lifetime());
 
-    // plr_power_loss_signal is the PRIMARY trigger of the active probe. Unlike
-    // a validated-snapshot flag this only says the FIRMWARE supports recovery —
-    // whether a snapshot exists takes a separate, side-effectful probe.
-    probe_capable_observer_ = observe<int>(
-        ps.print_state().get_plr_power_loss_signal_subject(), this,
-        [](PlrOfferController* self, int value) { self->on_probe_capable_changed(value); },
-        ps.get_subjects_lifetime());
-
     conn_observer_ = observe<int>(
         ps.network_state().get_printer_connection_state_subject(), this,
         [](PlrOfferController* self, int value) { self->on_connection_state_changed(value); },
@@ -214,76 +206,6 @@ void PlrOfferController::on_snapshot_valid_changed(int /*snapshot_valid*/) {
 void PlrOfferController::on_plr_interrupted_flag_changed(int /*was_interrupted*/) {
     // Same shape as on_snapshot_valid_changed: evaluate_offer reads the flag
     // straight from the subject, so the notified value is not needed here.
-    evaluate_offer();
-}
-
-void PlrOfferController::on_probe_capable_changed(int capable) {
-    if (capable == 0) {
-        return;
-    }
-    // Capability alone offers nothing — ask the firmware whether a snapshot
-    // actually exists. evaluate_offer runs from the probe response.
-    probe_once();
-}
-
-void PlrOfferController::probe_once() {
-    if (probe_.fired) {
-        return;
-    }
-    auto& ps = get_printer_state();
-
-    // STANDBY, not merely "not active": the Klipper handler itself only arms
-    // power_loss when print_stats.state == "standby", and probing out of a
-    // terminal state would clear exclude_object_info for no benefit.
-    // RAW_PRINT_STATE_OK: mirrors a Klipper condition on print_stats.state
-    // itself — the handler only arms power_loss from "standby".
-    auto state = ps.print_state().get_print_job_state();
-    if (state != PrintJobState::STANDBY) {
-        spdlog::debug("[PLR] Probe-capable but print state is {} (not standby) — skipping probe",
-                      static_cast<int>(state));
-        return;
-    }
-
-    auto* api = get_moonraker_api();
-    if (!api) {
-        spdlog::warn("[PLR] Recovery probe skipped: no IMoonrakerAPI");
-        return;
-    }
-
-    // Latch BEFORE dispatch. The call is side-effectful (on a JSON parse failure
-    // Klipper deletes the recovery sidecar), so an error path must not leave the
-    // door open for a retry storm — one attempt per connection, full stop.
-    probe_.fired = true;
-
-    plr_rpc::request_recovery_probe(
-        *api,
-        lifetime_.bg_cb("PlrOfferController::recovery_probe",
-                        [this](const PlrDetectResult& r) { on_probe_result(r); }),
-        [](const MoonrakerError& err) {
-            // Silent to the user: a printer that advertises power_loss but has
-            // no endpoint is a firmware-variant mismatch, not something the
-            // operator can act on. The absence of an offer is the outcome.
-            spdlog::warn("[PLR] Recovery probe failed: {}", err.message);
-        });
-}
-
-void PlrOfferController::on_probe_result(const PlrDetectResult& result) {
-    probe_.result = result;
-    if (!plr_probe_recovery_available(probe_.result)) {
-        spdlog::info("[PLR] Probe reports no resumable print (completed={} file_state={} "
-                     "eeprom_state={})",
-                     result.completed, result.file_state, result.eeprom_state);
-        return;
-    }
-    // Best-effort, read-only: HelixScreen runs on the printer, so the sidecar is
-    // normally readable. Without a filename there is no SDCARD_PRINT_FILE to
-    // send, and plr_build_plan will withhold the offer rather than show a
-    // Resume button that cannot work.
-    probe_.recovery_file = plr_read_probe_recovery_filename();
-    if (probe_.recovery_file.empty()) {
-        // Fall back to whatever recovery file the status payload carried.
-        probe_.recovery_file = get_printer_state().print_state().pl_recovery_file();
-    }
     evaluate_offer();
 }
 
@@ -492,12 +414,6 @@ void PlrOfferController::on_print_lifecycle_changed(PrintState next) {
     // (plr_reoffers_after_job_drop).
     if (!job_holds_machine(prev) || next != PrintState::Idle) {
         return;
-    }
-    // The probe is refused outside STANDBY and only runs on a probe-capable
-    // firmware; its response does the evaluating.
-    if (lv_subject_get_int(get_printer_state().print_state().get_plr_power_loss_signal_subject()) !=
-        0) {
-        probe_once();
     }
     if (plr_reoffers_after_job_drop(plr_select_backend(read_signals()))) {
         evaluate_offer();

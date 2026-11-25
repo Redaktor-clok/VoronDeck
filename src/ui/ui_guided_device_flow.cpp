@@ -28,11 +28,7 @@ const GuidedDeviceFlow* find_guided_device_flow(const std::string& id) {
 }
 
 void register_builtin_guided_device_flows() {
-    // A registrar compiled without its vendor's support is an empty stub, so every row
-    // is safe to run in every build.
     static constexpr void (*kRegistrars[])() = {
-        register_cfs_device_flows,
-        register_snapmaker_device_flows,
         register_indx_device_flows,
     };
     for (auto* registrar : kRegistrars) {

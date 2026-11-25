@@ -26,9 +26,8 @@ using helix::filament_macros::restore_after;
 namespace {
 
 GuidedLoad steps() {
-    auto g = guided_load("M604", {{"S", "230"}});
-    REQUIRE(g.has_value());
-    return *g;
+    return {"TEST_FEED",    "TEST_RETRY",          "TEST_FLUSH", "TEST_RELEASE",
+            "TEST_CLEANUP", "print_stats_manager", "sub_status", "push_filamenting"};
 }
 
 } // namespace
@@ -36,55 +35,6 @@ GuidedLoad steps() {
 // ============================================================================
 // The table
 // ============================================================================
-
-TEST_CASE("guided_load: QIDI's M604 is a wizard, rendered for the temperature", "[guided_load]") {
-    const GuidedLoad g = steps();
-    CHECK(g.waiting_object == "print_stats_manager");
-    CHECK(g.waiting_field == "sub_status");
-    CHECK(g.waiting_value == "push_filamenting");
-    CHECK(g.feed == "SET_PRINT_SUB_STATUS SUB_STATUS=bit_filamenting\nM604 T1 S230");
-    CHECK(g.retry == "M604 T1 S230");
-    CHECK(g.flush == "M604 T2 S230");
-    CHECK(g.release == "SET_PRINT_MAIN_STATUS MAIN_STATUS=ready");
-    CHECK(g.cleanup == "M104 S0\nENABLE_ALL_SENSOR");
-}
-
-TEST_CASE("guided_load: case-insensitive, and nothing for a macro without one", "[guided_load]") {
-    CHECK(guided_load("m604", {}).has_value());
-    CHECK_FALSE(guided_load("LOAD_FILAMENT", {}).has_value());
-    CHECK_FALSE(guided_load("M603", {}).has_value());
-    CHECK_FALSE(guided_load("", {}).has_value());
-}
-
-TEST_CASE("guided_load: the profile picks its own temperature out of what was sent",
-          "[guided_load]") {
-    SECTION("nothing sent: the macro's default") {
-        auto g = guided_load("M604", {});
-        REQUIRE(g.has_value());
-        CHECK(g->retry == "M604 T1 S250");
-        CHECK(g->flush == "M604 T2 S250");
-    }
-    SECTION("its parameter, in any case") {
-        auto g = guided_load("M604", {{"s", "215"}});
-        REQUIRE(g.has_value());
-        CHECK(g->retry == "M604 T1 S215");
-    }
-    SECTION("another macro's temperature parameter is not its own") {
-        auto g = guided_load("M604", {{"EXTRUDER_TEMP", "215"}, {"NOZZLE_TEMP", "215"}});
-        REQUIRE(g.has_value());
-        CHECK(g->retry == "M604 T1 S250");
-    }
-    SECTION("an unreadable or zero value keeps the default") {
-        CHECK(guided_load("M604", {{"S", "hot"}})->retry == "M604 T1 S250");
-        CHECK(guided_load("M604", {{"S", "0"}})->retry == "M604 T1 S250");
-    }
-}
-
-TEST_CASE("guided_load_example: a known wizard at its default", "[guided_load]") {
-    auto g = guided_load_example();
-    REQUIRE(g.has_value());
-    CHECK(g->flush == "M604 T2 S250");
-}
 
 TEST_CASE("guided_load_status_query: asks for the waiting field only", "[guided_load]") {
     CHECK(guided_load_status_query(steps()) ==
@@ -112,14 +62,6 @@ TEST_CASE("guided_load_waits: reads the reported field from a query reply", "[gu
                 {"result", {{"status", {{"print_stats_manager", {{"sub_status", 3}}}}}}}},
             g));
     }
-}
-
-TEST_CASE("restore_after: the stock unload gets its sensor back, nothing else does",
-          "[guided_load]") {
-    CHECK(restore_after("M603") == "ENABLE_ALL_SENSOR");
-    CHECK(restore_after("m603") == "ENABLE_ALL_SENSOR");
-    CHECK(restore_after("M604").empty());
-    CHECK(restore_after("UNLOAD_FILAMENT").empty());
 }
 
 // ============================================================================
@@ -232,4 +174,10 @@ TEST_CASE("GuidedLoadFlow: older firmware is never sent the waiting-only command
         (void)flow.extrude();
         CHECK(flow.command_finished(false) == steps().cleanup);
     }
+}
+
+TEST_CASE("Retired firmware macros have no guided load scripts", "[guided_load]") {
+    CHECK_FALSE(guided_load("M604", {}).has_value());
+    CHECK_FALSE(guided_load_example().has_value());
+    CHECK(restore_after("M603").empty());
 }
