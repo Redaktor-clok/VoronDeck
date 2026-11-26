@@ -134,7 +134,7 @@ struct AmsTypeTraits {
 
 // i18n: do not translate - the names below are product names
 inline constexpr AmsTypeTraits kAmsTypeTraits[] = {
-    {AmsType::NONE, "None", "", "unknown", "", AmsBufferRows::None, nullptr},
+    {AmsType::NONE, "None", "", "unknown", "", AmsBufferRows::None, nullptr, false},
     {AmsType::HAPPY_HARE, "Happy Hare", "Happy Hare MMU", "happy_hare", "mmu",
      AmsBufferRows::SyncDrive, nullptr},
     {AmsType::AFC, "AFC", "AFC (Armored Turtle)", "afc", "AFC", AmsBufferRows::UnitBuffer,

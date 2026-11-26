@@ -379,9 +379,9 @@ TEST_CASE_METHOD(MotionSensorFixture, "clog meter: which motion sensors make the
     }
 
     SECTION("a claimed sensor is the printer's own once the backend reports no hardware") {
-        constexpr const char* kHead = "filament_motion_sensor filament_sensor";
+        constexpr const char* kHead = "filament_motion_sensor toolhead";
         get_printer_state().set_hardware(
-            discovery_of({"box", "extruder", "heater_bed", "gcode_move"}));
+            discovery_of({"mmu", "extruder", "heater_bed", "gcode_move"}));
         discover({kHead});
         feed(motion_frame(kHead, true, true));
 

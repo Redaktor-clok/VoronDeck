@@ -486,13 +486,14 @@ TEST_CASE("Bypass availability override", "[ams][bypass][override]") {
 
 TEST_CASE("Bypass override follows the actual system capability", "[ams][bypass][override]") {
     AmsSystemInfo info;
-    for (const auto type : {AmsType::NONE, AmsType::TOOL_CHANGER, AmsType::SNAPMAKER,
-                            AmsType::QIDI_BOX, AmsType::OPENAMS, AmsType::INDX}) {
+    for (const auto type :
+         {AmsType::NONE, AmsType::TOOL_CHANGER, AmsType::SNAPMAKER, AmsType::QIDI_BOX,
+          AmsType::OPENAMS, AmsType::INDX, AmsType::ACE, AmsType::CFS, AmsType::AD5X_IFS}) {
         info.type = type;
         CHECK_FALSE(helix::bypass_override_offered(info));
         CHECK_FALSE(helix::bypass_available(false, true, helix::bypass_override_offered(info)));
     }
-    for (const auto type : {AmsType::AFC, AmsType::HAPPY_HARE, AmsType::ACE, AmsType::CFS}) {
+    for (const auto type : {AmsType::AFC, AmsType::HAPPY_HARE}) {
         info.type = type;
         REQUIRE(helix::bypass_override_offered(info));
         CHECK(helix::bypass_available(false, true, helix::bypass_override_offered(info)));

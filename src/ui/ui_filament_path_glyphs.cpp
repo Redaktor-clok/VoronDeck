@@ -401,13 +401,13 @@ void draw_schematic_toolhead(lv_layer_t* layer, int32_t cx, int32_t cy,
     rect.bg_opa = LV_OPA_60;
     rect.border_color = theme_manager_get_color("text_muted");
     rect.border_width = 2;
-    rect.radius = std::max(3, scale / 2);
+    rect.radius = std::max<int32_t>(3, scale / 2);
     lv_area_t area = {cx - scale * 2, cy - scale * 5 / 4, cx + scale * 2, cy + scale * 5 / 4};
     lv_draw_rect(layer, &rect, &area);
     rect.radius = LV_RADIUS_CIRCLE;
     rect.bg_opa = LV_OPA_TRANSP;
     rect.border_color = filament ? theme_manager_get_color("primary") : rect.border_color;
-    const int32_t radius = std::max(3, scale * 3 / 4);
+    const int32_t radius = std::max<int32_t>(3, scale * 3 / 4);
     area = {cx - radius, cy - radius, cx + radius, cy + radius};
     lv_draw_rect(layer, &rect, &area);
 }

@@ -133,39 +133,6 @@ TEST_CASE("Subscription: virtual_sdcard fields cover printer_print_state reads",
     REQUIRE(has_field(subs, "virtual_sdcard", "is_active"));
 }
 
-TEST_CASE("Subscription: power-loss recovery and pause-cause fields follow the firmware",
-          "[moonraker][subscription][plr]") {
-    SECTION("mainline Klipper gets the probe marker and recovery file only") {
-        DiscoveryFixture fx;
-        json subs = fx.build();
-        CHECK(has_field(subs, "print_stats", "power_loss"));
-        CHECK(has_field(subs, "virtual_sdcard", "file_path"));
-        CHECK_FALSE(has_field(subs, "print_stats", "exception"));
-        CHECK_FALSE(has_field(subs, "virtual_sdcard", "pl_env_valid"));
-    }
-
-    SECTION("the firmware that publishes them gets the pause cause and snapshot flag") {
-        // The structured pause cause feeds defect detection and the resume
-        // classifier; the snapshot flag is that firmware's recovery offer.
-        DiscoveryFixture fx;
-        fx.add("filament_detect");
-        json subs = fx.build();
-        CHECK(has_field(subs, "print_stats", "exception"));
-        CHECK(has_field(subs, "virtual_sdcard", "pl_env_valid"));
-        CHECK(has_field(subs, "virtual_sdcard", "file_path"));
-        CHECK(has_field(subs, "print_stats", "state"));
-        CHECK(has_field(subs, "virtual_sdcard", "progress"));
-    }
-
-    SECTION("the recovery macro adds save_variables with every field") {
-        DiscoveryFixture fx;
-        fx.add("gcode_macro DETECT_INTERRUPTION");
-        json subs = fx.build();
-        REQUIRE(subs.contains("save_variables"));
-        CHECK(subs["save_variables"].is_null());
-    }
-}
-
 TEST_CASE("Subscription: heaters narrow to {temperature, target, power}, extruders add "
           "pressure advance and the fitted nozzle",
           "[moonraker][subscription]") {
@@ -739,31 +706,6 @@ TEST_CASE("Subscription: MCU objects narrow to PerformanceSource reads",
     }
 }
 
-TEST_CASE("Subscription: fault-code firmware subscribes its standing-fault object",
-          "[moonraker][subscription]") {
-    SECTION("exception_manager discovered -> subscribed") {
-        // A fault that survived a restart is never printed to the console
-        // again, so the exceptions array in this object is the only channel
-        // that carries it.
-        DiscoveryFixture fx;
-        fx.add("exception_manager");
-        json subs = fx.build();
-
-        REQUIRE(subs.contains("exception_manager"));
-    }
-
-    SECTION("no fault-code object -> not subscribed") {
-        // Printers whose firmware does not report structured faults must not
-        // subscribe an object nothing reads.
-        DiscoveryFixture fx;
-        fx.add("gcode_macro START_PRINT");
-        fx.add("extruder");
-        json subs = fx.build();
-
-        REQUIRE_FALSE(subs.contains("exception_manager"));
-    }
-}
-
 TEST_CASE("Subscription: mains-monitor firmware subscribes its power-loss object",
           "[moonraker][subscription]") {
     SECTION("power_loss_check discovered -> subscribed") {
@@ -816,86 +758,6 @@ TEST_CASE("Subscription: enclosure-top firmware subscribes the one field it read
         json subs = fx.build();
 
         REQUIRE_FALSE(subs.contains("purifier"));
-    }
-}
-
-TEST_CASE("Subscription: ZMOD printers subscribe save_variables for the persisted z-offset",
-          "[moonraker][subscription][zmod]") {
-    SECTION("SAVE_ZMOD_DATA present -> save_variables subscribed") {
-        // ZMOD zeroes gcode_move's live offset outside a print and keeps the real
-        // one in save_variables' gcode_offsets. Without this subscription the
-        // Z-offset row reads 0.000 whenever the printer is idle.
-        DiscoveryFixture fx;
-        fx.add("gcode_macro SAVE_ZMOD_DATA");
-        fx.add("extruder");
-        json subs = fx.build();
-
-        REQUIRE(subs.contains("save_variables"));
-    }
-
-    SECTION("no ZMOD macro -> save_variables not subscribed") {
-        // Every non-ZMOD printer must not pay for an object nothing reads.
-        DiscoveryFixture fx;
-        fx.add("gcode_macro START_PRINT");
-        fx.add("extruder");
-        json subs = fx.build();
-
-        REQUIRE_FALSE(subs.contains("save_variables"));
-    }
-
-    SECTION("detection is case-insensitive like every other macro gate") {
-        DiscoveryFixture fx;
-        fx.add("gcode_macro save_zmod_data");
-        json subs = fx.build();
-
-        REQUIRE(subs.contains("save_variables"));
-    }
-}
-
-TEST_CASE("Subscription: Qidi PLR subscribes save_variables when the recovery macro exists",
-          "[moonraker][subscription]") {
-    // Without this the was_interrupted flag never arrives past the initial
-    // bootstrap query, so a power loss recovered on the reconnect goes
-    // unnoticed. The not-subscribed-by-default half is pinned by the ZMOD
-    // case above.
-    DiscoveryFixture fx;
-    fx.add("gcode_macro DETECT_INTERRUPTION");
-    json subs = fx.build();
-
-    REQUIRE(subs.contains("save_variables"));
-}
-
-TEST_CASE("Subscription: the U1 batch macro subscribes under its config-case key",
-          "[moonraker][subscription]") {
-    SECTION("uppercase config subscribes the uppercase object") {
-        DiscoveryFixture fx;
-        fx.add("filament_detect");
-        fx.add("gcode_macro AUTO_FEEDING_BATCH");
-        json subs = fx.build();
-
-        REQUIRE(subs.contains("gcode_macro AUTO_FEEDING_BATCH"));
-    }
-
-    SECTION("lowercase config subscribes the lowercase object, not a guessed caps key") {
-        // Klipper keeps the config's case in status object keys, so a
-        // subscription spelled in caps never matches — and an object Moonraker
-        // does not know rejects the WHOLE subscription (blank printer state).
-        DiscoveryFixture fx;
-        fx.add("filament_detect");
-        fx.add("gcode_macro auto_feeding_batch");
-        json subs = fx.build();
-
-        REQUIRE(subs.contains("gcode_macro auto_feeding_batch"));
-        REQUIRE_FALSE(subs.contains("gcode_macro AUTO_FEEDING_BATCH"));
-    }
-
-    SECTION("no batch macro -> no batch object subscribed") {
-        DiscoveryFixture fx;
-        fx.add("filament_detect");
-        json subs = fx.build();
-
-        REQUIRE_FALSE(subs.contains("gcode_macro AUTO_FEEDING_BATCH"));
-        REQUIRE_FALSE(subs.contains("gcode_macro auto_feeding_batch"));
     }
 }
 
@@ -988,4 +850,22 @@ TEST_CASE("Subscription: layer-pause state macro subscribed only with the macros
         REQUIRE(has_field(subs, "gcode_macro SET_PRINT_STATS_INFO", "pause_at_layer"));
         REQUIRE(subs["gcode_macro SET_PRINT_STATS_INFO"].size() == 2);
     }
+}
+
+TEST_CASE("Subscription: retired firmware markers do not add unsupported fields",
+          "[moonraker][subscription]") {
+    DiscoveryFixture fx;
+    for (const char* object :
+         {"filament_detect", "exception_manager", "gcode_macro DETECT_INTERRUPTION",
+          "gcode_macro SAVE_ZMOD_DATA", "gcode_macro AUTO_FEEDING_BATCH"})
+        fx.add(object);
+    const json subs = fx.build();
+    CHECK(has_field(subs, "print_stats", "state"));
+    CHECK(has_field(subs, "virtual_sdcard", "progress"));
+    CHECK_FALSE(has_field(subs, "print_stats", "power_loss"));
+    CHECK_FALSE(has_field(subs, "print_stats", "exception"));
+    CHECK_FALSE(has_field(subs, "virtual_sdcard", "pl_env_valid"));
+    CHECK_FALSE(subs.contains("save_variables"));
+    CHECK_FALSE(subs.contains("exception_manager"));
+    CHECK_FALSE(subs.contains("gcode_macro AUTO_FEEDING_BATCH"));
 }

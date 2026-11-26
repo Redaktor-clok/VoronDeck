@@ -2374,10 +2374,8 @@ TEST_CASE("FilamentSlotOverrideStore clear_async deletes the T-key on Tool key s
 TEST_CASE("lane_key_style_for maps AmsType to key style",
           "[filament_slot_override][lane_key_style]") {
     using helix::ams::lane_key_style_for;
-    // Tool changers → Tool. This is the fence against ever using
-    // !is_filament_system() as the discriminator: SNAPMAKER is in BOTH lists
-    // (ams_types.h), so that predicate would silently misclassify it.
-    CHECK(lane_key_style_for(helix::AmsType::SNAPMAKER) == LaneKeyStyle::Tool);
+    // Retired values use the generic lane key; supported tool changers use tool keys.
+    CHECK(lane_key_style_for(helix::AmsType::SNAPMAKER) == LaneKeyStyle::Lane);
     CHECK(lane_key_style_for(helix::AmsType::TOOL_CHANGER) == LaneKeyStyle::Tool);
     // Every filament-switching system → Lane.
     CHECK(lane_key_style_for(helix::AmsType::ACE) == LaneKeyStyle::Lane);

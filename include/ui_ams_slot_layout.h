@@ -27,7 +27,8 @@ struct AmsSlotLayout {
 inline AmsSlotLayout calculate_ams_ring_layout(int32_t available_width, int slot_count) {
     if (available_width <= 0 || slot_count <= 0)
         return {};
-    const int32_t columns = std::min(slot_count, std::max<int32_t>(1, available_width / 88));
+    const int32_t columns =
+        std::min<int32_t>(slot_count, std::max<int32_t>(1, available_width / 88));
     const int32_t width = available_width / columns;
     return {width, 0, (available_width - width * columns) / 2};
 }

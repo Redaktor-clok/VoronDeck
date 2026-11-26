@@ -21,7 +21,7 @@ using nlohmann::json;
 namespace {
 
 const HardwareFacts kNoHardware{};
-const HardwareFacts kCfs{{AmsType::CFS}};
+const HardwareFacts kAfc{{AmsType::AFC}};
 const HardwareFacts kTopFitted{{}, true};
 const HardwareFacts kChamberHeater{{}, false, true};
 
@@ -34,55 +34,55 @@ json entry_with(json variants) {
 TEST_CASE("select_image: an entry without variants shows its image", "[printer_image_variants]") {
     const json entry{{"image", "plain.png"}};
     CHECK(select_image(entry, kNoHardware) == "plain.png");
-    CHECK(select_image(entry, kCfs) == "plain.png");
-    CHECK(select_image(json::object(), kCfs).empty());
+    CHECK(select_image(entry, kAfc) == "plain.png");
+    CHECK(select_image(json::object(), kAfc).empty());
 }
 
 TEST_CASE("select_image: a matching variant replaces the image", "[printer_image_variants]") {
     const json entry =
-        entry_with({{{"when", {{"filament_system", "cfs"}}}, {"image", "with-cfs.png"}}});
-    CHECK(select_image(entry, kCfs) == "with-cfs.png");
+        entry_with({{{"when", {{"filament_system", "afc"}}}, {"image", "with-afc.png"}}});
+    CHECK(select_image(entry, kAfc) == "with-afc.png");
 }
 
 TEST_CASE("select_image: no matching variant falls back to the image", "[printer_image_variants]") {
     const json entry =
-        entry_with({{{"when", {{"filament_system", "cfs"}}}, {"image", "with-cfs.png"}}});
+        entry_with({{{"when", {{"filament_system", "afc"}}}, {"image", "with-afc.png"}}});
     CHECK(select_image(entry, kNoHardware) == "plain.png");
-    CHECK(select_image(entry, HardwareFacts{{AmsType::AFC}}) == "plain.png");
+    CHECK(select_image(entry, HardwareFacts{{AmsType::OPENAMS}}) == "plain.png");
 }
 
 TEST_CASE("select_image: the first matching variant wins", "[printer_image_variants]") {
     const json entry = entry_with({
-        {{"when", {{"filament_system", "afc"}}}, {"image", "with-afc.png"}},
-        {{"when", {{"filament_system", "cfs"}}}, {"image", "first-cfs.png"}},
-        {{"when", {{"filament_system", "cfs"}}}, {"image", "second-cfs.png"}},
+        {{"when", {{"filament_system", "openams"}}}, {"image", "with-openams.png"}},
+        {{"when", {{"filament_system", "afc"}}}, {"image", "first-afc.png"}},
+        {{"when", {{"filament_system", "afc"}}}, {"image", "second-afc.png"}},
     });
-    CHECK(select_image(entry, kCfs) == "first-cfs.png");
+    CHECK(select_image(entry, kAfc) == "first-afc.png");
     // Any detected backend of the kind counts, not only the first.
-    CHECK(select_image(entry, HardwareFacts{{AmsType::HAPPY_HARE, AmsType::CFS}}) ==
-          "first-cfs.png");
+    CHECK(select_image(entry, HardwareFacts{{AmsType::HAPPY_HARE, AmsType::AFC}}) ==
+          "first-afc.png");
 }
 
 TEST_CASE("select_image: a variant without an image is skipped", "[printer_image_variants]") {
     const json entry = entry_with({
-        {{"when", {{"filament_system", "cfs"}}}},
-        {{"when", {{"filament_system", "cfs"}}}, {"image", "with-cfs.png"}},
+        {{"when", {{"filament_system", "afc"}}}},
+        {{"when", {{"filament_system", "afc"}}}, {"image", "with-afc.png"}},
     });
-    CHECK(select_image(entry, kCfs) == "with-cfs.png");
+    CHECK(select_image(entry, kAfc) == "with-afc.png");
 }
 
 TEST_CASE("variant_matches: an unknown condition key never matches", "[printer_image_variants]") {
     // An entry naming a condition this build cannot evaluate shows its plain image.
-    CHECK_FALSE(variant_matches({{"enclosure", true}}, kCfs));
-    CHECK_FALSE(variant_matches({{"filament_system", "cfs"}, {"unit_count", 2}}, kCfs));
+    CHECK_FALSE(variant_matches({{"enclosure", true}}, kAfc));
+    CHECK_FALSE(variant_matches({{"filament_system", "afc"}, {"unit_count", 2}}, kAfc));
     const json entry = entry_with({{{"when", {{"unit_count", 2}}}, {"image", "two-units.png"}}});
-    CHECK(select_image(entry, kCfs) == "plain.png");
+    CHECK(select_image(entry, kAfc) == "plain.png");
 }
 
 TEST_CASE("variant_matches: malformed conditions never match", "[printer_image_variants]") {
-    CHECK_FALSE(variant_matches(json("cfs"), kCfs));
-    CHECK_FALSE(variant_matches(json::array(), kCfs));
-    CHECK_FALSE(variant_matches({{"filament_system", 6}}, kCfs));
+    CHECK_FALSE(variant_matches(json("afc"), kAfc));
+    CHECK_FALSE(variant_matches(json::array(), kAfc));
+    CHECK_FALSE(variant_matches({{"filament_system", 6}}, kAfc));
     CHECK_FALSE(variant_matches({{"filament_system", "not-a-system"}}, kNoHardware));
     // "none" names no filament system, so it cannot be used to match a bare printer.
     CHECK_FALSE(variant_matches({{"filament_system", "none"}}, kNoHardware));
@@ -99,7 +99,7 @@ TEST_CASE("variant_matches: an empty condition set matches", "[printer_image_var
 TEST_CASE("variant condition vocabulary", "[printer_image_variants]") {
     CHECK(is_known_variant_condition("filament_system"));
     CHECK_FALSE(is_known_variant_condition("enclosure"));
-    CHECK(is_valid_variant_condition_value("filament_system", "cfs"));
+    CHECK(is_valid_variant_condition_value("filament_system", "afc"));
     CHECK(is_valid_variant_condition_value("filament_system", "happy_hare"));
     CHECK_FALSE(is_valid_variant_condition_value("filament_system", "none"));
     CHECK_FALSE(is_valid_variant_condition_value("filament_system", 6));
@@ -125,10 +125,10 @@ TEST_CASE("select_image: an enclosure_top variant follows the fitted top",
 
 TEST_CASE("variant_matches: enclosure_top combines with the other conditions",
           "[printer_image_variants]") {
-    const HardwareFacts cfs_and_top{{AmsType::CFS}, true};
-    const json both{{"filament_system", "cfs"}, {"enclosure_top", true}};
-    CHECK(variant_matches(both, cfs_and_top));
-    CHECK_FALSE(variant_matches(both, kCfs));
+    const HardwareFacts afc_and_top{{AmsType::AFC}, true};
+    const json both{{"filament_system", "afc"}, {"enclosure_top", true}};
+    CHECK(variant_matches(both, afc_and_top));
+    CHECK_FALSE(variant_matches(both, kAfc));
     CHECK_FALSE(variant_matches(both, kTopFitted));
 }
 
@@ -176,7 +176,7 @@ TEST_CASE("select_image: two variants naming one image show it when either fact 
 TEST_CASE("Hardware facts change only with image-relevant hardware", "[printer_image_variants]") {
     HardwareFacts facts;
     CHECK(facts == HardwareFacts{});
-    facts.filament_systems = {AmsType::AFC};
+    facts.filament_systems = {AmsType::OPENAMS};
     CHECK(facts != HardwareFacts{});
     auto other = facts;
     CHECK(facts == other);

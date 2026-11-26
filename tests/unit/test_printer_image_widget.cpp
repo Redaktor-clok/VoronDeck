@@ -5,6 +5,7 @@
 
 #include "../test_fixtures.h"
 #include "../test_helpers/config_test_access.h"
+#include "../test_helpers/printer_image_variant_fixture.h"
 #include "../test_helpers/process_async_timers.h"
 #include "../test_helpers/typed_mock_backend.h"
 #include "ams_state.h"
@@ -408,7 +409,8 @@ TEST_CASE_METHOD(XMLTestFixture,
     ams.init_subjects(false);
 
     Config* cfg = Config::get_instance();
-    cfg->set<std::string>(cfg->df() + helix::wizard::PRINTER_TYPE, "Creality K2");
+    helix::test::PrinterImageVariantFixture image_database;
+    cfg->set<std::string>(cfg->df() + helix::wizard::PRINTER_TYPE, "Test Image Variants");
 
     lv_obj_t* widget_obj = lv_obj_create(test_screen());
     lv_obj_set_size(widget_obj, 200, 200);
@@ -422,13 +424,13 @@ TEST_CASE_METHOD(XMLTestFixture,
     process_async_timers();
     auto source = [&]() { return std::string(static_cast<const char*>(lv_image_get_src(img))); };
     const std::string plain = source();
-    REQUIRE(plain.find("creality-k2") != std::string::npos);
-    REQUIRE(plain.find("creality-k2-cfs") == std::string::npos);
+    REQUIRE(plain.find("voron-v2") != std::string::npos);
+    REQUIRE(plain.find("voron-trident") == std::string::npos);
 
-    ams.add_backend(std::make_unique<helix::test::TypedMockBackend>(AmsType::CFS));
+    ams.add_backend(std::make_unique<helix::test::TypedMockBackend>(AmsType::AFC));
     helix::ui::UpdateQueue::instance().drain();
     process_async_timers();
-    CHECK(source().find("creality-k2-cfs") != std::string::npos);
+    CHECK(source().find("voron-trident") != std::string::npos);
 
     ams.clear_backends();
     helix::ui::UpdateQueue::instance().drain();
@@ -456,7 +458,8 @@ TEST_CASE_METHOD(XMLTestFixture,
     caps.set_has_chamber_heater(false);
 
     Config* cfg = Config::get_instance();
-    cfg->set<std::string>(cfg->df() + helix::wizard::PRINTER_TYPE, "Snapmaker U1");
+    helix::test::PrinterImageVariantFixture image_database;
+    cfg->set<std::string>(cfg->df() + helix::wizard::PRINTER_TYPE, "Test Image Variants");
 
     lv_obj_t* widget_obj = lv_obj_create(test_screen());
     lv_obj_set_size(widget_obj, 200, 200);
@@ -470,13 +473,13 @@ TEST_CASE_METHOD(XMLTestFixture,
     process_async_timers();
     auto source = [&]() { return std::string(static_cast<const char*>(lv_image_get_src(img))); };
     const std::string plain = source();
-    REQUIRE(plain.find("snapmaker-u1") != std::string::npos);
-    REQUIRE(plain.find("snapmaker-u1-tophat") == std::string::npos);
+    REQUIRE(plain.find("voron-v2") != std::string::npos);
+    REQUIRE(plain.find("voron-trident") == std::string::npos);
 
     caps.set_enclosure_top_fitted(true);
     helix::ui::UpdateQueue::instance().drain();
     process_async_timers();
-    CHECK(source().find("snapmaker-u1-tophat") != std::string::npos);
+    CHECK(source().find("voron-trident") != std::string::npos);
 
     caps.set_enclosure_top_fitted(false);
     helix::ui::UpdateQueue::instance().drain();
@@ -486,7 +489,7 @@ TEST_CASE_METHOD(XMLTestFixture,
     caps.set_has_chamber_heater(true);
     helix::ui::UpdateQueue::instance().drain();
     process_async_timers();
-    CHECK(source().find("snapmaker-u1-tophat") != std::string::npos);
+    CHECK(source().find("voron-trident") != std::string::npos);
 
     caps.set_has_chamber_heater(false);
     helix::ui::UpdateQueue::instance().drain();

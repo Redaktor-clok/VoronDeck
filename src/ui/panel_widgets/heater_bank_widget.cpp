@@ -475,10 +475,10 @@ void HeaterBankWidget::on_size_changed(int, int, int, int) {
     const int list_content_height = granted_height_px() -
                                     lv_obj_get_style_pad_top(widget_, LV_PART_MAIN) -
                                     lv_obj_get_style_pad_bottom(widget_, LV_PART_MAIN);
-    const int list_height =
-        std::max(32, (list_content_height -
-                      lv_obj_get_style_pad_row(cells_, LV_PART_MAIN) * (visible_rows - 1)) /
-                         visible_rows);
+    const int list_height = std::max<int32_t>(
+        32, (list_content_height -
+             lv_obj_get_style_pad_row(cells_, LV_PART_MAIN) * (visible_rows - 1)) /
+                visible_rows);
     // DECLARATIVE_OK: measured tracks keep readable list cells independent of inventory count.
     lv_obj_set_scroll_dir(cells_, list ? LV_DIR_VER : LV_DIR_NONE);
     columns_.assign(shape.columns, LV_GRID_FR(1));
@@ -516,7 +516,8 @@ void HeaterBankWidget::on_size_changed(int, int, int, int) {
                 const auto icon =
                     ui::tile_glyph_box({heater_face(chosen_icon).icon, LV_SCALE_NONE});
                 lv_obj_set_style_min_width(
-                    column, std::max(icon.w, ui::text_width("100%", faces.caption)), LV_PART_MAIN);
+                    column, std::max<int32_t>(icon.w, ui::text_width("100%", faces.caption)),
+                    LV_PART_MAIN);
             }
         }
         for (const char* name : {"home_nozzle_cold_glyph", "nozzle_icon_glyph", "bed_icon_glyph",

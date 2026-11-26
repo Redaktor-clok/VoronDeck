@@ -1274,7 +1274,7 @@ void ui_ams_slot_fit_simple(lv_obj_t* obj, int32_t cell_width) {
     auto* data = get_slot_data(obj);
     if (!data || !data->simple_rings || cell_width < 12)
         return;
-    const int32_t size = std::clamp(cell_width - 12, 4, 52);
+    const int32_t size = std::clamp<int32_t>(cell_width - 12, 4, 52);
     const int32_t margin = helix::ui::kAmsLaneSpoolBadgeMarginPx;
     lv_obj_set_size(data->spool_container, size + margin, size + margin);
     helix::ui::ams_lane_spool_set_size(data->lane_spool, size);
