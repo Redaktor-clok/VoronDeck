@@ -8,6 +8,7 @@
 // The orbitron_* symbols are retained internal names, not font-family metadata.
 #if defined(HELIX_PLATFORM_ESP32)
 // Firmware loads these writable font descriptors from compressed runtime files.
+extern "C" {
 extern lv_font_t orbitron_8;
 extern lv_font_t orbitron_10;
 extern lv_font_t orbitron_11;
@@ -29,6 +30,7 @@ extern lv_font_t orbitron_bold_24;
 extern lv_font_t orbitron_bold_28;
 extern lv_font_t orbitron_bold_32;
 extern lv_font_t orbitron_bold_40;
+}
 #else
 LV_FONT_DECLARE(orbitron_8);
 LV_FONT_DECLARE(orbitron_10);
