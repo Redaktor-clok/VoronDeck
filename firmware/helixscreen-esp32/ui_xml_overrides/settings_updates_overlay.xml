@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<component>
+  <view name="settings_updates_overlay" extends="overlay_panel" title="Updates" bg_color="#screen_bg">
+    <lv_obj name="overlay_content"
+            width="100%" flex_grow="1" flex_flow="column" style_pad_all="#space_md" style_pad_gap="#space_md"
+            scrollable="true">
+      <text_body name="vorondeck_update_status" width="100%" text="VoronDeck" long_mode="wrap"/>
+      <text_body width="100%" long_mode="wrap" text="ESP32 firmware is updated over USB."/>
+      <setting_group name="group_printer_component_updates">
+        <setting_action_row name="row_component_updates"
+                            label="Printer component updates" icon="download"
+                            description="Moonraker, Klipper and other configured components" description_min_bp="0"
+                            callback="on_vorondeck_component_updates"/>
+      </setting_group>
+    </lv_obj>
+  </view>
+</component>

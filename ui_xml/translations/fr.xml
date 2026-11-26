@@ -1146,6 +1146,7 @@
   <translation tag="ELECTRONICS &amp; ACCESSORIES" fr="ÉLECTRONIQUE &amp; ACCESSOIRES"/>
   <translation tag="EMERGENCY STOP" fr="ARRÊT D&apos;URGENCE"/>
   <translation tag="EMPTY" fr="VIDE"/>
+  <translation tag="ESP32 firmware is updated over USB." fr="Le micrologiciel ESP32 se met à jour par USB."/>
   <translation tag="ETA {}" fr="Fin {}"/>
   <translation tag="EXTRAS" fr="SUPPLÉMENTS"/>
   <translation tag="Each fan can only be selected once" fr="Chaque ventilateur ne peut être sélectionné qu&apos;une fois"/>

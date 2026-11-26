@@ -1146,6 +1146,7 @@
   <translation tag="ELECTRONICS &amp; ACCESSORIES" zh="电子设备与配件"/>
   <translation tag="EMERGENCY STOP" zh="紧急停止"/>
   <translation tag="EMPTY" zh="空"/>
+  <translation tag="ESP32 firmware is updated over USB." zh="ESP32 固件通过 USB 更新。"/>
   <translation tag="ETA {}" zh="预计 {}"/>
   <translation tag="EXTRAS" zh="其他"/>
   <translation tag="Each fan can only be selected once" zh="每个风扇只能选择一次"/>

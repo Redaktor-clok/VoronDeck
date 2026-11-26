@@ -1488,7 +1488,6 @@ print-compile-command/%.pcc:
 # prerequisite, and these print targets are neither the object nor a prerequisite
 # of the test binary, so the target-specific flags those carry are added here.
 $(foreach f,$(F),$(if $(filter $(LFS_OBJS),$(f:$(SRC_DIR)/%.cpp=$(OBJ_DIR)/%.o)),$(eval print-compile-command/$(f).pcc: override CXXFLAGS += $(LFS_CXXFLAGS))))
-$(foreach f,$(filter $(TEST_DIR)/%,$(F)),$(eval print-compile-command/$(f).pcc: override CXXFLAGS += $(TEST_BIN_CXXFLAGS)))
 
 # What an object rule needs in place before its compiler can read the source:
 # patched submodules, the third-party ABI stamp, the flags stamp, libhv's

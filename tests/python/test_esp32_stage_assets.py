@@ -19,7 +19,23 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import esp32_printer_images  # noqa: E402
 from esp32_stage_assets import (minify_xml, stage_config, stage_printer_images,  # noqa: E402
-                                stage_translations)
+                                stage_translations, stage_ui_xml, stage_ui_xml_overrides,
+                                UI_XML_OVERRIDES_DIR)
+
+
+def test_firmware_updates_keep_remote_components_without_linux_installer(tmp_path):
+    stage_ui_xml(REPO_ROOT / "ui_xml", tmp_path)
+    stage_ui_xml_overrides(UI_XML_OVERRIDES_DIR, tmp_path)
+    overlay = ET.parse(tmp_path / "ui_xml/settings_updates_overlay.xml")
+    callbacks = {node.get("callback") for node in overlay.iter() if node.get("callback")}
+    assert callbacks == {"on_vorondeck_component_updates"}
+    assert any(node.get("text") == "ESP32 firmware is updated over USB."
+               for node in overlay.iter())
+    # Staging must not change the Linux UI source.
+    linux = ET.parse(REPO_ROOT / "ui_xml/settings_updates_overlay.xml")
+    assert {"row_stable_release", "row_test_release", "row_beta_release"} <= {
+        node.get("name") for node in linux.iter()
+    }
 
 
 def test_strips_single_line_comment():

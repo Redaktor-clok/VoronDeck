@@ -4979,3 +4979,4 @@ translations:
   "Tap Heat to start preheating": ""
   "This profile is used by a filament and cannot be renamed": ""
   "Update the VoronDeck recovery plugin": ""
+  "ESP32 firmware is updated over USB.": "ESP32 固件通过 USB 更新。"

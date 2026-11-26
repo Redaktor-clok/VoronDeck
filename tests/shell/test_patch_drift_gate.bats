@@ -472,14 +472,14 @@ print('ok')
     # stamp variable defined but left out of it watches nothing.
     local db
     db="$(make_db | grep '^APPLIED_STAMPS := ')"
-    # Anchored: a path that merely starts with the name is a different file,
-    # and make would be watching something the gate never writes.
-    grep -qE 'modules/lvgl/helix-patches-applied\.json( |$)' <<<"$db" \
-        || problems="${problems}no lvgl applied-stamp in the make database; "
-    grep -qE 'modules/libhv/helix-patches-applied\.json( |$)' <<<"$db" \
-        || problems="${problems}no libhv applied-stamp in the make database; "
-    grep -qE 'modules/lib/lua/helix-patches-applied\.json( |$)' <<<"$db" \
-        || problems="${problems}no lua applied-stamp in the make database"
+    # Git supports both absorbed submodules and standalone nested repositories.
+    # Match the whole stamp path in the database, whichever layout was checked out.
+    local dep git_dir
+    for dep in lvgl libhv lua; do
+        git_dir=$(git -C "lib/$dep" rev-parse --absolute-git-dir) || return 1
+        [[ " ${db#APPLIED_STAMPS := } " == *" $git_dir/helix-patches-applied.json "* ]] \
+            || problems="${problems}no $dep applied-stamp in the make database; "
+    done
 
     [ -z "$problems" ] || { echo "$problems"; false; }
 }

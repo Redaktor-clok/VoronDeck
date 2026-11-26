@@ -1230,8 +1230,6 @@ TEST_ASAN_BIN := $(BIN_DIR)/helix-tests-asan
 # ThreadSanitizer test binary
 TEST_TSAN_BIN := $(BIN_DIR)/helix-tests-tsan
 
-TEST_BIN_CXXFLAGS :=
-
 # Run a sanitizer binary in Catch2 shards, $(3) at a time, each into
 # $$shard_dir/<i>.log with its exit status in <i>.exit. The caller creates
 # $$shard_dir and judges the results.

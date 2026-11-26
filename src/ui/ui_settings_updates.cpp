@@ -162,6 +162,11 @@ void UpdatesSettingsOverlay::publish_vorondeck_status() {
 }
 
 bool UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
+#if defined(HELIX_PLATFORM_ESP32)
+    // Firmware has no local Python/Moonraker installation or Linux package updater.
+    (void)background;
+    return false;
+#else
     if (vorondeck_check_busy_ || vorondeck_install_busy_)
         return false;
     const int selected_channel = SystemSettingsManager::instance().get_update_channel();
@@ -284,6 +289,7 @@ bool UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
         });
     });
     return true;
+#endif
 }
 
 void UpdatesSettingsOverlay::confirm_test_update() {

@@ -33,21 +33,14 @@ pcc() {
     [[ "$output" == *" -c src/system/config.cpp" ]] || fail "not the file's command: $output"
 }
 
-@test "a tests/ TU carries the test rule's include path and the test binary's defines" {
-    local app tst
-    app=$(pcc F=src/system/config.cpp)
+@test "a tests/ TU carries the test rule's include path and shared compiler flags" {
+    local tst
     tst=$(pcc F=tests/unit/test_json_utils.cpp)
     contains " -Itests " "$tst"
     [[ "$tst" == *" -c tests/unit/test_json_utils.cpp" ]] || fail "not the file's command: $tst"
-    # $(TEST_BIN)'s target-specific CXXFLAGS reach every test object through
-    # inheritance; the test TU's command carries them once more than the app's.
-    local flag want
-    want=$(scratch_make -s print-var-TEST_BIN_CXXFLAGS)
-    [ -n "$want" ] || fail "TEST_BIN_CXXFLAGS is empty"
-    for flag in $want; do
-        [ "$(grep -o -- " $flag " <<<"$tst " | wc -l)" -gt "$(grep -o -- " $flag " <<<"$app " | wc -l)" ] \
-            || fail "$flag is not added to the tests/ command"
-    done
+    contains "-include include/lvgl_pch.h" "$tst"
+    contains "-DHELIX_VERSION=\"$(cat VERSION.txt)\"" "$tst"
+    contains "-DLV_CONF_INCLUDE_SIMPLE" "$tst"
 }
 
 @test "application and mock tests carry their own rules' include paths" {

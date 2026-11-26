@@ -1188,6 +1188,7 @@
   <translation tag="ELECTRONICS &amp; ACCESSORIES" ru="ЭЛЕКТРОНИКА И АКСЕССУАРЫ"/>
   <translation tag="EMERGENCY STOP" ru="АВАРИЙНАЯ ОСТАНОВКА"/>
   <translation tag="EMPTY" ru="ПУСТО"/>
+  <translation tag="ESP32 firmware is updated over USB." ru="Прошивка ESP32 обновляется через USB."/>
   <translation tag="ETA {}" ru="Окончание {}"/>
   <translation tag="EXTRAS" ru="ДОПОЛНИТЕЛЬНО"/>
   <translation tag="Each fan can only be selected once" ru="Каждый вентилятор можно выбрать только один раз"/>
