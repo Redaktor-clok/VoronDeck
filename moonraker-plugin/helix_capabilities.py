@@ -1,20 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""
-Capability probes for the HelixPrint plugin.
-
-Generic plugin code asks capability questions and never names a vendor:
-"does this Moonraker print .3mf natively?" Each question is answered here by
-a list of probes. The generic probe reads what any Moonraker exposes;
-vendor-specific probes, each named for its vendor, recognise a firmware fork
-by the code it adds. A vendor's knowledge lives in its probe and nowhere else.
-
-A probe answers True (has the capability), False (does not) or None (cannot
-tell). A vendor probe recognises its fork and so only ever says True or None.
-
-The installer's Klipper question ("does Klipper hide dot-directories from
-SDCARD_PRINT_FILE?") is answered on the shell side, in install.sh's
-klipper_hides_dot_dirs, with the same generic/vendor split.
-"""
+"""Capability probes using the standard Moonraker file manager API."""
 
 from __future__ import annotations
 
@@ -51,25 +36,7 @@ def valid_gcode_exts_probe(file_manager: Any) -> ProbeAnswer:
     return ".3mf" in exts
 
 
-def qidi_3mf_probe(file_manager: Any) -> ProbeAnswer:
-    """QIDI: its Moonraker fork finishes a .3mf upload with
-    FileManager._finish_3mf_upload and pulls plate thumbnails with
-    MetadataStorage.parse_3mf_thumbnail (Q2 and Max 4 firmware)."""
-    if hasattr(file_manager, "_finish_3mf_upload"):
-        return True
-    storage = getattr(file_manager, "gcode_metadata", None)
-    if storage is not None and hasattr(storage, "parse_3mf_thumbnail"):
-        return True
-    module = _file_manager_module(file_manager)
-    storage_class = getattr(module, "MetadataStorage", None)
-    if storage_class is not None and hasattr(storage_class, "parse_3mf_thumbnail"):
-        return True
-    return None
-
-
-# Vendor probes first: a fork that recognisably prints .3mf wins over a
-# generic reading that could not tell.
-NATIVE_FORMAT_PROBES = (qidi_3mf_probe, valid_gcode_exts_probe)
+NATIVE_FORMAT_PROBES = (valid_gcode_exts_probe,)
 
 
 def prints_3mf_natively(

@@ -1568,6 +1568,9 @@
         "bind_op_state": {
           "type": "string"
         },
+        "label_inherit_font": {
+          "type": "string"
+        },
         "long_mode": {
           "type": "enum",
           "enum": "label_long_mode"
@@ -1825,6 +1828,9 @@
     },
     "ams_slot": {
       "attributes": {
+        "simple_rings": {
+          "type": "string"
+        },
         "slot_index": {
           "type": "int"
         },
@@ -1836,6 +1842,9 @@
     },
     "ams_mini_status": {
       "attributes": {
+        "home_summary": {
+          "type": "string"
+        },
         "card": {
           "type": "bool"
         },
@@ -1852,6 +1861,9 @@
         },
         "fill_level": {
           "type": "int"
+        },
+        "view": {
+          "type": "string"
         },
         "size": {
           "type": "int"
@@ -1981,6 +1993,12 @@
     },
     "ams_lane_spool": {
       "attributes": {
+        "spool_view": {
+          "type": "string"
+        },
+        "observe_fill": {
+          "type": "string"
+        },
         "spool_size": {
           "type": "string"
         },
@@ -3044,6 +3062,10 @@
     "ams_action_pad_hor_medium",
     "ams_action_pad_hor_small",
     "ams_action_pad_hor_xlarge",
+    "ams_actions_bottom_gap",
+    "ams_actions_bottom_gap_large",
+    "ams_actions_bottom_gap_medium",
+    "ams_actions_bottom_gap_small",
     "ams_badge_bg",
     "ams_bars_height",
     "ams_bars_height_large",
@@ -3265,6 +3287,18 @@
     "ams_unit_name_h_tiny",
     "ams_unit_name_h_xlarge",
     "ams_unit_name_h_xxlarge",
+    "ams_unit_tab_height",
+    "ams_unit_tab_height_large",
+    "ams_unit_tab_height_medium",
+    "ams_unit_tab_height_small",
+    "ams_unit_tab_width",
+    "ams_unit_tab_width_large",
+    "ams_unit_tab_width_medium",
+    "ams_unit_tab_width_small",
+    "ams_unit_tabs_height",
+    "ams_unit_tabs_height_large",
+    "ams_unit_tabs_height_medium",
+    "ams_unit_tabs_height_small",
     "badge_size",
     "badge_size_large",
     "badge_size_medium",
@@ -3538,6 +3572,7 @@
     "dialog_content_recovery_max_xxlarge",
     "dot_size",
     "elevated_bg",
+    "external_control_height",
     "fan_arc_size",
     "fan_arc_size_large",
     "fan_arc_size_medium",
@@ -3735,6 +3770,14 @@
     "hidden_connecting_height_tiny",
     "hidden_connecting_height_xlarge",
     "hidden_connecting_height_xxlarge",
+    "home_canvas_min_height",
+    "home_canvas_min_height_large",
+    "home_canvas_min_height_medium",
+    "home_canvas_min_height_micro",
+    "home_canvas_min_height_small",
+    "home_canvas_min_height_tiny",
+    "home_canvas_min_height_xlarge",
+    "home_canvas_min_height_xxlarge",
     "home_grid_gap",
     "home_grid_gap_large",
     "home_grid_gap_medium",
@@ -4046,6 +4089,7 @@
     "nav_estop_size_xlarge",
     "nav_estop_size_xxlarge",
     "nav_padding",
+    "nav_portrait_height",
     "nav_width",
     "nav_width_large",
     "nav_width_medium",
@@ -4131,6 +4175,14 @@
     "pm_image_size_small",
     "preview_offset_y",
     "primary",
+    "printer_picker_card_height",
+    "printer_picker_card_height_large",
+    "printer_picker_card_height_medium",
+    "printer_picker_card_height_small",
+    "printer_picker_render_height",
+    "printer_picker_render_height_large",
+    "printer_picker_render_height_medium",
+    "printer_picker_render_height_small",
     "progress_bar_height",
     "ps_strip_button",
     "ps_strip_button_large",

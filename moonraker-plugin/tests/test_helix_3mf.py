@@ -502,41 +502,19 @@ def load_fake_moonraker(name: str, source: str) -> types.ModuleType:
     return module
 
 
-# QIDI's Moonraker fork (Q2/Max 4 file_manager.py), cut to the parts the
-# probes read: the extension list beside FileManager, the .3mf upload method,
-# and MetadataStorage's .3mf thumbnail parser.
-QIDI_FILE_MANAGER = """
+NATIVE_FILE_MANAGER = """
 VALID_GCODE_EXTS = ['.gcode', '.g', '.gco', '.ufp', '.nc', '.3mf']
 
 class FileManager:
     def __init__(self, gc_path):
         self.gc_path = gc_path
-        self.gcode_metadata = MetadataStorage()
-    async def _finish_3mf_upload(self, upload_info):
-        return {}
-
-class MetadataStorage:
-    def parse_3mf_thumbnail(self, path):
-        return None
-"""
-
-# A fork that kept upstream's extension list but finishes .3mf uploads itself.
-METHOD_ONLY_FILE_MANAGER = """
-VALID_GCODE_EXTS = ['.gcode', '.g', '.gco', '.ufp', '.nc']
-
-class FileManager:
-    def __init__(self, gc_path):
-        self.gc_path = gc_path
-    async def _finish_3mf_upload(self, upload_info):
-        return {}
 """
 
 
 class TestNativeForks:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("name,source", [
-        ("fake_qidi_file_manager", QIDI_FILE_MANAGER),
-        ("fake_method_only_file_manager", METHOD_ONLY_FILE_MANAGER),
+        ("fake_native_file_manager", NATIVE_FILE_MANAGER),
     ])
     async def test_a_native_3mf_fork_converts_nothing(self, env, name, source):
         module = load_fake_moonraker(name, source)
