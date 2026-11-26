@@ -53,7 +53,6 @@
 // Subjects owned by PrinterImageWidget module — created before XML bindings resolve
 static lv_subject_t s_printer_type_subject;
 static char s_printer_type_buffer[64];
-static lv_subject_t s_printer_info_visible;
 
 // Live callout subjects (printer image overlay chips), driven from PrinterState
 // by PrinterImageWidget::update_callouts() and apply_callout_layout().
@@ -130,12 +129,6 @@ static void printer_image_widget_init_subjects() {
                                      LV_SUBJECT_TYPE_STRING);
 
         // String subject for hostname/IP
-
-        // Integer subject: 0=hidden, 1=visible
-        lv_subject_init_int(&s_printer_info_visible, 0);
-        s_subjects.publish("printer_info_visible", &s_printer_info_visible);
-        HELIX_SUBJECT_DEBUG_REGISTER(&s_printer_info_visible, "printer_info_visible",
-                                     LV_SUBJECT_TYPE_INT);
 
         // Live callout subjects. Every int starts at 0 (CalloutMode::ImageOnly for
         // the mode subject, "not shown" for the rest) so the callout layer and
@@ -369,18 +362,9 @@ void PrinterImageWidget::reload_from_config() {
     // Defer the image work to a later tick so it never runs inside the rebuild.
     schedule_image_refresh();
 
-    // Update printer info overlay
-    // Always visible to maintain consistent flex layout (hidden flag removes from flex).
-    std::string host = config->get<std::string>(config->df() + helix::wizard::MOONRAKER_HOST, "");
-
     // Show printer name if set, otherwise fall back to printer type, then " " for layout
     std::string display_name = helix::get_printer_display_name(" ");
     lv_subject_copy_string(&s_printer_type_subject, display_name.c_str());
-
-    if (!host.empty() && host != "127.0.0.1" && host != "localhost") {
-    }
-
-    lv_subject_set_int(&s_printer_info_visible, 1);
 }
 
 void PrinterImageWidget::refresh_printer_image() {

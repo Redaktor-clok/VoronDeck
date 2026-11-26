@@ -52,8 +52,6 @@ void MaterialTempsOverlay::init_subjects() {
     UI_MANAGED_SUBJECT_STRING(edit_defaults_subject_, edit_defaults_buf_, "",
                               "material_edit_defaults", subjects_);
 
-    UI_MANAGED_SUBJECT_INT(has_macro_subject_, 0, "material_has_macro", subjects_);
-
     UI_MANAGED_SUBJECT_INT(shipped_subject_, 1, "material_edit_is_shipped", subjects_);
 }
 
@@ -269,7 +267,6 @@ void MaterialTempsOverlay::show_edit_view(const std::string& material_name) {
         }
         lv_dropdown_set_selected(macro_dropdown_, sel);
     }
-    lv_subject_set_int(&has_macro_subject_, current_macro.empty() ? 0 : 1);
 
     if (macro_heating_switch_) {
         if (switch_on) {
@@ -514,8 +511,6 @@ void MaterialTempsOverlay::handle_macro_dropdown_changed() {
         return;
 
     uint32_t sel = lv_dropdown_get_selected(macro_dropdown_);
-    bool has_macro = sel < macro_names_.size() && !macro_names_[sel].empty();
-    lv_subject_set_int(&has_macro_subject_, has_macro ? 1 : 0);
 
     spdlog::debug("[{}] Macro dropdown changed: index={} name='{}'", get_name(), sel,
                   (sel < macro_names_.size()) ? macro_names_[sel] : "(invalid)");

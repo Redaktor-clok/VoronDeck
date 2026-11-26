@@ -100,8 +100,6 @@ void AdvancedPanel::init_subjects() {
     // Note: Restart row doesn't exist - restart buttons have their own callbacks in
     // ui_emergency_stop.cpp
 
-    UI_MANAGED_SUBJECT_INT(show_notification_history_subject_, 0,
-                           "advanced_show_notification_history", subjects_);
     // Runs from StaticSubjectRegistry::deinit_all(), after StaticPanelRegistry
     // may already have destroyed the panel.
     StaticSubjectRegistry::instance().register_deinit("AdvancedPanel", []() {
@@ -155,15 +153,6 @@ void AdvancedPanel::deinit_subjects() {
 void AdvancedPanel::on_activate() {
     spdlog::debug("[{}] Activated", get_name());
     // Note: Plugin detection now happens automatically in discovery flow (application.cpp)
-    refresh_notification_history_row();
-}
-
-void AdvancedPanel::refresh_notification_history_row() {
-    // The home layout is only edited on the home screen, so reading it on
-    // activation is always current while this panel is up.
-    const bool bell_on_home =
-        PanelWidgetManager::instance().get_widget_config("home").is_placed("notifications");
-    lv_subject_set_int(&show_notification_history_subject_, bell_on_home ? 0 : 1);
 }
 
 // ============================================================================

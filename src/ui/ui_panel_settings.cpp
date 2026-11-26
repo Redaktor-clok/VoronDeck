@@ -129,6 +129,7 @@ void SettingsPanel::init_subjects() {
     bool install_suppressed = update_install_suppressed();
     UI_MANAGED_SUBJECT_INT(show_update_settings_subject_, update_checks_suppressed() ? 0 : 1,
                            "show_update_settings", subjects_);
+    // SUBJECT_OK: retained capability diagnostics; VoronDeck's update row is always visible.
 
     UI_MANAGED_SUBJECT_INT(updates_firmware_managed_subject_, externally_managed ? 1 : 0,
                            "updates_firmware_managed", subjects_);
@@ -136,6 +137,7 @@ void SettingsPanel::init_subjects() {
     UI_MANAGED_SUBJECT_INT(updates_unavailable_subject_,
                            (install_suppressed && !externally_managed) ? 1 : 0,
                            "updates_unavailable", subjects_);
+    // SUBJECT_OK: retained capability diagnostics for external update tooling.
 
     // 0 until Application::init_plugins loads at least one plugin, so the row
     // stays hidden until there is something to show

@@ -57,7 +57,9 @@ void init_bank_subjects() {
                 lv_subject_init_int(subject, 0);
             subjects.publish("heater_bank_icon_rung", &icon_rung);
             subjects.publish("heater_bank_value_rung", &value_rung);
+            // SUBJECT_OK: exported sizing diagnostics; checked through the subject registry.
             subjects.publish("heater_bank_label_rung", &label_rung);
+            // SUBJECT_OK: exported sizing diagnostics; checked through the subject registry.
             lv_subject_init_int(&expanded, 0);
             subjects.publish("heater_bank_expanded", &expanded);
             lv_subject_init_int(&row_count, 0);

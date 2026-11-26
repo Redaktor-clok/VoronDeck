@@ -67,11 +67,8 @@ void PrinterImageOverlay::init_subjects() {
                               subjects_);
 
     // Preview panel subjects
-    UI_MANAGED_SUBJECT_POINTER(preview_src_subject_, preview_src_buf_, "printer_image_preview_src",
-                               subjects_);
     UI_MANAGED_SUBJECT_STRING(preview_name_subject_, preview_name_buf_, "",
                               "printer_image_preview_name", subjects_);
-    UI_MANAGED_SUBJECT_INT(has_preview_subject_, 0, "printer_image_has_preview", subjects_);
     UI_MANAGED_SUBJECT_INT(tag_state_subject_, 0, "printer_image_tag_state", subjects_);
 }
 
@@ -178,19 +175,10 @@ lv_obj_t* PrinterImageOverlay::create_list_row(lv_obj_t* parent, const std::stri
 
 void PrinterImageOverlay::update_preview(const std::string& /*image_id*/,
                                          const std::string& display_name,
-                                         const std::string& preview_path) {
+                                         const std::string& /*preview_path*/) {
     // Update preview name via subject binding
     lv_subject_copy_string(&preview_name_subject_, display_name.c_str());
 
-    if (!preview_path.empty()) {
-        // Copy path to buffer and update pointer subject
-        strncpy(preview_src_buf_, preview_path.c_str(), sizeof(preview_src_buf_) - 1);
-        preview_src_buf_[sizeof(preview_src_buf_) - 1] = '\0';
-        lv_subject_set_pointer(&preview_src_subject_, preview_src_buf_);
-        lv_subject_set_int(&has_preview_subject_, 1);
-    } else {
-        lv_subject_set_int(&has_preview_subject_, 0);
-    }
     update_tag_state();
 }
 

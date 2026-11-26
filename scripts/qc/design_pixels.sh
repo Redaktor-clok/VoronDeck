@@ -158,7 +158,7 @@ fi
 # on nothing, which can push its callout chips off their leader lines. A commit
 # runs it only when it stages printer art or the script.
 if [ "$STAGED_ONLY" = true ] &&
-  ! printf '%s\n' "$QC_STAGED_ALL" | grep -qE '^assets/images/printers/|^scripts/trim_printer_images\.py$'; then
+  ! printf '%s\n' "$QC_STAGED_ALL" | grep -qE '^assets/images/printers/|^scripts/trim_printer_images\.py$|^scripts/printer_canvas_compat\.json$'; then
   :
 elif python3 -c "import PIL" 2>/dev/null; then
   TRIM_OUT="$(mktemp)"
@@ -205,4 +205,4 @@ echo ""
   return $EXIT_CODE
 }
 
-QC_TRIGGER_qc_design_pixels='\.xml$'
+QC_TRIGGER_qc_design_pixels='\.xml$|^assets/images/printers/|^scripts/trim_printer_images\.py$|^scripts/printer_canvas_compat\.json$'

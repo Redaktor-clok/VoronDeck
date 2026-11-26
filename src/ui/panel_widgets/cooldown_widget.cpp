@@ -20,6 +20,7 @@ void register_cooldown_widget() {
 CooldownWidget::CooldownWidget()
     : TiledPanelWidget("cooldown", TileSizing::Content{"", "", "Cool Down", false}) {
     UI_MANAGED_SUBJECT_INT(direction_, 0, "cooldown_layout_direction", subjects_);
+    // SUBJECT_OK: WidgetSizing forwards this subject through cooldown_dir_subject.
     sizing_.add_subject_attr("cooldown_dir_subject", "cooldown_layout_direction");
 }
 

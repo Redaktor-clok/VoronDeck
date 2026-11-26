@@ -71,3 +71,30 @@ def test_check_fails_on_margin_then_passes_after_trim(monkeypatch, tmp_path):
     regions = trim_printer_images.json.loads((tmp_path / "regions.json").read_text())
     assert regions["p"]["size"] == [44, 64]
     assert regions["p"]["nozzle"] == [round((40 - 18) / 44, 3), round((40 - 8) / 64, 3)]
+
+
+def test_shipped_canvas_is_preserved_but_changed_art_requires_migration(monkeypatch, tmp_path):
+    import hashlib
+
+    art = tmp_path / "p.png"
+    _art((100, 80), (20, 10, 60, 70)).save(art)
+    before = art.read_bytes()
+    regions = tmp_path / "regions.json"
+    regions.write_text('{"p": {"size": [100, 80], "nozzle": [0.4, 0.5]}}')
+    original_regions = regions.read_bytes()
+    compat = tmp_path / "canvas.json"
+    compat.write_text(trim_printer_images.json.dumps({"p.png": hashlib.sha256(before).hexdigest()}))
+    monkeypatch.setattr(trim_printer_images, "CANVAS_COMPAT", compat)
+    assert _run(monkeypatch, tmp_path, "--check") == 0
+    assert _run(monkeypatch, tmp_path) == 0
+    assert art.read_bytes() == before
+    assert regions.read_bytes() == original_regions
+
+    # An unlisted new image still has to satisfy the trim rule.
+    _art((100, 80), (20, 10, 60, 70)).save(tmp_path / "new.png")
+    assert _run(monkeypatch, tmp_path, "--check") == 1
+    assert _run(monkeypatch, tmp_path) == 0
+    assert _run(monkeypatch, tmp_path, "--check") == 0
+
+    _art((100, 80), (15, 10, 65, 70)).save(art)
+    assert _run(monkeypatch, tmp_path, "--check") == 1

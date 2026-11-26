@@ -87,7 +87,8 @@ void register_temperature_widget() {
                 gcode, []() {},
                 [](const MoonrakerError& error) {
                     spdlog::warn("[Home] Cooldown failed: {}", error.message);
-                });
+                },
+                0, false, nullptr, /*caller_surfaces_errors=*/false);
         }
     });
 }

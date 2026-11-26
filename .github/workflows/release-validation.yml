@@ -75,7 +75,7 @@ jobs:
             libsystemd-dev libusb-1.0-0-dev libbluetooth-dev libasound2-dev \
             libnl-3-dev libnl-genl-3-dev libdrm-dev libinput-dev libudev-dev \
             libgbm-dev libegl1-mesa-dev libgles2-mesa-dev libcairo2-dev \
-            libpango1.0-dev libjpeg-dev libpng-dev libxml2-utils \
+            libpango1.0-dev libjpeg-dev libpng-dev libexpat1-dev libxml2-utils \
             python3-venv shellcheck parallel jq rsync imagemagick zip unzip
           npm install --prefix "$RUNNER_TEMP/bats" bats@1.11.1
           echo "$RUNNER_TEMP/bats/node_modules/.bin" >> "$GITHUB_PATH"

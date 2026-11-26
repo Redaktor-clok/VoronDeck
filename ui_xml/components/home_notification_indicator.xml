@@ -1,12 +1,23 @@
 <?xml version="1.0"?>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <component>
+  <styles>
+    <style name="notice_info" text_color="#text_muted"/>
+    <style name="notice_warning" text_color="#warning"/>
+    <style name="notice_error" text_color="#danger"/>
+  </styles>
   <view name="home_notification_button"
         width="content" height="content" flex_flow="row" style_pad_all="#space_xs" style_pad_gap="#space_xxs"
         style_flex_cross_place="center" clickable="true" scrollable="false" event_bubble="false">
     <style name="styles.press_wash" selector="pressed"/>
     <event_cb trigger="clicked" callback="status_notification_history_clicked"/>
-    <icon src="dots_vertical" size="sm" variant="muted" clickable="false" event_bubble="true"/>
-    <text_small bind_text="notification_count_text" clickable="false" event_bubble="true"/>
+    <icon name="home_notification_severity" src="dots_vertical" size="sm" clickable="false" event_bubble="true">
+      <bind_style_if_eq name="notice_info" subject="notification_severity" ref_value="0"/>
+      <bind_style_if_eq name="notice_warning" subject="notification_severity" ref_value="1"/>
+      <bind_style_if_eq name="notice_error" subject="notification_severity" ref_value="2"/>
+    </icon>
+    <text_small name="home_notification_count" bind_text="notification_count_text" clickable="false" event_bubble="true">
+      <bind_flag_if_eq subject="notification_count" flag="hidden" ref_value="0"/>
+    </text_small>
   </view>
 </component>

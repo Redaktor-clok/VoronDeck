@@ -17,6 +17,7 @@ Idempotent. Needs Pillow.
 """
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -26,6 +27,7 @@ from PIL import Image
 REPO_ROOT = Path(__file__).resolve().parent.parent
 IMAGES_DIR = REPO_ROOT / "assets" / "images" / "printers"
 REGIONS = IMAGES_DIR / "regions.json"
+CANVAS_COMPAT = REPO_ROOT / "scripts" / "printer_canvas_compat.json"
 
 ALPHA_FLOOR = 8
 MARGIN = 2
@@ -79,8 +81,19 @@ def main() -> int:
     args = ap.parse_args()
 
     regions = json.loads(REGIONS.read_text())
+    # Shipped canvases anchor users' normalized sensor positions. Cropping those
+    # needs a settings migration, not just a rewrite of the default regions.
+    preserved = json.loads(CANVAS_COMPAT.read_text())
+    paths = sorted(IMAGES_DIR.glob("*.png"))
+    for path in paths:
+        if path.name in preserved and hashlib.sha256(path.read_bytes()).hexdigest() != preserved[path.name]:
+            print(f"FAIL: shipped canvas changed: {path.name}; migrate saved sensor positions first", file=sys.stderr)
+            return 1
     untrimmed = []
-    for path in sorted(IMAGES_DIR.glob("*.png")):
+    for path in paths:
+        if path.name in preserved:
+            print(f"Preserved shipped sensor canvas: {path.name}")
+            continue
         im = Image.open(path)
         im.load()
         box = crop_box(im)

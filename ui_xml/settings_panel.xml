@@ -41,7 +41,7 @@
                           description_min_bp="0"/>
       <setting_action_row name="row_printing" label="Printing" icon="printer_3d" callback="on_printing_clicked"/>
       <setting_toggle_row name="row_preparation_time"
-                          label="Include measured preparation time" icon="clock_outline"
+                          label="Include measured preparation time" icon="clock"
                           subject="settings_measured_preparation" callback="on_measured_preparation_changed"
                           description="Learns from completed preparation. Cold and warm starts are kept separately. No estimate until a matching measurement exists."/>
       <setting_action_row name="row_devices"

@@ -242,11 +242,7 @@ class AdvancedPanel : public PanelBase {
     // === Notification History Row ===
     //
 
-    /// 1 while no notifications widget holds a cell on the home screen, which
-    /// leaves this row as the only way into notification history.
-    lv_subject_t show_notification_history_subject_{};
     SubjectManager subjects_;
-    void refresh_notification_history_row();
 
     //
     // === Cached Overlay Panels ===

@@ -6,9 +6,7 @@
  * @brief The Advanced panel's Notification History row is the way into
  *        notification history when the home screen carries no bell widget.
  *
- * The row shows only while no notifications widget holds a cell on any home
- * page; an entry that is enabled but unplaced draws no bell, so it counts as
- * absent.
+ * History stays reachable from More regardless of the editable home layout.
  */
 
 #include "ui_panel_advanced.h"
@@ -98,12 +96,12 @@ struct NotificationRowFixture : LVGLUITestFixture {
 } // namespace
 
 TEST_CASE_METHOD(NotificationRowFixture,
-                 "Advanced Notification History row shows only without a placed bell",
+                 "Advanced Notification History stays reachable with any home layout",
                  "[advanced][notifications]") {
-    SECTION("a bell on a secondary page hides the row") {
+    SECTION("a bell on a secondary page keeps the row available") {
         home.set(home_layout(nlohmann::json::array({bell(true, 0, 0)})));
         REQUIRE(bell_placed());
-        CHECK(row_hidden_after_activate());
+        CHECK_FALSE(row_hidden_after_activate());
     }
 
     SECTION("a removed bell shows the row") {
@@ -117,10 +115,10 @@ TEST_CASE_METHOD(NotificationRowFixture,
         CHECK_FALSE(row_hidden_after_activate());
     }
 
-    SECTION("re-adding the bell hides the row on the next activation") {
+    SECTION("re-adding the bell keeps the row available on the next activation") {
         home.set(home_layout(nlohmann::json::array({bell(false, 0, 0)})));
         REQUIRE_FALSE(row_hidden_after_activate());
         home.set(home_layout(nlohmann::json::array({bell(true, 0, 0)})));
-        CHECK(row_hidden_after_activate());
+        CHECK_FALSE(row_hidden_after_activate());
     }
 }

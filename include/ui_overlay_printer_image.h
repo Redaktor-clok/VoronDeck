@@ -121,12 +121,9 @@ class PrinterImageOverlay : public OverlayBase {
     char usb_status_buf_[256] = {};
 
     // Preview subjects for right-side panel
-    lv_subject_t preview_src_subject_{};  // pointer: image path for bind_src
-    char preview_src_buf_[512] = {};      // buffer for preview path string
     lv_subject_t preview_name_subject_{}; // string: display name
     char preview_name_buf_[128] = {};
-    lv_subject_t has_preview_subject_{}; // int: 0=no preview, 1=has preview
-    lv_subject_t tag_state_subject_{};   // int: 0=untaggable, 1=untagged by user, 2=user tags
+    lv_subject_t tag_state_subject_{}; // int: 0=untaggable, 1=untagged by user, 2=user tags
 };
 
 inline PrinterImageOverlay& get_printer_image_overlay() {
