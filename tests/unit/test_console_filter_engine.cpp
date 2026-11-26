@@ -206,7 +206,7 @@ TEST_CASE("ConsoleFilter: user entries share and deduplicate filter sets",
     const auto directory = cfg.dir / "printer_database.d";
     std::filesystem::create_directories(directory);
     std::ofstream(directory / "filters.json") << R"({
-        "console_filter_sets":{"test_noise":["prefix:// debug:","substring:TRACE_NOISE"]},
+        "console_filter_sets":{"test_noise":{"patterns":["prefix:// debug:","substring:TRACE_NOISE"]}},
         "printers":[
             {"id":"test_filter_a","name":"Test Filter A","console_filters":["test_noise"],"console_filter_patterns":["prefix:// debug:"]},
             {"id":"test_filter_b","name":"Test Filter B","console_filters":["test_noise"]}

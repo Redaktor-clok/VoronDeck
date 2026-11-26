@@ -1020,7 +1020,7 @@ void paint_schematic_tubes(lv_layer_t* layer, const PathPlan& plan, const TubePa
                 for (int i = s.first; i < s.end; ++i)
                     sub.segs[sub.count++] = route.path.segs[i];
                 const lv_color_t color = error ? pal.error : active ? pal.accent : pal.idle_wall;
-                const int32_t width = std::clamp(pal.gauge, 2, 4);
+                const int32_t width = std::clamp<int32_t>(pal.gauge, 2, 4);
                 TubePass passes[2];
                 int count = 0;
                 if (active && !reduced_effects())

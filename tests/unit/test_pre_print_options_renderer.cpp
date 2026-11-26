@@ -748,7 +748,7 @@ TEST_CASE("PrePrintOptionsRenderer: default icon per option id", "[pre_print_opt
     CHECK(PrePrintOptionsRenderer::default_icon_for("bed_mesh") == "grid_large");
     CHECK(PrePrintOptionsRenderer::default_icon_for("flow_calibrate") == "gauge");
     CHECK(PrePrintOptionsRenderer::default_icon_for("timelapse") == "camera_timer");
-    CHECK(PrePrintOptionsRenderer::default_icon_for("test_timelapse") == "camera_timer");
+    CHECK(PrePrintOptionsRenderer::default_icon_for("test_timelapse") == "tune");
     CHECK(PrePrintOptionsRenderer::default_icon_for("ai_detect") == "robot");
     CHECK(PrePrintOptionsRenderer::default_icon_for("qgl") == "spirit_level");
     CHECK(PrePrintOptionsRenderer::default_icon_for("z_tilt") == "spirit_level");

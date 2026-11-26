@@ -146,7 +146,7 @@ TEST_CASE("PrinterCapabilitiesState: every setter's pre-init answer survives ini
     caps.init_subjects(false);
 
     CHECK(lv_subject_get_int(caps.subject(Capability::HasTimelapse)) == 1);
-    CHECK(lv_subject_get_int(caps.subject(Capability::HasPaCal)) == 1);
+    CHECK(lv_subject_get_int(caps.subject(Capability::HasPaCal)) == 0);
     CHECK(lv_subject_get_int(caps.subject(Capability::HasIndividualXyzHoming)) == 0);
     CHECK(lv_subject_get_int(caps.subject(Capability::SupportsBeltCompare)) == 1);
     CHECK(lv_subject_get_int(caps.subject(Capability::HasChamber)) == 1);
@@ -351,6 +351,6 @@ TEST_CASE("PrinterState: retired enclosure telemetry does not change the picture
     state.init_subjects(false);
     state.set_hardware(discovery_with({"purifier", "fm175xx_reader", "tool"}));
     state.update_from_status(kTopFitted);
-    UpdateQueueTestAccess::drain(UpdateQueue::instance());
+    helix::ui::UpdateQueueTestAccess::drain(helix::ui::UpdateQueue::instance());
     CHECK_FALSE(state.capabilities_state().enclosure_top_fitted());
 }

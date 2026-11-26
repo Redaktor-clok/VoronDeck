@@ -181,11 +181,11 @@ TEST_CASE_METHOD(WizardPrinterIdentifyUIFixture, "Wizard printer search filters 
     REQUIRE(entries.size() > 10);
 
     SECTION("query matching a model keeps exactly the matching rows") {
-        lv_textarea_set_text(input, "kobra 2");
+        lv_textarea_set_text(input, "voron 2.4");
 
         std::vector<std::string> expected;
         for (const auto& e : entries) {
-            if (helix::ui::selector_entry_matches(e, "kobra 2")) {
+            if (helix::ui::selector_entry_matches(e, "voron 2.4")) {
                 expected.push_back(e.label);
             }
         }
@@ -205,11 +205,11 @@ TEST_CASE_METHOD(WizardPrinterIdentifyUIFixture, "Wizard printer search filters 
     }
 
     SECTION("query matching a vendor keeps every machine it makes") {
-        lv_textarea_set_text(input, "flashforge");
+        lv_textarea_set_text(input, "voron");
 
         size_t expected = 0;
         for (const auto& e : entries) {
-            if (helix::ui::selector_entry_matches(e, "flashforge")) {
+            if (helix::ui::selector_entry_matches(e, "voron")) {
                 ++expected;
             }
         }
@@ -253,7 +253,7 @@ TEST_CASE_METHOD(WizardPrinterIdentifyUIFixture,
     lv_obj_t* input = search_input();
     REQUIRE(input != nullptr);
 
-    lv_textarea_set_text(input, "k1");
+    lv_textarea_set_text(input, "trident");
     REQUIRE(view() == kViewSearch);
     REQUIRE_FALSE(visible_rows().empty());
 
@@ -273,7 +273,7 @@ TEST_CASE_METHOD(WizardPrinterIdentifyUIFixture,
     lv_textarea_set_text(search_input(), "");
     REQUIRE(view() == kViewTiles);
 
-    lv_obj_t* tile = tile_for("Anycubic");
+    lv_obj_t* tile = tile_for("Voron");
     REQUIRE(tile != nullptr);
     lv_obj_t* name = helix::test::find_dotted_label(tile);
     REQUIRE(name != nullptr);
@@ -290,7 +290,7 @@ TEST_CASE_METHOD(WizardPrinterIdentifyUIFixture, "Wizard vendor tile drills into
     REQUIRE(view() == kViewTiles);
 
     const auto entries = detector_entries();
-    const std::string vendor = "Anycubic";
+    const std::string vendor = "Voron";
     lv_obj_t* tile = tile_for(vendor);
     REQUIRE(tile != nullptr);
 
@@ -484,11 +484,11 @@ class WizardPrinterIdentifyTiedFixture : public WizardPrinterIdentifyUIFixture {
         saved_name_ = config->get<std::string>(config->df() + helix::wizard::PRINTER_NAME, "");
 
         database_ = std::make_unique<helix::test::PrinterDatabaseFixture>(R"({"printers":[
-            {"id":"test_tie", "name":"Test Tie", "manufacturer":"Test", "heuristics":[
+            {"id":"test_tie", "name":"Test Tie", "manufacturer":"Test", "image":"voron-v0.png", "heuristics":[
                 {"type":"hostname_match", "field":"hostname", "pattern":"test-tied", "confidence":95}]},
-            {"id":"test_tie_plus", "name":"Test Tie Plus", "manufacturer":"Test", "heuristics":[
+            {"id":"test_tie_plus", "name":"Test Tie Plus", "manufacturer":"Test", "image":"voron-trident.png", "heuristics":[
                 {"type":"hostname_match", "field":"hostname", "pattern":"test-tied", "confidence":95}]},
-            {"id":"test_tie_pro", "name":"Test Tie Pro", "manufacturer":"Test", "heuristics":[
+            {"id":"test_tie_pro", "name":"Test Tie Pro", "manufacturer":"Test", "image":"voron-v2.png", "heuristics":[
                 {"type":"hostname_match", "field":"hostname", "pattern":"test-tied", "confidence":95}]}
         ]})");
         const std::vector<std::string> objects = {"extruder", "heater_bed"};

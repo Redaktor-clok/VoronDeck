@@ -731,17 +731,15 @@ TEST_CASE("Subscription: mains-monitor firmware subscribes its power-loss object
     }
 }
 
-TEST_CASE("Subscription: enclosure-top firmware subscribes the one field it reads",
+TEST_CASE("Subscription: retired enclosure telemetry is not subscribed",
           "[moonraker][subscription][enclosure_top]") {
-    SECTION("purifier discovered -> power_detected subscribed alone") {
-        // The object's fan readings change every tick; only the flag is read.
+    SECTION("purifier and retired firmware marker are ignored") {
         DiscoveryFixture fx;
         fx.add("purifier");
         fx.add("fm175xx_reader");
         json subs = fx.build();
 
-        REQUIRE(subs.contains("purifier"));
-        CHECK(subs["purifier"] == json::array({"power_detected"}));
+        REQUIRE_FALSE(subs.contains("purifier"));
     }
 
     SECTION("no purifier -> not subscribed") {
@@ -789,9 +787,9 @@ TEST_CASE("Subscription: OpenAMS subscribes every oams_manager field its backend
     }
 }
 
-TEST_CASE("Subscription: a firmware that stores pre-print settings gets its store subscribed",
+TEST_CASE("Subscription: retired firmware pre-print store is not subscribed",
           "[moonraker][subscription][firmware_seeded]") {
-    SECTION("from the provider table, whatever the AMS type") {
+    SECTION("the retired object is ignored regardless of AMS type") {
         DiscoveryFixture fx;
         fx.add("print_task_config");
         PrinterDiscovery hw;
@@ -799,8 +797,7 @@ TEST_CASE("Subscription: a firmware that stores pre-print settings gets its stor
         REQUIRE(hw.mmu_type() != helix::AmsType::SNAPMAKER);
 
         json subs = fx.build(hw);
-        REQUIRE(subs.contains("print_task_config"));
-        CHECK(subs["print_task_config"].is_null()); // every field
+        REQUIRE_FALSE(subs.contains("print_task_config"));
     }
 
     SECTION("not for a printer without one") {

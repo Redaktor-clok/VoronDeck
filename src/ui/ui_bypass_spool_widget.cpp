@@ -251,7 +251,8 @@ void bypass_spool_set_position(BypassSpoolWidgets& w, int32_t cx, int32_t cy) {
     }
     const int32_t gap = mat_w ? kLabelGap : 0;
     const int32_t row_w = mat_w + gap + bypass_w;
-    const int32_t left = std::clamp(cx - row_w / 2, 0, std::max<int32_t>(0, available - row_w));
+    const int32_t left =
+        std::clamp<int32_t>(cx - row_w / 2, 0, std::max<int32_t>(0, available - row_w));
     const int32_t top = box_top + kBoxSize + kLabelGap;
     if (w.material_label)
         lv_obj_set_pos(w.material_label, left, top);
