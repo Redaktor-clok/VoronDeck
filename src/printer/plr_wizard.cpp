@@ -224,9 +224,6 @@ PlrPluginBackend plr_parse_plugin_backend(const std::string& name) {
     if (name == "generic") {
         return PlrPluginBackend::Generic;
     }
-    if (name == "qidi_print_state") {
-        return PlrPluginBackend::QidiPrintState;
-    }
     return PlrPluginBackend::None;
 }
 

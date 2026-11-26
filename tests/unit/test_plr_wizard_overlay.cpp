@@ -407,40 +407,7 @@ TEST_CASE_METHOD(PlrWizardFixture, "PLR wizard: the words follow what prepare mo
         CHECK(subject_text("plr_wizard_continue_text") == "Heat and Home");
         CHECK(widget_text("btn_plr_continue") == "Heat and Home");
     }
-    SECTION("QIDI moves nothing, so prepare never reports a lift") {
-        helix::ScopedEnv backend{"HELIX_MOCK_PLR", "qidi_print_state"};
-        open();
-        REQUIRE(wizard_step() == PlrWizardStep::Checks);
-        CHECK(subject("plr_wizard_z_kind") ==
-              static_cast<int>(helix::PlrZStepKind::ConfirmInPlace));
-        CHECK(subject_text("plr_wizard_continue_text") == "Start Heating");
-        CHECK(widget_text("btn_plr_continue") == "Start Heating");
 
-        set_subject("plr_ack_part", 1);
-        PlrWizardOverlayTestAccess::tap_continue(get_plr_wizard_overlay());
-        settle();
-        REQUIRE(wizard_step() == PlrWizardStep::Preparing);
-        bool saw_heat_in_place = false;
-        bool saw_standby = false;
-        bool saw_motion = false;
-        for (int i = 0; i < 20 && wizard_step() == PlrWizardStep::Preparing; ++i) {
-            const std::string text = subject_text("plr_wizard_progress");
-            saw_heat_in_place =
-                saw_heat_in_place ||
-                text ==
-                    "Heating the bed and nozzle so the print re-grips and the nozzle lets go of it";
-            saw_standby =
-                saw_standby || text == "Cooling the nozzle to standby while you check the print";
-            saw_motion = saw_motion || text == "Lifting the nozzle clear of the print" ||
-                         text == "Homing X and Y";
-            helix::ui::UpdateQueue::instance().drain();
-            process_lvgl(500);
-        }
-        CHECK(wizard_step() == PlrWizardStep::ZStep);
-        CHECK(saw_heat_in_place);
-        CHECK(saw_standby);
-        CHECK_FALSE(saw_motion);
-    }
     SECTION("tier 1 jogs") {
         helix::ScopedEnv tier{"HELIX_MOCK_PLR_TIER", "1"};
         open();

@@ -10,6 +10,7 @@
 
 #include "../lvgl_test_fixture.h"
 #include "../test_helpers/golden_json.h"
+#include "../test_helpers/printer_database_fixture.h"
 #include "../test_helpers/sensor_manager_test_access.h"
 #include "../test_helpers/update_queue_test_access.h"
 #include "config.h"
@@ -697,10 +698,13 @@ TEST_CASE_METHOD(ProbeSensorTestFixture,
 
 // PrinterState::set_printer_type_internal's override, from a database entry.
 TEST_CASE_METHOD(ProbeSensorTestFixture,
-                 "ProbeSensorManager - a k2-improvements K2 keeps the probe it reports",
-                 "[probe][discovery][k2improvements]") {
-    for (const char* printer :
-         {"Creality K2 Plus (k2-improvements)", "Creality K2 Pro (k2-improvements)"}) {
+                 "ProbeSensorManager - generic database entries preserve discovered probe types",
+                 "[probe][discovery][database]") {
+    helix::test::PrinterDatabaseFixture database(R"({"printers":[
+        {"id":"test_probe_a","name":"Test Probe A","probe_type":"standard"},
+        {"id":"test_probe_b","name":"Test Probe B","probe_type":"standard"}
+    ]})");
+    for (const char* printer : {"Test Probe A", "Test Probe B"}) {
         CAPTURE(printer);
         const std::string db_type = PrinterDetector::get_probe_type(printer);
         REQUIRE_FALSE(db_type.empty());
@@ -708,8 +712,7 @@ TEST_CASE_METHOD(ProbeSensorTestFixture,
             mgr().set_probe_type_override(probe_type_from_string(db_type));
         };
 
-        // The mod run without Cartographer leaves PRTouch behind a plain probe,
-        // typed as the stock K2 entries type it.
+        // A generic database entry must not replace a specifically discovered sensor.
         discover({"probe", "prtouch_v3"});
         apply_database_override();
         REQUIRE(mgr().get_sensors().size() == 1);

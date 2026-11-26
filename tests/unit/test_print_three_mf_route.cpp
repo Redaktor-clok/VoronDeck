@@ -245,8 +245,7 @@ TEST_CASE_METHOD(ArchiveStart,
     plant("single_plate.gcode.3mf");
     // A stock entry in the database, but the plugin reports a visible link
     // directory: it found the dot-directory filter on this printer itself.
-    REQUIRE(printer.state.profile_state().set_printer_type("FlashForge Adventurer 5M", true, false,
-                                                           false));
+    REQUIRE(printer.state.profile_state().set_printer_type("Voron 2.4", true, false, false));
     printer.state.set_helix_plugin_installed(true);
     printer.state.set_helix_plugin_link_dir("helix_print");
     drain_until_quiet();

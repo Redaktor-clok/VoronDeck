@@ -22,6 +22,7 @@
 #include "../test_helpers/config_test_access.h"
 #include "../test_helpers/hardware_setup_prompter_test_access.h"
 #include "../test_helpers/notification_history_panel_test_access.h"
+#include "../test_helpers/printer_database_fixture.h"
 #include "../test_helpers/scoped_config_write_counter.h"
 #include "../test_helpers/update_queue_test_access.h"
 #include "../ui_test_utils.h"
@@ -294,8 +295,13 @@ TEST_CASE_METHOD(TypeMismatchFixture,
 TEST_CASE_METHOD(TypeMismatchFixture,
                  "Type mismatch: two entries for one machine are worded as the variant",
                  "[type-mismatch][hardware_setup]") {
-    const std::string base = "Creality K2 Plus";
-    const std::string variant = "Creality K2 Plus (k2-improvements)";
+    helix::test::PrinterDatabaseFixture database(R"json({"printers":[
+        {"id":"test_base","name":"Test Printer"},
+        {"id":"test_variant","name":"Test Printer (custom firmware)","variant_of":"test_base","variant_label":"custom firmware"}
+    ]
+})json");
+    const std::string base = "Test Printer";
+    const std::string variant = "Test Printer (custom firmware)";
     const bool saved_is_variant = GENERATE(false, true);
     const std::string saved = saved_is_variant ? variant : base;
     const std::string detected = saved_is_variant ? base : variant;
@@ -305,7 +311,7 @@ TEST_CASE_METHOD(TypeMismatchFixture,
 
     REQUIRE(toast_.has_value());
     INFO(toast_->message);
-    CHECK(toast_->message.find("k2-improvements") != std::string::npos);
+    CHECK(toast_->message.find("custom firmware") != std::string::npos);
     CHECK(toast_->message.find(base) != std::string::npos);
     // The base is named once, not as both the detected and the saved printer.
     CHECK(toast_->message.find(variant) == std::string::npos);
@@ -319,7 +325,7 @@ TEST_CASE_METHOD(TypeMismatchFixture,
     REQUIRE(body != nullptr);
     const std::string text = lv_label_get_text(body);
     INFO(text);
-    CHECK(text.find("k2-improvements") != std::string::npos);
+    CHECK(text.find("custom firmware") != std::string::npos);
     CHECK(text.find("92%") != std::string::npos);
     CHECK(text.find(variant) == std::string::npos);
 }

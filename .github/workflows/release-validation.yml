@@ -57,6 +57,7 @@ jobs:
       HELIX_HEADLESS: '1'
       SDL_VIDEODRIVER: dummy
       LAND_GATE_BASE_REF: origin/main
+      LAND_GATE_STEP_TIMEOUT: '7200'
       PYTHONUNBUFFERED: '1'
       DBGLEVEL: '0'
     steps:

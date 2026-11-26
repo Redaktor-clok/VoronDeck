@@ -56,7 +56,7 @@ MockPlrConfig mock_plr_config() {
         return cfg;
     }
     cfg.backend = backend;
-    if (cfg.backend != "generic" && cfg.backend != "qidi_print_state") {
+    if (cfg.backend != "generic") {
         return cfg;
     }
     cfg.active = true;

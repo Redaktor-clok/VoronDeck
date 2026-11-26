@@ -334,7 +334,7 @@ TEST_CASE("plr_parse_plugin_status: blocked, malformed and backend names", "[plr
             {"backend", "qidi_print_state"},
             {"snapshot", nullptr},
             {"offer", {{"available", false}, {"blocked_by", {"too_early", "klippy_not_ready"}}}}});
-        CHECK(s.backend == helix::PlrPluginBackend::QidiPrintState);
+        CHECK(s.backend == helix::PlrPluginBackend::None);
         CHECK_FALSE(s.snapshot.has_value());
         CHECK(s.blocked_by == std::vector<std::string>{"too_early", "klippy_not_ready"});
     }
