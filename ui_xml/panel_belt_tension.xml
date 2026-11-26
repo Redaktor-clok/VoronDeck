@@ -206,7 +206,8 @@
                       scrollable="false">
                 <text_heading text="Compare your belt paths" flex_grow="1" long_mode="wrap"/>
                 <ui_button name="btn_help"
-                           width="#icon_button_size_lg" height="#icon_button_size_lg" style_pad_all="0" variant="ghost" icon="help_circle">
+                           width="#icon_button_size_lg" height="#icon_button_size_lg" style_pad_all="0" variant="ghost"
+                           icon="help_circle">
                   <event_cb trigger="clicked" callback="belt_tension_help_cb"/>
                 </ui_button>
               </lv_obj>
@@ -240,8 +241,8 @@
                 </lv_obj>
               </lv_obj>
               <ui_button name="btn_belt_names"
-                         width="100%" height="content" style_min_height="#button_height_sm" icon="vibrate" text="Which belt is which?"
-                         variant="secondary" long_mode="dots">
+                         width="100%" height="content" style_min_height="#button_height_sm" icon="vibrate"
+                         text="Which belt is which?" variant="secondary" long_mode="dots">
                 <event_cb trigger="clicked" callback="belt_tension_names_cb"/>
               </ui_button>
               <!-- Why Start is refused, shown only when it is -->

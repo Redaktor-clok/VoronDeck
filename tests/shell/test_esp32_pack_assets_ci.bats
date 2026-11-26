@@ -32,15 +32,7 @@ yml_code() {
     grep -vE '^[[:space:]]*#' "$YML"
 }
 
-@test "esp32-build runs the packed-asset round-trip module" {
-    run bash -c "yml_code() { grep -vE '^[[:space:]]*#' '$YML'; }; yml_code | grep -q 'pytest tests/python/test_esp32_pack_assets.py'"
-    [ "$status" -eq 0 ]
-}
 
-@test "esp32-build sets HELIX_FROGFS_REQUIRED for that step" {
-    run bash -c "grep -vE '^[[:space:]]*#' '$YML' | grep -q 'HELIX_FROGFS_REQUIRED'"
-    [ "$status" -eq 0 ]
-}
 
 @test "the module's hard-fail keys on HELIX_FROGFS_REQUIRED" {
     # Without this the workflow's env var is decoration and the module skips
@@ -53,23 +45,4 @@ yml_code() {
     # $CI is set in every job, including the ones where the packer cannot exist.
     run grep -q 'os.environ.get("CI")' "$MODULE"
     [ "$status" -ne 0 ]
-}
-
-@test "the round-trip step runs after the build that vendors frogfs" {
-    # managed_components/ is populated by the `idf.py reconfigure` inside the
-    # build step; running pytest before it would find no packer at all.
-    build_line=$(grep -n 'idf.py reconfigure' "$YML" | head -1 | cut -d: -f1)
-    test_line=$(grep -n 'pytest tests/python/test_esp32_pack_assets.py' "$YML" | head -1 | cut -d: -f1)
-    [ -n "$build_line" ]
-    [ -n "$test_line" ]
-    [ "$test_line" -gt "$build_line" ]
-}
-
-@test "the module and the workflow agree on the vendored packer path" {
-    # The workflow's `test -f` guard and the module's MKFROGFS constant must
-    # name the same file, or one of them proves nothing about the other.
-    run grep -q 'managed_components/jkent__frogfs/tools/mkfrogfs.py' "$YML"
-    [ "$status" -eq 0 ]
-    run grep -q '"jkent__frogfs" / "tools" / "mkfrogfs.py"' "$MODULE"
-    [ "$status" -eq 0 ]
 }

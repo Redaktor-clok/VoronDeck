@@ -314,7 +314,7 @@ headless_socket() {
 @test "CI runs the headless smoke test, not just --help" {
     # build.yml's only runtime check used to be `helix-screen --help || true`,
     # which cannot fail — a startup segfault shipped green.
-    local wf="$REPO_ROOT/.github/workflows/build.yml"
+    local wf="$REPO_ROOT/.github/workflows/release-validation.yml"
     grep -q "smoke-headless.sh" "$wf"
     # And it must not be neutered with `|| true`.
     ! grep -qE "smoke-headless\.sh.*\|\| *true" "$wf"

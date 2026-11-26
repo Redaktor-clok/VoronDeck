@@ -116,10 +116,9 @@
   </styles>
   <view name="ams_edit_overlay"
         extends="overlay_panel" title="Edit Spool" title_font="#font_body" title_long_mode="dots" title_max_lines="2"
-        hide_action_button="false" action_button_text="Save"
-        action_button_callback="ams_edit_save_cb" action_button_disabled_subject="ams_edit_save_disabled"
-        action_button_hidden_subject="ams_edit_save_hidden" title_badge_icon="spoolman"
-        title_badge_subject="ams_edit_is_managed" back_button_callback="ams_edit_back_cb">
+        hide_action_button="false" action_button_text="Save" action_button_callback="ams_edit_save_cb"
+        action_button_disabled_subject="ams_edit_save_disabled" action_button_hidden_subject="ams_edit_save_hidden"
+        title_badge_icon="spoolman" title_badge_subject="ams_edit_is_managed" back_button_callback="ams_edit_back_cb">
     <!-- Header icon button, left of Save: Choose from Spoolman,
          drawn by styles.header_icon_button. Injected into header_bar's content slot;
          gated on Spoolman availability. The row is the header's full height and
@@ -180,15 +179,16 @@
             <event_cb trigger="clicked" callback="ams_edit_weight_cb"/>
           </lv_obj>
         </lv_obj>
-        <lv_obj name="initial_weight_row" width="100%" height="content" flex_flow="column"
-                style_pad_all="0" style_pad_gap="#space_xxs" scrollable="false">
+        <lv_obj name="initial_weight_row"
+                width="100%" height="content" flex_flow="column" style_pad_all="0" style_pad_gap="#space_xxs"
+                scrollable="false">
           <bind_flag_if_eq subject="ams_edit_initial_weight_editable" flag="hidden" ref_value="0"/>
-          <ui_button name="initial_weight_button" width="100%" height="#button_height_sm"
-                     text="Initial filament weight" variant="secondary" icon="weight">
+          <ui_button name="initial_weight_button"
+                     width="100%" height="#button_height_sm" text="Initial filament weight" variant="secondary"
+                     icon="weight">
             <event_cb trigger="clicked" callback="ams_edit_initial_weight_cb"/>
           </ui_button>
-          <text_small text="Filament only, excluding the empty spool." width="100%"
-                      style_text_color="#text_muted"/>
+          <text_small width="100%" text="Filament only, excluding the empty spool." style_text_color="#text_muted"/>
         </lv_obj>
         <!-- Temperature line, full-width outside the short-landscape class; the
              split layout carries its own under the form, where the colour
@@ -622,10 +622,14 @@
                         style_outline_width="0" scrollable="false">
               <event_cb trigger="value_changed" callback="ams_edit_color_hex_changed_cb"/>
             </text_input>
-            <ui_button name="btn_color_apply" width="100%" height="#button_height_sm" text="Select" variant="primary" style_pad_hor="#space_xxs" style_pad_ver="#space_xxs" style_text_font="#font_small">
+            <ui_button name="btn_color_apply"
+                       width="100%" height="#button_height_sm" text="Select" variant="primary"
+                       style_pad_hor="#space_xxs" style_pad_ver="#space_xxs" style_text_font="#font_small">
               <event_cb trigger="clicked" callback="ams_edit_color_apply_cb"/>
             </ui_button>
-            <ui_button name="btn_color_presets" width="100%" height="#button_height_sm" text="Presets" variant="ghost" style_pad_hor="#space_xxs" style_pad_ver="#space_xxs" style_text_font="#font_small">
+            <ui_button name="btn_color_presets"
+                       width="100%" height="#button_height_sm" text="Presets" variant="ghost" style_pad_hor="#space_xxs"
+                       style_pad_ver="#space_xxs" style_text_font="#font_small">
               <bind_flag_if_eq subject="ams_edit_color_fits" flag="hidden" ref_value="1"/>
               <event_cb trigger="clicked" callback="ams_edit_color_show_presets_cb"/>
             </ui_button>

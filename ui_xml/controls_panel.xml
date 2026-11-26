@@ -65,9 +65,9 @@
         <bind_style_if_eq name="top_card_landscape" subject="ui_is_portrait" ref_value="0"/>
         <bind_style_if_eq name="top_card_half" subject="ui_is_portrait" ref_value="1"/>
         <ui_card name="card_position"
-                 width="100%" height="100%" flex_flow="column" style_flex_main_place="start"
-                 style_pad_gap="#space_xxs" scroll_dir="ver" scrollbar_mode="auto"
-                 style_radius="#border_radius" style_pad_all="#space_sm" scrollable="true" clickable="true">
+                 width="100%" height="100%" flex_flow="column" style_flex_main_place="start" style_pad_gap="#space_xxs"
+                 scroll_dir="ver" scrollbar_mode="auto" style_radius="#border_radius" style_pad_all="#space_sm"
+                 scrollable="true" clickable="true">
           <event_cb trigger="clicked" callback="on_controls_quick_actions"/>
           <!-- Header -->
           <lv_obj flex_flow="row"
@@ -129,7 +129,8 @@
               <text_muted width="content" text="Z-Offset:">
                 <style name="portrait_tiny_text"/>
               </text_muted>
-              <text_body name="pos_zoffset" width="0" bind_text="controls_z_offset" flex_grow="1" style_text_align="right">
+              <text_body name="pos_zoffset"
+                         width="0" bind_text="controls_z_offset" flex_grow="1" style_text_align="right">
                 <style name="portrait_tiny_text"/>
               </text_body>
               <icon src="chevron_right" size="xs" variant="secondary"/>
@@ -141,8 +142,7 @@
                and the save path itself all ask one question. -->
           <ui_button name="btn_save_z_offset"
                      width="100%" height="content" style_min_height="#button_height_sm" style_pad_ver="#space_xxs"
-                     variant="success" text="Save Z-Offset" long_mode="wrap"
-                     hidden="true" moves_machine="true">
+                     variant="success" text="Save Z-Offset" long_mode="wrap" hidden="true" moves_machine="true">
             <style name="macro_text_landscape"/>
             <bind_flag_if_eq subject="z_offset_save_available" flag="hidden" ref_value="0"/>
             <event_cb trigger="clicked" callback="on_controls_save_z_offset"/>
@@ -180,11 +180,11 @@
             <home_action_tile name="btn_motors_tile"
                               width="#controls_toggle_width" height="100%" flex_grow="0" icon="engine"
                               icon_variant="warning" alt_icon="engine_off" alt_icon_variant="secondary"
-                              icon_swap_subject="motors_enabled" icon_size="sm"
-                              label="Motors Off" label_width="100%" label_long_mode="scroll_circular"
-                              label_hidden_cond="ui_breakpoint le 1 or ui_is_portrait eq 1 or nemesis_theme eq 1" callback="on_calibration_motors"
-                              button_name="btn_motors" icon_name="btn_motors_icon" moves_machine="true"
-                              disabled_cond="motors_enabled eq 0"/>
+                              icon_swap_subject="motors_enabled" icon_size="sm" label="Motors Off" label_width="100%"
+                              label_long_mode="scroll_circular"
+                              label_hidden_cond="ui_breakpoint le 1 or ui_is_portrait eq 1 or nemesis_theme eq 1"
+                              callback="on_calibration_motors" button_name="btn_motors" icon_name="btn_motors_icon"
+                              moves_machine="true" disabled_cond="motors_enabled eq 0"/>
           </lv_obj>
         </ui_card>
       </lv_obj>
@@ -193,9 +193,9 @@
         <bind_style_if_eq name="top_card_landscape" subject="ui_is_portrait" ref_value="0"/>
         <bind_style_if_eq name="top_card_half" subject="ui_is_portrait" ref_value="1"/>
         <ui_card name="card_temperatures"
-                 width="100%" height="100%" flex_flow="column" style_flex_main_place="space_between"
-                 style_pad_gap="0" style_flex_cross_place="center" style_radius="#border_radius"
-                 style_pad_all="#space_sm" scrollable="false" clickable="true">
+                 width="100%" height="100%" flex_flow="column" style_flex_main_place="space_between" style_pad_gap="0"
+                 style_flex_cross_place="center" style_radius="#border_radius" style_pad_all="#space_sm"
+                 scrollable="false" clickable="true">
           <event_cb trigger="clicked" callback="on_nozzle_temp_clicked"/>
           <lv_obj width="100%"
                   height="content" flex_flow="row" style_flex_cross_place="center" style_pad_all="0"
@@ -210,9 +210,9 @@
             <style name="styles.press_wash" selector="pressed"/>
             <event_cb trigger="clicked" callback="on_nozzle_temp_clicked"/>
             <!-- Left side: animated heater icon + label -->
-            <lv_obj width="0" flex_grow="1"
-                    height="content" flex_flow="row_wrap" style_pad_all="0" style_pad_row="0" scrollable="false"
-                    style_flex_cross_place="center" clickable="false" event_bubble="true">
+            <lv_obj width="0"
+                    height="content" flex_grow="1" flex_flow="row_wrap" style_pad_all="0" style_pad_row="0"
+                    scrollable="false" style_flex_cross_place="center" clickable="false" event_bubble="true">
               <bind_style_if_eq name="temp_row_gap_tiny" subject="ui_breakpoint" ref_value="1"/>
               <bind_style_if_ge name="temp_row_gap_standard" subject="ui_breakpoint" ref_value="2"/>
               <icon name="nozzle_icon_glyph"
@@ -220,9 +220,9 @@
               <text_small bind_text="controls_nozzle_label">
                 <bind_flag_if_eq subject="ui_breakpoint" flag="hidden" ref_value="1"/>
               </text_small>
-              <temp_display name="nozzle_temp_display" width="100%"
-                            size="sm" show_target="true" bind_current="extruder_temp" bind_target="extruder_target"
-                            clickable="false" event_bubble="true"/>
+              <temp_display name="nozzle_temp_display"
+                            width="100%" size="sm" show_target="true" bind_current="extruder_temp"
+                            bind_target="extruder_target" clickable="false" event_bubble="true"/>
             </lv_obj>
             <!-- Right side: temp display + edit icon -->
             <lv_obj name="nozzle_temp_edit_container"
@@ -250,17 +250,17 @@
             <style name="styles.press_wash" selector="pressed"/>
             <event_cb trigger="clicked" callback="on_bed_temp_clicked"/>
             <!-- Left side: animated bed icon + label -->
-            <lv_obj width="0" flex_grow="1"
-                    height="content" flex_flow="row_wrap" style_pad_all="0" style_pad_row="0" scrollable="false"
-                    style_flex_cross_place="center" clickable="false" event_bubble="true">
+            <lv_obj width="0"
+                    height="content" flex_grow="1" flex_flow="row_wrap" style_pad_all="0" style_pad_row="0"
+                    scrollable="false" style_flex_cross_place="center" clickable="false" event_bubble="true">
               <bind_style_if_eq name="temp_row_gap_tiny" subject="ui_breakpoint" ref_value="1"/>
               <bind_style_if_ge name="temp_row_gap_standard" subject="ui_breakpoint" ref_value="2"/>
               <heater_icon src="radiator" glyph_name="bed_icon_glyph" size="xs"/>
               <text_small text="Bed">
                 <bind_flag_if_eq subject="ui_breakpoint" flag="hidden" ref_value="1"/>
               </text_small>
-              <temp_display name="bed_temp_display" width="100%"
-                            size="sm" show_target="true" bind_current="bed_temp" bind_target="bed_target"
+              <temp_display name="bed_temp_display"
+                            width="100%" size="sm" show_target="true" bind_current="bed_temp" bind_target="bed_target"
                             clickable="false" event_bubble="true"/>
             </lv_obj>
             <!-- Right side: temp display + edit icon -->
@@ -289,17 +289,17 @@
             <bind_flag_if_eq subject="printer_has_chamber" flag="hidden" ref_value="0"/>
             <event_cb trigger="clicked" callback="on_chamber_temp_clicked"/>
             <!-- Left side: icon + label + temp display -->
-            <lv_obj width="0" flex_grow="1"
-                    height="content" flex_flow="row_wrap" style_pad_all="0" style_pad_row="0" scrollable="false"
-                    style_flex_cross_place="center" clickable="false" event_bubble="true">
+            <lv_obj width="0"
+                    height="content" flex_grow="1" flex_flow="row_wrap" style_pad_all="0" style_pad_row="0"
+                    scrollable="false" style_flex_cross_place="center" clickable="false" event_bubble="true">
               <bind_style_if_eq name="temp_row_gap_tiny" subject="ui_breakpoint" ref_value="1"/>
               <bind_style_if_ge name="temp_row_gap_standard" subject="ui_breakpoint" ref_value="2"/>
               <heater_icon src="fridge_industrial" glyph_name="chamber_icon_glyph" size="xs"/>
               <text_small text="Chamb:" clickable="false" event_bubble="true">
                 <bind_flag_if_eq subject="ui_breakpoint" flag="hidden" ref_value="1"/>
               </text_small>
-              <temp_display name="chamber_temp_display" width="100%"
-                            size="sm" show_target="true" bind_current="chamber_temp"
+              <temp_display name="chamber_temp_display"
+                            width="100%" size="sm" show_target="true" bind_current="chamber_temp"
                             bind_target="chamber_effective_target" bind_mode="chamber_mode" clickable="false"
                             event_bubble="true"/>
             </lv_obj>
@@ -326,8 +326,7 @@
           <!-- "N more sensors" link to the sensors overlay; hidden when there are none -->
           <lv_obj name="secondary_temps_list"
                   width="100%" height="content" style_pad_all="0" scrollable="false" flex_flow="row"
-                  style_flex_main_place="space_between" style_flex_cross_place="center"
-                  clickable="true">
+                  style_flex_main_place="space_between" style_flex_cross_place="center" clickable="true">
             <bind_flag_if_eq subject="controls_more_sensors_count" flag="hidden" ref_value="0"/>
             <event_cb trigger="clicked" callback="on_controls_more_sensors"/>
             <text_small name="more_sensors_label"
@@ -390,8 +389,9 @@
                 height="content" style_pad_all="0" scrollable="false" flex_flow="row" style_flex_cross_place="center"
                 style_pad_gap="#space_sm">
           <icon src="wrench" size="sm" variant="primary"/>
-          <text_small text="Calibration &amp; Tools" width="0" flex_grow="1" long_mode="wrap"
-                      text_transform="uppercase" style_translate_y="2" style_text_color="#text">
+          <text_small width="0"
+                      text="Calibration &amp; Tools" flex_grow="1" long_mode="wrap" text_transform="uppercase"
+                      style_translate_y="2" style_text_color="#text">
             <bind_style_if_eq name="portrait_tiny_text" subject="ui_is_portrait" ref_value="1"/>
           </text_small>
         </lv_obj>
@@ -411,7 +411,8 @@
           <calib_tile icon="z_closer"
                       label="Z Calibration" callback="on_calibration_zoffset" button_name="btn_z_calibration"
                       icon_name="btn_z_calibration_icon" moves_machine="true">
-            <bind_flag_if cond="printer_has_z_offset_calibration eq 0 or (printer_has_tool_offset_cal eq 1 and hide_manual_z_calibration eq 1)" flag="hidden"/>
+            <bind_flag_if cond="printer_has_z_offset_calibration eq 0 or (printer_has_tool_offset_cal eq 1 and hide_manual_z_calibration eq 1)"
+                          flag="hidden"/>
           </calib_tile>
           <calib_tile icon="axis_arrow"
                       label="Tool Offsets" callback="on_calibration_tool_offsets" button_name="btn_tool_offsets"
@@ -433,7 +434,8 @@
                       icon_name="btn_pa_cal_icon" moves_machine="true" hidden="true">
             <bind_flag_if cond="printer_has_pa_cal eq 0" flag="hidden"/>
           </calib_tile>
-          <calib_tile icon="wrench" label="Manual Bed Screws" callback="on_manual_bed_screws_clicked"
+          <calib_tile icon="wrench"
+                      label="Manual Bed Screws" callback="on_manual_bed_screws_clicked"
                       button_name="btn_manual_bed_screws" icon_name="btn_manual_bed_screws_icon" moves_machine="true">
             <bind_flag_if_eq subject="printer_has_bed_screws" flag="hidden" ref_value="0"/>
           </calib_tile>
@@ -449,12 +451,14 @@
                width="0" height="100%" flex_grow="3" flex_flow="column" style_flex_main_place="space_between"
                style_radius="#border_radius" style_pad_all="#space_sm" scrollable="false">
         <!-- Header (hidden when 2 rows of macro buttons visible to save space) -->
-        <lv_obj width="100%" height="content" flex_flow="row"
-                style_flex_cross_place="center" style_flex_track_place="center" style_pad_all="0"
-                style_pad_gap="#space_sm">
+        <lv_obj width="100%"
+                height="content" flex_flow="row" style_flex_cross_place="center" style_flex_track_place="center"
+                style_pad_all="0" style_pad_gap="#space_sm">
           <bind_flag_if_eq subject="macro_header_visible" flag="hidden" ref_value="0"/>
           <icon src="flash" size="sm" variant="primary"/>
-          <text_small text="Quick Actions" width="0" flex_grow="1" long_mode="wrap" text_transform="uppercase" style_translate_y="2" style_text_color="#text">
+          <text_small width="0"
+                      text="Quick Actions" flex_grow="1" long_mode="wrap" text_transform="uppercase"
+                      style_translate_y="2" style_text_color="#text">
             <bind_style_if_eq name="portrait_tiny_text" subject="ui_is_portrait" ref_value="1"/>
           </text_small>
         </lv_obj>
@@ -526,8 +530,8 @@
           </lv_obj>
         </lv_obj>
         <!-- Keep extra macro rows scrollable instead of compressing them above the Home bar. -->
-        <lv_obj width="100%" height="0"
-                flex_grow="1" style_pad_all="0" scrollable="true" scroll_dir="ver" scrollbar_mode="auto"
+        <lv_obj width="100%"
+                height="0" flex_grow="1" style_pad_all="0" scrollable="true" scroll_dir="ver" scrollbar_mode="auto"
                 flex_flow="column" style_pad_gap="#space_xs" style_flex_main_place="start">
           <!-- Macro row 1: macro_1 + macro_2 -->
           <lv_obj width="100%"
@@ -549,16 +553,18 @@
               <bind_flag_if cond="macro_1_light eq 0 or led_controllable eq 0" flag="hidden"/>
               <!-- DUPLICATE_NAME_OK: each slot cell hands itself to its own LedWidget, which finds light_button inside that cell -->
               <ui_button name="light_button"
-                         width="100%" height="100%" style_pad_ver="0" style_pad_hor="#space_xs" variant="secondary" flex_flow="row"
-                         style_flex_main_place="center" style_flex_cross_place="center" style_pad_gap="#space_xs"
-                         focusable="false">
+                         width="100%" height="100%" style_pad_ver="0" style_pad_hor="#space_xs" variant="secondary"
+                         flex_flow="row" style_flex_main_place="center" style_flex_cross_place="center"
+                         style_pad_gap="#space_xs" focusable="false">
                 <bind_state_if cond="printer_connection_state ne 2 or led_command_in_flight eq 1" state="disabled"/>
                 <!-- DUPLICATE_NAME_OK: found per cell by that cell's LedWidget -->
                 <icon name="light_icon"
                       src="lightbulb_outline" size="sm" variant="muted" clickable="false" event_bubble="true">
                   <bind_flag_if_eq subject="ui_is_portrait" flag="hidden" ref_value="1"/>
                 </icon>
-                <text_small text="Light" width="0" flex_grow="1" long_mode="wrap" style_text_align="center" clickable="false" event_bubble="true">
+                <text_small width="0"
+                            text="Light" flex_grow="1" long_mode="wrap" style_text_align="center" clickable="false"
+                            event_bubble="true">
                   <bind_style_if_eq name="portrait_tiny_text" subject="ui_is_portrait" ref_value="1"/>
                 </text_small>
                 <event_cb trigger="clicked" callback="light_toggle_cb"/>
@@ -581,16 +587,18 @@
               <bind_flag_if cond="macro_2_light eq 0 or led_controllable eq 0" flag="hidden"/>
               <!-- DUPLICATE_NAME_OK: each slot cell hands itself to its own LedWidget, which finds light_button inside that cell -->
               <ui_button name="light_button"
-                         width="100%" height="100%" style_pad_ver="0" style_pad_hor="#space_xs" variant="secondary" flex_flow="row"
-                         style_flex_main_place="center" style_flex_cross_place="center" style_pad_gap="#space_xs"
-                         focusable="false">
+                         width="100%" height="100%" style_pad_ver="0" style_pad_hor="#space_xs" variant="secondary"
+                         flex_flow="row" style_flex_main_place="center" style_flex_cross_place="center"
+                         style_pad_gap="#space_xs" focusable="false">
                 <bind_state_if cond="printer_connection_state ne 2 or led_command_in_flight eq 1" state="disabled"/>
                 <!-- DUPLICATE_NAME_OK: found per cell by that cell's LedWidget -->
                 <icon name="light_icon"
                       src="lightbulb_outline" size="sm" variant="muted" clickable="false" event_bubble="true">
                   <bind_flag_if_eq subject="ui_is_portrait" flag="hidden" ref_value="1"/>
                 </icon>
-                <text_small text="Light" width="0" flex_grow="1" long_mode="wrap" style_text_align="center" clickable="false" event_bubble="true">
+                <text_small width="0"
+                            text="Light" flex_grow="1" long_mode="wrap" style_text_align="center" clickable="false"
+                            event_bubble="true">
                   <bind_style_if_eq name="portrait_tiny_text" subject="ui_is_portrait" ref_value="1"/>
                 </text_small>
                 <event_cb trigger="clicked" callback="light_toggle_cb"/>
@@ -617,16 +625,18 @@
               <bind_flag_if cond="macro_3_light eq 0 or led_controllable eq 0" flag="hidden"/>
               <!-- DUPLICATE_NAME_OK: each slot cell hands itself to its own LedWidget, which finds light_button inside that cell -->
               <ui_button name="light_button"
-                         width="100%" height="100%" style_pad_ver="0" style_pad_hor="#space_xs" variant="secondary" flex_flow="row"
-                         style_flex_main_place="center" style_flex_cross_place="center" style_pad_gap="#space_xs"
-                         focusable="false">
+                         width="100%" height="100%" style_pad_ver="0" style_pad_hor="#space_xs" variant="secondary"
+                         flex_flow="row" style_flex_main_place="center" style_flex_cross_place="center"
+                         style_pad_gap="#space_xs" focusable="false">
                 <bind_state_if cond="printer_connection_state ne 2 or led_command_in_flight eq 1" state="disabled"/>
                 <!-- DUPLICATE_NAME_OK: found per cell by that cell's LedWidget -->
                 <icon name="light_icon"
                       src="lightbulb_outline" size="sm" variant="muted" clickable="false" event_bubble="true">
                   <bind_flag_if_eq subject="ui_is_portrait" flag="hidden" ref_value="1"/>
                 </icon>
-                <text_small text="Light" width="0" flex_grow="1" long_mode="wrap" style_text_align="center" clickable="false" event_bubble="true">
+                <text_small width="0"
+                            text="Light" flex_grow="1" long_mode="wrap" style_text_align="center" clickable="false"
+                            event_bubble="true">
                   <bind_style_if_eq name="portrait_tiny_text" subject="ui_is_portrait" ref_value="1"/>
                 </text_small>
                 <event_cb trigger="clicked" callback="light_toggle_cb"/>
@@ -649,16 +659,18 @@
               <bind_flag_if cond="macro_4_light eq 0 or led_controllable eq 0" flag="hidden"/>
               <!-- DUPLICATE_NAME_OK: each slot cell hands itself to its own LedWidget, which finds light_button inside that cell -->
               <ui_button name="light_button"
-                         width="100%" height="100%" style_pad_ver="0" style_pad_hor="#space_xs" variant="secondary" flex_flow="row"
-                         style_flex_main_place="center" style_flex_cross_place="center" style_pad_gap="#space_xs"
-                         focusable="false">
+                         width="100%" height="100%" style_pad_ver="0" style_pad_hor="#space_xs" variant="secondary"
+                         flex_flow="row" style_flex_main_place="center" style_flex_cross_place="center"
+                         style_pad_gap="#space_xs" focusable="false">
                 <bind_state_if cond="printer_connection_state ne 2 or led_command_in_flight eq 1" state="disabled"/>
                 <!-- DUPLICATE_NAME_OK: found per cell by that cell's LedWidget -->
                 <icon name="light_icon"
                       src="lightbulb_outline" size="sm" variant="muted" clickable="false" event_bubble="true">
                   <bind_flag_if_eq subject="ui_is_portrait" flag="hidden" ref_value="1"/>
                 </icon>
-                <text_small text="Light" width="0" flex_grow="1" long_mode="wrap" style_text_align="center" clickable="false" event_bubble="true">
+                <text_small width="0"
+                            text="Light" flex_grow="1" long_mode="wrap" style_text_align="center" clickable="false"
+                            event_bubble="true">
                   <bind_style_if_eq name="portrait_tiny_text" subject="ui_is_portrait" ref_value="1"/>
                 </text_small>
                 <event_cb trigger="clicked" callback="light_toggle_cb"/>

@@ -10,23 +10,24 @@
     <prop name="badge_text_subject" type="string" default="tool_badge_text"/>
     <prop name="badge_font" type="string" default="#font_body_bold"/>
   </api>
-  <view name="home_nozzle_icon" width="content" height="content" flex_flow="row"
-        style_flex_cross_place="end" style_pad_all="0" style_pad_column="#space_xxs"
-        scrollable="false" clickable="false" event_bubble="true">
-    <icon name="home_nozzle_cold_glyph" src="vorondeck_nozzle" size="$size" variant="muted"
-          clickable="false" event_bubble="true">
+  <view name="home_nozzle_icon"
+        width="content" height="content" flex_flow="row" style_flex_cross_place="end" style_pad_all="0"
+        style_pad_column="#space_xxs" scrollable="false" clickable="false" event_bubble="true">
+    <icon name="home_nozzle_cold_glyph"
+          src="vorondeck_nozzle" size="$size" variant="muted" clickable="false" event_bubble="true">
       <bind_tile_rung ladder="icon" subject="$rung_subject" animated="true"/>
       <bind_flag_if_gt subject="$target_subject" flag="hidden" ref_value="0"/>
     </icon>
     <!-- The conventional name lets the existing binder tint and pulse this
          nozzle-with-waves glyph from the actual active heater subjects. -->
-    <icon name="nozzle_icon_glyph" src="vorondeck_nozzle_heat" size="$size" variant="muted"
-          clickable="false" event_bubble="true">
+    <icon name="nozzle_icon_glyph"
+          src="vorondeck_nozzle_heat" size="$size" variant="muted" clickable="false" event_bubble="true">
       <bind_tile_rung ladder="icon" subject="$rung_subject" animated="true"/>
       <bind_flag_if cond="${target_subject} le 0" flag="hidden"/>
     </icon>
-    <text_tiny name="tool_badge" bind_text="$badge_text_subject" style_text_font="$badge_font"
-               style_text_color="#secondary" hidden="true" clickable="false" event_bubble="true">
+    <text_tiny name="tool_badge"
+               bind_text="$badge_text_subject" style_text_font="$badge_font" style_text_color="#secondary" hidden="true"
+               clickable="false" event_bubble="true">
       <bind_flag_if_eq subject="$badge_subject" flag="hidden" ref_value="0"/>
     </text_tiny>
   </view>

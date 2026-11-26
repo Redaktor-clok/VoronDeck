@@ -63,8 +63,8 @@
            pad_right="0" pad_row="#space_xxs"/>
     <!-- Portrait: compact full-width bar with six icon-and-label destinations. -->
     <style name="nav_bar_portrait"
-           width="100%" height="#nav_portrait_height" flex_flow="row" pad_left="0" pad_right="0"
-           pad_top="0" pad_bottom="0" pad_column="#space_xxs"/>
+           width="100%" height="#nav_portrait_height" flex_flow="row" pad_left="0" pad_right="0" pad_top="0"
+           pad_bottom="0" pad_column="#space_xxs"/>
     <style name="nav_button_portrait" width="0"/>
     <style name="nav_button_landscape" width="100%"/>
     <!-- The edit-mode buttons are the only children without flex_grow, so they
@@ -117,43 +117,47 @@
       <bind_flag_if_eq subject="home_edit_mode" flag="hidden" ref_value="0"/>
       <event_cb trigger="clicked" callback="on_edit_done_clicked"/>
     </ui_button>
-    <ui_button name="nav_btn_home" height="100%" flex_grow="1" variant="ghost" flex_flow="column"
-               style_flex_main_place="center" style_flex_cross_place="center" style_border_width="1"
-               style_pad_all="0" style_pad_row="#space_xxs">
+    <ui_button name="nav_btn_home"
+               height="100%" flex_grow="1" variant="ghost" flex_flow="column" style_flex_main_place="center"
+               style_flex_cross_place="center" style_border_width="1" style_pad_all="0" style_pad_row="#space_xxs">
       <style name="nav_button_frame"/>
       <style name="nav_button_selected" selector="checked"/>
       <bind_state_if_eq subject="active_panel" state="checked" ref_value="0"/>
       <bind_style_if_eq name="nav_button_portrait" subject="ui_is_portrait" ref_value="1"/>
       <bind_style_if_not_eq name="nav_button_landscape" subject="ui_is_portrait" ref_value="1"/>
       <bind_state_if_eq subject="home_edit_mode" state="disabled" ref_value="1"/>
-      <lv_obj name="nav_home_icons" width="100%" clickable="false" event_bubble="true"
-              style_pad_all="0" style_border_width="0" style_bg_opa="0">
+      <lv_obj name="nav_home_icons"
+              width="100%" clickable="false" event_bubble="true" style_pad_all="0" style_border_width="0"
+              style_bg_opa="0">
         <bind_style_if_ge name="nav_icon_slot_normal" subject="ui_breakpoint" ref_value="2"/>
         <bind_style_if_lt name="nav_icon_slot_compact" subject="ui_breakpoint" ref_value="2"/>
-        <icon name="nav_icon_home_active" src="home_outline" size="md" variant="primary"
-              floating="true" align="center" clickable="false" event_bubble="true">
+        <icon name="nav_icon_home_active"
+              src="home_outline" size="md" variant="primary" floating="true" align="center" clickable="false"
+              event_bubble="true">
           <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
           <style name="nav_icon_fade"/>
           <style name="nav_icon_fade_on" selector="checked"/>
           <bind_state_if_eq subject="active_panel" state="checked" ref_value="0"/>
         </icon>
-        <icon name="nav_icon_home_inactive" src="home_outline" size="md" variant="muted" style_text_color="#text_muted"
-              floating="true" align="center" clickable="false" event_bubble="true">
+        <icon name="nav_icon_home_inactive"
+              src="home_outline" size="md" variant="muted" style_text_color="#text_muted" floating="true" align="center"
+              clickable="false" event_bubble="true">
           <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
           <style name="nav_icon_fade"/>
           <style name="nav_icon_fade_on" selector="checked"/>
           <bind_state_if_not_eq subject="active_panel" state="checked" ref_value="0"/>
         </icon>
       </lv_obj>
-      <text_small name="nav_label_home" text="Home" translation_tag="Home"
-                  width="100%" long_mode="scroll_circular" style_text_align="center" clickable="false" event_bubble="true">
+      <text_small name="nav_label_home"
+                  width="100%" text="Home" long_mode="scroll_circular" style_text_align="center" clickable="false"
+                  event_bubble="true">
         <event_cb trigger="size_changed" callback="on_nav_labels_layout"/>
         <event_cb trigger="refresh" callback="on_nav_labels_layout"/>
       </text_small>
     </ui_button>
-    <ui_button name="nav_btn_controls" height="100%" flex_grow="1" variant="ghost" flex_flow="column"
-               style_flex_main_place="center" style_flex_cross_place="center" style_border_width="1"
-               style_pad_all="0" style_pad_row="#space_xxs">
+    <ui_button name="nav_btn_controls"
+               height="100%" flex_grow="1" variant="ghost" flex_flow="column" style_flex_main_place="center"
+               style_flex_cross_place="center" style_border_width="1" style_pad_all="0" style_pad_row="#space_xxs">
       <style name="nav_button_frame"/>
       <style name="nav_button_selected" selector="checked"/>
       <bind_state_if_eq subject="active_panel" state="checked" ref_value="2"/>
@@ -161,73 +165,82 @@
       <bind_style_if_not_eq name="nav_button_landscape" subject="ui_is_portrait" ref_value="1"/>
       <bind_state_if_eq subject="home_edit_mode" state="disabled" ref_value="1"/>
       <bind_state_if_not_eq subject="nav_buttons_enabled" state="disabled" ref_value="1"/>
-      <lv_obj name="nav_controls_icons" width="100%" clickable="false" event_bubble="true"
-              style_pad_all="0" style_border_width="0" style_bg_opa="0">
+      <lv_obj name="nav_controls_icons"
+              width="100%" clickable="false" event_bubble="true" style_pad_all="0" style_border_width="0"
+              style_bg_opa="0">
         <bind_style_if_ge name="nav_icon_slot_normal" subject="ui_breakpoint" ref_value="2"/>
         <bind_style_if_lt name="nav_icon_slot_compact" subject="ui_breakpoint" ref_value="2"/>
         <bind_flag_if_eq subject="nav_buttons_enabled" flag="hidden" ref_value="0"/>
-        <icon name="nav_icon_controls_active" src="fine_tune" size="md" variant="primary"
-              floating="true" align="center" clickable="false" event_bubble="true">
+        <icon name="nav_icon_controls_active"
+              src="fine_tune" size="md" variant="primary" floating="true" align="center" clickable="false"
+              event_bubble="true">
           <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
           <style name="nav_icon_fade"/>
           <style name="nav_icon_fade_on" selector="checked"/>
           <bind_state_if_eq subject="active_panel" state="checked" ref_value="2"/>
         </icon>
-        <icon name="nav_icon_controls_inactive" src="fine_tune" size="md" variant="muted" style_text_color="#text_muted"
-              floating="true" align="center" clickable="false" event_bubble="true">
+        <icon name="nav_icon_controls_inactive"
+              src="fine_tune" size="md" variant="muted" style_text_color="#text_muted" floating="true" align="center"
+              clickable="false" event_bubble="true">
           <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
           <style name="nav_icon_fade"/>
           <style name="nav_icon_fade_on" selector="checked"/>
           <bind_state_if_not_eq subject="active_panel" state="checked" ref_value="2"/>
         </icon>
       </lv_obj>
-      <icon name="nav_icon_controls_disabled" src="fine_tune" size="md" variant="disabled" clickable="false" event_bubble="true">
-          <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
+      <icon name="nav_icon_controls_disabled"
+            src="fine_tune" size="md" variant="disabled" clickable="false" event_bubble="true">
+        <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
         <bind_flag_if_eq subject="nav_buttons_enabled" flag="hidden" ref_value="1"/>
       </icon>
-      <text_small name="nav_label_controls" text="Controls" translation_tag="Controls"
-                  width="100%" long_mode="scroll_circular" style_text_align="center" clickable="false" event_bubble="true">
+      <text_small name="nav_label_controls"
+                  width="100%" text="Controls" long_mode="scroll_circular" style_text_align="center" clickable="false"
+                  event_bubble="true">
         <event_cb trigger="size_changed" callback="on_nav_labels_layout"/>
         <event_cb trigger="refresh" callback="on_nav_labels_layout"/>
       </text_small>
     </ui_button>
-    <ui_button name="nav_btn_print_select" height="100%" flex_grow="1" variant="ghost" flex_flow="column"
-               style_flex_main_place="center" style_flex_cross_place="center" style_border_width="1"
-               style_pad_all="0" style_pad_row="#space_xxs">
+    <ui_button name="nav_btn_print_select"
+               height="100%" flex_grow="1" variant="ghost" flex_flow="column" style_flex_main_place="center"
+               style_flex_cross_place="center" style_border_width="1" style_pad_all="0" style_pad_row="#space_xxs">
       <style name="nav_button_frame"/>
       <style name="nav_button_selected" selector="checked"/>
       <bind_state_if_eq subject="active_panel" state="checked" ref_value="1"/>
       <bind_style_if_eq name="nav_button_portrait" subject="ui_is_portrait" ref_value="1"/>
       <bind_style_if_not_eq name="nav_button_landscape" subject="ui_is_portrait" ref_value="1"/>
       <bind_state_if_eq subject="home_edit_mode" state="disabled" ref_value="1"/>
-      <lv_obj name="nav_print_select_icons" width="100%" clickable="false" event_bubble="true"
-              style_pad_all="0" style_border_width="0" style_bg_opa="0">
+      <lv_obj name="nav_print_select_icons"
+              width="100%" clickable="false" event_bubble="true" style_pad_all="0" style_border_width="0"
+              style_bg_opa="0">
         <bind_style_if_ge name="nav_icon_slot_normal" subject="ui_breakpoint" ref_value="2"/>
         <bind_style_if_lt name="nav_icon_slot_compact" subject="ui_breakpoint" ref_value="2"/>
-        <icon name="nav_icon_print_select_active" src="folder" size="md" variant="primary"
-              floating="true" align="center" clickable="false" event_bubble="true">
+        <icon name="nav_icon_print_select_active"
+              src="folder" size="md" variant="primary" floating="true" align="center" clickable="false"
+              event_bubble="true">
           <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
           <style name="nav_icon_fade"/>
           <style name="nav_icon_fade_on" selector="checked"/>
           <bind_state_if_eq subject="active_panel" state="checked" ref_value="1"/>
         </icon>
-        <icon name="nav_icon_print_select_inactive" src="folder" size="md" variant="muted" style_text_color="#text_muted"
-              floating="true" align="center" clickable="false" event_bubble="true">
+        <icon name="nav_icon_print_select_inactive"
+              src="folder" size="md" variant="muted" style_text_color="#text_muted" floating="true" align="center"
+              clickable="false" event_bubble="true">
           <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
           <style name="nav_icon_fade"/>
           <style name="nav_icon_fade_on" selector="checked"/>
           <bind_state_if_not_eq subject="active_panel" state="checked" ref_value="1"/>
         </icon>
       </lv_obj>
-      <text_small name="nav_label_print_select" text="Files" translation_tag="Files"
-                  width="100%" long_mode="scroll_circular" style_text_align="center" clickable="false" event_bubble="true">
+      <text_small name="nav_label_print_select"
+                  width="100%" text="Files" long_mode="scroll_circular" style_text_align="center" clickable="false"
+                  event_bubble="true">
         <event_cb trigger="size_changed" callback="on_nav_labels_layout"/>
         <event_cb trigger="refresh" callback="on_nav_labels_layout"/>
       </text_small>
     </ui_button>
-    <ui_button name="nav_btn_filament" height="100%" flex_grow="1" variant="ghost" flex_flow="column"
-               style_flex_main_place="center" style_flex_cross_place="center" style_border_width="1"
-               style_pad_all="0" style_pad_row="#space_xxs">
+    <ui_button name="nav_btn_filament"
+               height="100%" flex_grow="1" variant="ghost" flex_flow="column" style_flex_main_place="center"
+               style_flex_cross_place="center" style_border_width="1" style_pad_all="0" style_pad_row="#space_xxs">
       <style name="nav_button_frame"/>
       <style name="nav_button_selected" selector="checked"/>
       <bind_state_if_eq subject="active_panel" state="checked" ref_value="3"/>
@@ -235,100 +248,113 @@
       <bind_style_if_not_eq name="nav_button_landscape" subject="ui_is_portrait" ref_value="1"/>
       <bind_state_if_eq subject="home_edit_mode" state="disabled" ref_value="1"/>
       <bind_state_if_not_eq subject="nav_buttons_enabled" state="disabled" ref_value="1"/>
-      <lv_obj name="nav_filament_icons" width="100%" clickable="false" event_bubble="true"
-              style_pad_all="0" style_border_width="0" style_bg_opa="0">
+      <lv_obj name="nav_filament_icons"
+              width="100%" clickable="false" event_bubble="true" style_pad_all="0" style_border_width="0"
+              style_bg_opa="0">
         <bind_style_if_ge name="nav_icon_slot_normal" subject="ui_breakpoint" ref_value="2"/>
         <bind_style_if_lt name="nav_icon_slot_compact" subject="ui_breakpoint" ref_value="2"/>
         <bind_flag_if_eq subject="nav_buttons_enabled" flag="hidden" ref_value="0"/>
-        <icon name="nav_icon_filament_active" src="filament_outline" size="md" variant="primary"
-              floating="true" align="center" clickable="false" event_bubble="true">
+        <icon name="nav_icon_filament_active"
+              src="filament_outline" size="md" variant="primary" floating="true" align="center" clickable="false"
+              event_bubble="true">
           <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
           <style name="nav_icon_fade"/>
           <style name="nav_icon_fade_on" selector="checked"/>
           <bind_state_if_eq subject="active_panel" state="checked" ref_value="3"/>
         </icon>
-        <icon name="nav_icon_filament_inactive" src="filament_outline" size="md" variant="muted" style_text_color="#text_muted"
-              floating="true" align="center" clickable="false" event_bubble="true">
+        <icon name="nav_icon_filament_inactive"
+              src="filament_outline" size="md" variant="muted" style_text_color="#text_muted" floating="true"
+              align="center" clickable="false" event_bubble="true">
           <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
           <style name="nav_icon_fade"/>
           <style name="nav_icon_fade_on" selector="checked"/>
           <bind_state_if_not_eq subject="active_panel" state="checked" ref_value="3"/>
         </icon>
       </lv_obj>
-      <icon name="nav_icon_filament_disabled" src="filament_outline" size="md" variant="disabled" clickable="false" event_bubble="true">
-          <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
+      <icon name="nav_icon_filament_disabled"
+            src="filament_outline" size="md" variant="disabled" clickable="false" event_bubble="true">
+        <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
         <bind_flag_if_eq subject="nav_buttons_enabled" flag="hidden" ref_value="1"/>
       </icon>
-      <text_small name="nav_label_filament" text="Filament" translation_tag="Filament"
-                  width="100%" long_mode="scroll_circular" style_text_align="center" clickable="false" event_bubble="true">
+      <text_small name="nav_label_filament"
+                  width="100%" text="Filament" long_mode="scroll_circular" style_text_align="center" clickable="false"
+                  event_bubble="true">
         <event_cb trigger="size_changed" callback="on_nav_labels_layout"/>
         <event_cb trigger="refresh" callback="on_nav_labels_layout"/>
       </text_small>
     </ui_button>
-    <ui_button name="nav_btn_settings" height="100%" flex_grow="1" variant="ghost" flex_flow="column"
-               style_flex_main_place="center" style_flex_cross_place="center" style_border_width="1"
-               style_pad_all="0" style_pad_row="#space_xxs">
+    <ui_button name="nav_btn_settings"
+               height="100%" flex_grow="1" variant="ghost" flex_flow="column" style_flex_main_place="center"
+               style_flex_cross_place="center" style_border_width="1" style_pad_all="0" style_pad_row="#space_xxs">
       <style name="nav_button_frame"/>
       <style name="nav_button_selected" selector="checked"/>
       <bind_state_if_eq subject="active_panel" state="checked" ref_value="4"/>
       <bind_style_if_eq name="nav_button_portrait" subject="ui_is_portrait" ref_value="1"/>
       <bind_style_if_not_eq name="nav_button_landscape" subject="ui_is_portrait" ref_value="1"/>
       <bind_state_if_eq subject="home_edit_mode" state="disabled" ref_value="1"/>
-      <lv_obj name="nav_settings_icons" width="100%" clickable="false" event_bubble="true"
-              style_pad_all="0" style_border_width="0" style_bg_opa="0">
+      <lv_obj name="nav_settings_icons"
+              width="100%" clickable="false" event_bubble="true" style_pad_all="0" style_border_width="0"
+              style_bg_opa="0">
         <bind_style_if_ge name="nav_icon_slot_normal" subject="ui_breakpoint" ref_value="2"/>
         <bind_style_if_lt name="nav_icon_slot_compact" subject="ui_breakpoint" ref_value="2"/>
-        <icon name="nav_icon_settings_active" src="settings_outline" size="md" variant="primary"
-              floating="true" align="center" clickable="false" event_bubble="true">
+        <icon name="nav_icon_settings_active"
+              src="settings_outline" size="md" variant="primary" floating="true" align="center" clickable="false"
+              event_bubble="true">
           <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
           <style name="nav_icon_fade"/>
           <style name="nav_icon_fade_on" selector="checked"/>
           <bind_state_if_eq subject="active_panel" state="checked" ref_value="4"/>
         </icon>
-        <icon name="nav_icon_settings_inactive" src="settings_outline" size="md" variant="muted" style_text_color="#text_muted"
-              floating="true" align="center" clickable="false" event_bubble="true">
+        <icon name="nav_icon_settings_inactive"
+              src="settings_outline" size="md" variant="muted" style_text_color="#text_muted" floating="true"
+              align="center" clickable="false" event_bubble="true">
           <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
           <style name="nav_icon_fade"/>
           <style name="nav_icon_fade_on" selector="checked"/>
           <bind_state_if_not_eq subject="active_panel" state="checked" ref_value="4"/>
         </icon>
       </lv_obj>
-      <text_small name="nav_label_settings" text="Settings" translation_tag="Settings"
-                  width="100%" long_mode="scroll_circular" style_text_align="center" clickable="false" event_bubble="true">
+      <text_small name="nav_label_settings"
+                  width="100%" text="Settings" long_mode="scroll_circular" style_text_align="center" clickable="false"
+                  event_bubble="true">
         <event_cb trigger="size_changed" callback="on_nav_labels_layout"/>
         <event_cb trigger="refresh" callback="on_nav_labels_layout"/>
       </text_small>
     </ui_button>
-    <ui_button name="nav_btn_advanced" height="100%" flex_grow="1" variant="ghost" flex_flow="column"
-               style_flex_main_place="center" style_flex_cross_place="center" style_border_width="1"
-               style_pad_all="0" style_pad_row="#space_xxs">
+    <ui_button name="nav_btn_advanced"
+               height="100%" flex_grow="1" variant="ghost" flex_flow="column" style_flex_main_place="center"
+               style_flex_cross_place="center" style_border_width="1" style_pad_all="0" style_pad_row="#space_xxs">
       <style name="nav_button_frame"/>
       <style name="nav_button_selected" selector="checked"/>
       <bind_state_if_eq subject="active_panel" state="checked" ref_value="5"/>
       <bind_style_if_eq name="nav_button_portrait" subject="ui_is_portrait" ref_value="1"/>
       <bind_style_if_not_eq name="nav_button_landscape" subject="ui_is_portrait" ref_value="1"/>
       <bind_state_if_eq subject="home_edit_mode" state="disabled" ref_value="1"/>
-      <lv_obj name="nav_advanced_icons" width="100%" clickable="false" event_bubble="true"
-              style_pad_all="0" style_border_width="0" style_bg_opa="0">
+      <lv_obj name="nav_advanced_icons"
+              width="100%" clickable="false" event_bubble="true" style_pad_all="0" style_border_width="0"
+              style_bg_opa="0">
         <bind_style_if_ge name="nav_icon_slot_normal" subject="ui_breakpoint" ref_value="2"/>
         <bind_style_if_lt name="nav_icon_slot_compact" subject="ui_breakpoint" ref_value="2"/>
-        <icon name="nav_icon_advanced_active" src="dots_vertical" size="md" variant="primary"
-              floating="true" align="center" clickable="false" event_bubble="true">
+        <icon name="nav_icon_advanced_active"
+              src="dots_vertical" size="md" variant="primary" floating="true" align="center" clickable="false"
+              event_bubble="true">
           <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
           <style name="nav_icon_fade"/>
           <style name="nav_icon_fade_on" selector="checked"/>
           <bind_state_if_eq subject="active_panel" state="checked" ref_value="5"/>
         </icon>
-        <icon name="nav_icon_advanced_inactive" src="dots_vertical" size="md" variant="muted" style_text_color="#text_muted"
-              floating="true" align="center" clickable="false" event_bubble="true">
+        <icon name="nav_icon_advanced_inactive"
+              src="dots_vertical" size="md" variant="muted" style_text_color="#text_muted" floating="true"
+              align="center" clickable="false" event_bubble="true">
           <bind_style_if_lt name="nav_icon_compact" subject="ui_breakpoint" ref_value="2"/>
           <style name="nav_icon_fade"/>
           <style name="nav_icon_fade_on" selector="checked"/>
           <bind_state_if_not_eq subject="active_panel" state="checked" ref_value="5"/>
         </icon>
       </lv_obj>
-      <text_small name="nav_label_advanced" text="More" translation_tag="More"
-                  width="100%" long_mode="scroll_circular" style_text_align="center" clickable="false" event_bubble="true">
+      <text_small name="nav_label_advanced"
+                  width="100%" text="More" long_mode="scroll_circular" style_text_align="center" clickable="false"
+                  event_bubble="true">
         <event_cb trigger="size_changed" callback="on_nav_labels_layout"/>
         <event_cb trigger="refresh" callback="on_nav_labels_layout"/>
       </text_small>

@@ -10,7 +10,7 @@ SCRIPT="scripts/check-esp32-manifest.sh"
 
 setup() {
     TEST_DIR="$(mktemp -d)"
-    ZIP="$TEST_DIR/helixscreen-esp32-ktouch-v0.9.5.zip"
+    ZIP="$TEST_DIR/VoronDeck-esp32-ktouch-v0.9.5.zip"
     printf 'PK\003\004dummyzip' > "$ZIP"
     SHA=$(sha256sum "$ZIP" | cut -d' ' -f1)
 }
@@ -29,7 +29,7 @@ manifest() {
 }
 
 @test "a matching entry passes" {
-    manifest ",\"esp32-ktouch\":{\"url\":\"https://h/p/helixscreen-esp32-ktouch-v0.9.5.zip\",\"sha256\":\"$SHA\"}"
+    manifest ",\"esp32-ktouch\":{\"url\":\"https://h/p/VoronDeck-esp32-ktouch-v0.9.5.zip\",\"sha256\":\"$SHA\"}"
     run bash "$SCRIPT" "$TEST_DIR/m.json" "$TEST_DIR"
     [ "$status" -eq 0 ]
 }
@@ -49,7 +49,7 @@ manifest() {
 }
 
 @test "a wrong sha256 fails" {
-    manifest ",\"esp32-ktouch\":{\"url\":\"https://h/p/helixscreen-esp32-ktouch-v0.9.5.zip\",\"sha256\":\"$(printf '0%.0s' {1..64})\"}"
+    manifest ",\"esp32-ktouch\":{\"url\":\"https://h/p/VoronDeck-esp32-ktouch-v0.9.5.zip\",\"sha256\":\"$(printf '0%.0s' {1..64})\"}"
     run bash "$SCRIPT" "$TEST_DIR/m.json" "$TEST_DIR"
     [ "$status" -ne 0 ]
     [[ "$output" == *"does not match"* ]]
@@ -64,7 +64,7 @@ manifest() {
 
 @test "an entry with no zip fails" {
     rm "$ZIP"
-    manifest ",\"esp32-ktouch\":{\"url\":\"https://h/p/helixscreen-esp32-ktouch-v0.9.5.zip\",\"sha256\":\"$SHA\"}"
+    manifest ",\"esp32-ktouch\":{\"url\":\"https://h/p/VoronDeck-esp32-ktouch-v0.9.5.zip\",\"sha256\":\"$SHA\"}"
     run bash "$SCRIPT" "$TEST_DIR/m.json" "$TEST_DIR"
     [ "$status" -ne 0 ]
     [[ "$output" == *"built no matching zip"* ]]

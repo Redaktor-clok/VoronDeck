@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <component>
-  <view name="home_notification_button" width="content" height="content" flex_flow="row"
-        style_pad_all="#space_xs" style_pad_gap="#space_xxs" style_flex_cross_place="center"
-        clickable="true" scrollable="false" event_bubble="false">
+  <view name="home_notification_button"
+        width="content" height="content" flex_flow="row" style_pad_all="#space_xs" style_pad_gap="#space_xxs"
+        style_flex_cross_place="center" clickable="true" scrollable="false" event_bubble="false">
     <style name="styles.press_wash" selector="pressed"/>
     <event_cb trigger="clicked" callback="status_notification_history_clicked"/>
     <icon src="dots_vertical" size="sm" variant="muted" clickable="false" event_bubble="true"/>

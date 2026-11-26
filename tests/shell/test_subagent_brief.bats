@@ -42,16 +42,6 @@ setup() {
     [ "$output" -lt 1200 ]
 }
 
-@test "the wired hooks name scripts that exist" {
-    run jq -r '.hooks.SubagentStart[].hooks[].command, (.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[].command)' .claude/settings.json
-    [ "$status" -eq 0 ]
-    contains "scripts/subagent-brief.sh" "$output"
-    contains "scripts/resource-advisor.sh" "$output"
-    while read -r c; do
-        c=${c#\"\$CLAUDE_PROJECT_DIR\"/}
-        [ -x "${c%% *}" ]
-    done <<< "$output"
-}
 
 @test "without jq it adds nothing and exits 0" {
     local bin

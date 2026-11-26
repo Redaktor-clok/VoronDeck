@@ -26,7 +26,8 @@
     <style name="suffix_centered" flex_track_place="center"/>
     <style name="right_landscape" width="#ams_right_col_w" height="100%" flex_grow="0" pad_all="#space_sm"/>
     <style name="right_portrait"
-           width="100%" height="content" flex_grow="0" pad_left="#space_sm" pad_right="#space_sm" pad_top="0" pad_bottom="#ams_actions_bottom_gap"/>
+           width="100%" height="content" flex_grow="0" pad_left="#space_sm" pad_right="#space_sm" pad_top="0"
+           pad_bottom="#ams_actions_bottom_gap"/>
   </styles>
   <!-- Overlay panel - right-aligned, row layout so right column spans full height -->
   <view name="ams_panel"
@@ -75,11 +76,12 @@
           </lv_obj>
         </lv_obj>
         <!-- Outside the back button so a long system name cannot push it off the header -->
-        <lv_obj name="single_unit_tab" width="#ams_unit_tab_width" height="#ams_unit_tab_height" style_pad_all="0"
+        <lv_obj name="single_unit_tab"
+                width="#ams_unit_tab_width" height="#ams_unit_tab_height" style_pad_all="0"
                 style_radius="#border_radius" style_border_width="2" style_border_color="#primary"
                 style_bg_color="#card_bg" style_bg_opa="255" scrollable="false">
-          <text_small name="single_unit_tab_label" text="AMS 1" align="center"
-                      style_text_align="center" clickable="false"/>
+          <text_small name="single_unit_tab_label"
+                      text="AMS 1" align="center" style_text_align="center" clickable="false"/>
         </lv_obj>
         <ams_disconnected_chip name="system_disconnected_chip" disconnected="ams_all_units_disconnected"/>
       </lv_obj>
@@ -94,7 +96,8 @@
       <!-- Left column content (unit visualization + path canvas) -->
       <lv_obj name="left_column"
               width="100%" style_pad_all="#space_sm" style_pad_top="0" style_pad_gap="#space_xs" flex_flow="column"
-              style_flex_main_place="start" style_flex_cross_place="center" scrollable="false" scroll_dir="ver" scrollbar_mode="auto">
+              style_flex_main_place="start" style_flex_cross_place="center" scrollable="false" scroll_dir="ver"
+              scrollbar_mode="auto">
         <bind_style_if_eq name="left_landscape" subject="ui_is_portrait" ref_value="0"/>
         <bind_style_if_eq name="left_portrait" subject="ui_is_portrait" ref_value="1"/>
         <bind_flag_if_eq subject="ui_is_portrait" flag="scrollable" ref_value="1"/>
@@ -123,9 +126,9 @@
             <!-- Slots wrapper - contains grid, tray, and labels with relative positioning -->
             <lv_obj name="slots_wrapper" width="100%" height="content" style_pad_all="0" scrollable="false">
               <!-- Shared spool grid + tray + labels component -->
-              <ams_unit_detail name="unit_detail" detail_flow="column_reverse" slot_width="100%"
-                               slot_grow="0" env_flow="row_wrap" env_gap="#space_md"
-                               env_font="#font_heading" env_icon="md" env_min_height="48"/>
+              <ams_unit_detail name="unit_detail"
+                               detail_flow="column_reverse" slot_width="100%" slot_grow="0" env_flow="row_wrap"
+                               env_gap="#space_md" env_font="#font_heading" env_icon="md" env_min_height="48"/>
             </lv_obj>
           </lv_obj>
         </ui_card>

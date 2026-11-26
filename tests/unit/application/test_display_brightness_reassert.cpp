@@ -42,14 +42,6 @@ int timer_count() {
     return n;
 }
 
-int timers_pointing_at(const void* owner) {
-    int n = 0;
-    for (lv_timer_t* t = lv_timer_get_next(nullptr); t != nullptr; t = lv_timer_get_next(t)) {
-        n += lv_timer_get_user_data(t) == owner ? 1 : 0;
-    }
-    return n;
-}
-
 int scheduled_by(helix::board::Board board) {
     helix::test::ScopedBoard scoped(board);
     DisplayManager dm;
@@ -61,32 +53,10 @@ int scheduled_by(helix::board::Board board) {
 
 } // namespace
 
-TEST_CASE_METHOD(LVGLTestFixture, "brightness re-assert is scheduled on FlashForge boards only",
+TEST_CASE_METHOD(LVGLTestFixture, "Linux hosts do not schedule vendor brightness overrides",
                  "[display][board]") {
-    using helix::board::Board;
-    for (Board b : {Board::Ad5m, Board::Ad5x, Board::Creator5, Board::Creator5Pro}) {
-        INFO("board: " << helix::board::info(b).key);
-        CHECK(scheduled_by(b) == 1);
+    for (int id = 0; id < helix::board::kBoardCount; ++id) {
+        INFO("persisted board id: " << id);
+        CHECK(scheduled_by(static_cast<helix::board::Board>(id)) == 0);
     }
-    for (Board b : {Board::Generic, Board::K1, Board::K2, Board::Cc1, Board::SnapmakerU1}) {
-        INFO("board: " << helix::board::info(b).key);
-        CHECK(scheduled_by(b) == 0);
-    }
-}
-
-TEST_CASE_METHOD(LVGLTestFixture, "a destroyed DisplayManager leaves no brightness re-assert armed",
-                 "[display][board]") {
-    // The re-assert's callback dereferences its DisplayManager, so a timer that survives
-    // the manager fires into freed memory 20 s later, in whichever test is running then.
-    helix::test::ScopedBoard scoped(helix::board::Board::Ad5m);
-    const void* dm_addr = nullptr;
-    {
-        DisplayManager dm;
-        dm_addr = &dm;
-        DisplayManagerTestAccess::set_backlight(dm, std::make_unique<NamedBacklight>());
-        DisplayManagerTestAccess::schedule_brightness_reassert(dm);
-        REQUIRE(timers_pointing_at(dm_addr) == 1);
-    }
-    process_lvgl(1); // a cancelled timer is reaped on the next handler pass
-    CHECK(timers_pointing_at(dm_addr) == 0);
 }

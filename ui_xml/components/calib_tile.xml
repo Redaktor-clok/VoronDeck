@@ -21,8 +21,8 @@
   </api>
   <view extends="lv_obj" flex_grow="0" style_pad_all="0" scrollable="false">
     <home_action_tile width="100%"
-                      height="100%" icon="$icon" icon_variant="text" icon_size="#calib_icon_size" label="$label" label_tag="$label"
-                      callback="$callback" button_name="$button_name" icon_name="$icon_name"
+                      height="100%" icon="$icon" icon_variant="text" icon_size="#calib_icon_size" label="$label"
+                      label_tag="$label" callback="$callback" button_name="$button_name" icon_name="$icon_name"
                       label_hidden_cond="calib_grid_labels eq 0" moves_machine="$moves_machine"
                       disabled_cond="$disabled_cond"/>
   </view>

@@ -21,7 +21,7 @@
         <text_muted text="Material" flex_grow="1"/>
         <text_muted text="Nozzle / Bed"/>
       </lv_obj>
-      <ui_button name="btn_add_profile" text="Add Profile" icon="plus" width="100%">
+      <ui_button name="btn_add_profile" width="100%" text="Add Profile" icon="plus">
         <bind_flag_if_not_eq subject="material_editing" flag="hidden" ref_value="0"/>
         <event_cb trigger="clicked" callback="on_material_add_profile"/>
       </ui_button>
@@ -42,21 +42,22 @@
       <lv_obj name="material_edit_view"
               width="100%" flex_grow="1" scrollable="true" flex_flow="column" style_pad_all="0">
         <bind_flag_if_eq subject="material_editing" flag="hidden" ref_value="0"/>
-        <lv_obj name="profile_name_row" width="100%" height="content" flex_flow="column"
-                style_pad_all="0" style_pad_gap="#space_xs" scrollable="false">
+        <lv_obj name="profile_name_row"
+                width="100%" height="content" flex_flow="column" style_pad_all="0" style_pad_gap="#space_xs"
+                scrollable="false">
           <bind_flag_if_eq subject="material_edit_is_shipped" flag="hidden" ref_value="1"/>
           <text_body text="Profile Name"/>
           <text_input name="edit_profile_name" width="100%" max_length="63"/>
         </lv_obj>
         <!-- Give the title its own full-width line. Shipped defaults follow
              below it; a custom profile has no separate defaults to restore. -->
-        <lv_obj name="material_identity" width="100%" height="content"
-                flex_flow="column" style_pad_all="0" style_pad_bottom="#space_lg" style_pad_gap="#space_xs"
-                scrollable="false" style_flex_cross_place="start">
-          <text_heading name="edit_material_name" bind_text="material_edit_name" width="100%"
-                        long_mode="dots" max_lines="1"/>
-          <text_small name="edit_defaults_hint" bind_text="material_edit_defaults" width="100%"
-                      style_text_color="#text_muted">
+        <lv_obj name="material_identity"
+                width="100%" height="content" flex_flow="column" style_pad_all="0" style_pad_bottom="#space_lg"
+                style_pad_gap="#space_xs" scrollable="false" style_flex_cross_place="start">
+          <text_heading name="edit_material_name"
+                        width="100%" bind_text="material_edit_name" long_mode="dots" max_lines="1"/>
+          <text_small name="edit_defaults_hint"
+                      width="100%" bind_text="material_edit_defaults" style_text_color="#text_muted">
             <bind_flag_if_eq subject="material_edit_is_shipped" flag="hidden" ref_value="0"/>
           </text_small>
         </lv_obj>
@@ -84,7 +85,8 @@
           <!-- Chamber temperature is portable profile data, even without a heater. -->
           <lv_obj width="0" flex_grow="1" flex_flow="column" style_pad_all="0" scrollable="false">
             <text_body style_pad_bottom="#space_xs" text="Chamber (°C)"/>
-            <text_input name="edit_chamber_temp" width="100%" style_max_width="120" keyboard_hint="numeric" max_length="4"/>
+            <text_input name="edit_chamber_temp"
+                        width="100%" style_max_width="120" keyboard_hint="numeric" max_length="4"/>
           </lv_obj>
         </lv_obj>
         <!-- Flex spacer pushes buttons to bottom -->

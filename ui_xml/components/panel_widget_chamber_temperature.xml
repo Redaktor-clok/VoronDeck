@@ -25,20 +25,21 @@
       <bind_state_if_not_eq subject="printer_connection_state" state="disabled" ref_value="2"/>
       <event_cb trigger="clicked" callback="chamber_temp_clicked_cb"/>
       <home_chamber_icon size="#icon_size" rung_subject="$tile_icon_subject"/>
-      <lv_obj height="content" flex_flow="column" style_pad_all="0" style_pad_gap="#space_xxs" scrollable="false" event_bubble="true">
-      <style name="styles.home_heater_values_column"/>
-      <bind_style_if_eq name="styles.home_heater_values" subject="ui_is_portrait" ref_value="1"/>
-      <temp_display name="chamber_temp_text_label"
-                    size_target_subject="$tile_target_subject" rung_subject="$tile_icon_subject" size="sm"
-                    show_target="true" hide_target_when_off="true" hide_target_below_bp="small"
-                    bind_current="chamber_temp" bind_target="chamber_effective_target" bind_mode="chamber_mode"
-                    align="center"/>
-      <text_tiny width="100%" bind_text="$home_name_subject" long_mode="dots" event_bubble="true"/>
+      <lv_obj height="content"
+              flex_flow="column" style_pad_all="0" style_pad_gap="#space_xxs" scrollable="false" event_bubble="true">
+        <style name="styles.home_heater_values_column"/>
+        <bind_style_if_eq name="styles.home_heater_values" subject="ui_is_portrait" ref_value="1"/>
+        <temp_display name="chamber_temp_text_label"
+                      size_target_subject="$tile_target_subject" rung_subject="$tile_icon_subject" size="sm"
+                      show_target="true" hide_target_when_off="true" hide_target_below_bp="small"
+                      bind_current="chamber_temp" bind_target="chamber_effective_target" bind_mode="chamber_mode"
+                      align="center"/>
+        <text_tiny width="100%" bind_text="$home_name_subject" long_mode="dots" event_bubble="true"/>
       </lv_obj>
     </ui_button>
-    <text_tiny name="heater_power" bind_text="chamber_power" bind_text-fmt="%d%%"
-               floating="true" align="bottom_right" style_text_color="#primary"
-               clickable="false">
+    <text_tiny name="heater_power"
+               bind_text="chamber_power" bind_text-fmt="%d%%" floating="true" align="bottom_right"
+               style_text_color="#primary" clickable="false">
       <bind_flag_if cond="chamber_power lt 0 or chamber_effective_target le 0 or chamber_mode ne 1" flag="hidden"/>
     </text_tiny>
   </view>

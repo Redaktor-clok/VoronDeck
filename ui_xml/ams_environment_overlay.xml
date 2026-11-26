@@ -136,7 +136,8 @@
                 hidden="true">
           <bind_flag_if_not_eq subject="env_zone_state" flag="hidden" ref_value="1"/>
           <icon src="progress_clock" size="sm" variant="secondary"/>
-          <text_small name="queued_banner_label" width="0" flex_grow="1" bind_text="env_queued_banner_text" long_mode="wrap"/>
+          <text_small name="queued_banner_label"
+                      width="0" flex_grow="1" bind_text="env_queued_banner_text" long_mode="wrap"/>
         </lv_obj>
 
         <!-- Top row: readout | divider | controls -->
@@ -242,23 +243,24 @@
 
               <!-- Temp + Duration side by side -->
               <lv_obj width="100%"
-                      height="content" style_pad_all="0" style_pad_gap="#space_sm"
-                      style_flex_main_place="start" style_flex_cross_place="end" scrollable="false">
+                      height="content" style_pad_all="0" style_pad_gap="#space_sm" style_flex_main_place="start"
+                      style_flex_cross_place="end" scrollable="false">
                 <bind_style_if_eq name="dryer_fields_portrait" subject="ui_is_portrait" ref_value="1"/>
                 <bind_style_if_eq name="dryer_fields_landscape" subject="ui_is_portrait" ref_value="0"/>
                 <!-- Temp gets more width than Hours so "Temp °C (35–70)" doesn't truncate -->
-                <lv_obj height="content" style_pad_all="0" flex_flow="column" style_pad_gap="#space_xxs"
-                        scrollable="false">
+                <lv_obj height="content"
+                        style_pad_all="0" flex_flow="column" style_pad_gap="#space_xxs" scrollable="false">
                   <bind_style_if_eq name="dryer_field_portrait" subject="ui_is_portrait" ref_value="1"/>
                   <bind_style_if_eq name="dryer_temp_landscape" subject="ui_is_portrait" ref_value="0"/>
                   <!-- i18n: do not translate - universal unit abbreviation -->
-                  <text_small width="100%" long_mode="wrap" name="temp_range_label" bind_text="env_temp_range" style_text_color="#text_muted"/>
+                  <text_small name="temp_range_label"
+                              width="100%" long_mode="wrap" bind_text="env_temp_range" style_text_color="#text_muted"/>
                   <text_input name="temp_input" width="100%" text="55" one_line="true" max_length="3">
                     <event_cb trigger="clicked" callback="on_ams_env_temp_clicked"/>
                   </text_input>
                 </lv_obj>
-                <lv_obj height="content" style_pad_all="0" flex_flow="column" style_pad_gap="#space_xxs"
-                        scrollable="false">
+                <lv_obj height="content"
+                        style_pad_all="0" flex_flow="column" style_pad_gap="#space_xxs" scrollable="false">
                   <bind_style_if_eq name="dryer_field_portrait" subject="ui_is_portrait" ref_value="1"/>
                   <bind_style_if_eq name="dryer_field_landscape" subject="ui_is_portrait" ref_value="0"/>
                   <text_small width="100%" long_mode="wrap" text="Minutes" style_text_color="#text_muted"/>
@@ -270,8 +272,8 @@
                      below it. Only for a dryer that takes one; blank leaves the target to the
                      printer's own default, which C++ shows as the placeholder when known. -->
                 <lv_obj name="humidity_target_column"
-                        height="content" style_pad_all="0" flex_flow="column"
-                        style_pad_gap="#space_xxs" scrollable="false" hidden="true">
+                        height="content" style_pad_all="0" flex_flow="column" style_pad_gap="#space_xxs"
+                        scrollable="false" hidden="true">
                   <bind_style_if_eq name="dryer_field_portrait" subject="ui_is_portrait" ref_value="1"/>
                   <bind_style_if_eq name="dryer_field_landscape" subject="ui_is_portrait" ref_value="0"/>
                   <bind_flag_if_eq subject="ams_env_overlay_humidity_target_visible" flag="hidden" ref_value="0"/>
@@ -330,8 +332,8 @@
           <!-- Center the [label + list] as one group; the material entries inside
                stay left-aligned with each other (same x) for a clean column. -->
           <lv_obj width="100%"
-                  height="content" style_pad_all="0" style_flex_main_place="center"
-                  style_flex_cross_place="center" style_pad_gap="#space_md" scrollable="false">
+                  height="content" style_pad_all="0" style_flex_main_place="center" style_flex_cross_place="center"
+                  style_pad_gap="#space_md" scrollable="false">
             <bind_style_if_eq name="comfort_group_portrait" subject="ui_is_portrait" ref_value="1"/>
             <bind_style_if_eq name="comfort_group_landscape" subject="ui_is_portrait" ref_value="0"/>
             <text_body text="Material Comfort:" long_mode="wrap">
@@ -342,7 +344,8 @@
             <!-- Per-material items as a left-aligned list — a column where
                  there is height for it, wrapped to 2x2 at Micro (see styles).
                  status: 0=OK (check_circle/success), 1=Marginal (alert_circle/warning), 2=Too humid (close_circle/error) -->
-            <lv_obj height="content" style_pad_all="0" style_flex_cross_place="start" style_pad_row="#space_xs"
+            <lv_obj height="content"
+                    style_pad_all="0" style_flex_cross_place="start" style_pad_row="#space_xs"
                     style_pad_column="#space_md" scrollable="false">
               <bind_style_if_eq name="comfort_list_portrait" subject="ui_is_portrait" ref_value="1"/>
               <bind_style_if_eq name="comfort_list_landscape" subject="ui_is_portrait" ref_value="0"/>

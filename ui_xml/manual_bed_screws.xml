@@ -1,41 +1,47 @@
 <?xml version="1.0"?>
 <component>
-  <view name="manual_bed_screws" extends="lv_obj" width="#overlay_width_transient" height="100%"
-        align="right_mid" style_bg_opa="255" style_bg_color="#card_bg" style_pad_all="0"
-        style_border_width="0" flex_flow="column" scrollable="false">
+  <view name="manual_bed_screws"
+        extends="lv_obj" width="#overlay_width_transient" height="100%" align="right_mid" style_bg_opa="255"
+        style_bg_color="#card_bg" style_pad_all="0" style_border_width="0" flex_flow="column" scrollable="false">
     <header_bar title="Manual Bed Screws"/>
-    <lv_obj name="manual_screws_content" width="100%" height="0" flex_grow="1" flex_flow="column"
-            style_pad_all="#space_md" style_pad_gap="#space_md" scroll_dir="ver">
+    <lv_obj name="manual_screws_content"
+            width="100%" height="0" flex_grow="1" flex_flow="column" style_pad_all="#space_md" style_pad_gap="#space_md"
+            scroll_dir="ver">
       <text_heading width="100%" text="Adjust the bed screws" long_mode="wrap"/>
       <text_body name="manual_screws_status_text" width="100%" bind_text="manual_screws_status" long_mode="wrap"/>
-      <text_small width="100%" long_mode="wrap"
+      <text_small width="100%"
+                  long_mode="wrap"
                   text="Check the nozzle gap with paper. Accept if no adjustment was needed; choose Adjusted after turning the screw. Klipper controls the order and repeats."/>
-      <ui_button name="manual_screws_start_button" width="100%" height="content" style_min_height="#button_height"
-                 long_mode="wrap" text="Start adjustment">
+      <ui_button name="manual_screws_start_button"
+                 width="100%" height="content" moves_machine="true" style_min_height="#button_height" long_mode="wrap"
+                 text="Start adjustment">
         <bind_flag_if_eq subject="manual_screws_phase" flag="hidden" ref_value="1"/>
         <bind_state_if cond="manual_screws_busy eq 1 or manual_screws_start_allowed eq 0" state="disabled"/>
         <event_cb trigger="clicked" callback="manual_screws_start"/>
       </ui_button>
-      <ui_button name="manual_screws_accept_button" width="100%" height="content" style_min_height="#button_height"
-                 long_mode="wrap" text="Accept — next screw">
+      <ui_button name="manual_screws_accept_button"
+                 width="100%" height="content" moves_machine="true" style_min_height="#button_height" long_mode="wrap"
+                 text="Accept — next screw">
         <bind_flag_if_eq subject="manual_screws_phase" flag="hidden" ref_value="0"/>
         <bind_state_if cond="manual_screws_busy eq 1 or manual_screws_next_allowed eq 0" state="disabled"/>
         <event_cb trigger="clicked" callback="manual_screws_accept"/>
       </ui_button>
-      <ui_button name="manual_screws_adjusted_button" width="100%" height="content" style_min_height="#button_height"
-                 long_mode="wrap" text="Adjusted — check again" variant="outline">
+      <ui_button name="manual_screws_adjusted_button"
+                 width="100%" height="content" moves_machine="true" style_min_height="#button_height" long_mode="wrap"
+                 text="Adjusted — check again" variant="outline">
         <bind_flag_if_eq subject="manual_screws_phase" flag="hidden" ref_value="0"/>
         <bind_state_if cond="manual_screws_busy eq 1 or manual_screws_next_allowed eq 0" state="disabled"/>
         <event_cb trigger="clicked" callback="manual_screws_adjusted"/>
       </ui_button>
-      <ui_button name="manual_screws_abort_button" width="100%" height="content" style_min_height="#button_height"
-                 long_mode="wrap" text="Abort adjustment" variant="danger">
+      <ui_button name="manual_screws_abort_button"
+                 width="100%" height="content" moves_machine="true" style_min_height="#button_height" long_mode="wrap"
+                 text="Abort adjustment" variant="danger">
         <bind_flag_if_eq subject="manual_screws_phase" flag="hidden" ref_value="0"/>
         <bind_state_if cond="manual_screws_busy eq 1 or manual_screws_abort_allowed eq 0" state="disabled"/>
         <event_cb trigger="clicked" callback="manual_screws_abort"/>
       </ui_button>
-      <ui_button name="manual_screws_refresh_button" width="100%" height="content" style_min_height="#button_height"
-                 text="Refresh" variant="outline">
+      <ui_button name="manual_screws_refresh_button"
+                 width="100%" height="content" style_min_height="#button_height" text="Refresh" variant="outline">
         <bind_state_if_eq subject="manual_screws_busy" state="disabled" ref_value="1"/>
         <event_cb trigger="clicked" callback="manual_screws_refresh"/>
       </ui_button>

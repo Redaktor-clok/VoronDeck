@@ -16,7 +16,10 @@
          than moves_machine (one still allowed while the print is paused). -->
     <prop name="disabled_cond" type="string" default="0 eq 1"/>
   </api>
-  <view extends="ui_button" text="$text" icon="$icon" flex_grow="1" width="0" height="content" style_min_height="#button_height" style_pad_all="#space_xs" style_text_font="#font_small" long_mode="wrap" icon_position="top" moves_machine="$moves_machine">
+  <view extends="ui_button"
+        width="0" height="content" text="$text" icon="$icon" flex_grow="1" style_min_height="#button_height"
+        style_pad_all="#space_xs" style_text_font="#font_small" long_mode="wrap" icon_position="top"
+        moves_machine="$moves_machine">
     <bind_state_if_eq subject="$disabled_subject" state="disabled" ref_value="1"/>
     <bind_state_if cond="$disabled_cond" state="disabled"/>
     <event_cb trigger="clicked" callback="on_device_action_clicked"/>

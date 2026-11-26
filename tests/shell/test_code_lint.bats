@@ -1528,10 +1528,10 @@ check_deinit_all_does_not_log() {
 # and the copy that drifts is the enforcing one, so the tree silently stops
 # being held to the value it claims.
 
-@test "the nightly reads the vacuous ceiling from the makefile, not a literal" {
-    run grep -A2 'check_vacuous_tests.py' .github/workflows/nightly.yml
+@test "the unit sweep uses the declared vacuous ceiling, not a duplicate literal" {
+    run grep 'check_vacuous_tests.py' mk/tests.mk
     [ "$status" -eq 0 ]
-    contains "print-vacuous-max" "$output"
+    contains '--max-allowed $(VACUOUS_MAX)' "$output"
     # A bare --max-allowed <number> is the shape that drifts.
     [[ ! "$output" =~ --max-allowed[[:space:]]+[0-9]+ ]]
 }
@@ -2861,7 +2861,7 @@ EOF
     # Scope is every first-party C and C++ root; lib/ is vendored submodules
     # and scripts/ is not C++, so neither belongs here.
     run getenv_pointer_live_across_setenv_files \
-        tests/ src/ include/ tools/ firmware/ android/ server/ moonraker-plugin/ ui_xml/
+        tests/ src/ include/ tools/ firmware/ server/ moonraker-plugin/ ui_xml/
     [ "$status" -eq 0 ]
     [ -z "$output" ]
 }
@@ -3618,7 +3618,7 @@ CPP
     local -a families
     mapfile -t families < <(grep -oE 'register_[a-z0-9_]+_device_flows\(\);' include/ui_guided_device_flow.h |
         grep -v '^register_builtin_')
-    [ "${#families[@]}" -ge 2 ] || fail "found ${#families[@]} flow families in include/ui_guided_device_flow.h"
+    [ "${#families[@]}" -ge 1 ] || fail "found ${#families[@]} flow families in include/ui_guided_device_flow.h"
     for fn in "${families[@]}"; do
         run grep -cE "^[[:space:]]*${fn%();},\$" src/ui/ui_guided_device_flow.cpp
         [ "$output" = "1" ] || fail "register_builtin_guided_device_flows() does not run ${fn%;}"

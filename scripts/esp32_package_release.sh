@@ -9,8 +9,8 @@
 #   BUILD_DIR  ESP-IDF build directory (default firmware/helixscreen-esp32/build)
 #   OUT_DIR    Where the zip lands (default releases)
 #
-# Writes OUT_DIR/helixscreen-esp32-ktouch-TAG.zip holding one folder with:
-#   helixscreen-esp32-ktouch-factory.bin  every image merged, flashed at 0x0
+# Writes OUT_DIR/VoronDeck-esp32-ktouch-TAG.zip holding one folder with:
+#   VoronDeck-esp32-ktouch-factory.bin  every image merged, flashed at 0x0
 #   flash_args + the images it names      for an update that keeps WiFi
 #   README.txt                            both esptool commands
 #
@@ -24,8 +24,8 @@ BUILD_DIR="${2:-firmware/helixscreen-esp32/build}"
 OUT_DIR="${3:-releases}"
 PYTHON="${PYTHON:-python3}"
 
-NAME="helixscreen-esp32-ktouch-${TAG}"
-FACTORY="helixscreen-esp32-ktouch-factory.bin"
+NAME="VoronDeck-esp32-ktouch-${TAG}"
+FACTORY="VoronDeck-esp32-ktouch-factory.bin"
 PARTITIONS="$BUILD_DIR/../partitions.csv"
 
 [ -f "$BUILD_DIR/flash_args" ] || { echo "error: no flash_args in $BUILD_DIR (build first)" >&2; exit 1; }
@@ -58,7 +58,7 @@ if [ "$size" -gt $((cfg_offset)) ]; then
 fi
 
 cat > "$PKG/README.txt" <<EOF
-HelixScreen ${TAG} for the BigTreeTech K-Touch (ESP32-S3) - ALPHA
+VoronDeck ${TAG} for the BigTreeTech K-Touch (ESP32-S3) - ALPHA
 
 Install esptool once:   pipx install esptool  (or pip install esptool in a virtualenv)
 Connect the K-Touch by USB-C. Its port is /dev/ttyUSB0 on Linux,
@@ -68,10 +68,10 @@ Run the commands from inside this folder. If a write fails, retry with -b 115200
 Fresh install (also wipes saved WiFi; settings are kept):
   python3 -m esptool --chip esp32s3 -p PORT -b 460800 write_flash 0x0 ${FACTORY}
 
-Update an existing HelixScreen install (keeps WiFi and settings):
+Update an existing VoronDeck install (keeps WiFi and settings):
   python3 -m esptool --chip esp32s3 -p PORT -b 460800 write_flash @flash_args
 
-Full guide: https://github.com/prestonbrown/helixscreen/blob/main/docs/user/INSTALL.md
+Full guide: https://github.com/Redaktor-clok/VoronDeck
 EOF
 
 rm -f "$OUT_DIR/$NAME.zip"

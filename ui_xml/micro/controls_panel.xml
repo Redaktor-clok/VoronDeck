@@ -85,7 +85,7 @@
             <style name="styles.press_wash" selector="pressed"/>
             <event_cb trigger="clicked" callback="on_zoffset_tune"/>
             <text_muted width="content" text="Z-Off:"/>
-            <text_body bind_text="controls_z_offset" flex_grow="1" style_text_align="right"/>
+            <text_body name="pos_zoffset" bind_text="controls_z_offset" flex_grow="1" style_text_align="right"/>
             <icon src="chevron_right" size="xs" variant="secondary"/>
           </lv_obj>
         </lv_obj>
@@ -312,7 +312,8 @@
           <calib_tile icon="z_closer"
                       label="Z Calibration" callback="on_calibration_zoffset" button_name="btn_z_calibration"
                       icon_name="btn_z_calibration_icon" moves_machine="true">
-            <bind_flag_if cond="printer_has_z_offset_calibration eq 0 or (printer_has_tool_offset_cal eq 1 and hide_manual_z_calibration eq 1)" flag="hidden"/>
+            <bind_flag_if cond="printer_has_z_offset_calibration eq 0 or (printer_has_tool_offset_cal eq 1 and hide_manual_z_calibration eq 1)"
+                          flag="hidden"/>
           </calib_tile>
           <calib_tile icon="axis_arrow"
                       label="Tool Offsets" callback="on_calibration_tool_offsets" button_name="btn_tool_offsets"
@@ -324,7 +325,8 @@
                       icon_name="btn_pa_cal_icon" moves_machine="true" hidden="true">
             <bind_flag_if cond="printer_has_pa_cal eq 0" flag="hidden"/>
           </calib_tile>
-          <calib_tile icon="wrench" label="Manual Bed Screws" callback="on_manual_bed_screws_clicked"
+          <calib_tile icon="wrench"
+                      label="Manual Bed Screws" callback="on_manual_bed_screws_clicked"
                       button_name="btn_manual_bed_screws" icon_name="btn_manual_bed_screws_icon" moves_machine="true">
             <bind_flag_if_eq subject="printer_has_bed_screws" flag="hidden" ref_value="0"/>
           </calib_tile>

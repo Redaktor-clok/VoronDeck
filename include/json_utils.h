@@ -270,6 +270,12 @@ inline std::size_t as_size_t(const nlohmann::json& v, std::size_t def = 0) {
     return narrowed;
 }
 
+/// Return an owned object field, or an empty object for missing/wrong types.
+inline nlohmann::json safe_object(const nlohmann::json& j, const char* key) {
+    const auto* value = find_member(j, key);
+    return value && value->is_object() ? *value : nlohmann::json::object();
+}
+
 inline std::string safe_string(const nlohmann::json& j, const char* key,
                                const std::string& def = "", bool accept_number = false) {
     const auto* v = find_member(j, key);

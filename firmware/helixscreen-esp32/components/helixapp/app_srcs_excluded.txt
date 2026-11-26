@@ -161,7 +161,6 @@ src/printer/spoolman_active_spool_sync.cpp  # scope decision 2026-08-12: unreach
 src/printer/spoolman_manager.cpp  # scope decision 2026-08-12: unreachable while ESP discovery omits server.info#2; re-adding requires restoring these TUs + verifying flash budget; until then the UI entry points fail with an error toast
 src/printer/spoolman_types.cpp  # scope decision 2026-08-12: unreachable while ESP discovery omits server.info#2; re-adding requires restoring these TUs + verifying flash budget; until then the UI entry points fail with an error toast
 src/printer/timelapse_state.cpp  # scope decision 2026-08-12: unreachable while ESP discovery omits server.info#2; re-adding requires restoring these TUs + verifying flash budget
-src/printer/u1_stock_detection_source.cpp  # not in the v1 Core+AMS cut
 src/rendering/bed_mesh_buffer.cpp  # not in the v1 Core+AMS cut
 src/rendering/bed_mesh_coordinate_transform.cpp  # not in the v1 Core+AMS cut
 src/rendering/bed_mesh_geometry.cpp  # not in the v1 Core+AMS cut
@@ -370,9 +369,7 @@ src/ui/ui_wizard_wifi.cpp  # not in the v1 Core+AMS cut
 src/ui/upgrade_banner.cpp  # not in the v1 Core+AMS cut
 src/ui/view_gestures.cpp  # two-finger gestures for the 3D G-code viewer and 3D bed mesh, both compiled out (HELIX_HAS_GCODE_VIEWER=0, HELIX_HAS_BED_MESH_3D=0)
 
-src/system/jz_pwm_sound_backend.cpp  # AD5X-only: exec's the Linux fx-pwm child; no process model on ESP32
 src/ui/ui_selector_model.cpp  # selector model for the wizard printer step, not in the v1 Core+AMS cut
-src/printer/k2_stock_detection_source.cpp  # not in the v1 Core+AMS cut
 src/printer/z_offset_calibration_approach.cpp  # not in the v1 Core+AMS cut
 src/plugin/plugin_permissions.cpp  # not in the v1 Core+AMS cut
 src/plugin/plugin_manifest.cpp  # not in the v1 Core+AMS cut
@@ -412,3 +409,5 @@ src/ui/ui_icon_image.cpp  # not in the v1 Core+AMS cut
 src/ui/ui_text_entry_modal.cpp  # not in the v1 Core+AMS cut
 src/plugin/plugin_table.cpp  # not in the v1 Core+AMS cut
 src/plugin/lua_bind_table.cpp  # not in the v1 Core+AMS cut
+src/ui/ui_wizard_devices.cpp  # Linux first-run wizard; ESP32 uses its provisioning portal
+src/ui/ui_wizard_vorondeck.cpp  # Linux first-run wizard; ESP32 uses its provisioning portal

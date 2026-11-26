@@ -349,10 +349,10 @@ void ActiveSpoolWidget::update_spool_display() {
             percent = home_spool_summary(amount, {units.percent, false, false}, false);
             summary = home_spool_summary(amount, {false, units.grams, units.metres}, false);
             // Keep selected numbers still and complete: compact units first,
-            // then two short amount lines when the existing text column is narrow.
+            // then fit the wide row's font; only the simple card has room for two lines.
             if (text_width > 0 && measured_width(summary, number_font) > text_width) {
                 const std::string separator = " \xC2\xB7 ";
-                if (auto pos = summary.find(separator); pos != std::string::npos)
+                if (auto pos = summary.find(separator); simplified_ && pos != std::string::npos)
                     summary.replace(pos, separator.size(), "\n");
                 summary.erase(std::remove(summary.begin(), summary.end(), ' '), summary.end());
             }

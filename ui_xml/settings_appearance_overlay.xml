@@ -11,7 +11,8 @@
     <style name="spacer_standard" height="#space_lg"/>
     <style name="spacer_micro" height="#space_md"/>
   </styles>
-  <view name="settings_appearance_overlay" extends="overlay_panel" title="Appearance" bg_color="#screen_bg" style_bg_color="#screen_bg">
+  <view name="settings_appearance_overlay"
+        extends="overlay_panel" title="Appearance" bg_color="#screen_bg" style_bg_color="#screen_bg">
     <!-- Content Area - no padding, rows handle their own -->
     <lv_obj name="overlay_content" width="100%" flex_grow="1" scrollable="true" flex_flow="column">
       <bind_style_if_eq name="content_micro" subject="ui_breakpoint" ref_value="0"/>

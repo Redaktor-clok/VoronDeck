@@ -183,22 +183,6 @@ FilamentPanel::FilamentPanel(PrinterState& printer_state, IMoonrakerAPI* api)
              auto* button = static_cast<lv_obj_t*>(lv_event_get_current_target(e));
              helix::settings::get_material_temps_overlay().show(lv_obj_get_screen(button));
          }},
-        // Material preset buttons
-        {"on_filament_preset_pla",
-         [](lv_event_t*) { get_global_filament_panel().handle_preset_button(0); }},
-        {"on_filament_preset_petg",
-         [](lv_event_t*) { get_global_filament_panel().handle_preset_button(1); }},
-        {"on_filament_preset_abs",
-         [](lv_event_t*) { get_global_filament_panel().handle_preset_button(2); }},
-        {"on_filament_preset_tpu",
-         [](lv_event_t*) { get_global_filament_panel().handle_preset_button(3); }},
-        {"on_filament_preset_spool",
-         [](lv_event_t*) { get_global_filament_panel().handle_spool_preset_button(); }},
-        // Material preset long-press (opens material picker)
-        {"on_filament_preset_pla_hold", [](lv_event_t* e) { preset_hold(e, 0); }},
-        {"on_filament_preset_petg_hold", [](lv_event_t* e) { preset_hold(e, 1); }},
-        {"on_filament_preset_abs_hold", [](lv_event_t* e) { preset_hold(e, 2); }},
-        {"on_filament_preset_tpu_hold", [](lv_event_t* e) { preset_hold(e, 3); }},
         // Temperature tap targets
         {"on_filament_nozzle_target_tap",
          [](lv_event_t*) { get_global_filament_panel().handle_nozzle_temp_tap(); }},

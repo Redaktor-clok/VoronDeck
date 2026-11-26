@@ -8,8 +8,8 @@
     <style name="profile_temp_landscape" width="23%" flex_grow="1"/>
     <style name="profile_temp_portrait" width="47%" flex_grow="0"/>
   </styles>
-  <view name="material_temps_overlay" extends="overlay_panel" title="Material Temperatures" bg_color="#screen_bg"
-        title_font="#font_body">
+  <view name="material_temps_overlay"
+        extends="overlay_panel" title="Material Temperatures" bg_color="#screen_bg" title_font="#font_body">
     <!-- Content Area -->
     <lv_obj name="overlay_content"
             width="100%" flex_grow="1" style_pad_top="0" style_pad_left="#space_lg" style_pad_right="#space_lg"
@@ -23,7 +23,7 @@
         <text_muted text="Material" flex_grow="1"/>
         <text_muted text="Nozzle / Bed"/>
       </lv_obj>
-      <ui_button name="btn_add_profile" text="Add Profile" icon="plus" width="100%">
+      <ui_button name="btn_add_profile" width="100%" text="Add Profile" icon="plus">
         <bind_flag_if_not_eq subject="material_editing" flag="hidden" ref_value="0"/>
         <event_cb trigger="clicked" callback="on_material_add_profile"/>
       </ui_button>
@@ -47,21 +47,22 @@
       <lv_obj name="material_edit_view"
               width="100%" flex_grow="1" scrollable="true" flex_flow="column" style_pad_all="0">
         <bind_flag_if_eq subject="material_editing" flag="hidden" ref_value="0"/>
-        <lv_obj name="profile_name_row" width="100%" height="content" flex_flow="column"
-                style_pad_all="0" style_pad_gap="#space_xs" scrollable="false">
+        <lv_obj name="profile_name_row"
+                width="100%" height="content" flex_flow="column" style_pad_all="0" style_pad_gap="#space_xs"
+                scrollable="false">
           <bind_flag_if_eq subject="material_edit_is_shipped" flag="hidden" ref_value="1"/>
           <text_body text="Profile Name"/>
           <text_input name="edit_profile_name" width="100%" max_length="63"/>
         </lv_obj>
         <!-- Give the title its own full-width line. Shipped defaults follow
              below it; a custom profile has no separate defaults to restore. -->
-        <lv_obj name="material_identity" width="100%" height="content"
-                flex_flow="column" style_pad_all="0" style_pad_bottom="#space_lg" style_pad_gap="#space_xs"
-                scrollable="false" style_flex_cross_place="start">
-          <text_heading name="edit_material_name" bind_text="material_edit_name" width="100%"
-                        long_mode="dots" max_lines="1"/>
-          <text_small name="edit_defaults_hint" bind_text="material_edit_defaults" width="100%"
-                      style_text_color="#text_muted">
+        <lv_obj name="material_identity"
+                width="100%" height="content" flex_flow="column" style_pad_all="0" style_pad_bottom="#space_lg"
+                style_pad_gap="#space_xs" scrollable="false" style_flex_cross_place="start">
+          <text_heading name="edit_material_name"
+                        width="100%" bind_text="material_edit_name" long_mode="dots" max_lines="1"/>
+          <text_small name="edit_defaults_hint"
+                      width="100%" bind_text="material_edit_defaults" style_text_color="#text_muted">
             <bind_flag_if_eq subject="material_edit_is_shipped" flag="hidden" ref_value="0"/>
           </text_small>
         </lv_obj>
@@ -106,11 +107,15 @@
         <lv_obj width="1" flex_grow="1" scrollable="false" style_pad_all="0"/>
         <!-- Button row -->
         <lv_obj width="100%" flex_flow="row" style_pad_all="0" style_pad_gap="#space_md" scrollable="false">
-          <ui_button name="btn_reset_defaults" variant="secondary" text="Reset to Default" width="0" style_pad_hor="#space_xs" style_text_font="#font_small" long_mode="wrap" flex_grow="1">
+          <ui_button name="btn_reset_defaults"
+                     width="0" variant="secondary" text="Reset to Default" style_pad_hor="#space_xs"
+                     style_text_font="#font_small" long_mode="wrap" flex_grow="1">
             <bind_flag_if_eq subject="material_edit_is_shipped" flag="hidden" ref_value="0"/>
             <event_cb trigger="clicked" callback="on_material_reset_defaults"/>
           </ui_button>
-          <ui_button name="btn_save_material" variant="primary" text="Save" width="0" style_pad_hor="#space_xs" style_text_font="#font_small" long_mode="wrap" flex_grow="1">
+          <ui_button name="btn_save_material"
+                     width="0" variant="primary" text="Save" style_pad_hor="#space_xs" style_text_font="#font_small"
+                     long_mode="wrap" flex_grow="1">
             <event_cb trigger="clicked" callback="on_material_save"/>
           </ui_button>
         </lv_obj>

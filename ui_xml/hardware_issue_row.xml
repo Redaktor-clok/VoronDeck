@@ -35,9 +35,9 @@
                 text="#icon_alert_octagon" hidden="true" style_text_font="mdi_icons_24" style_text_color="#danger"/>
     </lv_obj>
     <!-- Content column -->
-    <lv_obj width="0" height="content" flex_grow="1"
-            style_pad_all="0" style_pad_right="#space_md" scrollable="false" flex_flow="column"
-            style_pad_gap="#space_xxs">
+    <lv_obj width="0"
+            height="content" flex_grow="1" style_pad_all="0" style_pad_right="#space_md" scrollable="false"
+            flex_flow="column" style_pad_gap="#space_xxs">
       <text_body name="hardware_name" width="100%" text="Hardware Name" long_mode="wrap"/>
       <text_small name="issue_message" width="100%" text="Issue description" long_mode="wrap"/>
     </lv_obj>
@@ -48,15 +48,13 @@
       <bind_style_if_eq name="actions_stacked" subject="ui_is_portrait" ref_value="1"/>
       <bind_style_if_eq name="actions_inline" subject="ui_is_portrait" ref_value="0"/>
       <!-- Ignore button (mark as optional) -->
-      <ui_button name="ignore_btn"
-                 height="#button_height" style_min_width="64" variant="ghost" text="Ignore">
+      <ui_button name="ignore_btn" height="#button_height" style_min_width="64" variant="ghost" text="Ignore">
         <bind_style_if_eq name="action_equal" subject="ui_is_portrait" ref_value="1"/>
         <bind_style_if_eq name="action_content" subject="ui_is_portrait" ref_value="0"/>
       </ui_button>
       <!-- Save button (add to expected list) - only for INFO severity -->
       <ui_button name="save_btn"
-                 height="#button_height" hidden="true" style_min_width="64" variant="primary"
-                 text="Save">
+                 height="#button_height" hidden="true" style_min_width="64" variant="primary" text="Save">
         <bind_style_if_eq name="action_equal" subject="ui_is_portrait" ref_value="1"/>
         <bind_style_if_eq name="action_content" subject="ui_is_portrait" ref_value="0"/>
       </ui_button>

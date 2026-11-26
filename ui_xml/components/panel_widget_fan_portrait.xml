@@ -7,17 +7,19 @@
     <prop name="hotend_visible_subject" type="string" default=""/>
     <prop name="aux_visible_subject" type="string" default=""/>
   </api>
-  <view name="panel_widget_fan_portrait" width="100%" height="100%" flex_flow="column"
-        style_pad_all="0" style_pad_gap="#space_xxs" scrollable="false" clickable="true">
+  <view name="panel_widget_fan_portrait"
+        width="100%" height="100%" flex_flow="column" style_pad_all="0" style_pad_gap="#space_xxs" scrollable="false"
+        clickable="true">
     <!-- PanelWidget owns the root; bubbled clicks must recover the instance here. -->
     <event_cb trigger="clicked" callback="on_fan_stack_clicked"/>
-    <text_small name="fan_hidden_placeholder" text="Fans hidden" width="100%" flex_grow="1" hidden="true"
-                long_mode="wrap" style_text_align="center" style_text_color="#text_muted" clickable="false" event_bubble="true">
+    <text_small name="fan_hidden_placeholder"
+                width="100%" text="Fans hidden" flex_grow="1" hidden="true" long_mode="wrap" style_text_align="center"
+                style_text_color="#text_muted" clickable="false" event_bubble="true">
       <bind_flag_if_not_eq subject="$home_visible_subject" flag="hidden" ref_value="0"/>
     </text_small>
-    <lv_obj name="home_fan_bank" width="100%" flex_grow="1" flex_flow="row"
-            style_pad_all="0" style_pad_gap="#space_xxs" style_flex_cross_place="center"
-            scrollable="false" clickable="true" event_bubble="true">
+    <lv_obj name="home_fan_bank"
+            width="100%" flex_grow="1" flex_flow="row" style_pad_all="0" style_pad_gap="#space_xxs"
+            style_flex_cross_place="center" scrollable="false" clickable="true" event_bubble="true">
       <bind_flag_if_eq subject="$home_visible_subject" flag="hidden" ref_value="0"/>
       <bind_state_if_not_eq subject="printer_connection_state" state="disabled" ref_value="2"/>
       <home_fan_column role="part" letter="P" visible_subject="$part_visible_subject"/>

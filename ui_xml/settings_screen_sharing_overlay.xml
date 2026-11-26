@@ -4,7 +4,9 @@
 <!-- Screen Sharing Settings Overlay -->
 <!-- Per printer: share this screen with a browser, list it among the printer's webcams, let the browser control it, and the pairing that guards control -->
 <component>
-  <view name="settings_screen_sharing_overlay" extends="overlay_panel" title_font="#font_body" title_long_mode="dots" title_max_lines="2" title="Screen Sharing" bg_color="#screen_bg">
+  <view name="settings_screen_sharing_overlay"
+        extends="overlay_panel" title_font="#font_body" title_long_mode="dots" title_max_lines="2"
+        title="Screen Sharing" bg_color="#screen_bg">
     <!-- Content Area - no padding, rows handle their own -->
     <lv_obj name="overlay_content"
             width="100%" flex_grow="1" style_pad_top="0" style_pad_left="0" style_pad_right="0"

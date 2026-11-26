@@ -85,8 +85,9 @@
       <setting_action_row name="row_print_hours"
                           label="Print Hours" icon="clock" bind_description="print_hours_value"
                           callback="on_about_print_hours_clicked"/>
-      <setting_action_row name="row_source_licenses" label="Open Source Licenses" icon="book"
-                          description="Source code and authors" callback="on_source_licenses_clicked"/>
+      <setting_action_row name="row_source_licenses"
+                          label="Open Source Licenses" icon="book" description="Source code and authors"
+                          callback="on_source_licenses_clicked"/>
       <!-- Bottom padding for scroll -->
       <lv_obj width="100%" height="#space_lg" scrollable="false"/>
     </lv_obj>

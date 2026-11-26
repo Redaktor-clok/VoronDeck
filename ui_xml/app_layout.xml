@@ -29,32 +29,36 @@
     <!-- Content area. flex_grow owns the shell's main axis in either flow, so
          each 100% only ever resolves on the cross axis. -->
     <lv_obj name="content_area"
-            width="100%" height="100%" flex_grow="1" style_bg_opa="0%" style_pad_all="0" style_pad_gap="0" flex_flow="column">
-      <lv_obj name="home_header" width="100%" height="#space_2xl" style_pad_ver="0"
-              style_pad_hor="#space_md" style_bg_color="#screen_bg" style_border_width="0"
-              scrollable="false" flex_flow="row" style_flex_cross_place="center">
-        <lv_obj name="home_printer_name_button" width="35%" height="100%"
-                flex_flow="row" style_flex_cross_place="center" style_pad_all="0"
+            width="100%" height="100%" flex_grow="1" style_bg_opa="0%" style_pad_all="0" style_pad_gap="0"
+            flex_flow="column">
+      <lv_obj name="home_header"
+              width="100%" height="#space_2xl" style_pad_ver="0" style_pad_hor="#space_md" style_bg_color="#screen_bg"
+              style_border_width="0" scrollable="false" flex_flow="row" style_flex_cross_place="center">
+        <lv_obj name="home_printer_name_button"
+                width="35%" height="100%" flex_flow="row" style_flex_cross_place="center" style_pad_all="0"
                 style_bg_opa="0" style_border_width="0" scrollable="false" clickable="true">
           <event_cb trigger="clicked" callback="on_home_printer_name_clicked"/>
-          <text_small name="home_printer_name" width="100%" bind_text="active_printer_name"
-                      long_mode="dots" clickable="false" event_bubble="true">
+          <text_small name="home_printer_name"
+                      width="100%" bind_text="active_printer_name" long_mode="dots" clickable="false"
+                      event_bubble="true">
             <bind_flag_if_eq subject="nemesis_theme" flag="hidden" ref_value="1"/>
           </text_small>
-          <lv_obj name="nemesis_header_brand" width="content" height="content" flex_flow="row"
-                  style_pad_all="0" style_pad_column="#space_xs" style_border_width="0"
-                  style_bg_opa="0" scrollable="false" clickable="false" event_bubble="true">
+          <lv_obj name="nemesis_header_brand"
+                  width="content" height="content" flex_flow="row" style_pad_all="0" style_pad_column="#space_xs"
+                  style_border_width="0" style_bg_opa="0" scrollable="false" clickable="false" event_bubble="true">
             <bind_flag_if_eq subject="nemesis_theme" flag="hidden" ref_value="0"/>
-            <text_small name="nemesis_header_name" text="NEMESIS" style_text_color="#text"
-                        clickable="false" event_bubble="true"/>
-            <text_small name="nemesis_header_number" text="530" style_text_color="#primary"
-                        clickable="false" event_bubble="true"/>
+            <text_small name="nemesis_header_name"
+                        text="NEMESIS" style_text_color="#text" clickable="false" event_bubble="true"/>
+            <text_small name="nemesis_header_number"
+                        text="530" style_text_color="#primary" clickable="false" event_bubble="true"/>
           </lv_obj>
         </lv_obj>
-        <lv_obj name="shared_network_button" width="0" flex_grow="1" height="100%" style_pad_all="0" clickable="true" scrollable="false">
+        <lv_obj name="shared_network_button"
+                width="0" height="100%" flex_grow="1" style_pad_all="0" clickable="true" scrollable="false">
           <event_cb trigger="clicked" callback="on_shared_network_clicked"/>
-          <text_small name="home_network_address" width="100%" align="center"
-                      bind_text="home_network_summary" style_text_align="center" long_mode="dots" clickable="false" event_bubble="true">
+          <text_small name="home_network_address"
+                      width="100%" align="center" bind_text="home_network_summary" style_text_align="center"
+                      long_mode="dots" clickable="false" event_bubble="true">
             <bind_flag_if_eq subject="home_network_known" flag="hidden" ref_value="0"/>
           </text_small>
         </lv_obj>

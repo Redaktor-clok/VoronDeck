@@ -17,7 +17,7 @@
     <style name="styles.press_wash" selector="pressed"/>
     <!-- Filename (flex-grow, left-aligned) -->
     <text_small name="row_filename"
-                text="$filename" style_text_align="left" long_mode="dots" width="0" flex_grow="1"
+                width="0" text="$filename" style_text_align="left" long_mode="dots" flex_grow="1"
                 style_min_width="#col_filename_min_width" style_pad_all="0" clickable="false"/>
     <!-- Status (centered) - contains icons for print history -->
     <lv_obj name="row_status"

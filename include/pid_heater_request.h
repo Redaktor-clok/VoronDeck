@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include <cerrno>
 #include <cmath>
+#include <cstdlib>
 #include <optional>
 #include <string>
 
@@ -34,6 +36,8 @@ inline std::optional<PidHeaterRequest> pid_heater_request(const nlohmann::json& 
             "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") !=
             std::string::npos)
         return std::nullopt;
+    if (!config.is_object())
+        return std::nullopt;
     const auto section = config.find(object);
     if (section == config.end() || !section->is_object() ||
         section->find("control") == section->end() || (*section)["control"] != "pid")
@@ -43,20 +47,17 @@ inline std::optional<PidHeaterRequest> pid_heater_request(const nlohmann::json& 
         if (value == section->end())
             return std::nullopt;
         double parsed;
-        try {
-            if (value->is_number())
-                parsed = value->get<double>();
-            else if (value->is_string()) {
-                size_t used = 0;
-                const auto text = value->get<std::string>();
-                parsed = std::stod(text, &used);
-                if (used != text.size())
-                    return std::nullopt;
-            } else
+        if (value->is_number())
+            parsed = value->get<double>();
+        else if (value->is_string()) {
+            const auto& text = value->get_ref<const std::string&>();
+            char* end = nullptr;
+            errno = 0;
+            parsed = std::strtod(text.c_str(), &end);
+            if (end == text.c_str() || end != text.c_str() + text.size() || errno == ERANGE)
                 return std::nullopt;
-        } catch (...) {
+        } else
             return std::nullopt;
-        }
         return std::isfinite(parsed) ? std::optional<double>(parsed) : std::nullopt;
     };
     const auto low = number("min_temp"), high = number("max_temp");

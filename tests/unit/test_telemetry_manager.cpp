@@ -230,14 +230,14 @@ TEST_CASE_METHOD(TelemetryTestFixture, "Session event: envelope, app and host fi
 
 TEST_CASE_METHOD(TelemetryTestFixture, "Session event: app.board is the resolved board",
                  "[telemetry][session]") {
-    helix::test::ScopedBoard board(helix::board::Board::Creator5Pro);
+    helix::test::ScopedBoard board(helix::board::Board::Generic);
     auto& tm = TelemetryManager::instance();
     tm.set_enabled(true);
 
     tm.record_session();
     auto event = tm.get_queue_snapshot()[0];
 
-    CHECK(event["app"]["board"] == "creator5-pro");
+    CHECK(event["app"]["board"] == "generic");
     CHECK(event["app"]["platform"] == helix::platform::current_key());
 }
 
@@ -1014,7 +1014,7 @@ TEST_CASE_METHOD(TelemetryTestFixture,
 
 TEST_CASE_METHOD(TelemetryTestFixture, "Crash event: app_board is the resolved board",
                  "[telemetry][crash]") {
-    helix::test::ScopedBoard board(helix::board::Board::Creator5Pro);
+    helix::test::ScopedBoard board(helix::board::Board::Generic);
     auto& tm = TelemetryManager::instance();
     tm.set_enabled(true);
     write_file("crash.txt", "signal:11\nname:SIGSEGV\nversion:0.14.0\n");
@@ -1023,7 +1023,7 @@ TEST_CASE_METHOD(TelemetryTestFixture, "Crash event: app_board is the resolved b
 
     REQUIRE(tm.queue_size() == 1);
     auto event = tm.get_queue_snapshot()[0];
-    CHECK(event["app_board"] == "creator5-pro");
+    CHECK(event["app_board"] == "generic");
     CHECK(event["app_platform"] == helix::platform::current_key());
 }
 

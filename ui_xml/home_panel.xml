@@ -19,20 +19,21 @@
         width="100%" height="100%" style_pad_all="0" style_pad_gap="0" style_border_width="0"
         style_bg_color="#screen_bg" flex_flow="column" scrollable="false">
     <!-- Carousel host: contains carousel pages + arrow overlays, created in C++ -->
-    <lv_obj name="home_scroll_view" width="100%" height="0" flex_grow="1" flex_flow="column"
-            style_pad_all="0" style_pad_gap="0" style_bg_opa="0" scrollable="false">
+    <lv_obj name="home_scroll_view"
+            width="100%" height="0" flex_grow="1" flex_flow="column" style_pad_all="0" style_pad_gap="0"
+            style_bg_opa="0" scrollable="false">
       <bind_flag_if_eq subject="ui_is_portrait" flag="scrollable" ref_value="1"/>
-    <lv_obj name="carousel_host" width="100%" style_bg_opa="0" style_border_width="0" style_pad_all="0">
-      <bind_style_if_eq name="home_canvas_landscape" subject="ui_is_portrait" ref_value="0"/>
-      <bind_style_if_eq name="home_canvas_portrait" subject="ui_is_portrait" ref_value="1"/>
-      <event_cb trigger="pressed" callback="on_home_grid_pressed"/>
-      <event_cb trigger="long_pressed" callback="on_home_grid_long_press"/>
-      <event_cb trigger="clicked" callback="on_home_grid_clicked"/>
-      <event_cb trigger="pressing" callback="on_home_grid_pressing"/>
-      <event_cb trigger="released" callback="on_home_grid_released"/>
-      <event_cb trigger="press_lost" callback="on_home_grid_press_cancelled"/>
-      <event_cb trigger="indev_reset" callback="on_home_grid_press_cancelled"/>
-    </lv_obj>
+      <lv_obj name="carousel_host" width="100%" style_bg_opa="0" style_border_width="0" style_pad_all="0">
+        <bind_style_if_eq name="home_canvas_landscape" subject="ui_is_portrait" ref_value="0"/>
+        <bind_style_if_eq name="home_canvas_portrait" subject="ui_is_portrait" ref_value="1"/>
+        <event_cb trigger="pressed" callback="on_home_grid_pressed"/>
+        <event_cb trigger="long_pressed" callback="on_home_grid_long_press"/>
+        <event_cb trigger="clicked" callback="on_home_grid_clicked"/>
+        <event_cb trigger="pressing" callback="on_home_grid_pressing"/>
+        <event_cb trigger="released" callback="on_home_grid_released"/>
+        <event_cb trigger="press_lost" callback="on_home_grid_press_cancelled"/>
+        <event_cb trigger="indev_reset" callback="on_home_grid_press_cancelled"/>
+      </lv_obj>
     </lv_obj>
     <!-- Ghost page counter: edit mode only, more than one populated page -->
     <text_small name="page_badge"

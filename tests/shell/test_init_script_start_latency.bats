@@ -35,53 +35,7 @@ _extract_fn() {
 # hooks-cc1.sh: platform_stop_competing_uis
 # ---------------------------------------------------------------------------
 
-@test "cc1 hook: no settle sleep when no competing UI is running" {
-    local hook="$WORKTREE_ROOT/assets/config/platform/hooks-cc1.sh"
-    _extract_fn platform_stop_competing_uis "$hook" > "$BATS_TEST_TMPDIR/fn.sh"
 
-    # pidof never matches, ps lists nothing: nothing should be signalled.
-    cat > "$BATS_TEST_TMPDIR/run.sh" <<'EOF'
-pidof() { return 1; }
-killall() { echo "KILLED $*" >> "$TRACE"; }
-ps() { echo ""; }
-sleep() { echo "SLEPT $*" >> "$TRACE"; }
-. "$FN"
-platform_stop_competing_uis
-EOF
-    TRACE="$BATS_TEST_TMPDIR/trace" FN="$BATS_TEST_TMPDIR/fn.sh" \
-        run sh "$BATS_TEST_TMPDIR/run.sh"
-    [ "$status" -eq 0 ]
-
-    refute_grep 'SLEPT' "$BATS_TEST_TMPDIR/trace" || true
-    if [ -f "$BATS_TEST_TMPDIR/trace" ]; then
-        run grep -c 'SLEPT' "$BATS_TEST_TMPDIR/trace"
-        [ "$output" = "0" ]
-    fi
-}
-
-@test "cc1 hook: still settles when a competing UI WAS killed" {
-    local hook="$WORKTREE_ROOT/assets/config/platform/hooks-cc1.sh"
-    _extract_fn platform_stop_competing_uis "$hook" > "$BATS_TEST_TMPDIR/fn.sh"
-
-    # pidof matches guppyscreen only, so exactly one UI is signalled and the
-    # settle delay must still be paid.
-    cat > "$BATS_TEST_TMPDIR/run.sh" <<'EOF'
-pidof() { [ "$1" = "guppyscreen" ] && { echo 4242; return 0; }; return 1; }
-killall() { echo "KILLED $*" >> "$TRACE"; }
-ps() { echo ""; }
-sleep() { echo "SLEPT $*" >> "$TRACE"; }
-. "$FN"
-platform_stop_competing_uis
-EOF
-    TRACE="$BATS_TEST_TMPDIR/trace" FN="$BATS_TEST_TMPDIR/fn.sh" \
-        run sh "$BATS_TEST_TMPDIR/run.sh"
-    [ "$status" -eq 0 ]
-
-    run grep -c 'KILLED guppyscreen' "$BATS_TEST_TMPDIR/trace"
-    [ "$output" = "1" ]
-    run grep -c 'SLEPT 1' "$BATS_TEST_TMPDIR/trace"
-    [ "$output" = "1" ]
-}
 
 # ---------------------------------------------------------------------------
 # helixscreen.init: start-path pacing
@@ -255,9 +209,7 @@ EOF
     [ ! -f "$BATS_TEST_TMPDIR/trace" ]
 }
 
-@test "init and cc1 hook are POSIX sh clean" {
+@test "init is POSIX sh clean" {
     run sh -n "$WORKTREE_ROOT/config/helixscreen.init"
-    [ "$status" -eq 0 ]
-    run sh -n "$WORKTREE_ROOT/assets/config/platform/hooks-cc1.sh"
     [ "$status" -eq 0 ]
 }

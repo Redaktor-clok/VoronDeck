@@ -1203,7 +1203,7 @@ void WizardConnectionStep::allow_continue_without_klipper() {
     // which is far more useful than a wizard the user cannot leave.
     unblock_after_incomplete_discovery(
         lv_tr("Connected to Moonraker, but Klipper is not running. You can continue "
-              "— HelixScreen will show the Klipper error, and hardware detection "
+              "— VoronDeck will show the Klipper error, and hardware detection "
               "stays limited until Klipper starts."));
 }
 

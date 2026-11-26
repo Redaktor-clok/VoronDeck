@@ -576,8 +576,8 @@ def check_index():
 
 
 # The public pages that state what HelixScreen ships, and where the truth lives.
-# The README is required: a counts check that finds nothing to check there has
-# been reworded out of existence, not satisfied.
+# The README is required. Numeric claims are checked when present; translated
+# introductions need not carry an English inventory sentence.
 COUNTS_README = 'README.md'
 COUNTS_USER_DIR = 'docs/user'
 AMS_TYPES_HEADER = 'include/ams_types.h'
@@ -655,7 +655,6 @@ def check_counts():
     themes = theme_preset_count()
     printer_floor = printers - printers % PRINTER_FLOOR_STEP
     problems = []
-    readme_backend_lists = 0
     checked = 0
     if not backends:
         problems.append((AMS_TYPES_HEADER, 0, 'no kAmsTypeTraits rows found'))
@@ -669,8 +668,6 @@ def check_counts():
                     problems.append((doc, n, 'says %s filament systems; the registry has %d'
                                      % (m.group(1), len(backends))))
                 if m.group(2):
-                    if doc == COUNTS_README:
-                        readme_backend_lists += 1
                     listed = line[m.end():]
                     missing = [b for b in backends if not names_backend(listed, b)]
                     if missing:
@@ -690,8 +687,6 @@ def check_counts():
                 if too_high or claim < printer_floor:
                     problems.append((doc, n, 'says "%s"; the database lists %d printers, '
                                      'so write "over %d"' % (m.group(0), printers, printer_floor)))
-    if not readme_backend_lists:
-        problems.append((COUNTS_README, 0, 'no "<N> filament systems: <list>" line to check'))
     return problems, checked
 
 

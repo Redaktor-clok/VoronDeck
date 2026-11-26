@@ -310,6 +310,7 @@ struct GuardedFile {
 
 /// Files whose controls carry a toolhead guard, and how many each carries.
 constexpr GuardedFile kGuardedFiles[] = {
+    {"ui_xml/manual_bed_screws.xml", 4},
     // Maintenance must not clear active-job records or restart print services during a job.
     {"ui_xml/settings_printer_maintenance_overlay.xml", 4},
     {"ui_xml/ams_device_operations.xml", 1},
@@ -317,8 +318,6 @@ constexpr GuardedFile kGuardedFiles[] = {
     {"ui_xml/bed_drying_modal.xml", 1},
     {"ui_xml/calibration_tool_offset_panel.xml", 2},
     {"ui_xml/chamber_dryer_modal.xml", 1},
-    {"ui_xml/cfs_chute_calibration_overlay.xml", 6},
-    {"ui_xml/snapmaker_nozzle_offset_overlay.xml", 3},
     {"ui_xml/stepper_resonance_cal_modal.xml", 1},
     {"ui_xml/components/ams_sidebar.xml", 3},
     {"ui_xml/components/chamber_dryer_row.xml", 1},
@@ -335,12 +334,12 @@ constexpr GuardedFile kGuardedFiles[] = {
     {"ui_xml/components/panel_widget_toolhead.xml", 6},
     {"ui_xml/components/panel_widget_z_offset.xml", 2},
     {"ui_xml/calibration_pa_panel.xml", 2},
-    {"ui_xml/controls_panel.xml", 17},
+    {"ui_xml/controls_panel.xml", 18},
     {"ui_xml/guided_load_modal.xml", 2},
     {"ui_xml/header_bar.xml", 1},
     {"ui_xml/pa_tuning_overlay.xml", 1},
     {"ui_xml/plr_wizard_overlay.xml", 4},
-    {"ui_xml/micro/controls_panel.xml", 17},
+    {"ui_xml/micro/controls_panel.xml", 18},
     {"ui_xml/micro/header_bar.xml", 1},
     {"ui_xml/motion_panel.xml", 8},
     {"ui_xml/components/move_preset_grid.xml", 11},
@@ -366,6 +365,10 @@ constexpr GuardedFile kGuardedFiles[] = {
 /// Control-bearing files that command nothing on the printer. A guard appearing
 /// in one of these is a stale classification, not a bonus.
 constexpr const char* kNoMachineControlFiles[] = {
+    "ui_xml/vorondeck_update_progress_modal.xml",
+    "ui_xml/wizard_appearance.xml",
+    "ui_xml/wizard_checks.xml",
+    "ui_xml/wizard_devices.xml",
     "ui_xml/abort_progress_modal.xml",
     "ui_xml/about_settings_overlay.xml",
     "ui_xml/advanced_panel.xml",
@@ -654,7 +657,6 @@ constexpr const char* kNoMachineControlFiles[] = {
     "ui_xml/settings_safety_overlay.xml",
     "ui_xml/settings_screen_sharing_overlay.xml",
     "ui_xml/settings_sound_overlay.xml",
-    "ui_xml/settings_storage_overlay.xml",
     "ui_xml/settings_system_overlay.xml",
     "ui_xml/settings_touch_overlay.xml",
     "ui_xml/settings_updates_overlay.xml",
@@ -699,7 +701,6 @@ constexpr const char* kNoMachineControlFiles[] = {
     "ui_xml/wizard_led_select.xml",
     "ui_xml/wizard_preferences.xml",
     "ui_xml/wizard_printer_identify.xml",
-    "ui_xml/wizard_summary.xml",
     "ui_xml/wizard_telemetry.xml",
     "ui_xml/wizard_touch_calibration.xml",
     "ui_xml/wizard_vendor_row.xml",

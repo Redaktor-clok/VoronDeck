@@ -148,24 +148,14 @@ src/printer/afc_defaults.cpp
 src/printer/afc_fault_position.cpp
 src/printer/ams_device_action_rows.cpp
 src/printer/fault_path_position.cpp
-src/printer/ace_slot_parse.cpp
-src/printer/ace_status_parse.cpp
 src/printer/ams_backend.cpp
 src/printer/ams_backend_registry.cpp
-src/printer/ams_backend_ace.cpp
-src/printer/ams_backend_ad5x_ifs.cpp
-src/printer/ad5x_status_parse.cpp
 src/printer/ams_backend_afc.cpp
 src/printer/afc_status_parse.cpp
-src/printer/ams_backend_cfs.cpp
 src/printer/ams_backend_happy_hare.cpp
 src/printer/ams_backend_indx.cpp
-src/printer/ams_backend_multiace.cpp
 src/printer/ams_backend_openams.cpp
 src/printer/ams_bypass_policy.cpp
-src/printer/ams_backend_qidi.cpp
-src/printer/qidi_status_parse.cpp
-src/printer/ams_backend_snapmaker.cpp
 src/printer/ams_backend_toolchanger.cpp
 src/printer/ams_endless_spool.cpp
 src/printer/ams_environment_zone.cpp
@@ -181,8 +171,6 @@ src/printer/ams_state_subjects.cpp
 src/printer/ams_state_tool_mapping.cpp
 src/printer/buffer_reading.cpp
 src/printer/ams_subscription_backend.cpp
-src/printer/batch_feed_reconcile.cpp
-src/printer/cfs_status_parse.cpp
 src/printer/lane_echo.cpp
 src/printer/lane_resolver.cpp
 src/printer/lane_apply.cpp
@@ -197,7 +185,6 @@ src/printer/chamber_heater_assignment.cpp
 src/printer/chamber_heater_backend_dragonbreath.cpp
 src/printer/chamber_wait_line.cpp
 src/printer/gcode_wait_line.cpp
-src/printer/multiace_status.cpp
 src/printer/wait_line_reader.cpp
 src/printer/chamber_heater_backend_generic.cpp
 src/printer/chamber_heater_backend_panda_breath.cpp
@@ -263,13 +250,7 @@ src/printer/printer_temperature_state.cpp
 src/printer/printer_versions_state.cpp
 src/printer/sensor_state.cpp
 src/printer/slot_registry.cpp
-src/printer/snapmaker_channel_state.cpp
-src/printer/snapmaker_exceptions.cpp
 src/printer/pause_descriptor.cpp
-src/printer/snapmaker_nozzle_offset.cpp
-src/printer/snapmaker_print_preferences.cpp
-src/printer/snapmaker_resume.cpp
-src/printer/snapmaker_status_parse.cpp
 src/printer/status_dispatch.cpp
 src/printer/storage_report.cpp
 src/printer/storage_report_service.cpp
@@ -292,7 +273,6 @@ src/printer/plr_profile.cpp
 src/printer/plr_wizard.cpp
 src/printer/standard_macros.cpp
 src/printer/toolchanger_addon.cpp
-src/printer/zmod_color_status.cpp
 src/printer/toolhead_homing.cpp
 src/printer/tool_offset_calibration.cpp
 src/printer/stepper_resonance_calibration.cpp
@@ -507,11 +487,7 @@ src/ui/ui_ams_context_menu.cpp
 src/ui/ui_ams_current_tool.cpp
 src/ui/ui_ams_device_operations_overlay.cpp
 src/ui/ui_ams_device_section_detail_overlay.cpp
-src/ui/ui_cfs_chute_calibration_overlay.cpp
-src/ui/ui_cfs_device_flows.cpp
 src/ui/ui_indx_device_flows.cpp
-src/ui/ui_snapmaker_device_flows.cpp
-src/ui/ui_snapmaker_nozzle_offset_overlay.cpp
 src/ui/ui_guided_device_flow.cpp
 src/ui/ui_ams_edit_follow_up.cpp
 src/ui/ui_ams_edit_overlay.cpp
@@ -778,7 +754,6 @@ src/system/helix_paths.cpp
 src/printer/filament_slot_override_store.cpp
 src/printer/filament_temperature_source.cpp
 src/api/screws_tilt_dialect.cpp
-src/api/snapmaker_screws_tilt.cpp
 src/api/wifi_ui_utils.cpp
 # Task 13: wifi_manager.cpp/wifi_backend.cpp were platform-seamed (stub in
 # helixapp_platform_stubs2.cpp) through Task 12 — now real, backed by
@@ -827,8 +802,6 @@ src/rendering/nozzle_renderer_a4t.cpp
 src/rendering/nozzle_renderer_anthead.cpp
 src/rendering/nozzle_renderer_bambu.cpp
 src/rendering/nozzle_renderer_common.cpp
-src/rendering/nozzle_renderer_creality_k1.cpp
-src/rendering/nozzle_renderer_creality_k2.cpp
 src/rendering/nozzle_renderer_jabberwocky.cpp
 src/rendering/nozzle_renderer_stealthburner.cpp
 #   gcode text processing (no rendering, no HTTP): print-prep tool remapping +
@@ -923,3 +896,15 @@ src/calibration/shaper_csv_parser.cpp
 src/system/host_identity.cpp
 src/system/env_refusal_notice.cpp
 src/system/home_layout_share.cpp
+src/system/home_screen_preferences.cpp
+src/system/home_spool_summary.cpp
+src/system/printer_maintenance.cpp
+src/ui/panel_widgets/ams_status_widget.cpp
+src/ui/panel_widgets/cooldown_widget.cpp
+src/ui/panel_widgets/heater_bank_widget.cpp
+src/ui/panel_widgets/home_sensor_bank_widget.cpp
+src/ui/panel_widgets/spool_display_picker.cpp
+src/ui/ui_external_spool_overview.cpp
+src/ui/ui_manual_bed_screws.cpp
+src/ui/ui_settings_home_screen.cpp
+src/ui/ui_settings_printer_maintenance.cpp

@@ -27,15 +27,15 @@
         <setting_dropdown_row name="row_display_rotation"
                               label="Screen Rotation" icon="rotate_right"
                               description="Turn the picture to match how the screen is mounted. Applies after restart."
-                              options="0&#176;&#10;90&#176;&#10;180&#176;&#10;270&#176;"
-                              callback="on_display_rotation_changed">
+                              options="0°&#10;90°&#10;180°&#10;270°" callback="on_display_rotation_changed">
           <bind_flag_if_eq subject="settings_rotation_available" flag="hidden" ref_value="0"/>
         </setting_dropdown_row>
         <!-- UI Scale (options populated dynamically in C++ вЂ” the Automatic row
              carries the DPI-resolved percentage) -->
-        <setting_dropdown_row name="row_ui_scale" row_flow="row_wrap" dropdown_width="100%"
-                              label="UI Scale" icon="magnify" description="Interface size. Applies after restart."
-                              options="" callback="on_ui_scale_changed"/>
+        <setting_dropdown_row name="row_ui_scale"
+                              row_flow="row_wrap" dropdown_width="100%" label="UI Scale" icon="magnify"
+                              description="Interface size. Applies after restart." options=""
+                              callback="on_ui_scale_changed"/>
         <!-- Brightness (conditional - hidden when no hardware backlight) -->
         <lv_obj name="brightness_section" width="100%" height="content" scrollable="false" flex_flow="column">
           <bind_flag_if_eq subject="settings_has_dimming" flag="hidden" ref_value="0"/>
@@ -98,8 +98,9 @@
         <!-- Screensaver: the full list is the translation source; DisplaySettingsOverlay
              rebuilds the options without the savers too heavy for this board. Hidden in
              builds without screensavers (settings_has_screensaver = 0). -->
-        <setting_dropdown_row name="row_screensaver" row_flow="row_wrap" dropdown_width="100%"
-                              label="Screensaver" icon="television_classic" description="Show instead of dimming"
+        <setting_dropdown_row name="row_screensaver"
+                              row_flow="row_wrap" dropdown_width="100%" label="Screensaver" icon="television_classic"
+                              description="Show instead of dimming"
                               options="Off&#10;Flying Toasters&#10;Starfield&#10;3D Pipes&#10;Bouncing Printer&#10;Fireworks&#10;Bouncing Logo&#10;3D Maze&#10;Hyperspace&#10;Flip Clock&#10;Fireflies&#10;Aqua Surface&#10;High Fly&#10;Random"
                               options_tag="Off&#10;Flying Toasters&#10;Starfield&#10;3D Pipes&#10;Bouncing Printer&#10;Fireworks&#10;Bouncing Logo&#10;3D Maze&#10;Hyperspace&#10;Flip Clock&#10;Fireflies&#10;Aqua Surface&#10;High Fly&#10;Random"
                               callback="on_screensaver_changed" hidden="true">
@@ -113,7 +114,8 @@
                 style_flex_main_place="end" scrollable="false" hidden="true">
           <bind_flag_if_eq subject="settings_screensaver_type" flag="hidden" ref_value="0"/>
           <ui_button name="btn_test_screensaver"
-                     width="content" height="content" style_min_height="#button_height_sm" variant="outline" text="Test Screensaver" icon="play">
+                     width="content" height="content" style_min_height="#button_height_sm" variant="outline"
+                     text="Test Screensaver" icon="play">
             <event_cb trigger="clicked" callback="on_test_screensaver"/>
           </ui_button>
         </lv_obj>

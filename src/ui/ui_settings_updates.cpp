@@ -12,11 +12,13 @@
 
 #include "app_globals.h"
 #include "config.h"
+#include "exception_policy.h"
 #include "helix_version.h"
 #include "host_identity.h"
 #include "http_executor.h"
 #include "i_moonraker_client.h"
 #include "json_fwd.h"
+#include "json_utils.h"
 #include "lvgl.h"
 #include "platform_info.h"
 #include "print_lifecycle_state.h"
@@ -79,85 +81,6 @@ void UpdatesSettingsOverlay::register_callbacks() {
          [](lv_event_t*) { get_updates_settings_overlay().confirm_release_update("stable"); }},
         {"on_vorondeck_beta_update",
          [](lv_event_t*) { get_updates_settings_overlay().confirm_release_update("beta"); }},
-        {"on_about_update_channel_changed",
-         [](lv_event_t* e) {
-             lv_obj_t* dropdown = lv_event_get_current_target_obj(e);
-             const int index = helix::ui::event_selected(e);
-
-             if (index == 2 && helix::config_trust::read_update_urls().dev_url.empty()) {
-                 spdlog::warn("[UpdatesSettings] Dev channel selected but no dev_url configured");
-                 int current = SystemSettingsManager::instance().get_update_channel();
-                 lv_dropdown_set_selected(dropdown, static_cast<uint32_t>(current));
-                 ToastManager::instance().show(
-                     ToastSeverity::WARNING,
-                     lv_tr("Dev channel requires dev_url in update_urls.json"), 3000);
-                 return;
-             }
-
-             spdlog::info("[UpdatesSettings] Update channel changed: {} ({})", index,
-                          index == 0 ? "Stable" : (index == 1 ? "Beta" : "Dev"));
-             SystemSettingsManager::instance().set_update_channel(index);
-             // Drops the previous channel's cached verdict, re-snapshots the config
-             // for the debug bundle's off-thread reader, and starts a fresh check.
-             // The re-check matters when the new channel is BEHIND this install and
-             // the only way forward is an explicit switch back.
-             UpdateChecker::instance().on_channel_changed();
-         }},
-        {"on_about_check_updates_clicked",
-         [](lv_event_t*) {
-             spdlog::info("[UpdatesSettings] Check for updates requested");
-             UpdateChecker::instance().check_for_updates();
-         }},
-        {"on_about_install_update_clicked",
-         [](lv_event_t*) {
-             spdlog::info("[UpdatesSettings] Install update requested");
-
-             // Moving backward is never what someone means by "install update", so it is
-             // never the one-tap path. Settings written by the newer build are not
-             // migrated back either: the older build reads what it recognizes and
-             // leaves the rest alone.
-             auto cached = UpdateChecker::instance().get_cached_update();
-             if (cached && cached->is_downgrade) {
-                 spdlog::info(
-                     "[UpdatesSettings] Install target v{} is older than installed v{}, confirming",
-                     cached->version, HELIX_VERSION);
-                 std::string msg =
-                     fmt::format(lv_tr("This channel offers v{}, older than the installed v{}. "
-                                       "Anything added since then will be removed."),
-                                 cached->version, HELIX_VERSION);
-                 helix::ui::modal_confirm(
-                     lv_tr("Install Older Version?"), msg.c_str(), ModalSeverity::Warning,
-                     lv_tr("Install"),
-                     [] { get_updates_settings_overlay().show_update_download_modal(); });
-             } else {
-                 get_updates_settings_overlay().show_update_download_modal();
-             }
-         }},
-        {"on_about_updates_unavailable_clicked",
-         [](lv_event_t*) {
-             spdlog::info("[UpdatesSettings] Updates-unavailable notice tapped");
-
-             // Reached only when self_update_supported() is false and updates are not
-             // firmware-managed: this box can see that a new version exists but cannot
-             // apply one itself. The command is the whole payload; without it the row
-             // states a problem and offers nothing. The QR points at the docs for the
-             // longer story.
-             const std::string url = helix::docs_url("upgrading/");
-             helix::ui::InfoQrModal::show_owned({
-                 .icon = "console",
-                 .title = lv_tr("Update from a Terminal"),
-                 // No command in here on purpose. The one-liner is not portable across the
-                 // platforms this runs on (BusyBox firmwares such as K1, K2, AD5M and CC1
-                 // ship ash with no bash, and several have wget but no curl), so any single
-                 // literal would be wrong somewhere and baked into a binary. The docs can
-                 // say the right thing per platform and be corrected without a release.
-                 .message = lv_tr("Run the HelixScreen installer with --update from a "
-                                  "terminal on this printer. Scan for the command for "
-                                  "your platform."),
-                 .url = url,
-                 .url_text = helix::docs_url_text(url),
-             });
-         }},
         {"on_update_download_start",
          [](lv_event_t*) {
              spdlog::info("[UpdatesSettings] Starting update download");
@@ -185,17 +108,18 @@ void UpdatesSettingsOverlay::on_activate() {
 }
 
 void UpdatesSettingsOverlay::publish_vorondeck_status() {
-    const auto result = release_status_.empty() ? json::object() : json::parse(release_status_);
-    const auto channels = result.value("channels", json::object());
+    const auto result =
+        release_status_.empty() ? json::object() : json::parse(release_status_, nullptr, false);
+    const auto channels = helix::json_util::safe_object(result, "channels");
     for (const auto* kind : {"stable", "test", "beta"}) {
         if (auto* row = helix::ui::find_optional(
                 overlay_root_, (std::string("row_") + kind + "_release").c_str())) {
             const bool stable = std::string(kind) == "stable";
             const bool beta = std::string(kind) == "beta";
             const auto& offer = stable ? stable_offer_ : beta ? beta_offer_ : test_offer_;
-            const auto channel = channels.value(kind, json::object());
-            const auto version = channel.value("version", std::string{});
-            const auto state = channel.value("status", std::string{});
+            const auto channel = helix::json_util::safe_object(channels, kind);
+            const auto version = helix::json_util::safe_string(channel, "version");
+            const auto state = helix::json_util::safe_string(channel, "status");
             lv_obj_set_state(row, LV_STATE_DISABLED,
                              vorondeck_install_busy_ ||
                                  (vorondeck_check_busy_ && !vorondeck_check_background_));
@@ -263,7 +187,7 @@ bool UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
     auto token = object_lifetime_.token();
     worker.submit([this, token, background, selected_channel]() {
         json result = {{"status", "error"}};
-        try {
+        helix::contain_exceptions("VoronDeck update check", [&] {
             int exit_code = -1;
             // Constant shipped path: no user data or shell substitutions. The helper
             // bounds git/SSH timeouts and never installs a fetched artifact.
@@ -274,13 +198,11 @@ bool UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
                       "2>/dev/null",
                 exit_code);
             if (exit_code == 0 && output.size() < 8192) {
-                auto parsed = json::parse(output);
+                auto parsed = json::parse(output, nullptr, false);
                 if (parsed.is_object())
                     result = std::move(parsed);
             }
-        } catch (const std::exception&) {
-            // The UI gets a bounded generic error, never Git/SSH diagnostics.
-        }
+        });
         token.defer("UpdatesSettings::vorondeck_check", [this, result, background,
                                                          selected_channel]() {
             vorondeck_check_busy_ = false;
@@ -291,12 +213,13 @@ bool UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
                 publish_vorondeck_status();
                 return;
             }
-            const auto state = result.value("status", std::string("error"));
+            const auto state = helix::json_util::safe_string(result, "status", "error");
             const auto offers = result.find("offers");
             const bool has_offers =
                 offers != result.end() && offers->is_array() && !offers->empty();
-            vorondeck_update_text_ = std::string("VoronDeck ") +
-                                     result.value("installed_version", std::string(HELIX_VERSION));
+            vorondeck_update_text_ =
+                std::string("VoronDeck ") +
+                helix::json_util::safe_string(result, "installed_version", HELIX_VERSION);
             if (has_offers) {
                 vorondeck_update_text_ +=
                     "\n" + std::string(lv_tr("A new VoronDeck package is available"));
@@ -316,11 +239,11 @@ bool UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
                 for (const auto& offer : *offers) {
                     if (!offer.is_object())
                         continue;
-                    const auto kind = offer.value("kind", std::string{});
+                    const auto kind = helix::json_util::safe_string(offer, "kind");
                     if (kind == "stable" || kind == "beta" || kind == "test") {
                         auto selected = offer;
                         selected["installed_source"] =
-                            result.value("installed_source", std::string{});
+                            helix::json_util::safe_string(result, "installed_source");
                         auto& target = kind == "stable" ? stable_offer_
                                        : kind == "beta" ? beta_offer_
                                                         : test_offer_;
@@ -332,22 +255,25 @@ bool UpdatesSettingsOverlay::check_vorondeck_updates(bool background) {
             const auto& notice_offer = !test_offer_.empty()     ? test_offer_
                                        : !stable_offer_.empty() ? stable_offer_
                                                                 : beta_offer_;
-            const auto test = notice_offer.empty() ? json::object() : json::parse(notice_offer);
-            const auto notice =
-                test.value("notification_id", result.value("notification_id", std::string{}));
+            const auto test =
+                notice_offer.empty() ? json::object() : json::parse(notice_offer, nullptr, false);
+            const auto notice = helix::json_util::safe_string(
+                test, "notification_id", helix::json_util::safe_string(result, "notification_id"));
             auto* config = Config::get_instance();
             if (!notice.empty() && config && !is_wizard_active() &&
                 !job_holds_machine(get_printer_state().print_state().get_print_lifecycle()) &&
                 (!background ||
                  config->get<std::string>("/update/vorondeck_notified_package", "") != notice)) {
-                const auto channel =
-                    test.value("kind", result.value("active_channel", std::string{}));
-                const auto message = fmt::format(
-                    lv_tr("VoronDeck {} is available ({})"),
-                    test.value("display_version", result.value("available_version", std::string{})),
-                    lv_tr(channel == "test"   ? "Test release"
-                          : channel == "beta" ? "Beta"
-                                              : "Stable"));
+                const auto channel = helix::json_util::safe_string(
+                    test, "kind", helix::json_util::safe_string(result, "active_channel"));
+                const auto message =
+                    fmt::format(lv_tr("VoronDeck {} is available ({})"),
+                                helix::json_util::safe_string(
+                                    test, "display_version",
+                                    helix::json_util::safe_string(result, "available_version")),
+                                lv_tr(channel == "test"   ? "Test release"
+                                      : channel == "beta" ? "Beta"
+                                                          : "Stable"));
                 ToastManager::instance().show_with_action(
                     ToastSeverity::INFO, message.c_str(), lv_tr("Open updates"),
                     [](void*) { get_updates_settings_overlay().show(lv_screen_active()); }, nullptr,
@@ -378,7 +304,13 @@ void UpdatesSettingsOverlay::confirm_release_update(const std::string& kind) {
     }
     auto* client = get_moonraker_client();
     const auto printer = Config::get_instance()->get_active_printer_id();
-    const auto version = json::parse(selection).value("display_version", std::string{});
+    const auto offer = json::parse(selection, nullptr, false);
+    const auto version = helix::json_util::safe_string(offer, "display_version");
+    if (!offer.is_object() || version.empty()) {
+        show_package_progress(
+            lv_tr("The selected or installed version has changed. Check updates again."), "", -1);
+        return;
+    }
     const auto message = fmt::format(
         lv_tr(kind == "stable"
                   ? "Install VoronDeck {}? The screen will restart."
@@ -468,6 +400,13 @@ void UpdatesSettingsOverlay::install_test_update(const std::string& selection, b
             lv_tr("The selected or installed version has changed. Check updates again."), "", -1);
         return;
     }
+    auto params = json::parse(selection, nullptr, false);
+    const auto kind = helix::json_util::safe_string(params, "kind");
+    if (!params.is_object() || (kind != "stable" && kind != "test" && kind != "beta")) {
+        show_package_progress(
+            lv_tr("The selected or installed version has changed. Check updates again."), "", -1);
+        return;
+    }
     if (!client || client->get_connection_state() != ConnectionState::CONNECTED ||
         job_holds_machine(get_printer_state().print_state().get_print_lifecycle())) {
         ToastManager::instance().show(ToastSeverity::WARNING,
@@ -533,10 +472,10 @@ void UpdatesSettingsOverlay::install_test_update(const std::string& selection, b
                         finish(false);
                         return;
                     }
-                    const auto result = response.value("result", json::object());
-                    const auto info = result.value("version_info", json::object());
-                    const auto component = info.value("vorondeck", json::object());
-                    if (component.value("vorondeck_update_progress", 0) < 1) {
+                    const auto result = helix::json_util::safe_object(response, "result");
+                    const auto info = helix::json_util::safe_object(result, "version_info");
+                    const auto component = helix::json_util::safe_object(info, "vorondeck");
+                    if (helix::json_util::safe_int(component, "vorondeck_update_progress", 0) < 1) {
                         finish(
                             false,
                             lv_tr("Update manager is outdated. Run the VoronDeck installer again."),
@@ -585,12 +524,12 @@ void UpdatesSettingsOverlay::install_test_update(const std::string& selection, b
                 publish_vorondeck_status();
             });
         });
-    auto params = json::parse(selection);
     params.erase("display_version");
     params.erase("notification_id");
     client->send_jsonrpc(
-        params.value("kind", std::string{}) == "test" ? "machine.update.vorondeck_test"
-                                                      : "machine.update.vorondeck_release",
+        helix::json_util::safe_string(params, "kind") == "test"
+            ? "machine.update.vorondeck_test"
+            : "machine.update.vorondeck_release",
         params,
         [finish, token](const json& response) {
             token.defer("UpdatesSettings::install_response", [finish, response] {
@@ -638,14 +577,13 @@ void UpdatesSettingsOverlay::repair_update_manager() {
             auto token = object_lifetime_.token();
             worker.submit([this, token, client, printer, port] {
                 int code = -1;
-                try {
+                helix::contain_exceptions("VoronDeck update manager repair", [&] {
                     // Only a validated integer enters this constant local command.
                     helix::run_capture(
                         "python3 assets/updates/repair-vorondeck-updater.py --port " +
                             std::to_string(port) + " 2>/dev/null",
                         code);
-                } catch (const std::exception&) {
-                }
+                });
                 token.defer("UpdatesSettings::repair", [this, client, printer, code] {
                     vorondeck_install_busy_ = false;
                     if (client == get_moonraker_client() &&
@@ -780,6 +718,7 @@ void UpdatesSettingsOverlay::sync_update_channel_rows(lv_obj_t* root, int effect
         if (!row) {
             continue;
         }
+        // required-names: setting_dropdown_row
         lv_obj_t* dropdown = helix::ui::find_required(row, "dropdown", "UpdatesSettingsOverlay");
         if (!dropdown) {
             continue;

@@ -65,9 +65,9 @@
         <bind_tile_rung ladder="icon" subject="$tile_icon_subject"/>
         <bind_flag_if_eq subject="$icon_swap_subject" flag="hidden" ref_value="1"/>
       </icon>
-      <text_tiny text="$label" width="$label_width" long_mode="$label_long_mode"
-                 translation_tag="$label_tag" style_text_color="#text_muted" style_text_align="center" clickable="false"
-                 event_bubble="true">
+      <text_tiny width="$label_width"
+                 text="$label" long_mode="$label_long_mode" translation_tag="$label_tag" style_text_color="#text_muted"
+                 style_text_align="center" clickable="false" event_bubble="true">
         <bind_flag_if cond="$label_hidden_cond" flag="hidden"/>
         <bind_tile_rung ladder="label" subject="$tile_icon_subject"/>
         <bind_flag_if_eq subject="$tile_label_subject" flag="hidden" ref_value="0"/>

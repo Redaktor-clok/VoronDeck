@@ -86,8 +86,8 @@
       <!-- While the last print may still be on the bed (bed_occupied), plate
            moves lift above it. The user taps this once the part is removed. -->
       <ui_button name="bed_map_cleared"
-                 width="content" height="#button_height_sm" style_pad_ver="#space_xxs" text="Cleared" icon="check" variant="outline"
-                 align="top_right">
+                 width="content" height="#button_height_sm" style_pad_ver="#space_xxs" text="Cleared" icon="check"
+                 variant="outline" align="top_right">
         <bind_flag_if_not_eq subject="bed_occupied" flag="hidden" ref_value="1"/>
         <event_cb trigger="clicked" callback="on_motion_bed_cleared"/>
       </ui_button>

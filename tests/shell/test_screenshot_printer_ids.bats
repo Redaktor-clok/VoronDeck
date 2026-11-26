@@ -10,10 +10,12 @@ table_ids() {
     sed -n 's/^ *{"\([a-z0-9_]*\)", PrinterType::.*/\1/p' "$WORKTREE_ROOT/include/mock_persona.h"
 }
 
-@test "the persona table yields at least twelve ids" {
+@test "the persona table contains supported open printer projects" {
     run table_ids
     [ "$status" -eq 0 ]
-    [ "$(printf '%s\n' "$output" | wc -l)" -ge 12 ]
+    [ -n "$output" ]
+    [[ "$output" == *"voron"* ]] || { echo "Voron persona missing"; false; }
+    [[ "$output" == *"generic_corexy"* ]]
 }
 
 @test "screenshot.sh --help lists every persona id" {

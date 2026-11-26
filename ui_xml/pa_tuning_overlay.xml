@@ -14,8 +14,9 @@
     <style name="pa_setup_column_inline" width="0" height="100%" flex_grow="1"/>
     <style name="pa_setup_column_stacked" width="100%" height="content" flex_grow="0"/>
   </styles>
-  <view name="pa_tuning_overlay" extends="overlay_panel" title="Pressure Advance Tuning"
-        title_font="#font_body" title_long_mode="wrap" title_max_lines="2">
+  <view name="pa_tuning_overlay"
+        extends="overlay_panel" title="Pressure Advance Tuning" title_font="#font_body" title_long_mode="wrap"
+        title_max_lines="2">
     <lv_obj name="overlay_content"
             width="100%" flex_grow="1" style_pad_left="#space_lg" style_pad_right="#space_lg"
             style_pad_bottom="#space_md" style_pad_top="0" flex_flow="column" style_pad_gap="#space_sm"
@@ -25,15 +26,13 @@
       <!-- ============================================================ -->
       <!-- SETUP                                                        -->
       <!-- ============================================================ -->
-      <lv_obj name="pa_setup"
-              width="100%" flex_grow="1" style_pad_all="0" style_pad_gap="#space_md">
+      <lv_obj name="pa_setup" width="100%" flex_grow="1" style_pad_all="0" style_pad_gap="#space_md">
         <bind_style_if_eq name="pa_setup_inline" subject="ui_is_portrait" ref_value="0"/>
         <bind_style_if_eq name="pa_setup_stacked" subject="ui_is_portrait" ref_value="1"/>
         <bind_flag_if_eq subject="ui_is_portrait" flag="scrollable" ref_value="1"/>
         <bind_flag_if_not_eq subject="pa_tune_stage" flag="hidden" ref_value="0"/>
 
-        <lv_obj name="pa_setup_left"
-                style_pad_all="0" flex_flow="column" style_pad_gap="#space_xs">
+        <lv_obj name="pa_setup_left" style_pad_all="0" flex_flow="column" style_pad_gap="#space_xs">
           <bind_style_if_eq name="pa_setup_column_inline" subject="ui_is_portrait" ref_value="0"/>
           <bind_style_if_eq name="pa_setup_column_stacked" subject="ui_is_portrait" ref_value="1"/>
           <bind_flag_if_eq subject="ui_is_portrait" flag="scrollable" ref_value="0"/>
@@ -89,8 +88,7 @@
           </lv_obj>
         </lv_obj>
 
-        <lv_obj name="pa_setup_right"
-                style_pad_all="0" flex_flow="column" style_pad_gap="#space_xs">
+        <lv_obj name="pa_setup_right" style_pad_all="0" flex_flow="column" style_pad_gap="#space_xs">
           <bind_style_if_eq name="pa_setup_column_inline" subject="ui_is_portrait" ref_value="0"/>
           <bind_style_if_eq name="pa_setup_column_stacked" subject="ui_is_portrait" ref_value="1"/>
           <bind_flag_if_eq subject="ui_is_portrait" flag="scrollable" ref_value="0"/>
@@ -101,7 +99,8 @@
             <ui_button name="pa_start_k_down" width="#button_height_sm" height="#button_height_sm" text="-">
               <event_cb trigger="clicked" callback="on_pa_tune_start_k" user_data="-1"/>
             </ui_button>
-            <text_heading name="pa_start_k" width="0" flex_grow="1" bind_text="pa_tune_start_k" style_text_align="center"/>
+            <text_heading name="pa_start_k"
+                          width="0" flex_grow="1" bind_text="pa_tune_start_k" style_text_align="center"/>
             <ui_button name="pa_start_k_up" width="#button_height_sm" height="#button_height_sm" text="+">
               <event_cb trigger="clicked" callback="on_pa_tune_start_k" user_data="1"/>
             </ui_button>

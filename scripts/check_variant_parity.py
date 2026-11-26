@@ -68,6 +68,22 @@ NON_SUBJECT_BIND_ATTRS = {"bind_style"}
 # bindings; that is the mechanism working. A variant that drops a binding whose
 # widget it still renders is a bug and does not belong here.
 ALLOWED_OMISSIONS: dict[str, dict[str, dict[str, str]]] = {
+    "ui_xml/micro/material_temps_overlay.xml": {
+        "subject": {"ui_is_portrait": "The fixed 480x272 two-column grid has no orientation switch."},
+    },
+    "ui_xml/micro_portrait/material_temps_overlay.xml": {
+        "subject": {"ui_is_portrait": "The fixed 272x480 two-column grid has no orientation switch."},
+    },
+    "ui_xml/micro/theme_preview_overlay.xml": {
+        "widget name": {
+            "preview_actions_slot": "Micro lays the card directly in its fixed landscape row; no C++ lookup uses this wrapper.",
+            "preview_typography_slot": "As preview_actions_slot: the responsive wrapper is absent, the card remains.",
+        },
+        "condition": {
+            "bind_style_if@cond": "Micro keeps a fixed landscape preview row instead of switching portrait styles.",
+            "view@action_button_2_label_hidden_cond": "The landscape micro header keeps the Edit label visible.",
+        },
+    },
     "ui_xml/micro/controls_panel.xml": {
         "widget name": {
             "nozzle_status": "480x272 omits the Heating/Idle/Off word; temp_display still binds "
@@ -102,7 +118,13 @@ ALLOWED_OMISSIONS: dict[str, dict[str, dict[str, str]]] = {
 CONDITION_ALLOWANCE_SCOPE: dict[str, dict[str, re.Pattern]] = {
     "ui_xml/micro/controls_panel.xml": {
         "calib_tile@disabled_cond": re.compile(r"^controls_operation_in_progress eq 1$"),
-        "bind_style_if@cond": re.compile(r"^ui_breakpoint (ge 2 and|le 1 or) ui_is_portrait eq [01]$"),
+        "bind_style_if@cond": re.compile(
+            r"^(ui_breakpoint (ge 2 or|le 1 and) ui_is_portrait eq [01]|"
+            r"ui_is_portrait eq (0 or ui_breakpoint ge 5|1 and ui_breakpoint lt 5))$"),
+    },
+    "ui_xml/micro/theme_preview_overlay.xml": {
+        "bind_style_if@cond": re.compile(r"^ui_is_portrait$"),
+        "view@action_button_2_label_hidden_cond": re.compile(r"^ui_is_portrait$"),
     },
 }
 
@@ -241,8 +263,8 @@ def main() -> int:
         base = collect(base_file)
         var = collect(variant_file)
 
-        base_rel = str(base_file.relative_to(repo_root))
-        variant_rel = str(variant_file.relative_to(repo_root))
+        base_rel = base_file.relative_to(repo_root).as_posix()
+        variant_rel = variant_file.relative_to(repo_root).as_posix()
 
         bad = False
         bad |= report("widget name", base_rel, variant_rel, base.names, var.names)

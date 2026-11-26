@@ -81,20 +81,24 @@
                               label="Timelapse" icon="camera_timer" description="Configure timelapse recording"
                               callback="on_timelapse_settings_clicked"/>
         </lv_obj>
-        <lv_obj name="container_macro_recovery" width="100%" height="content" flex_flow="column" style_pad_all="0" style_pad_gap="0" scrollable="false">
+        <lv_obj name="container_macro_recovery"
+                width="100%" height="content" flex_flow="column" style_pad_all="0" style_pad_gap="0" scrollable="false">
           <bind_flag_if_eq subject="printer_has_recovery_macros" flag="hidden" ref_value="0"/>
-          <setting_toggle_row name="row_macro_recovery" label="Power-loss recovery" icon="power_plug"
+          <setting_toggle_row name="row_macro_recovery"
+                              label="Power-loss recovery" icon="power_plug"
                               description="Save recovery checkpoints at layer changes. Turning this off discards the saved checkpoint."
                               subject="macro_recovery_enabled" disabled="macro_recovery_disabled"
                               callback="on_macro_recovery_changed"/>
-          <text_small name="macro_recovery_status" width="100%" height="content" long_mode="wrap"
-                      style_pad_left="#space_lg" style_pad_right="#space_lg" bind_text="macro_recovery_status"/>
-          <setting_action_row name="row_recovery_check" label="Check recovery updates" icon="refresh"
-                              callback="on_recovery_check_updates"/>
-          <setting_action_row name="row_recovery_components" label="Component updates" icon="download"
-                              callback="on_recovery_component_updates"/>
+          <text_small name="macro_recovery_status"
+                      width="100%" height="content" long_mode="wrap" style_pad_left="#space_lg"
+                      style_pad_right="#space_lg" bind_text="macro_recovery_status"/>
+          <setting_action_row name="row_recovery_check"
+                              label="Check recovery updates" icon="refresh" callback="on_recovery_check_updates"/>
+          <setting_action_row name="row_recovery_components"
+                              label="Component updates" icon="download" callback="on_recovery_component_updates"/>
         </lv_obj>
-        <setting_action_row name="row_recovery_missing" label="Power-loss recovery" icon="power_plug"
+        <setting_action_row name="row_recovery_missing"
+                            label="Power-loss recovery" icon="power_plug"
                             description="Recovery macros are not detected. Check the printer connection and recovery configuration."
                             description_min_bp="0" chevron="false" clickable="false">
           <bind_flag_if cond="printer_has_recovery_macros eq 0 and plr_feature_state eq 0" flag="hidden" invert="true"/>
@@ -102,12 +106,12 @@
         <!-- POWER-LOSS RECOVERY: the plugin's plr feature, which owns its switch -->
         <lv_obj name="container_plugin_recovery" width="100%" height="content" style_pad_all="0" scrollable="false">
           <bind_flag_if cond="printer_has_recovery_macros eq 0 and plr_feature_state gt 0" flag="hidden" invert="true"/>
-        <plugin_feature_toggle_row name="row_power_loss_recovery"
-                                   feature="plr" label="Power-loss recovery" icon="power_plug"
-                                   install_hint="Requires the VoronDeck recovery plugin"
-                                   update_hint="Update the VoronDeck recovery plugin"
-                                   description="Saves the print position about once a second so a print can resume after a power cut. On an SD card this adds wear."
-                                   subject="plr_saving_enabled" callback="on_power_loss_recovery_changed"/>
+          <plugin_feature_toggle_row name="row_power_loss_recovery"
+                                     feature="plr" label="Power-loss recovery" icon="power_plug"
+                                     install_hint="Requires the VoronDeck recovery plugin"
+                                     update_hint="Update the VoronDeck recovery plugin"
+                                     description="Saves the print position about once a second so a print can resume after a power cut. On an SD card this adds wear."
+                                     subject="plr_saving_enabled" callback="on_power_loss_recovery_changed"/>
         </lv_obj>
         <!-- RESUME MESH CARRY-OVER: the plugin's plr feature, at the version that
              carries server.helix.plr.mesh_include. Which row shows follows the
@@ -133,7 +137,8 @@
                             label="Apply start options to prints from other apps" icon="play_circle"
                             description="Sends your standing print options, such as unload at end, when a print starts from another app or the job queue."
                             subject="plugin_feature_on_print_hooks" callback="on_plugin_feature_switch_changed">
-          <bind_flag_if cond="plugin_feature_mode_print_hooks eq 0 or plugin_feature_mode_print_hooks eq 2 or plugin_feature_mode_print_hooks eq 3" flag="hidden"/>
+          <bind_flag_if cond="plugin_feature_mode_print_hooks eq 0 or plugin_feature_mode_print_hooks eq 2 or plugin_feature_mode_print_hooks eq 3"
+                        flag="hidden"/>
         </setting_toggle_row>
         <setting_action_row name="row_macro_buttons"
                             label="Macro Buttons" icon="script_text"

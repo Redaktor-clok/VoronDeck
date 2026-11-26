@@ -581,3 +581,16 @@ TEST_CASE("safe_* on a non-object returns the default", "[json_utils]") {
     CHECK(ju::safe_string(json("text"), "k", "d") == "d");
     CHECK(ju::safe_double(json(nullptr), "k", 1.5) == 1.5);
 }
+
+TEST_CASE("safe_object rejects malformed containers without mutating input", "[json_utils]") {
+    for (const auto& value :
+         {json(nullptr), json(42), json("bad"), json::array(), json::object()}) {
+        CHECK(ju::safe_object(value, "child") == json::object());
+        CHECK(ju::safe_object(json{{"child", value}}, "child") == json::object());
+    }
+    const json source = {{"child", {{"ok", true}}}};
+    auto child = ju::safe_object(source, "child");
+    REQUIRE(child == source["child"]);
+    child["ok"] = false;
+    CHECK(source["child"]["ok"] == true);
+}

@@ -33,31 +33,31 @@
       <lv_obj width="100%"
               height="content" style_pad_all="0" style_pad_bottom="#space_md" flex_flow="row" style_pad_gap="#space_xs"
               scrollable="false">
-        <ui_button name="filter_day" text="Day" width="0" flex_grow="1">
+        <ui_button name="filter_day" width="0" text="Day" flex_grow="1">
           <bind_style_if_eq name="filter_compact" subject="ui_is_portrait" ref_value="1"/>
           <bind_style name="filter_btn_selected" subject="history_filter_day_active" ref_value="1"/>
           <bind_style name="filter_btn_unselected" subject="history_filter_day_active" ref_value="0"/>
           <event_cb trigger="clicked" callback="history_filter_day_clicked"/>
         </ui_button>
-        <ui_button name="filter_week" text="Week" width="0" flex_grow="1">
+        <ui_button name="filter_week" width="0" text="Week" flex_grow="1">
           <bind_style_if_eq name="filter_compact" subject="ui_is_portrait" ref_value="1"/>
           <bind_style name="filter_btn_selected" subject="history_filter_week_active" ref_value="1"/>
           <bind_style name="filter_btn_unselected" subject="history_filter_week_active" ref_value="0"/>
           <event_cb trigger="clicked" callback="history_filter_week_clicked"/>
         </ui_button>
-        <ui_button name="filter_month" text="Month" width="0" flex_grow="1">
+        <ui_button name="filter_month" width="0" text="Month" flex_grow="1">
           <bind_style_if_eq name="filter_compact" subject="ui_is_portrait" ref_value="1"/>
           <bind_style name="filter_btn_selected" subject="history_filter_month_active" ref_value="1"/>
           <bind_style name="filter_btn_unselected" subject="history_filter_month_active" ref_value="0"/>
           <event_cb trigger="clicked" callback="history_filter_month_clicked"/>
         </ui_button>
-        <ui_button name="filter_year" text="Year" width="0" flex_grow="1">
+        <ui_button name="filter_year" width="0" text="Year" flex_grow="1">
           <bind_style_if_eq name="filter_compact" subject="ui_is_portrait" ref_value="1"/>
           <bind_style name="filter_btn_selected" subject="history_filter_year_active" ref_value="1"/>
           <bind_style name="filter_btn_unselected" subject="history_filter_year_active" ref_value="0"/>
           <event_cb trigger="clicked" callback="history_filter_year_clicked"/>
         </ui_button>
-        <ui_button name="filter_all" text="All" width="0" flex_grow="1">
+        <ui_button name="filter_all" width="0" text="All" flex_grow="1">
           <bind_style_if_eq name="filter_compact" subject="ui_is_portrait" ref_value="1"/>
           <bind_style name="filter_btn_selected" subject="history_filter_all_active" ref_value="1"/>
           <bind_style name="filter_btn_unselected" subject="history_filter_all_active" ref_value="0"/>
@@ -73,9 +73,9 @@
         <bind_flag_if_eq subject="history_has_jobs" flag="hidden" ref_value="0"/>
         <!-- Left: Stats Grid (2x2) -->
         <lv_obj name="stats_grid"
-                height="content" style_pad_all="0" flex_flow="row_wrap"
-                style_flex_main_place="space_between" style_flex_cross_place="start" style_flex_track_place="start"
-                style_pad_gap="#space_xs" scrollable="false">
+                height="content" style_pad_all="0" flex_flow="row_wrap" style_flex_main_place="space_between"
+                style_flex_cross_place="start" style_flex_track_place="start" style_pad_gap="#space_xs"
+                scrollable="false">
           <bind_style_if_eq name="stats_inline" subject="ui_is_portrait" ref_value="0"/>
           <bind_style_if_eq name="summary_full" subject="ui_is_portrait" ref_value="1"/>
           <!-- Row 1: Total Prints, Success Rate -->
@@ -89,7 +89,9 @@
                    width="48%" height="content" style_radius="#border_radius" style_pad_all="#space_xs"
                    flex_flow="column" style_flex_cross_place="start">
             <text_small width="100%" long_mode="wrap" text="Success Rate"/>
-            <text_heading name="stat_success_rate" width="100%" long_mode="wrap" text="0%" style_text_color="#success" bind_text="stat_success_rate"/>
+            <text_heading name="stat_success_rate"
+                          width="100%" long_mode="wrap" text="0%" style_text_color="#success"
+                          bind_text="stat_success_rate"/>
           </ui_card>
           <!-- Row 2: Print Time, Filament Used -->
           <ui_card name="card_print_time"
@@ -110,15 +112,15 @@
           <bind_style_if_eq name="chart_inline" subject="ui_is_portrait" ref_value="0"/>
           <bind_style_if_eq name="summary_full" subject="ui_is_portrait" ref_value="1"/>
           <ui_card name="card_filament_chart"
-                 width="100%" height="content" style_radius="#border_radius" style_pad_all="#space_sm"
-                 flex_flow="column" style_pad_gap="#space_xs">
-          <text_xs width="100%" long_mode="wrap" text="Filament by Type"/>
-          <!-- Chart container for horizontal bars -->
-          <lv_obj name="filament_chart_container"
-                  width="100%" height="content" style_min_height="80" style_pad_all="0" flex_flow="column"
-                  style_pad_gap="#space_xxs" scrollable="false">
-            <!-- Filament rows will be populated by C++ - each row has label + bar -->
-          </lv_obj>
+                   width="100%" height="content" style_radius="#border_radius" style_pad_all="#space_sm"
+                   flex_flow="column" style_pad_gap="#space_xs">
+            <text_xs width="100%" long_mode="wrap" text="Filament by Type"/>
+            <!-- Chart container for horizontal bars -->
+            <lv_obj name="filament_chart_container"
+                    width="100%" height="content" style_min_height="80" style_pad_all="0" flex_flow="column"
+                    style_pad_gap="#space_xxs" scrollable="false">
+              <!-- Filament rows will be populated by C++ - each row has label + bar -->
+            </lv_obj>
           </ui_card>
         </lv_obj>
       </lv_obj>

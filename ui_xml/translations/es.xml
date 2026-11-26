@@ -161,6 +161,7 @@
   <translation tag="A macro that wipes the nozzle. VoronDeck can run it before a print from the pre-print options." es="Una macro que limpia la boquilla. VoronDeck puede ejecutarla antes de imprimir desde las opciones previas a la impresión."/>
   <translation tag="A motor IO pin couldn&apos;t be restored. Power-cycle the printer to recover" es="No se pudo restaurar un pin de E/S del motor. Apague y encienda la impresora para recuperarla"/>
   <translation tag="A motor&apos;s parameters couldn&apos;t be written. Power-cycle the printer to retry" es="No se pudieron escribir los parámetros de un motor. Apague y encienda la impresora para reintentar"/>
+  <translation tag="A new VoronDeck package is available"/>
   <translation tag="A newer version of the helper macros is available" es="Hay una versión más reciente de las macros de ayuda disponible"/>
   <translation tag="A picture of your printer" es="Una imagen de tu impresora"/>
   <translation tag="A print is already running." es="Ya hay una impresión en curso."/>
@@ -169,6 +170,7 @@
   <translation tag="A print is running. Apply the result after it ends." es="Hay una impresión en curso. Aplica el resultado cuando termine."/>
   <translation tag="A print started" es="Se inició una impresión"/>
   <translation tag="A print started while spools are marked as on the bed. If they are still there, stop the printer now with the E-stop." es="Se inició una impresión con bobinas marcadas como en la cama. Si siguen ahí, detén la impresora ahora con la Parada de Emergencia."/>
+  <translation tag="A profile with this name already exists"/>
   <translation tag="A restart is already in progress" es="Ya hay un reinicio en curso"/>
   <translation tag="A right, B left" es="A derecha, B izquierda"/>
   <translation tag="A sensor that measures the distance to the bed. VoronDeck uses it for Z offset calibration and probe tests on the Probe screen." es="Un sensor que mide la distancia a la cama. VoronDeck lo usa para calibrar el Z Offset y para las pruebas de sonda en la pantalla Sonda."/>
@@ -210,6 +212,7 @@
   <translation tag="AUTO STATE" es="ESTADO AUTO"/>
   <translation tag="AUTOMATION" es="AUTOMATIZACIÓN"/>
   <translation tag="Abort" es="Abortar"/>
+  <translation tag="Abort adjustment"/>
   <translation tag="Abort already in progress" es="Cancelación ya en curso"/>
   <translation tag="Abort failed" es="Error al cancelar"/>
   <translation tag="Aborting AFC operation..." es="Cancelando operación AFC..."/>
@@ -222,6 +225,7 @@
   <translation tag="Accelerometer communication failed. Try again." es="Error de comunicación con el acelerómetro. Intente de nuevo."/>
   <translation tag="Accelerometers" es="Acelerómetros"/>
   <translation tag="Accept" es="Aceptar"/>
+  <translation tag="Accept — next screw"/>
   <translation tag="Accepted Z Position: 0.000" es="Posición Z aceptada: 0.000"/>
   <translation tag="Accepted Z Position: {:.3f}" es="Posición Z aceptada: {:.3f}"/>
   <translation tag="Accessories" es="Accesorios"/>
@@ -237,6 +241,7 @@
   <translation tag="Add Filament" es="Agregar Filamento"/>
   <translation tag="Add Hidden Network" es="Agregar Red Oculta"/>
   <translation tag="Add Printer" es="Agregar Impresora"/>
+  <translation tag="Add Profile"/>
   <translation tag="Add Vendor" es="Agregar Proveedor"/>
   <translation tag="Add Widget" es="Agregar widget"/>
   <translation tag="Add [include helix-plr/*.cfg] to printer.cfg, so a resume reloads the mesh the print started with" es="Agrega [include helix-plr/*.cfg] a printer.cfg para que una reanudación vuelva a cargar la malla con la que empezó la impresión"/>
@@ -253,9 +258,12 @@
   <translation tag="Adding to queue..." es="Añadiendo a la cola..."/>
   <translation tag="Address" es="Dirección"/>
   <translation tag="Adds to:" es="Añade a:"/>
+  <translation tag="Adjust bed screws manually with paper"/>
   <translation tag="Adjust screen brightness level" es="Ajustar el nivel de brillo de la pantalla"/>
   <translation tag="Adjust screws, then re-probe." es="Ajuste los tornillos, luego vuelva a sondear."/>
+  <translation tag="Adjust the bed screws"/>
   <translation tag="Adjust the other belt" es="Ajustar la otra"/>
+  <translation tag="Adjusted — check again"/>
   <translation tag="Adjustments stay active until restart. Save after print completes." es="Los ajustes permanecen activos hasta reiniciar. Guarde después de que termine la impresión."/>
   <translation tag="Adjusts individual characteristics of your heaters for optimal control" es="Ajusta las características individuales de sus calentadores para un control óptimo"/>
   <translation tag="Advanced" es="Avanzado"/>
@@ -267,6 +275,7 @@
   <translation tag="Alerts and printer events" es="Alertas y eventos de la impresora"/>
   <translation tag="All" es="Todo"/>
   <translation tag="All Devices" es="Todos los Dispositivos"/>
+  <translation tag="All Fans"/>
   <translation tag="All Healthy" es="Todo en orden"/>
   <translation tag="All axes homed" es="Todos los ejes en origen"/>
   <translation tag="All configured hardware detected" es="Todo el hardware configurado detectado"/>
@@ -306,6 +315,7 @@
   <translation tag="Anonymous data to help improve HelixScreen" es="Datos anónimos para mejorar HelixScreen"/>
   <translation tag="Anonymous stats — no personal data, ever." es="Estadísticas anónimas — sin datos personales, nunca."/>
   <translation tag="Anonymous usage statistics" es="Estadísticas de uso anónimas"/>
+  <translation tag="Another component is being updated. Wait for it to finish, then try again." es="Se está actualizando otro componente. Espere a que termine e inténtelo de nuevo."/>
   <translation tag="Any notes..." es="Notas..."/>
   <translation tag="App Background" es="Fondo de la Aplicación"/>
   <translation tag="App startup encountered an error. Some features may be unavailable." es="El inicio de la aplicación encontró un error. Algunas funciones pueden no estar disponibles."/>
@@ -332,6 +342,7 @@
   <translation tag="At least {} lines in helixscreen.env were ignored" es="Al menos {} líneas de helixscreen.env fueron ignoradas"/>
   <translation tag="At target" es="En el objetivo"/>
   <translation tag="At {}°C, about {} minutes." es="A {}°C, unos {} minutos."/>
+  <translation tag="Authenticated update check failed"/>
   <translation tag="Authentication failed" es="Error de autenticación"/>
   <translation tag="Auto" es="Automático"/>
   <translation tag="Auto Bed Mesh" es="Malla de Cama Automática"/>
@@ -356,9 +367,11 @@
   <translation tag="Automatic storage cleanup" es="Limpieza automática del almacenamiento"/>
   <translation tag="Aux" es="Aux"/>
   <translation tag="Aux Fan" es="Ventilador Aux"/>
+  <translation tag="Auxiliary Fan"/>
   <translation tag="Available" es="Disponible"/>
   <translation tag="Available Networks" es="Redes Disponibles"/>
   <translation tag="Available networks" es="Redes disponibles"/>
+  <translation tag="Available while the printer is idle."/>
   <translation tag="Average" es="Promedio"/>
   <translation tag="Axis Rows" es="Filas por eje"/>
   <translation tag="Axis limits unknown" es="Límites del eje desconocidos"/>
@@ -430,6 +443,7 @@
   <translation tag="Belt Tension needs a CoreXY printer. This one is {}." es="La tensión de correa necesita una impresora CoreXY. Esta es {}."/>
   <translation tag="Belts already match" es="Las correas ya coinciden"/>
   <translation tag="Beta" es="Beta"/>
+  <translation tag="Beta access required"/>
   <translation tag="Beta features: OFF" es="Funciones Beta: OFF"/>
   <translation tag="Beta features: ON" es="Funciones Beta: ON"/>
   <translation tag="Black" es="Negro"/>
@@ -535,6 +549,7 @@
   <translation tag="Calibrate part fan" es="Calibrar ventilador de pieza"/>
   <translation tag="Calibrate tool offsets?" es="¿Calibrar los offsets de herramienta?"/>
   <translation tag="Calibrate your touchscreen for accurate input" es="Calibrar la pantalla táctil para una entrada precisa"/>
+  <translation tag="Calibrate {} at {}°C?"/>
   <translation tag="Calibrated" es="Calibrado"/>
   <translation tag="Calibrating Probe..." es="Calibrando sonda..."/>
   <translation tag="Calibrating bed mesh..." es="Calibrando malla de cama..."/>
@@ -651,11 +666,14 @@
   <translation tag="Check Klipper console for details" es="Consulte la consola de Klipper para más detalles"/>
   <translation tag="Check Slot" es="Comprobar ranura"/>
   <translation tag="Check Slots" es="Comprobar"/>
+  <translation tag="Check VoronDeck updates"/>
   <translation tag="Check every dock" es="Comprobar cada base"/>
   <translation tag="Check extruder temperature and try again. Manual removal may be required." es="Compruebe la temperatura del extrusor e inténtelo de nuevo. Es posible que deba retirarse manualmente."/>
   <translation tag="Check failed" es="Error al verificar"/>
   <translation tag="Check filament" es="Comprobar filamento"/>
   <translation tag="Check for Updates" es="Buscar actualizaciones"/>
+  <translation tag="Check for updates"/>
+  <translation tag="Check recovery updates"/>
   <translation tag="Check slot failed" es="Error al comprobar ranura"/>
   <translation tag="Check slots failed" es="Error al comprobar ranuras"/>
   <translation tag="Check that only one filament path is active" es="Compruebe que solo haya una ruta de filamento activa"/>
@@ -666,6 +684,7 @@
   <translation tag="Check the buffer unit on the back of the printer" es="Compruebe la unidad de búfer en la parte trasera de la impresora"/>
   <translation tag="Check the chips, then save" es="Revise las etiquetas y guarde"/>
   <translation tag="Check the filament path and try again." es="Verifique la ruta del filamento e intente de nuevo."/>
+  <translation tag="Check the nozzle gap with paper. Accept if no adjustment was needed; choose Adjusted after turning the screw. Klipper controls the order and repeats."/>
   <translation tag="Check the path from the slot to the hub for a tangle or drag. If the slot feeds freely, the hub sensor or the feeder motor may have failed" es="Revise la ruta de la ranura al concentrador por si hay enredos o rozamiento. Si la ranura alimenta con libertad, puede que el sensor del concentrador o el motor de alimentación hayan fallado"/>
   <translation tag="Check the provided value and try again" es="Compruebe el valor introducido e inténtelo de nuevo"/>
   <translation tag="Check the spool and the filament path for a jam, then retry" es="Compruebe la bobina y la ruta del filamento por si hay atascos y reintente"/>
@@ -673,6 +692,7 @@
   <translation tag="Checking" es="Comprobando"/>
   <translation tag="Checking Bed Mesh..." es="Comprobando Malla de Cama..."/>
   <translation tag="Checking Spoolman server..." es="Verificando servidor Spoolman..."/>
+  <translation tag="Checking VoronDeck updates..."/>
   <translation tag="Checking accelerometer..." es="Verificando acelerómetro..."/>
   <translation tag="Checking extruders..." es="Comprobando extrusores..."/>
   <translation tag="Checking filament..." es="Comprobando filamento..."/>
@@ -683,17 +703,24 @@
   <translation tag="Checking slots..." es="Verificando ranuras..."/>
   <translation tag="Checking the PEI sheet is off..." es="Comprobando que la lámina PEI está retirada..."/>
   <translation tag="Checking the printer..." es="Comprobando la impresora..."/>
+  <translation tag="Checking the update manager..." es="Comprobando el gestor de actualizaciones…"/>
   <translation tag="Checking timelapse plugin..." es="Verificando plugin de timelapse..."/>
   <translation tag="Checking webcam" es="Comprobando webcam"/>
   <translation tag="Checking..." es="Comprobando..."/>
   <translation tag="Checking…" es="Comprobando…"/>
+  <translation tag="Checks"/>
+  <translation tag="Checks and Calibration"/>
+  <translation tag="Checks the screen installed on this device. Does not install updates automatically."/>
   <translation tag="Choose 12-hour or 24-hour time display" es="Elija visualización de hora de 12 o 24 horas"/>
   <translation tag="Choose Filament" es="Elegir Filamento"/>
   <translation tag="Choose Layer" es="Elegir capa"/>
   <translation tag="Choose Model" es="Elegir Modelo"/>
   <translation tag="Choose a discovered printer" es="Elige una impresora encontrada"/>
   <translation tag="Choose an existing filament, or tap + New to create one." es="Elige un filamento o toca + Nuevo para crear uno."/>
+  <translation tag="Choose an image and theme for your screen"/>
+  <translation tag="Choose and control discovered heaters"/>
   <translation tag="Choose display language" es="Elija el idioma de visualización"/>
+  <translation tag="Choose displayed fans"/>
   <translation tag="Choose head" es="Elegir cabezal"/>
   <translation tag="Choose how frames are captured during printing" es="Elija cómo se capturan los cuadros durante la impresión"/>
   <translation tag="Choose rendering mode for G-code visualization" es="Elija el modo de renderizado para la visualización de G-code"/>
@@ -720,6 +747,8 @@
   <translation tag="Clear every Endless Spool backup" es="Borrar todas las reservas de la bobina infinita"/>
   <translation tag="Clear extruder only" es="Solo vaciar el extrusor"/>
   <translation tag="Clear failed" es="Error al limpiar"/>
+  <translation tag="Clear print history"/>
+  <translation tag="Clear print history?"/>
   <translation tag="Clear the area above and below the plate. Lay the spools on the plate, cover them with a box (a printed lid or the filament&apos;s packaging) and close the door." es="Despeja la zona por encima y por debajo de la cama. Coloca las bobinas sobre la cama, cúbrelas con una caja (una tapa impresa o el embalaje del filamento) y cierra la puerta."/>
   <translation tag="Clear the extruder?" es="¿Vaciar el extrusor?"/>
   <translation tag="Clear the plate and load {}. The tower prints in the middle of the bed." es="Despeja la cama y carga {}. La torre se imprime en el centro de la cama."/>
@@ -753,6 +782,7 @@
   <translation tag="Command failed" es="El comando falló"/>
   <translation tag="Communication Test" es="Prueba de comunicación"/>
   <translation tag="Compact" es="Compacto"/>
+  <translation tag="Compact passive temperature readings"/>
   <translation tag="Compare belt paths with a resonance sweep" es="Compara las rutas de correa con un barrido de resonancia"/>
   <translation tag="Compare your belt paths" es="Compara las rutas de tus correas"/>
   <translation tag="Compares the two belt paths of a CoreXY printer with the accelerometer, so you can even out their tension. Run it on the Belt Tension screen." es="Compara los dos recorridos de correa de una impresora CoreXY con el acelerómetro, para igualar su tensión. Ejecútalo en la pantalla Tensión de correa."/>
@@ -768,6 +798,9 @@
   <translation tag="Completed {}h ago" es="Completado hace {} h"/>
   <translation tag="Completed {}m ago" es="Completado hace {} min"/>
   <translation tag="Completed: {}" es="Completado: {}"/>
+  <translation tag="Component needs attention"/>
+  <translation tag="Component updates"/>
+  <translation tag="Components from Moonraker"/>
   <translation tag="Computing calibration..." es="Calculando calibración..."/>
   <translation tag="Config Dir" es="Directorio de Configuración"/>
   <translation tag="Config Edit Failed" es="Error al editar la configuración"/>
@@ -781,6 +814,7 @@
   <translation tag="Configure Fan Widget" es="Configurar Widget de Ventilador"/>
   <translation tag="Configure G10/G11 firmware retraction" es="Configurar retracción de firmware G10/G11"/>
   <translation tag="Configure Graph" es="Configurar Gráfico"/>
+  <translation tag="Configure Heaters"/>
   <translation tag="Configure Moonraker" es="Configurar Moonraker"/>
   <translation tag="Configure Spoolman integration and weight sync settings." es="Configurar integración de Spoolman y ajustes de sincronización de peso."/>
   <translation tag="Configure WiFi for this device, or skip if you&apos;re using Ethernet" es="Configura WiFi para este dispositivo, u omite si usas Ethernet"/>
@@ -816,7 +850,7 @@
   <translation tag="Connected Time" es="Tiempo conectado"/>
   <translation tag="Connected to" es="Conectado a"/>
   <translation tag="Connected to " es="Conectado a "/>
-  <translation tag="Connected to Moonraker, but Klipper is not running. You can continue — HelixScreen will show the Klipper error, and hardware detection stays limited until Klipper starts." es="Conectado a Moonraker, pero Klipper no está en ejecución. Puede continuar — VoronDeck mostrará el error de Klipper y la detección de hardware será limitada hasta que Klipper arranque."/>
+  <translation tag="Connected to Moonraker, but Klipper is not running. You can continue — VoronDeck will show the Klipper error, and hardware detection stays limited until Klipper starts." es="Conectado a Moonraker, pero Klipper no está en ejecución. Puede continuar — VoronDeck mostrará el error de Klipper y la detección de hardware será limitada hasta que Klipper arranque."/>
   <translation tag="Connected to Moonraker, but printer discovery did not finish. You can continue — hardware detection stays limited until the printer responds." es="Conectado a Moonraker, pero la detección de la impresora no terminó. Puede continuar — la detección de hardware será limitada hasta que la impresora responda."/>
   <translation tag="Connected to {}" es="Conectado a {}"/>
   <translation tag="Connected! Discovering printer..." es="¡Conectado! Descubriendo impresora..."/>
@@ -842,6 +876,7 @@
   <translation tag="Connection restored" es="Conexión restablecida"/>
   <translation tag="Connection successful!" es="¡Conexión exitosa!"/>
   <translation tag="Connection timeout" es="Tiempo de conexión agotado"/>
+  <translation tag="Connection to Moonraker was lost or timed out. The update may still be running. Check component versions before retrying." es="Se perdió la conexión con Moonraker o se agotó el tiempo de espera. La actualización podría seguir en curso. Compruebe las versiones de los componentes antes de reintentar."/>
   <translation tag="Connection to printer lost - attempting to reconnect..." es="Conexión con la impresora perdida - intentando reconectar..."/>
   <translation tag="Connection to printer lost — operation may still be running" es="Conexión con la impresora perdida — la operación puede seguir en curso"/>
   <translation tag="Connection to printer lost." es="Conexión con la impresora perdida."/>
@@ -892,6 +927,7 @@
   <translation tag="Could not forget device" es="No se pudo olvidar el dispositivo"/>
   <translation tag="Could not free space" es="No se pudo liberar espacio"/>
   <translation tag="Could not initialize WiFi hardware. Check system configuration." es="No se pudo inicializar el hardware WiFi. Comprueba la configuración del sistema."/>
+  <translation tag="Could not load image"/>
   <translation tag="Could not load printer database" es="No se pudo cargar la base de datos de impresoras"/>
   <translation tag="Could not move the plate" es="No se pudo mover la cama"/>
   <translation tag="Could not open a browser for the update" es="No se pudo abrir un navegador para la actualización"/>
@@ -899,10 +935,12 @@
   <translation tag="Could not reach Spoolman at" es="No se pudo conectar a Spoolman en"/>
   <translation tag="Could not read the printer&apos;s storage" es="No se pudo leer el almacenamiento de la impresora"/>
   <translation tag="Could not read the screw adjustments from the printer" es="No se pudieron leer los ajustes de los tornillos desde la impresora"/>
+  <translation tag="Could not remove Spoolman: its configuration is not writable from VoronDeck. Remove the [spoolman] section by hand — see the log for details."/>
   <translation tag="Could not remove the job from the queue" es="No se pudo eliminar el trabajo de la cola"/>
   <translation tag="Could not reset the printer image tags" es="Error al restablecer las marcas de la imagen"/>
   <translation tag="Could not resolve printer RFCOMM channel" es="No se pudo resolver el canal RFCOMM de la impresora"/>
   <translation tag="Could not save filament" es="No se pudo guardar el filamento"/>
+  <translation tag="Could not save profile"/>
   <translation tag="Could not save the drying state" es="No se pudo guardar el estado del secado"/>
   <translation tag="Could not save the drying state: nothing was heated" es="No se pudo guardar el estado del secado: no se calentó nada"/>
   <translation tag="Could not save the mesh as &apos;{}&apos;: {}" es="No se pudo guardar la malla como &apos;{}&apos;: {}"/>
@@ -992,11 +1030,13 @@
   <translation tag="Defaults restored" es="Valores predeterminados restaurados"/>
   <translation tag="Define macros in your printer.cfg" es="Defina macros en su printer.cfg"/>
   <translation tag="Delete" es="Eliminar"/>
+  <translation tag="Delete &apos;{}&apos;? This action cannot be undone."/>
   <translation tag="Delete File?" es="¿Eliminar Archivo?"/>
   <translation tag="Delete Print Record" es="Eliminar registro de impresión"/>
   <translation tag="Delete Profile?" es="¿Eliminar Perfil?"/>
   <translation tag="Delete Spool?" es="¿Eliminar bobina?"/>
   <translation tag="Delete Video" es="Eliminar vídeo"/>
+  <translation tag="Delete all print history entries. G-code files, accumulated totals and printer configuration are kept."/>
   <translation tag="Delete every modified print copy that is not in use? Files you uploaded are not touched." es="¿Eliminar todas las copias de impresión modificadas que no se estén usando? Los archivos que subiste no se tocan."/>
   <translation tag="Delete every print photo? Print history keeps its entries." es="¿Eliminar todas las fotos de impresión? El historial de impresión conserva sus entradas."/>
   <translation tag="Delete every timelapse video?" es="¿Eliminar todos los vídeos timelapse?"/>
@@ -1014,6 +1054,7 @@
   <translation tag="Details" es="Detalles"/>
   <translation tag="Detect automatically" es="Detectar automáticamente"/>
   <translation tag="Detect filament tangles" es="Detectar enredos de filamento"/>
+  <translation tag="Detected Devices"/>
   <translation tag="Detecting plate..." es="Detectando placa..."/>
   <translation tag="Detecting printer type..." es="Detectando tipo de impresora..."/>
   <translation tag="Detecting..." es="Detectando..."/>
@@ -1029,9 +1070,11 @@
   <translation tag="Device name is required" es="El nombre del dispositivo es requerido"/>
   <translation tag="Device: " es="Dispositivo: "/>
   <translation tag="Devices" es="Dispositivos"/>
+  <translation tag="Devices are unavailable until Moonraker discovery completes."/>
   <translation tag="Different filament?" es="¿Filamento diferente?"/>
   <translation tag="Digital Clock" es="Reloj digital"/>
   <translation tag="Direct drive" es="Directo"/>
+  <translation tag="Direct feed · no AMS"/>
   <translation tag="Disable" es="Desactivar"/>
   <translation tag="Disable Bypass" es="Desactivar Bypass"/>
   <translation tag="Disable Motors?" es="¿Desactivar Motores?"/>
@@ -1071,9 +1114,11 @@
   <translation tag="Door Open" es="Puerta abierta"/>
   <translation tag="Door opened during print: {}" es="Puerta abierta durante la impresión: {}"/>
   <translation tag="Door switches, buttons, and other on/off inputs" es="Interruptores de puerta, botones y otras entradas de encendido/apagado"/>
+  <translation tag="Doron Velta"/>
   <translation tag="Download update?" es="¿Descargar actualización?"/>
   <translation tag="Download v{}?" es="¿Descargar v{}?"/>
   <translation tag="Downloading and verifying VoronDeck. The screen will restart." es="Downloading and verifying VoronDeck. The screen will restart."/>
+  <translation tag="Downloading and verifying the package..." es="Descargando y verificando el paquete…"/>
   <translation tag="Downloading..." es="Descargando..."/>
   <translation tag="Downloading... {:.1f}/{:.1f} MB" es="Descargando... {:.1f}/{:.1f} MB"/>
   <translation tag="Draw a ripple at each touch — helps diagnose offsets" es="Dibuja una onda en cada toque — ayuda a diagnosticar desfases"/>
@@ -1181,6 +1226,7 @@
   <translation tag="Enter a multiplier between 0.5 and 2.0" es="Introduzca un multiplicador entre 0.5 y 2.0"/>
   <translation tag="Enter a name for this profile" es="Ingrese un nombre para este perfil"/>
   <translation tag="Enter a name for your custom theme:" es="Ingrese un nombre para su tema personalizado:"/>
+  <translation tag="Enter a printer name"/>
   <translation tag="Enter network name" es="Ingrese el nombre de la red"/>
   <translation tag="Enter password" es="Ingrese contraseña"/>
   <translation tag="Enter printer IP address first" es="Ingrese la dirección IP de la impresora primero"/>
@@ -1238,6 +1284,7 @@
   <translation tag="Execute printer macros" es="Ejecutar macros de impresora"/>
   <translation tag="Exhaust" es="Escape"/>
   <translation tag="Exhaust Fan" es="Ventilador de Escape"/>
+  <translation tag="Existing assignments are kept. Suggested devices are saved when you continue."/>
   <translation tag="Exit Code" es="Código de salida"/>
   <translation tag="Expected boolean" es="Se esperaba un valor booleano"/>
   <translation tag="Expected float" es="Se esperaba un número decimal"/>
@@ -1272,8 +1319,10 @@
   <translation tag="Extruding prime line..." es="Extruyendo línea de cebado..."/>
   <translation tag="Extruding..." es="Extruyendo..."/>
   <translation tag="FAILED" es="FALLIDO"/>
+  <translation tag="FANS"/>
   <translation tag="FILAMENT" es="FILAMENTO"/>
   <translation tag="FILAMENT &amp; TOOLHEAD" es="FILAMENTO Y CABEZAL"/>
+  <translation tag="FILAMENT REMAINING"/>
   <translation tag="FILAMENTS" es="FILAMENTOS"/>
   <translation tag="FILTERS" es="FILTROS"/>
   <translation tag="Factory Reset" es="Restaurar de Fábrica"/>
@@ -1350,8 +1399,10 @@
   <translation tag="Failed to save config." es="Error al guardar la configuración."/>
   <translation tag="Failed to save configuration" es="Error al guardar configuración"/>
   <translation tag="Failed to save fan configuration" es="Error al guardar configuración de ventilador"/>
+  <translation tag="Failed to save hardware configuration"/>
   <translation tag="Failed to save heater configuration" es="Error al guardar configuración de calentador"/>
   <translation tag="Failed to save printer configuration" es="Error al guardar configuración de impresora"/>
+  <translation tag="Failed to save settings"/>
   <translation tag="Failed to save setup completion" es="Error al guardar finalización de configuración"/>
   <translation tag="Failed to save spool" es="Error al guardar bobina"/>
   <translation tag="Failed to save theme file" es="Error al guardar archivo de tema"/>
@@ -1396,6 +1447,7 @@
   <translation tag="FanSelect" es="Seleccionar ventilador"/>
   <translation tag="Fans" es="Ventiladores"/>
   <translation tag="Fans besides the part cooling fan. Control them on the Fans screen." es="Ventiladores además del de refrigeración de pieza. Contrólalos en la pantalla Ventiladores."/>
+  <translation tag="Fans hidden"/>
   <translation tag="Farther" es="Más lejos"/>
   <translation tag="Favorites" es="Favoritos"/>
   <translation tag="Feature not available" es="Función no disponible"/>
@@ -1456,6 +1508,7 @@
   <translation tag="Filament must be loaded in the extruder, and the build plate on with nothing in the way of the head." es="Debe haber filamento cargado en el extrusor y la placa puesta, sin nada que estorbe al cabezal."/>
   <translation tag="Filament never reached the CFS hub sensor" es="El filamento nunca llegó al sensor del concentrador del CFS"/>
   <translation tag="Filament not set" es="Filamento no asignado"/>
+  <translation tag="Filament only, excluding the empty spool."/>
   <translation tag="Filament operation failed" es="Falló la operación de filamento"/>
   <translation tag="Filament operation timed out" es="Operación de filamento — tiempo de espera agotado"/>
   <translation tag="Filament ran out" es="Se acabó el filamento"/>
@@ -1465,6 +1518,7 @@
   <translation tag="Filament ran out. Auto-Refill is off, so the CFS will not switch spools on its own. Load filament, then resume." es="El filamento se agotó. El rellenado automático está desactivado, así que el CFS no cambiará de bobina por sí solo. Carga filamento y reanuda."/>
   <translation tag="Filament ran out. The CFS knows which spools match, but those slots are empty. Load one of them, then resume." es="El filamento se agotó. El CFS sabe qué bobinas coinciden, pero esas ranuras están vacías. Cargue una de ellas y reanude."/>
   <translation tag="Filament reload failed" es="Error al recargar el filamento"/>
+  <translation tag="Filament remaining"/>
   <translation tag="Filament runout" es="Filamento agotado"/>
   <translation tag="Filament runout and motion detection sensors" es="Sensores de detección de agotamiento y movimiento de filamento"/>
   <translation tag="Filament saved" es="Filamento guardado"/>
@@ -1486,11 +1540,13 @@
   <translation tag="File not found on printer." es="Archivo no encontrado en la impresora."/>
   <translation tag="File not found: {}" es="Archivo no encontrado: {}"/>
   <translation tag="Filename" es="Nombre de Archivo"/>
+  <translation tag="Files"/>
   <translation tag="Filter Fan" es="Ventilador de filtro"/>
   <translation tag="Finding where the print stopped..." es="Buscando dónde se detuvo la impresión..."/>
   <translation tag="Fine" es="Fino"/>
   <translation tag="Fine Inner" es="Fino interior"/>
   <translation tag="Fine Outer" es="Fino exterior"/>
+  <translation tag="Fine adjustment"/>
   <translation tag="Fine-tune" es="Ajuste fino"/>
   <translation tag="Finish" es="Finalizar"/>
   <translation tag="Finish or cancel the print before loading, unloading, or changing filament" es="Termine o cancele la impresión antes de cargar, descargar o cambiar el filamento"/>
@@ -1578,13 +1634,16 @@
   <translation tag="Good Enough" es="Suficiente"/>
   <translation tag="Good match" es="Buena coincidencia"/>
   <translation tag="Got it" es="Entendido"/>
+  <translation tag="Grams"/>
   <translation tag="Gray" es="Gris"/>
+  <translation tag="Grid"/>
   <translation tag="Grip filament" es="Agarrar filamento"/>
   <translation tag="Grip the filament" es="Agarrar el filamento"/>
   <translation tag="Guide the toolhead to the chute&apos;s extrude position" es="Guíe el cabezal hasta la posición de extrusión del conducto"/>
   <translation tag="Guided sensor-to-nozzle, unload and cutter retract calibration" es="Calibración guiada: sensor a boquilla, descarga y retracción del cortador"/>
   <translation tag="H" es="H"/>
   <translation tag="HE" es="HE"/>
+  <translation tag="HEATERS"/>
   <translation tag="HELIXSCREEN" es="HELIXSCREEN"/>
   <translation tag="HEPA" es="HEPA"/>
   <translation tag="HEPA filter" es="Filtro HEPA"/>
@@ -1609,6 +1668,7 @@
   <translation tag="Have your bed adjustment tool (screwdriver, hex-key, etc.) ready if your bed isn&apos;t adjusted with thumb wheels or some other built-in mechanism." es="Tenga lista su herramienta de ajuste de cama (destornillador, llave Allen, etc.) si su cama no se ajusta con ruedas de pulgar u otro mecanismo integrado."/>
   <translation tag="Heading" es="Encabezado"/>
   <translation tag="Healthy" es="En orden"/>
+  <translation tag="Heat"/>
   <translation tag="Heat Capacity" es="Capacidad calorífica"/>
   <translation tag="Heat Soak" es="Estabilización Térmica"/>
   <translation tag="Heat Soaking..." es="Estabilización térmica..."/>
@@ -1628,13 +1688,17 @@
   <translation tag="Heated Bed PID Tuning" es="Ajuste PID de la cama caliente"/>
   <translation tag="Heater" es="Calentador"/>
   <translation tag="Heater Calibration" es="Calibración del calentador"/>
+  <translation tag="Heater Layout"/>
   <translation tag="Heater Power" es="Potencia del calentador"/>
   <translation tag="Heater connection lost" es="Fallo de conexión del calentador"/>
   <translation tag="Heater fault" es="Fallo del calentador"/>
+  <translation tag="Heater is not available"/>
   <translation tag="Heater offline" es="Calentador desconectado"/>
   <translation tag="Heater over-temperature" es="Sobrecalentamiento del calentador"/>
   <translation tag="Heater sensor fault" es="Fallo del sensor del calentador"/>
   <translation tag="HeaterSelect" es="Seleccionar calentador"/>
+  <translation tag="Heaters"/>
+  <translation tag="Heaters and sensors"/>
   <translation tag="Heaters off" es="Calentadores apagados"/>
   <translation tag="Heating" es="Calentando"/>
   <translation tag="Heating (%d°C below minimum)" es="Calentando (%d°C por debajo del mínimo)"/>
@@ -1669,6 +1733,7 @@
   <translation tag="HelixScreen Crashed" es="HelixScreen se Bloqueó"/>
   <translation tag="HelixScreen is detecting your display orientation" es="HelixScreen está detectando la orientación de su pantalla"/>
   <translation tag="HelixScreen&apos;s helper macros are installed in the printer&apos;s config. Update or remove them on the Advanced screen." es="Las macros auxiliares de HelixScreen están instaladas en la configuración de la impresora. Actualízalas o elimínalas en la pantalla Avanzado."/>
+  <translation tag="HelixScreen: Preston Brown · © 2025–2026 356C LLC"/>
   <translation tag="Help &amp; About" es="Ayuda y acerca de"/>
   <translation tag="Help Improve HelixScreen" es="Ayude a mejorar HelixScreen"/>
   <translation tag="Help improve HelixScreen?" es="¿Ayudar a mejorar HelixScreen?"/>
@@ -1688,11 +1753,14 @@
   <translation tag="Home &amp; Continue" es="Referenciar y continuar"/>
   <translation tag="Home All" es="Posicionar todo"/>
   <translation tag="Home Selector" es="Referenciar selector"/>
+  <translation tag="Home all axes and finish other operations before starting."/>
   <translation tag="Home all axes to use the map" es="Lleva todos los ejes al origen para usar el mapa"/>
   <translation tag="Home and sweep the cutter to re-find its position" es="Referencia y barrido del cortador para volver a encontrar su posición"/>
   <translation tag="Home failed" es="Error en referencia"/>
   <translation tag="Home layout copied from the printer&apos;s screen" es="Diseño de la pantalla de inicio copiado de la pantalla de la impresora"/>
   <translation tag="Home printer first?" es="¿Referenciar la impresora primero?"/>
+  <translation tag="Home screen"/>
+  <translation tag="Home screen display settings. These do not change how equipment operates."/>
   <translation tag="Homing" es="Posicionando"/>
   <translation tag="Homing AFC system..." es="Referenciando sistema AFC..."/>
   <translation tag="Homing Failed" es="Fallo de homing"/>
@@ -1767,10 +1835,12 @@
   <translation tag="In Progress" es="En Progreso"/>
   <translation tag="Inactive" es="Inactivo"/>
   <translation tag="Include Klipper/Moonraker logs" es="Incluir registros de Klipper/Moonraker"/>
+  <translation tag="Include measured preparation time"/>
   <translation tag="Incompatible materials: {} cannot use {} as backup" es="Materiales incompatibles: {} no puede usar {} como respaldo"/>
   <translation tag="Indexing G-code..." es="Indexando G-code..."/>
   <translation tag="Infinite Spool Mode" es="Modo de bobina infinita"/>
   <translation tag="Info" es="Info"/>
+  <translation tag="Initial filament weight"/>
   <translation tag="Initial speed for filament unloading" es="Velocidad inicial para la descarga de filamento"/>
   <translation tag="Initialized" es="Inicializado"/>
   <translation tag="Initializing print..." es="Inicializando impresión..."/>
@@ -1799,11 +1869,13 @@
   <translation tag="Install Plugin" es="Instalar Plugin"/>
   <translation tag="Install Root" es="Raíz de Instalación"/>
   <translation tag="Install Update" es="Instalar actualización"/>
+  <translation tag="Install VoronDeck {}? The screen will restart."/>
   <translation tag="Install VoronDeck {}? This is a test release and may contain errors." es="Install VoronDeck {}? This is a test release and may contain errors."/>
   <translation tag="Install plugin" es="Instalar plugin"/>
   <translation tag="Install script not found. Use the remote install command instead." es="Script de instalación no encontrado. Use el comando de instalación remota en su lugar."/>
   <translation tag="Install the HelixPrint plugin to enable fast G-code modifications. Run this command via SSH on your printer:" es="Instale el plugin HelixPrint para habilitar modificaciones rápidas de G-code. Ejecute este comando vía SSH en su impresora:"/>
   <translation tag="Install the timelapse plugin via SSH,&#10;then tap &quot;Check Again&quot;." es="Instale el plugin de timelapse vía SSH,&#10;luego pulse &quot;Comprobar de nuevo&quot;."/>
+  <translation tag="Install through SSH: cd ~/VoronDeck-beta &amp;&amp; ./install.sh"/>
   <translation tag="Install timelapse plugin" es="Instalar plugin de timelapse"/>
   <translation tag="Installation Failed" es="Instalación Fallida"/>
   <translation tag="Installation failed" es="Instalación fallida"/>
@@ -1813,6 +1885,7 @@
   <translation tag="Installation timed out" es="La instalación agotó el tiempo de espera"/>
   <translation tag="Installation timed out. The script may be stuck." es="La instalación agotó el tiempo de espera. El script puede estar bloqueado."/>
   <translation tag="Installed" es="Instalado"/>
+  <translation tag="Installing the package and restarting the screen..." es="Instalando el paquete y reiniciando la pantalla…"/>
   <translation tag="Installing..." es="Instalando..."/>
   <translation tag="Intensity" es="Intensidad"/>
   <translation tag="Interactive calibration for all lanes" es="Calibración interactiva para todos los carriles"/>
@@ -1821,12 +1894,14 @@
   <translation tag="Internal error: API not available" es="Error interno: API no disponible"/>
   <translation tag="Internal error: no scan result" es="Error interno: sin resultado de escaneo"/>
   <translation tag="Interrupted" es="Interrumpido"/>
+  <translation tag="Invalid Moonraker response"/>
   <translation tag="Invalid Slot" es="Ranura no válida"/>
   <translation tag="Invalid Tool" es="Herramienta no válida"/>
   <translation tag="Invalid duration" es="Duración no válida"/>
   <translation tag="Invalid number" es="Número no válido"/>
   <translation tag="Invalid parameter" es="Parámetro no válido"/>
   <translation tag="Invalid port number" es="Número de puerto inválido"/>
+  <translation tag="Invalid profile name"/>
   <translation tag="Invalid sheet template index: {} (have {})" es="Índice de plantilla de hoja inválido: {} (hay {})"/>
   <translation tag="Invalid status response from printer" es="Respuesta de estado inválida de la impresora"/>
   <translation tag="Invalid temperature" es="Temperatura no válida"/>
@@ -1850,6 +1925,7 @@
   <translation tag="Jammed at the Toolhead" es="Atascado en el cabezal"/>
   <translation tag="Job Queue" es="Cola de trabajos"/>
   <translation tag="Job queue not enabled in Moonraker" es="Cola de trabajos no habilitada en Moonraker"/>
+  <translation tag="Jobs"/>
   <translation tag="Jog" es="Jog"/>
   <translation tag="Jog Pad" es="Pad de jog"/>
   <translation tag="Jog Speed XY" es="Velocidad de movimiento XY"/>
@@ -1903,6 +1979,7 @@
   <translation tag="Klipper stopped reporting progress. Its analysis can run out of memory on small printers; restart Klipper, then try again." es="Klipper dejó de informar el progreso. Su análisis puede quedarse sin memoria en impresoras pequeñas; reinicie Klipper e inténtelo de nuevo."/>
   <translation tag="Klipper will restart to apply changes." es="Klipper se reiniciará para aplicar los cambios."/>
   <translation tag="Klipper will restart to apply new settings." es="Klipper se reiniciará para aplicar la nueva configuración."/>
+  <translation tag="Klipper, Moonraker and configured components"/>
   <translation tag="Klipper: " es="Klipper: "/>
   <translation tag="Klipper: {}" es="Klipper: {}"/>
   <translation tag="Klippy Errors" es="Errores de Klippy"/>
@@ -1932,6 +2009,7 @@
   <translation tag="Lanes" es="Carriles"/>
   <translation tag="Language" es="Idioma"/>
   <translation tag="Language &amp; Time" es="Idioma y hora"/>
+  <translation tag="Language and Display"/>
   <translation tag="Last 12 months" es="Últimos 12 meses"/>
   <translation tag="Last 24 hours" es="Últimas 24 horas"/>
   <translation tag="Last 30 days" es="Últimos 30 días"/>
@@ -1954,6 +2032,7 @@
   <translation tag="Layout changes are off in safe mode. Restart to edit." es="Los cambios de diseño están desactivados en modo seguro. Reinicie para editar."/>
   <translation tag="Learn More" es="Más información"/>
   <translation tag="Learn the basics: the setup wizard, moving around the screens, and touch gestures." es="Lo básico: el asistente de configuración, cómo moverse entre pantallas y los gestos táctiles."/>
+  <translation tag="Learns from completed preparation. Cold and warm starts are kept separately. No estimate until a matching measurement exists."/>
   <translation tag="Leave it" es="Dejarla"/>
   <translation tag="LedSelect" es="Seleccionar LED"/>
   <translation tag="Left" es="Izquierda"/>
@@ -1978,6 +2057,8 @@
   <translation tag="Linear rails interval" es="Intervalo de los rieles lineales"/>
   <translation tag="Link Spools from Tags" es="Vincular bobinas por etiqueta"/>
   <translation tag="Link a slot to the Spoolman spool its tag names" es="Vincula una ranura a la bobina de Spoolman que indica su etiqueta"/>
+  <translation tag="Linked to Spoolman"/>
+  <translation tag="List"/>
   <translation tag="List the shared screen with this printer&apos;s webcams" es="Incluir la pantalla compartida entre las cámaras web de esta impresora"/>
   <translation tag="Listen to all theme sounds" es="Escucha todos los sonidos del tema"/>
   <translation tag="Live Z-offset, with baby steps and Save" es="Z-Offset en vivo, con pasos finos y Guardar"/>
@@ -2020,6 +2101,7 @@
   <translation tag="Loading spools..." es="Cargando bobinas..."/>
   <translation tag="Loading vendors..." es="Cargando proveedores..."/>
   <translation tag="Loading..." es="Cargando..."/>
+  <translation tag="Local filament accounting · spool weight excluded."/>
   <translation tag="Locale" es="Configuración regional"/>
   <translation tag="Locale: " es="Configuración regional: "/>
   <translation tag="Locating Spoolman configuration..." es="Localizando la configuración de Spoolman..."/>
@@ -2096,6 +2178,7 @@
   <translation tag="Macros updated. Restart Klipper after the print to activate them." es="Macros actualizadas. Reinicia Klipper después de la impresión para activarlas."/>
   <translation tag="Macros, G-code console, calibration tools (PID, input shaper, z-offset), firmware updates, and developer utilities." es="Macros, consola de G-code, herramientas de calibración (PID, input shaper, z-offset), actualizaciones de firmware y utilidades para desarrolladores."/>
   <translation tag="Main LED Strip" es="Tira LED Principal"/>
+  <translation tag="Main adjustment"/>
   <translation tag="Maintaining" es="Manteniendo"/>
   <translation tag="Maintenance" es="Mantenimiento"/>
   <translation tag="Make sure every nozzle is clean." es="Asegúrate de que todas las boquillas estén limpias."/>
@@ -2109,6 +2192,7 @@
   <translation tag="Managed by your firmware" es="Gestionado por tu firmware"/>
   <translation tag="Manual" es="Manual"/>
   <translation tag="Manual Bed Leveling" es="Nivelación Manual de Cama"/>
+  <translation tag="Manual Bed Screws"/>
   <translation tag="Manual Feed" es="Alimentación manual"/>
   <translation tag="Manual Retract" es="Retracción manual"/>
   <translation tag="Manual feed and retract operations" es="Operaciones manuales de avance y retracción"/>
@@ -2130,6 +2214,8 @@
   <translation tag="Material Comfort:" es="Confort del material:"/>
   <translation tag="Material Mismatch" es="Material Incompatible"/>
   <translation tag="Material Temperatures" es="Temperaturas de material"/>
+  <translation tag="Material, color and weight"/>
+  <translation tag="Materials and Profiles"/>
   <translation tag="Max" es="Máx"/>
   <translation tag="Max Accel" es="Acel Máx"/>
   <translation tag="Max Acceleration" es="Aceleración Máxima"/>
@@ -2169,6 +2255,7 @@
   <translation tag="Memory Snapshot" es="Instantánea de memoria"/>
   <translation tag="Mesh saved as &apos;{}&apos;" es="Malla guardada como &apos;{}&apos;"/>
   <translation tag="Method" es="Método"/>
+  <translation tag="Metres"/>
   <translation tag="Min" es="Mín"/>
   <translation tag="Minimal" es="Mínimo"/>
   <translation tag="Minimum" es="Mínimo"/>
@@ -2188,14 +2275,20 @@
   <translation tag="Moonraker answered at {}." es="Moonraker respondió en {}."/>
   <translation tag="Moonraker at {} rejected the API key." es="Moonraker en {} rechazó la clave API."/>
   <translation tag="Moonraker at {} requires an API key." es="Moonraker en {} requiere una clave API."/>
+  <translation tag="Moonraker cannot restart VoronDeck. Repair the update manager using the installer." es="Moonraker no puede reiniciar VoronDeck. Repare el gestor de actualizaciones con el instalador."/>
+  <translation tag="Moonraker config is not writable from VoronDeck."/>
   <translation tag="Moonraker has no G-code folder." es="Moonraker no tiene carpeta de G-code."/>
   <translation tag="Moonraker is connected to Spoolman, which tracks your spools and how much filament is left. Browse them on the Spoolman screen." es="Moonraker está conectado a Spoolman, que registra tus bobinas y cuánto filamento queda. Consúltalas en la pantalla Spoolman."/>
   <translation tag="Moonraker is not responding at {}. It runs on this printer, so check that the Klipper and Moonraker services started." es="Moonraker no responde en {}. Se ejecuta en esta impresora, así que comprueba que los servicios de Klipper y Moonraker se hayan iniciado."/>
   <translation tag="Moonraker keeps a queue of prints to run one after another. View it in the job queue." es="Moonraker mantiene una cola de impresiones para ejecutar una tras otra. Consúltala en la cola de trabajos."/>
   <translation tag="Moonraker refused the login" es="Moonraker rechazó el inicio de sesión"/>
+  <translation tag="Moonraker rejected the update:" es="Moonraker rechazó la actualización:"/>
   <translation tag="Moonraker restarted but Spoolman not connected. Check server." es="Moonraker reiniciado pero Spoolman no conectado. Verifique el servidor."/>
   <translation tag="Moonraker restarting...&#10;Waiting for reconnection..." es="Reiniciando Moonraker...&#10;Esperando reconexión..."/>
+  <translation tag="Moonraker returned an unexpected update response. Check component versions." es="Moonraker devolvió una respuesta de actualización inesperada. Compruebe las versiones de los componentes."/>
   <translation tag="Moonraker&apos;s Python is too old for this feature." es="El Python de Moonraker es demasiado antiguo para esta función."/>
+  <translation tag="Moonraker&apos;s config file is not writable from VoronDeck. Add the [spoolman] section by hand — see the log for details."/>
+  <translation tag="Moonraker, Klipper and other configured components"/>
   <translation tag="Moonraker: " es="Moonraker: "/>
   <translation tag="More" es="Más"/>
   <translation tag="More options…" es="Más opciones…"/>
@@ -2246,10 +2339,12 @@
   <translation tag="My Custom Theme" es="Mi Tema Personalizado"/>
   <translation tag="My Panel" es="Mi Panel"/>
   <translation tag="My Printer" es="Mi Impresora"/>
+  <translation tag="NEMESIS"/>
   <translation tag="NEW HIGH SCORE!&#10;{}&#10;Tap to play again" es="¡NUEVO RÉCORD!&#10;{}&#10;Toca para jugar de nuevo"/>
   <translation tag="NEWLY DISCOVERED" es="RECIÉN DESCUBIERTO"/>
   <translation tag="Name" es="Nombre"/>
   <translation tag="Name (optional)" es="Nombre (opcional)"/>
+  <translation tag="Name and image"/>
   <translation tag="Name, image and model" es="Nombre, imagen y modelo"/>
   <translation tag="Name:" es="Nombre:"/>
   <translation tag="Named actions in the LED Controls widget. Not shown under LED selection." es="Acciones con nombre en el widget de Controles LED. No se muestran en la selección de LED."/>
@@ -2269,6 +2364,7 @@
   <translation tag="Neutral" es="Neutro"/>
   <translation tag="Never" es="Nunca"/>
   <translation tag="Never sleeps" es="Nunca duerme"/>
+  <translation tag="New Profile"/>
   <translation tag="New Spool" es="Bobina nueva"/>
   <translation tag="New Spool: Step 1 of 3" es="Nueva Bobina: Paso 1 de 3"/>
   <translation tag="New Spool: Step {} of {}" es="Nueva bobina: paso {} de {}"/>
@@ -2333,6 +2429,7 @@
   <translation tag="No file loaded" es="Sin archivo cargado"/>
   <translation tag="No file to reprint" es="No hay archivo para reimprimir"/>
   <translation tag="No files available for printing" es="No hay archivos disponibles para imprimir"/>
+  <translation tag="No heaters detected"/>
   <translation tag="No hotend" es="Sin hotend"/>
   <translation tag="No hub configured" es="No hay ningún Hub configurado"/>
   <translation tag="No humidity sensor detected" es="No se detectó sensor de humedad"/>
@@ -2351,6 +2448,7 @@
   <translation tag="No network. Scan QR code to report on your phone." es="Sin red. Escanee el código QR para reportar desde su teléfono."/>
   <translation tag="No networks found" es="No se encontraron redes"/>
   <translation tag="No new mesh was stored as &apos;{}&apos;" es="No se guardó ninguna malla nueva como &apos;{}&apos;"/>
+  <translation tag="No newer test release"/>
   <translation tag="No notifications" es="Sin notificaciones"/>
   <translation tag="No objects" es="Sin objetos"/>
   <translation tag="No objects defined for this print" es="No hay objetos definidos para esta impresión"/>
@@ -2369,6 +2467,7 @@
   <translation tag="No prints this week" es="Sin impresiones esta semana"/>
   <translation tag="No prints yet" es="Sin impresiones aún"/>
   <translation tag="No profiles available" es="No hay perfiles disponibles"/>
+  <translation tag="No release available or access denied"/>
   <translation tag="No sensor fitted for this distance" es="No hay sensor instalado para esta distancia"/>
   <translation tag="No sensors detected" es="No se detectaron sensores"/>
   <translation tag="No shared peaks" es="Sin picos comunes"/>
@@ -2391,6 +2490,7 @@
   <translation tag="No unit has a servo" es="Ninguna unidad tiene servo"/>
   <translation tag="No unit has an encoder" es="Ninguna unidad tiene codificador"/>
   <translation tag="No unload macro found: unload by hand, then start again" es="No se encontró una macro de descarga: descarga a mano y vuelve a empezar"/>
+  <translation tag="No update components configured"/>
   <translation tag="No vendors found" es="No se encontraron proveedores"/>
   <translation tag="No verified bypass command for this CFS firmware" es="No hay un comando de bypass verificado para este firmware del CFS"/>
   <translation tag="No video player installed - showing the timelapse library" es="No hay reproductor de vídeo instalado: se muestra la biblioteca de timelapse"/>
@@ -2418,11 +2518,14 @@
   <translation tag="Not connected to the printer" es="No conectado a la impresora"/>
   <translation tag="Not detected" es="No detectado"/>
   <translation tag="Not drying" es="Sin secar"/>
+  <translation tag="Not enough free disk space to download the update." es="No hay suficiente espacio libre para descargar la actualización."/>
   <translation tag="Not enough free space on the printer for this file. Free some in Settings &gt; System &gt; Storage." es="No hay suficiente espacio libre en la impresora para este archivo. Libera espacio en Ajustes &gt; Sistema &gt; Almacenamiento."/>
   <translation tag="Not enough frequency data from the sweeps. Try again." es="No hay suficientes datos de frecuencia de los barridos. Intente de nuevo."/>
+  <translation tag="Not enough room for the selected heaters. Enlarge this tile first."/>
+  <translation tag="Not enough room for the selected heaters. Move nearby tiles first."/>
   <translation tag="Not enough room for this widget. Rearrange or remove widgets to make space." es="No hay espacio suficiente para este widget. Reorganiza o elimina widgets para hacer espacio."/>
   <translation tag="Not in your spools? Set it up" es="¿No está en tus bobinas? Configúralo"/>
-  <translation tag="Not now" es="Not now"/>
+  <translation tag="Not now" es="Ahora no"/>
   <translation tag="Not set" es="Sin definir"/>
   <translation tag="Not turned" es="Sin girar"/>
   <translation tag="Not yet available on this display" es="Aún no disponible en esta pantalla"/>
@@ -2499,12 +2602,15 @@
   <translation tag="On:" es="Encendido:"/>
   <translation tag="Once a day, deletes print copies older than a week and logs older than a month. Your files, photos and timelapse videos are kept." es="Una vez al día, elimina las copias de impresión de más de una semana y los registros de más de un mes. Tus archivos, fotos y vídeos timelapse se conservan."/>
   <translation tag="One tap runs this macro. Dangerous macros still ask." es="Un toque ejecuta esta macro. Las macros peligrosas siguen preguntando."/>
+  <translation tag="Only custom profiles can be renamed"/>
   <translation tag="Only on {0}: {1} Hz" es="Solo en {0}: {1} Hz"/>
+  <translation tag="Only tools supported by the connected printer are shown. Opening this page does not start heating or movement."/>
   <translation tag="Only while this app is connected. Install the HelixPrint plugin to cover every print." es="Solo mientras esta app esté conectada. Instala el plugin HelixPrint para cubrir todas las impresiones."/>
   <translation tag="Only while this app is connected. Update the HelixPrint plugin to cover every print." es="Solo mientras esta app esté conectada. Actualiza el plugin HelixPrint para cubrir todas las impresiones."/>
   <translation tag="Only {} MB of memory is free, and Klipper&apos;s analysis needs about {} MB. Running the test would leave the printer stuck until it is power-cycled." es="Solo hay {} MB de memoria libre y el análisis de Klipper necesita unos {} MB. La prueba dejaría la impresora bloqueada hasta apagarla y encenderla."/>
   <translation tag="Ooze Reduction" es="Reducción de goteo"/>
   <translation tag="Open" es="Abrir"/>
+  <translation tag="Open Printer component updates to install VoronDeck."/>
   <translation tag="Open Source Licenses" es="Licencias de código abierto"/>
   <translation tag="Open color and brightness controls" es="Abrir controles de color y brillo"/>
   <translation tag="Open feeder" es="Abrir alimentador"/>
@@ -2523,6 +2629,7 @@
   <translation tag="Optimizes temperature control for stable, consistent heating." es="Optimiza el control de temperatura para un calentamiento estable y consistente."/>
   <translation tag="Optional - select your main lighting source, or skip if your printer doesn&apos;t have one" es="Opcional - selecciona tu fuente de iluminación principal, u omite si tu impresora no tiene una"/>
   <translation tag="Optional prerelease · install only if you choose" es="Optional prerelease · install only if you choose"/>
+  <translation tag="Optional. Open a tool to review and start it, or skip this stage."/>
   <translation tag="Options" es="Opciones"/>
   <translation tag="Or Enter Manually" es="O Ingrese Manualmente"/>
   <translation tag="Or instead of turning the others" es="O en lugar de girar los demás"/>
@@ -2544,6 +2651,9 @@
   <translation tag="PAUSED" es="PAUSADO"/>
   <translation tag="PETG" es="PETG"/>
   <translation tag="PID" es="PID"/>
+  <translation tag="PID Calibration"/>
+  <translation tag="PID calibration is unavailable for this heater or target."/>
+  <translation tag="PID results are not saved."/>
   <translation tag="PIN must be 4-6 digits" es="El PIN debe tener 4-6 dígitos"/>
   <translation tag="PIN removed" es="PIN eliminado"/>
   <translation tag="PIN set" es="PIN establecido"/>
@@ -2558,6 +2668,9 @@
   <translation tag="PRINTING" es="IMPRESIÓN"/>
   <translation tag="PROBE SENSORS" es="SENSORES DE SONDA"/>
   <translation tag="PTFE tube connection loose" es="La conexión del tubo PTFE está floja"/>
+  <translation tag="Package download timed out. Check the network and beta access."/>
+  <translation tag="Package verification failed. Check updates and download again." es="Falló la verificación del paquete. Busque actualizaciones y vuelva a descargarlo."/>
+  <translation tag="Packages"/>
   <translation tag="Pair" es="Emparejar"/>
   <translation tag="Pair Bluetooth Printer" es="Emparejar Impresora Bluetooth"/>
   <translation tag="Pair Bluetooth Scanner" es="Emparejar Escáner Bluetooth"/>
@@ -2605,6 +2718,8 @@
   <translation tag="Peak:" es="Pico:"/>
   <translation tag="Peaks {} Hz" es="Picos {} Hz"/>
   <translation tag="Pending spool" es="Bobina pendiente"/>
+  <translation tag="Percent"/>
+  <translation tag="Percent · grams · metres"/>
   <translation tag="Performance" es="Rendimiento"/>
   <translation tag="Permission denied. Check printer configuration." es="Permiso denegado. Comprueba la configuración de la impresora."/>
   <translation tag="Phomemo (Bluetooth)" es="Phomemo (Bluetooth)"/>
@@ -2631,6 +2746,8 @@
   <translation tag="Platform" es="Plataforma"/>
   <translation tag="Platform: " es="Plataforma: "/>
   <translation tag="Play / stop Crockett&apos;s Theme" es="Reproducir / detener Crockett&apos;s Theme"/>
+  <translation tag="Play a melody when printing finishes. Off by default."/>
+  <translation tag="Play the print-completion melody"/>
   <translation tag="Please enter a theme name" es="Por favor ingrese un nombre de tema"/>
   <translation tag="Please enter a valid port (1-65535)." es="Ingrese un puerto válido (1-65535)."/>
   <translation tag="Please enter an IP address or hostname." es="Ingrese una dirección IP o nombre de host."/>
@@ -2638,6 +2755,7 @@
   <translation tag="Please wait while the printer homes and moves to the start position." es="Espere mientras la impresora referencia y se mueve a la posición inicial."/>
   <translation tag="Please wait while the printer homes and probes." es="Por favor espere mientras la impresora hace origen y sondea."/>
   <translation tag="Please wait while the printer probes each screw position." es="Por favor espere mientras la impresora sondea cada posición de tornillo."/>
+  <translation tag="Please wait..."/>
   <translation tag="Plugin actions" es="Acciones del plugin"/>
   <translation tag="Plugin already installed" es="Plugin ya instalado"/>
   <translation tag="Plugin disabled" es="Plugin desactivado"/>
@@ -2676,11 +2794,13 @@
   <translation tag="Preheat Macro" es="Macro de Precalentamiento"/>
   <translation tag="Preheat PLA" es="Precalentar PLA"/>
   <translation tag="Preheat canceled" es="Precalentamiento cancelado"/>
+  <translation tag="Preheat profiles"/>
   <translation tag="Preheat: all {} tools + bed set" es="Precalentar: todas las {} herramientas + cama configurada"/>
   <translation tag="Preheat: {} + bed set" es="Precalentar: {} + cama configurada"/>
   <translation tag="Preheating and homing..." es="Precalentando y haciendo homing..."/>
   <translation tag="Preload" es="Precargar"/>
   <translation tag="Preload failed" es="Error al precargar"/>
+  <translation tag="Preparation:"/>
   <translation tag="Prepared" es="Preparado"/>
   <translation tag="Preparing" es="Preparando"/>
   <translation tag="Preparing Print" es="Preparando Impresión"/>
@@ -2705,6 +2825,7 @@
   <translation tag="Pressure:" es="Presión:"/>
   <translation tag="Preview" es="Vista previa"/>
   <translation tag="Preview Sounds" es="Vista previa de sonidos"/>
+  <translation tag="Preview melody"/>
   <translation tag="Previous" es="Anterior"/>
   <translation tag="Price" es="Precio"/>
   <translation tag="Price, location, lot, notes" es="Precio, ubicación, lote, notas"/>
@@ -2741,6 +2862,7 @@
   <translation tag="Print canceled" es="Impresión cancelada"/>
   <translation tag="Print complete" es="Impresión completa"/>
   <translation tag="Print completed" es="Impresión completada"/>
+  <translation tag="Print completion sound"/>
   <translation tag="Print copies" es="Copias de impresión"/>
   <translation tag="Print details" es="Detalles de impresión"/>
   <translation tag="Print did not start" es="La impresión no se inició"/>
@@ -2748,6 +2870,8 @@
   <translation tag="Print ending..." es="Finalizando impresión..."/>
   <translation tag="Print error" es="Error de impresión"/>
   <translation tag="Print failed" es="Impresión fallida"/>
+  <translation tag="Print history and accumulated statistics"/>
+  <translation tag="Print history cleared"/>
   <translation tag="Print history will show the rewritten name" es="El historial de impresión mostrará el nombre reescrito"/>
   <translation tag="Print hours between filter changes. Off hides this meter." es="Horas de impresión entre cambios de filtro. Desactivado oculta este contador."/>
   <translation tag="Print hours between nozzle changes. Off hides this meter." es="Horas de impresión entre cambios de boquilla. Desactivado oculta este contador."/>
@@ -2762,12 +2886,14 @@
   <translation tag="Print server rejected the job — check printer status" es="El servidor de impresión rechazó el trabajo — revisa el estado de la impresora"/>
   <translation tag="Print setup failed" es="Falló la preparación de la impresión"/>
   <translation tag="Print setup failed: internal error" es="Falló la preparación de la impresión: error interno"/>
+  <translation tag="Print statistics reset"/>
   <translation tag="Print status" es="Estado de impresión"/>
   <translation tag="Print the test tower?" es="¿Imprimir la torre de prueba?"/>
   <translation tag="Print timed out waiting for completion" es="La impresión agotó el tiempo de espera de finalización"/>
   <translation tag="Printed %d time" es="Impreso %d vez"/>
   <translation tag="Printed %d times" es="Impreso %d veces"/>
   <translation tag="Printer" es="Impresora"/>
+  <translation tag="Printer Appearance"/>
   <translation tag="Printer Error" es="Error de Impresora"/>
   <translation tag="Printer Events" es="Eventos de la impresora"/>
   <translation tag="Printer Firmware Disconnected" es="Firmware de Impresora Desconectado"/>
@@ -2792,6 +2918,7 @@
   <translation tag="Printer accepted job but isn&apos;t printing — check cover, paper, and label type (firmware status=0x{:02X} error=0x{:02X})" es="La impresora aceptó el trabajo pero no está imprimiendo — revise la cubierta, el papel y el tipo de etiqueta (status del firmware=0x{:02X} error=0x{:02X})"/>
   <translation tag="Printer command &apos;{}&apos; failed: {}" es="El comando de impresora &apos;{}&apos; falló: {}"/>
   <translation tag="Printer command &apos;{}&apos; timed out after {}ms" es="El comando de impresora &apos;{}&apos; agotó el tiempo tras {} ms"/>
+  <translation tag="Printer component updates"/>
   <translation tag="Printer connection unavailable" es="Conexión con la impresora no disponible"/>
   <translation tag="Printer database format error" es="Error de formato de la base de datos de impresoras"/>
   <translation tag="Printer default" es="Valor por defecto de la impresora"/>
@@ -2803,9 +2930,11 @@
   <translation tag="Printer events need the HelixPrint plugin on this screen" es="Los eventos de la impresora necesitan el plugin HelixPrint en esta pantalla"/>
   <translation tag="Printer hardware detected" es="Hardware de impresora detectado"/>
   <translation tag="Printer image set to auto-detect" es="Imagen de impresora configurada en auto-detectar"/>
+  <translation tag="Printer is busy"/>
   <translation tag="Printer is busy - {} stays in the queue" es="La impresora está ocupada: {} permanece en la cola"/>
   <translation tag="Printer is busy with a print" es="La impresora está imprimiendo"/>
   <translation tag="Printer is busy — try again in a moment" es="La impresora está ocupada — inténtalo de nuevo en un momento"/>
+  <translation tag="Printer is disconnected"/>
   <translation tag="Printer is not paired — pair it first" es="La impresora no está emparejada — empareja primero"/>
   <translation tag="Printer is not ready" es="La impresora no está lista"/>
   <translation tag="Printer is not ready. Please wait for initialization." es="La impresora no está lista. Espera a que se inicialice."/>
@@ -2813,7 +2942,9 @@
   <translation tag="Printer name" es="Nombre de impresora"/>
   <translation tag="Printer not connected" es="Impresora no conectada"/>
   <translation tag="Printer not ready" es="Impresora no lista"/>
+  <translation tag="Printer or update manager is busy"/>
   <translation tag="Printer ready" es="Impresora lista"/>
+  <translation tag="Printer reset"/>
   <translation tag="Printer status unknown" es="Estado de la impresora desconocido"/>
   <translation tag="Printer type mismatch" es="El tipo de impresora no coincide"/>
   <translation tag="Printer:" es="Impresora:"/>
@@ -2828,6 +2959,7 @@
   <translation tag="Printing: start after this job" es="Imprimiendo: inicia tras esta impresión"/>
   <translation tag="Prints" es="Impresiones"/>
   <translation tag="Prints Trend" es="Tendencia de Impresiones"/>
+  <translation tag="Private beta channel · SSH access"/>
   <translation tag="Private:" es="Privado:"/>
   <translation tag="Probe" es="Sonda"/>
   <translation tag="Probe Accuracy Failed" es="Prueba de Precisión de Sonda Fallida"/>
@@ -2848,8 +2980,10 @@
   <translation tag="Proceed" es="Continuar"/>
   <translation tag="Processing..." es="Procesando..."/>
   <translation tag="Product" es="Producto"/>
+  <translation tag="Profile Name"/>
   <translation tag="Profile deleted" es="Perfil eliminado"/>
   <translation tag="Profile name (e.g., default)" es="Nombre del perfil (ej., default)"/>
+  <translation tag="Profile name is required"/>
   <translation tag="Profile names cannot contain &apos;;&apos;" es="Los nombres de perfil no pueden contener &apos;;&apos;"/>
   <translation tag="Profile renamed" es="Perfil renombrado"/>
   <translation tag="Profiles" es="Perfiles"/>
@@ -2938,6 +3072,7 @@
   <translation tag="Ready" es="Listo"/>
   <translation tag="Ready for filament operations" es="Listo para operaciones de filamento"/>
   <translation tag="Ready to calibrate" es="Listo para calibrar"/>
+  <translation tag="Ready. Start moves the nozzle to the first screw."/>
   <translation tag="Rear" es="Atrás"/>
   <translation tag="Rear Left" es="Atrás izquierda"/>
   <translation tag="Rear Right" es="Atrás derecha"/>
@@ -2963,8 +3098,15 @@
   <translation tag="Recover State" es="Recuperar estado"/>
   <translation tag="Recovering AFC system..." es="Recuperando sistema AFC..."/>
   <translation tag="Recovering..." es="Recuperando..."/>
+  <translation tag="Recovery checkpoints disabled"/>
+  <translation tag="Recovery checkpoints enabled"/>
   <translation tag="Recovery failed" es="Error en recuperación"/>
   <translation tag="Recovery failed: {}" es="Recuperación fallida: {}"/>
+  <translation tag="Recovery macros are not detected. Check the printer connection and recovery configuration."/>
+  <translation tag="Recovery request failed. Reopen this page to refresh its state."/>
+  <translation tag="Recovery update check failed. Check the network and repository access."/>
+  <translation tag="Recovery update component is not configured."/>
+  <translation tag="Recovery updated. Restart Klipper to activate it."/>
   <translation tag="Recycled" es="Reciclado"/>
   <translation tag="Reduce Sensitivity" es="Reducir sensibilidad"/>
   <translation tag="Reduce ringing and ghosting artifacts" es="Reducir artefactos de resonancia y fantasma"/>
@@ -2993,6 +3135,7 @@
   <translation tag="Remove PIN" es="Eliminar PIN"/>
   <translation tag="Remove Spoolman?" es="¿Eliminar Spoolman?"/>
   <translation tag="Remove VoronDeck&apos;s include lines from printer.cfg; a resume then uses the printer&apos;s default mesh profile" es="Elimina las líneas include de VoronDeck de printer.cfg; una reanudación usará entonces el perfil de malla predeterminado de la impresora"/>
+  <translation tag="Remove job records only. G-code files and printer configuration are kept."/>
   <translation tag="Remove plugin from printer" es="Eliminar plugin de la impresora"/>
   <translation tag="Remove the PEI Sheet" es="Retirar la lámina PEI"/>
   <translation tag="Remove the PEI sheet from the bed, then start again: probing through the sheet gives wrong results" es="Retira la lámina PEI de la cama e inténtalo de nuevo: sondear a través de la lámina da resultados incorrectos"/>
@@ -3019,6 +3162,8 @@
   <translation tag="Reprint" es="Reimprimir"/>
   <translation tag="Reprint Last" es="Reimprimir última"/>
   <translation tag="Request Failed" es="Solicitud Fallida"/>
+  <translation tag="Request failed. Refresh to check the printer state."/>
+  <translation tag="Request not confirmed. Check status before retrying."/>
   <translation tag="Request timed out. The printer may be busy." es="La solicitud agotó el tiempo de espera. La impresora puede estar ocupada."/>
   <translation tag="Require Confirmation?" es="¿Requerir confirmación?"/>
   <translation tag="Require confirmation before emergency stop" es="Requerir confirmación antes de parada de emergencia"/>
@@ -3030,6 +3175,7 @@
   <translation tag="Requires a filament system with bypass" es="Requiere un sistema de filamento con bypass"/>
   <translation tag="Requires a newer HelixPrint plugin" es="Requiere un plugin HelixPrint más reciente"/>
   <translation tag="Requires the HelixPrint plugin" es="Requiere el plugin HelixPrint"/>
+  <translation tag="Requires the VoronDeck recovery plugin"/>
   <translation tag="Resend write failed at chunk {}" es="Error al reenviar la escritura en el fragmento {}"/>
   <translation tag="Reset" es="Restablecer"/>
   <translation tag="Reset Blade Counter" es="Restablecer el contador de cuchilla"/>
@@ -3044,9 +3190,13 @@
   <translation tag="Reset Servo Counter" es="Restablecer el contador del servo"/>
   <translation tag="Reset Speed &amp; Flow to 100%" es="Restablecer Velocidad y Flujo a 100%"/>
   <translation tag="Reset Tags" es="Restablecer marcas"/>
+  <translation tag="Reset VoronDeck and restart setup? The printer image and theme are kept. Other screen settings are removed. Klipper settings are unchanged."/>
+  <translation tag="Reset accumulated time, job and filament totals. History entries and printer configuration are kept."/>
   <translation tag="Reset all settings and restart wizard" es="Restablecer todos los ajustes y reiniciar asistente"/>
   <translation tag="Reset failed" es="Error al restablecer"/>
   <translation tag="Reset motor run-time counter" es="Restablecer el contador de horas de funcionamiento del motor"/>
+  <translation tag="Reset print statistics"/>
+  <translation tag="Reset print statistics?"/>
   <translation tag="Reset tags" es="Restablecer marcas"/>
   <translation tag="Reset to Default" es="Restablecer valores predeterminados"/>
   <translation tag="Reset to defaults" es="Restablecer valores predeterminados"/>
@@ -3068,6 +3218,7 @@
   <translation tag="Restart Moonraker to finish the plugin change" es="Reinicia Moonraker para completar el cambio del plugin"/>
   <translation tag="Restart Now" es="Reiniciar Ahora"/>
   <translation tag="Restart Required" es="Reinicio Requerido"/>
+  <translation tag="Restart VoronDeck"/>
   <translation tag="Restart failed: not connected" es="Reinicio fallido: no conectado"/>
   <translation tag="Restart failed: {}" es="Reinicio fallido: {}"/>
   <translation tag="Restart from the beginning to recover" es="Reinicie desde el principio para recuperar la impresión"/>
@@ -3124,7 +3275,10 @@
   <translation tag="Retry" es="Reintentar"/>
   <translation tag="Reverse Multiplier" es="Multiplicador de retroceso"/>
   <translation tag="Review" es="Revisar"/>
+  <translation tag="Review and Finish"/>
   <translation tag="Review detected hardware validation issues" es="Revisar problemas de validación de hardware detectados"/>
+  <translation tag="Review device assignments or open a group to change them"/>
+  <translation tag="Review the selected settings. Calibration can be completed later."/>
   <translation tag="Review your configuration below, then click Finish to save" es="Revisa tu configuración abajo, luego toca Finalizar para guardar"/>
   <translation tag="Rewinding" es="Rebobinando"/>
   <translation tag="Right" es="Derecha"/>
@@ -3187,12 +3341,15 @@
   <translation tag="Save Z-Offset" es="Guardar Z-Offset"/>
   <translation tag="Save Z-Offset Buttons" es="Botones de guardar Z-Offset"/>
   <translation tag="Save Z-Offset?" es="¿Guardar Z-Offset?"/>
+  <translation tag="Save and finish"/>
   <translation tag="Save calibration" es="Guardar calibración"/>
   <translation tag="Save changes to persist them across restarts?" es="¿Guardar cambios para mantenerlos entre reinicios?"/>
   <translation tag="Save failed: {}" es="Error al guardar: {}"/>
   <translation tag="Save offsets?" es="¿Guardar offsets?"/>
+  <translation tag="Save recovery checkpoints at layer changes. Turning this off discards the saved checkpoint."/>
   <translation tag="Save the changes to this spool?" es="¿Guardar los cambios de este carrete?"/>
   <translation tag="Save the new heater values to printer.cfg? Klipper restarts." es="¿Guardar los nuevos valores del calentador en printer.cfg? Klipper se reiniciará."/>
+  <translation tag="Save these PID results to the printer configuration."/>
   <translation tag="Save to Spool" es="Guardar en bobina"/>
   <translation tag="Save to Spoolman" es="Guardar en Spoolman"/>
   <translation tag="Saved Z-Offset" es="Z-Offset guardado"/>
@@ -3245,6 +3402,7 @@
   <translation tag="Screensaver after" es="Salvapantallas tras"/>
   <translation tag="Screensaver disabled" es="Salvapantallas desactivado"/>
   <translation tag="Screensaver starts after this period of inactivity" es="El salvapantallas se inicia tras este período de inactividad"/>
+  <translation tag="Screw"/>
   <translation tag="Screws Tilt" es="Inclinación de Tornillos"/>
   <translation tag="Scroll Buttons" es="Botones de desplazamiento"/>
   <translation tag="Scroll Engage Distance" es="Distancia de activación de desplazamiento"/>
@@ -3267,6 +3425,7 @@
   <translation tag="See exactly what data will be sent" es="Ver exactamente qué datos se enviarán"/>
   <translation tag="See the log" es="Revise el registro"/>
   <translation tag="See the quick tour of HelixScreen again" es="Ver de nuevo el tour rápido de HelixScreen"/>
+  <translation tag="See the quick tour of VoronDeck again"/>
   <translation tag="Select" es="Seleccionar"/>
   <translation tag="Select &apos;None&apos; if you don&apos;t have a filament sensor, or if you don&apos;t want to pause on runout." es="Seleccione &apos;Ninguno&apos; si no tiene un sensor de filamento, o si no desea pausar al agotarse."/>
   <translation tag="Select Fan" es="Seleccionar Ventilador"/>
@@ -3276,6 +3435,7 @@
   <translation tag="Select Slot" es="Seleccionar ranura"/>
   <translation tag="Select Spool" es="Seleccionar bobina"/>
   <translation tag="Select a filament slot to load" es="Seleccione una ranura de filamento para cargar"/>
+  <translation tag="Select a release below to install."/>
   <translation tag="Select a valid number" es="Seleccione un número válido"/>
   <translation tag="Select a valid number (1-{})" es="Seleccione un número válido (1-{})"/>
   <translation tag="Select a valid tool" es="Seleccione una herramienta válida"/>
@@ -3309,6 +3469,7 @@
   <translation tag="Sending..." es="Enviando..."/>
   <translation tag="Sends your standing print options, such as unload at end, when a print starts from another app or the job queue." es="Envía tus opciones de impresión fijas, como descargar al final, cuando una impresión se inicia desde otra app o la cola de trabajos."/>
   <translation tag="Sensor" es="Sensor"/>
+  <translation tag="Sensor Bank"/>
   <translation tag="Sensor Error" es="Error del sensor"/>
   <translation tag="Sensor Response" es="Respuesta del sensor"/>
   <translation tag="Sensor Source" es="Fuente del sensor"/>
@@ -3340,6 +3501,7 @@
   <translation tag="Set logging verbosity for troubleshooting" es="Establecer el nivel de detalle del registro para solución de problemas"/>
   <translation tag="Set temperature between {}°C and {}°C" es="Establezca una temperatura entre {}°C y {}°C"/>
   <translation tag="Set the filament type and color by hand for this slot. If the tag should be readable, re-seat the spool with its label facing the reader once the box is idle" es="Ajuste a mano el tipo y el color del filamento para esta ranura. Si la etiqueta debería poder leerse, vuelva a colocar la bobina con la etiqueta hacia el lector cuando la caja esté inactiva"/>
+  <translation tag="Set the material and filament weight to start local accounting."/>
   <translation tag="Set up" es="Configurar"/>
   <translation tag="Set up your label printer in Settings" es="Configure su impresora de etiquetas en Ajustes"/>
   <translation tag="Set what is really selected and loaded. Nothing moves." es="Indica qué está realmente seleccionado y cargado. Nada se mueve."/>
@@ -3387,11 +3549,13 @@
   <translation tag="Signal" es="Señal"/>
   <translation tag="Signal #" es="Señal n.º"/>
   <translation tag="Similarity" es="Similitud"/>
+  <translation tag="Simplified"/>
   <translation tag="Single object" es="Un solo objeto"/>
   <translation tag="Single toggle macro. State is not tracked." es="Macro de alternancia único. El estado no se rastrea."/>
   <translation tag="Size" es="Tamaño"/>
   <translation tag="Skip" es="Omitir"/>
   <translation tag="Skip Objects..." es="Omitir objetos..."/>
+  <translation tag="Skip stage"/>
   <translation tag="Skip the rest of this layer and resume at the next one" es="Omitir el resto de esta capa y reanudar en la siguiente"/>
   <translation tag="Skipped" es="Omitido"/>
   <translation tag="Sleep While Printing" es="Apagar pantalla al imprimir"/>
@@ -3426,6 +3590,7 @@
   <translation tag="Sound Theme" es="Tema de sonido"/>
   <translation tag="Sounds" es="Sonidos"/>
   <translation tag="Source" es="Fuente"/>
+  <translation tag="Source code and authors"/>
   <translation tag="Space Debris mod by Markus &apos;Captain&apos; Kaarlonen" es="Space Debris mod por Markus &apos;Captain&apos; Kaarlonen"/>
   <translation tag="Spaghetti Detection" es="Detección de spaghetti"/>
   <translation tag="Spaghetti detected" es="Spaghetti detectado"/>
@@ -3443,6 +3608,8 @@
   <translation tag="Spool" es="Bobina"/>
   <translation tag="Spool #" es="Bobina n.º"/>
   <translation tag="Spool #{}" es="Bobina n.º {}"/>
+  <translation tag="Spool 1"/>
+  <translation tag="Spool Display"/>
   <translation tag="Spool Info" es="Info de bobina"/>
   <translation tag="Spool Not Found" es="Bobina no encontrada"/>
   <translation tag="Spool Weight (g)" es="Peso de Bobina (g)"/>
@@ -3487,8 +3654,11 @@
   <translation tag="Sport" es="Deportivo"/>
   <translation tag="Square Corner Velocity" es="Velocidad de Esquina Cuadrada"/>
   <translation tag="Stable" es="Estable"/>
+  <translation tag="Stable and beta releases · beta requires access"/>
   <translation tag="Stable release" es="Stable release"/>
   <translation tag="Stable releases and optional test updates" es="Stable releases and optional test updates"/>
+  <translation tag="Stage"/>
+  <translation tag="Stage {} of 3" es="Paso {} de 3"/>
   <translation tag="Stall detection setup failed for the Z motor — power-cycle to retry" es="Falló la configuración de la detección de bloqueo del motor Z. Apague y encienda para reintentar"/>
   <translation tag="Stall detection setup failed for the extruder — power-cycle to retry" es="Falló la configuración de la detección de bloqueo del extrusor. Apague y encienda para reintentar"/>
   <translation tag="Standard" es="Estándar"/>
@@ -3504,6 +3674,7 @@
   <translation tag="Start Print" es="Iniciar Impresión"/>
   <translation tag="Start Probing" es="Iniciar Sondeo"/>
   <translation tag="Start a new {} h interval? The hours counted so far are discarded." es="¿Iniciar un nuevo intervalo de {} h? Las horas contadas hasta ahora se descartan."/>
+  <translation tag="Start adjustment"/>
   <translation tag="Start anyway?" es="¿Iniciar de todos modos?"/>
   <translation tag="Start at" es="Comenzar en"/>
   <translation tag="Start drying" es="Iniciar secado"/>
@@ -3542,6 +3713,7 @@
   <translation tag="Stop drying?" es="¿Detener el secado?"/>
   <translation tag="Stop failed" es="Detención fallida"/>
   <translation tag="Stop printing &quot;{}&quot;?&#10;&#10;This cannot be undone after 5 seconds." es="¿Detener la impresión de &quot;{}&quot;?&#10;&#10;Esto no se puede deshacer después de 5 segundos."/>
+  <translation tag="Stop printing before changing recovery settings."/>
   <translation tag="Stop reloading the saved bed mesh?" es="¿Dejar de cargar la malla guardada?"/>
   <translation tag="Stop the check?" es="¿Detener la comprobación?"/>
   <translation tag="Stop the running cycle before starting another" es="Detenga el ciclo en curso antes de iniciar otro"/>
@@ -3559,6 +3731,7 @@
   <translation tag="Success" es="Éxito"/>
   <translation tag="Success Rate" es="Tasa de Éxito"/>
   <translation tag="Success!" es="¡Éxito!"/>
+  <translation tag="Suggested"/>
   <translation tag="Summary" es="Resumen"/>
   <translation tag="Suppress periodic &apos;T:.../B:...&apos; status lines" es="Suprimir líneas de estado periódicas &apos;T:.../B:...&apos;"/>
   <translation tag="Suppress periodic temperature status lines" es="Suprimir líneas de estado periódicas de temperatura"/>
@@ -3614,6 +3787,7 @@
   <translation tag="Tangle sensitivity" es="Sensibilidad a enredos"/>
   <translation tag="Tap + to add" es="Toca + para añadir"/>
   <translation tag="Tap Firmware Restart to recover — on K2 this also bounces the rpi MCU bridge" es="Toque Reiniciar firmware para recuperar. En la K2 esto también reinicia el puente MCU rpi"/>
+  <translation tag="Tap Heat to start preheating"/>
   <translation tag="Tap Resume to try the load again from {}." es="Toque Reanudar para intentar la carga de nuevo desde {}."/>
   <translation tag="Tap again to confirm this orientation" es="Toque de nuevo para confirmar esta orientación"/>
   <translation tag="Tap an empty spot inside the enclosure" es="Toque un punto vacío dentro del cerramiento"/>
@@ -3650,6 +3824,7 @@
   <translation tag="Temperatures" es="Temperaturas"/>
   <translation tag="Temperatures plotted over time" es="Temperaturas a lo largo del tiempo"/>
   <translation tag="Temperatures saved" es="Temperaturas guardadas"/>
+  <translation tag="Temperatures, fans and filament remaining"/>
   <translation tag="Template" es="Plantilla"/>
   <translation tag="Temporary adjustment for this print" es="Ajuste temporal para esta impresión"/>
   <translation tag="Temporary adjustment for this print, unless saved on Controls panel" es="Ajuste temporal para esta impresión, a menos que se guarde en el panel de Controles"/>
@@ -3695,6 +3870,7 @@
   <translation tag="The PEI sheet is still on the bed. Take it off, then tap Next." es="La lámina PEI sigue en la cama. Retírala y pulsa Siguiente."/>
   <translation tag="The Spoolman spool currently loaded" es="La bobina de Spoolman cargada ahora"/>
   <translation tag="The animated screensaver has been turned off on this device to prevent it from interfering with prints. You can re-enable it in Settings &gt; Display." es="El salvapantallas animado se ha desactivado en este dispositivo para evitar que interfiera con las impresiones. Puede volver a activarlo en Ajustes &gt; Pantalla."/>
+  <translation tag="The background update check did not finish within 90 seconds. Try again later." es="La búsqueda de actualizaciones en segundo plano no terminó en 90 segundos. Inténtelo más tarde."/>
   <translation tag="The bed and nozzle heat together before anything moves, so the print re-grips and the nozzle lets go of it." es="La cama y la boquilla se calientan juntas antes de que nada se mueva, para que la impresión vuelva a adherirse y la boquilla se suelte de ella."/>
   <translation tag="The bed has cooled. Take the spools off the plate, then confirm." es="La cama se ha enfriado. Quita las bobinas de la cama y luego confirma."/>
   <translation tag="The bed heater. Set its temperature and watch its graph on the bed temperature screen." es="El calentador de la cama. Ajusta su temperatura y mira su gráfica en la pantalla de temperatura de la cama."/>
@@ -3709,6 +3885,7 @@
   <translation tag="The chamber heater can run a filament drying cycle. Start one from the drying dialog." es="El calentador de la cámara puede ejecutar un ciclo de secado de filamento. Inícialo desde el diálogo de secado."/>
   <translation tag="The chamber wait already ended; nothing was stopped." es="La espera de la cámara ya terminó; no se detuvo nada."/>
   <translation tag="The change takes effect after Klipper restarts. This will restart Klipper firmware. Any active operations will be interrupted." es="El cambio surte efecto cuando Klipper se reinicie. Se reiniciará el firmware de Klipper. Las operaciones activas se interrumpirán."/>
+  <translation tag="The component may restart. Wait for the operation to finish."/>
   <translation tag="The connection to Klipper was lost" es="Se perdió la conexión con Klipper"/>
   <translation tag="The controller boards Klipper runs on. See their load in the system settings." es="Las placas controladoras en las que se ejecuta Klipper. Consulta su carga en los ajustes del sistema."/>
   <translation tag="The cutter blade didn&apos;t return — check for filament wrapped around the cutting mechanism" es="La cuchilla no regresó. Compruebe si hay filamento enrollado en el mecanismo de corte"/>
@@ -3735,6 +3912,7 @@
   <translation tag="The heater was turned off at the heater." es="El calentador se apagó desde el propio calentador."/>
   <translation tag="The heater will cycle on and off several times." es="El calentador se encenderá y apagará varias veces."/>
   <translation tag="The helper macros are installed and activate after Klipper restarts." es="Las macros de ayuda están instaladas y se activan tras reiniciar Klipper."/>
+  <translation tag="The installed version is newer"/>
   <translation tag="The latch opens and {} can drop. Hold it before you continue, then put it in its dock." es="El cierre se abre y {} puede caer. Sujétela antes de continuar y luego colóquela en su base."/>
   <translation tag="The left RFID reader in this CFS unit may need service" es="Puede que el lector RFID izquierdo de esta unidad CFS necesite servicio"/>
   <translation tag="The loaded slot is not known yet" es="La ranura cargada aún no se conoce"/>
@@ -3792,6 +3970,7 @@
   <translation tag="The printer lost power while printing {}. Resume where it left off?" es="La impresora perdió corriente mientras imprimía {}. ¿Reanudar donde se quedó?"/>
   <translation tag="The printer lost power while printing {}. The resumed layer may not line up exactly." es="La impresora perdió corriente mientras imprimía {}. La capa reanudada puede no alinearse con exactitud."/>
   <translation tag="The printer moves the toolhead and measures its motors." es="La impresora mueve el cabezal y mide sus motores."/>
+  <translation tag="The printer must be idle with heaters off before updating." es="La impresora debe estar inactiva y con los calentadores apagados antes de actualizar."/>
   <translation tag="The printer no longer has a print to resume." es="La impresora ya no tiene una impresión para reanudar."/>
   <translation tag="The printer reads the file up to the last saved position. A large file can take a minute." es="La impresora lee el archivo hasta la última posición guardada. Un archivo grande puede tardar un minuto."/>
   <translation tag="The printer records lane {} in the toolhead, not this one" es="La impresora registra el carril {} en el cabezal, no este"/>
@@ -3805,6 +3984,7 @@
   <translation tag="The right RFID reader in this CFS unit may need service" es="Puede que el lector RFID derecho de esta unidad CFS necesite servicio"/>
   <translation tag="The runout sensor indicates no filament is loaded. Start print anyway?" es="El sensor de agotamiento indica que no hay filamento cargado. ¿Iniciar la impresión de todos modos?"/>
   <translation tag="The saved position is kept. Reconnect or restart the screen to be offered the resume again." es="La posición guardada se conserva. Vuelva a conectar o reinicie la pantalla para que se le ofrezca de nuevo la reanudación."/>
+  <translation tag="The selected or installed version has changed. Check updates again." es="La versión seleccionada o instalada ha cambiado. Vuelva a buscar actualizaciones."/>
   <translation tag="The sensor in this CFS unit cannot be read. Check its connection, or the unit may need service" es="No se puede leer el sensor de esta unidad CFS. Compruebe su conexión o puede que la unidad necesite servicio"/>
   <translation tag="The speed of one fan you choose" es="La velocidad de un ventilador elegido"/>
   <translation tag="The time, date, and system uptime" es="Hora, fecha y tiempo de actividad"/>
@@ -3888,12 +4068,15 @@
   <translation tag="This printer&apos;s network service controls the WiFi radio" es="El servicio de red de esta impresora controla la radio WiFi"/>
   <translation tag="This printer&apos;s network service manages saved WiFi networks" es="El servicio de red de esta impresora gestiona las redes WiFi guardadas"/>
   <translation tag="This printer&apos;s screen has not shared a layout" es="La pantalla de esta impresora no ha compartido un diseño"/>
+  <translation tag="This profile is used by a filament and cannot be renamed"/>
+  <translation tag="This release is installed"/>
   <translation tag="This removes the plugin&apos;s Moonraker component and restarts Moonraker. The printer will briefly disconnect. If old phase-tracking lines are still in PRINT_START, they are removed too, with backups kept. A Klipper restart applies that." es="Esto elimina el componente de Moonraker del plugin y reinicia Moonraker. La impresora se desconectará brevemente. Si aún hay líneas de seguimiento de fases antiguas en PRINT_START, también se eliminan, conservando copias de seguridad. Un reinicio de Klipper aplica eso."/>
   <translation tag="This replaces the printer&apos;s helper macros with the current version and restarts Klipper." es="Esto reemplaza las macros de ayuda de la impresora por la versión actual y reinicia Klipper."/>
   <translation tag="This replaces the printer&apos;s helper macros with the current version. A print is running, so Klipper restarts after it finishes." es="Esto reemplaza las macros de ayuda de la impresora por la versión actual. Hay una impresión en curso, así que Klipper se reiniciará al terminar."/>
   <translation tag="This replaces this screen&apos;s home layout for this printer with the one on the printer&apos;s own screen." es="Esto reemplaza el diseño de la pantalla de inicio de esta pantalla para esta impresora por el de la pantalla de la propia impresora."/>
   <translation tag="This resume needs a newer version of HelixScreen." es="Esta reanudación necesita una versión más reciente de HelixScreen."/>
   <translation tag="This slot feeds no tool" es="Esta ranura no alimenta ninguna herramienta"/>
+  <translation tag="This source checkout does not update the installed VoronDeck package"/>
   <translation tag="This spool&apos;s details haven&apos;t loaded from Spoolman yet. Try Save again." es="Los detalles de esta bobina aún no se han cargado desde Spoolman. Vuelve a pulsar Guardar."/>
   <translation tag="This system does not support bypass mode" es="Este sistema no es compatible con el modo bypass"/>
   <translation tag="This tool probes each bed screw and tells you how much to adjust." es="Esta herramienta sondea cada tornillo de cama y le indica cuánto ajustar."/>
@@ -3995,6 +4178,7 @@
   <translation tag="Tools: " es="Herramientas: "/>
   <translation tag="Total Prints" es="Total de Impresiones"/>
   <translation tag="Total print time: {} h" es="Tiempo total de impresión: {} h"/>
+  <translation tag="Total time"/>
   <translation tag="Touch &amp; Input" es="Toque y entrada"/>
   <translation tag="Touch Cal" es="Cal Táctil"/>
   <translation tag="Touch Calibration" es="Calibración Táctil"/>
@@ -4029,6 +4213,7 @@
   <translation tag="Turn On" es="Encender"/>
   <translation tag="Turn On LEDs" es="Encender los LED"/>
   <translation tag="Turn On Toolhead LED" es="Encender el LED del cabezal"/>
+  <translation tag="Turn off all heaters"/>
   <translation tag="Turn off bed check" es="Desactivar comprobación de cama"/>
   <translation tag="Turn off detection" es="Desactivar detección"/>
   <translation tag="Turn on the lights your light buttons control" es="Enciende las luces que controlan tus botones de luz"/>
@@ -4117,16 +4302,29 @@
   <translation tag="Update Helper Macros" es="Actualizar macros de ayuda"/>
   <translation tag="Update Helper Macros?" es="¿Actualizar macros de ayuda?"/>
   <translation tag="Update Success" es="Actualización correcta"/>
+  <translation tag="Update available"/>
+  <translation tag="Update check failed. Check the network and beta SSH access."/>
+  <translation tag="Update check failed. Tap to retry."/>
+  <translation tag="Update checks are available on an installed VoronDeck screen"/>
+  <translation tag="Update completed. Check component versions."/>
+  <translation tag="Update component?"/>
   <translation tag="Update from a Terminal" es="Actualizar desde un terminal"/>
   <translation tag="Update heater model?" es="¿Actualizar modelo del calentador?"/>
   <translation tag="Update in Spoolman" es="Actualizar en Spoolman"/>
   <translation tag="Update installed!" es="¡Actualización instalada!"/>
+  <translation tag="Update manager"/>
   <translation tag="Update manager is outdated. Run the VoronDeck installer again." es="Update manager is outdated. Run the VoronDeck installer again."/>
+  <translation tag="Update manager ready. Check updates again."/>
+  <translation tag="Update manager repair failed. Check that the printer is idle and local Moonraker is available."/>
+  <translation tag="Update recovery macros to enable this switch, then restart Klipper."/>
   <translation tag="Update the INDX heater model too? {} now holds {}: density {:.2f}, heat capacity {:.2f}." es="¿Actualizar también el modelo del calentador INDX? {} ahora tiene {}: densidad {:.2f}, capacidad calorífica {:.2f}."/>
+  <translation tag="Update the VoronDeck recovery plugin"/>
+  <translation tag="Update the local update manager? Moonraker will restart. Printer settings are preserved. Then check updates again." es="¿Actualizar el gestor local de actualizaciones? Moonraker se reiniciará. Se conservará la configuración de la impresora. Después vuelva a buscar actualizaciones."/>
   <translation tag="Update was not confirmed. Check component updates before retrying." es="Update was not confirmed. Check component updates before retrying."/>
   <translation tag="Update your security PIN" es="Actualice su PIN de seguridad en esta instalación."/>
   <translation tag="Updates" es="Actualizaciones"/>
   <translation tag="Updating Configuration..." es="Actualizando configuración..."/>
+  <translation tag="Updating the update manager..." es="Actualizando el gestor de actualizaciones…"/>
   <translation tag="Upgrade to AFC 1.2.0 or newer for multi-color spools. It also adds filament names, which otherwise need Spoolman." es="Actualice a AFC 1.2.0 o superior para bobinas multicolor. También añade nombres de filamento, que de otro modo requieren Spoolman."/>
   <translation tag="Upload" es="Subir"/>
   <translation tag="Upload Debug Bundle" es="Subir paquete de diagnóstico"/>
@@ -4185,16 +4383,33 @@
   <translation tag="Volume" es="Volumen"/>
   <translation tag="Volume of filament used during ramming" es="Volumen de filamento usado durante la compactación"/>
   <translation tag="Volume {}%" es="Volumen {}%"/>
+  <translation tag="Voron 0.1 / 0.2"/>
+  <translation tag="Voron 2.4"/>
+  <translation tag="Voron Legacy"/>
+  <translation tag="Voron Switchwire"/>
+  <translation tag="Voron Trident"/>
+  <translation tag="Voron Trident CNC AWD"/>
+  <translation tag="VoronDeck"/>
+  <translation tag="VoronDeck "/>
+  <translation tag="VoronDeck Crashed"/>
   <translation tag="VoronDeck Macros" es="Macros de VoronDeck"/>
   <translation tag="VoronDeck adds [include helix-plr/*.cfg] to printer.cfg, so a resume reloads the mesh the print started with. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect." es="VoronDeck agrega [include helix-plr/*.cfg] a printer.cfg para que una reanudación vuelva a cargar la malla con la que empezó la impresión. Junto a printer.cfg se guarda una copia de seguridad, y Klipper debe reiniciarse para que surta efecto."/>
+  <translation tag="VoronDeck and printer components"/>
+  <translation tag="VoronDeck is up to date"/>
+  <translation tag="VoronDeck recovery macros detected. Checkpoints are saved by RECOVERY_CHECKPOINT in the slicer layer-change G-code."/>
   <translation tag="VoronDeck removes its [include helix-plr/*.cfg] lines from printer.cfg. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect. A resume then uses the printer&apos;s default mesh profile." es="VoronDeck elimina sus líneas [include helix-plr/*.cfg] de printer.cfg. Junto a printer.cfg se guarda una copia de seguridad, y Klipper debe reiniciarse para que surta efecto. Una reanudación usará entonces el perfil de malla predeterminado de la impresora."/>
   <translation tag="VoronDeck updated successfully" es="VoronDeck updated successfully"/>
+  <translation tag="VoronDeck updates will be connected after printer testing"/>
+  <translation tag="VoronDeck user guide is being updated"/>
   <translation tag="VoronDeck will integrate with your filament changer for multi-spool/color print operations." es="VoronDeck se integrará con su cambiador de filamento para operaciones de impresión multi-bobina/color."/>
   <translation tag="VoronDeck writes this to printer.cfg and restarts Klipper. The printer will briefly disconnect." es="VoronDeck escribirá esto en printer.cfg y reiniciará Klipper. La impresora se desconectará brevemente."/>
   <translation tag="VoronDeck {} is available ({})" es="VoronDeck {} disponible ({})"/>
   <translation tag="VoronDeck {} is available — tap Update" es="VoronDeck {} está disponible — toque Actualizar"/>
+  <translation tag="VoronDeck — GPL-3.0-or-later"/>
   <translation tag="VoronDeck&apos;s Moonraker plugin is installed, which it uses to run pre-print options. Manage it on the Advanced screen." es="El plugin de Moonraker de VoronDeck está instalado y lo usa para las opciones previas a la impresión. Gestiónalo en la pantalla Avanzado."/>
   <translation tag="VoronDeck&apos;s helper macros are installed in the printer&apos;s config. Install updates on the Advanced screen." es="Las macros auxiliares de VoronDeck están instaladas en la configuración de la impresora. Instala las actualizaciones en la pantalla Avanzado."/>
+  <translation tag="VoronDeck: first setup, controls and recovery. The beta guide requires access to the private repository." es="VoronDeck: configuración inicial, controles y recuperación. La guía beta requiere acceso al repositorio privado."/>
+  <translation tag="VzBot"/>
   <translation tag="WEIGHT SYNC" es="SINCRONIZACIÓN DE PESO"/>
   <translation tag="WIDTH SENSORS" es="SENSORES DE ANCHO"/>
   <translation tag="WLED Preset" es="Preajuste WLED"/>
@@ -4215,6 +4430,7 @@
   <translation tag="Waiting for bed to reach temperature for accurate calibration." es="Esperando que la cama alcance la temperatura para una calibración precisa."/>
   <translation tag="Waiting for chamber {} / {}°C" es="Esperando la cámara {} / {}°C"/>
   <translation tag="Waiting for chamber {}°C" es="Esperando la cámara {}°C"/>
+  <translation tag="Waiting for the background check to finish..." es="Esperando a que termine la comprobación en segundo plano…"/>
   <translation tag="Waiting for the chamber to heat" es="Esperando a que la cámara se caliente"/>
   <translation tag="Waiting for the filament system to report its state" es="Esperando que el sistema de filamento informe su estado"/>
   <translation tag="Waiting for the printer" es="Esperando a la impresora"/>
@@ -4242,6 +4458,7 @@
   <translation tag="When a slicer uploads and starts a file that moves past this printer&apos;s travel, heats past its limits or uses a missing tool, keep the file but do not start it." es="Cuando un laminador sube e inicia un archivo que se mueve más allá del recorrido de esta impresora, calienta por encima de sus límites o usa una herramienta que no existe, conservar el archivo pero no iniciarlo."/>
   <translation tag="When enabled, only the macro runs. When disabled, temperatures are set first, then the macro runs." es="Cuando está activado, solo se ejecuta el macro. Cuando está desactivado, primero se establecen las temperaturas y luego se ejecuta el macro."/>
   <translation tag="Where UI sounds play" es="Dónde se reproducen los sonidos de la interfaz"/>
+  <translation tag="Where the completion melody plays"/>
   <translation tag="Whether filament is loaded" es="Si hay filamento cargado"/>
   <translation tag="Which belt is each path?" es="¿Qué correa es cada ruta?"/>
   <translation tag="Which belt is which?" es="¿Qué correa es cuál?"/>
@@ -4309,6 +4526,7 @@
   <translation tag="YOU WIN!&#10;Score: {}&#10;Tap to play again" es="¡GANASTE!&#10;Puntuación: {}&#10;Toca para jugar de nuevo"/>
   <translation tag="Year" es="Año"/>
   <translation tag="Yes" es="Sí"/>
+  <translation tag="You can return to these tools later from the Control screen."/>
   <translation tag="You can skip this and calibrate later in Settings." es="Puede omitir esto y calibrar más tarde en Ajustes."/>
   <translation tag="You have unsaved changes. Discard them?" es="Tiene cambios sin guardar. ¿Descartarlos?"/>
   <translation tag="Your completed prints will appear here" es="Sus impresiones completadas aparecerán aquí"/>
@@ -4356,6 +4574,10 @@
   <translation tag="Z-offset saving is off, so VoronDeck did not save this. Klipper holds it until the next config save." es="Guardar Z-Offset está desactivado, así que VoronDeck no lo guardó. Klipper lo conserva hasta el próximo guardado de la configuración."/>
   <translation tag="Z:" es="Z:"/>
   <translation tag="Z: 0.000" es="Z: 0.000"/>
+  <translation tag="ZeroG Hydra 255"/>
+  <translation tag="ZeroG Hydra 370"/>
+  <translation tag="ZeroG Nebula"/>
+  <translation tag="ZeroG Nebula 370"/>
   <translation tag="Zone {:.0f}-{:.0f} Hz" es="Zona {:.0f}-{:.0f} Hz"/>
   <translation tag="[resonance_tester] has no probe_points, so the toolhead has no safe height for the settling laps." es="[resonance_tester] no tiene probe_points, así que el cabezal no tiene una altura segura para las vueltas de asentamiento."/>
   <translation tag="already loaded" es="ya cargado"/>
@@ -4396,6 +4618,7 @@
   <translation tag="feeder not in automatic mode" es="alimentador no está en modo automático"/>
   <translation tag="filament sensor disabled" es="sensor de filamento desactivado"/>
   <translation tag="from tag" es="del tag"/>
+  <translation tag="h"/>
   <translation tag="heated bed" es="cama caliente"/>
   <translation tag="helixscreen.env ignored: owned by uid {}" es="helixscreen.env ignorado: pertenece al uid {}"/>
   <translation tag="helixscreen.env ignored: untrusted symlink chain" es="helixscreen.env ignorado: cadena de enlaces simbólicos no confiable"/>

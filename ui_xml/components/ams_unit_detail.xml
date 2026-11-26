@@ -59,12 +59,12 @@
   -->
   <view name="ams_unit_detail"
         extends="lv_obj" width="100%" height="content" style_pad_all="0" style_pad_gap="0" flex_flow="$detail_flow"
-        style_flex_cross_place="center"
-        scrollable="false">
+        style_flex_cross_place="center" scrollable="false">
     <!-- Slot container — holds grid, tray, labels and badges. Flex-grows to fill
          the row beside the pill. Uses width="1" per L066 so LVGL flex
          allocates based on grown width, not content width. -->
-    <lv_obj name="slot_container" width="$slot_width" height="content" flex_grow="$slot_grow" style_pad_all="0" scrollable="false">
+    <lv_obj name="slot_container"
+            width="$slot_width" height="content" flex_grow="$slot_grow" style_pad_all="0" scrollable="false">
       <!-- Slot Grid — back wall of 3D tray drawn via DRAW_MAIN callback on this object -->
       <lv_obj name="slot_grid"
               width="100%" height="content" style_pad_all="0" style_pad_row="0" style_pad_column="0" flex_flow="row"
@@ -85,11 +85,11 @@
          takes its width from the row, so the box narrows to make room, and
          ams_detail_update_tray() stands it against the box's right end at the
          box's height. Hidden, it gives the width back. -->
-    <ams_env_pill name="env_indicator" flow="$env_flow" gap="$env_gap"
-                  readout_font="$env_font" readout_icon="$env_icon" readout_min_height="$env_min_height"
-                  style_margin_left="#space_xxs" temp_text="ams_env_ind_detail_temp_text"
-                  humidity_text="ams_env_ind_detail_humidity_text" humidity="ams_env_ind_detail_humidity"
-                  humidity_status="ams_env_ind_detail_humidity_status"
+    <ams_env_pill name="env_indicator"
+                  flow="$env_flow" gap="$env_gap" readout_font="$env_font" readout_icon="$env_icon"
+                  readout_min_height="$env_min_height" style_margin_left="#space_xxs"
+                  temp_text="ams_env_ind_detail_temp_text" humidity_text="ams_env_ind_detail_humidity_text"
+                  humidity="ams_env_ind_detail_humidity" humidity_status="ams_env_ind_detail_humidity_status"
                   humidity_visible="ams_env_ind_detail_humidity_visible" visible="ams_env_ind_detail_visible"
                   drying_active="ams_env_ind_detail_drying_active" drying_text="ams_env_ind_detail_drying_text"/>
   </view>

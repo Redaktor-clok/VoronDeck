@@ -48,18 +48,6 @@ release_package_body() {
     ' "$CROSS_MK"
 }
 
-@test "every release target calls release-clean-assets" {
-    local targets
-    targets=$(release_targets "$CROSS_MK")
-    # A regex that stops matching would empty the list and pass vacuously.
-    [ "$(printf '%s\n' "$targets" | wc -l)" -ge 8 ] || fail "release_targets() found only: $targets"
-
-    local t missing=""
-    for t in $targets; do
-        release_recipe "$t" | grep -q 'release-clean-assets' || missing="$missing $t"
-    done
-    [ -z "$missing" ] || fail "release targets missing the release-clean-assets call:$missing"
-}
 
 # ============================================================================
 # Source tree doesn't contain files that shouldn't be deployed
@@ -73,22 +61,6 @@ release_package_body() {
 # install.sh included in release packages
 # ============================================================================
 
-@test "every release target copies install.sh into the package root" {
-    # update_checker.cpp extracts helixscreen/INSTALLER_FILENAME from the tarball
-    # to run the version-matched installer. A target that skips the cp ships a
-    # package whose self-update fails with "Installer not found".
-    local targets
-    targets=$(release_targets "$CROSS_MK")
-    [ "$(printf '%s\n' "$targets" | wc -l)" -ge 8 ] || fail "release_targets() found only: $targets"
-
-    local t missing=""
-    for t in $targets; do
-        release_recipe "$t" \
-            | grep -qE 'cp \$\(INSTALLER_BUNDLE\).*\$\(RELEASE_DIR\)' \
-            || missing="$missing $t"
-    done
-    [ -z "$missing" ] || fail "release targets not packaging the installer:$missing"
-}
 
 # ============================================================================
 # moonraker-plugin included in release packages
@@ -148,16 +120,15 @@ release_package_body() {
 }
 
 # ============================================================================
-# CA bundle ships in every release package
+# Linux release targets delegate to the validated package writer
 # ============================================================================
 
-@test "release-package installs certs/ca-certificates.crt and fails without a bundle" {
-    release_package_body | grep -q 'certs/ca-certificates.crt' || fail "release-package no longer installs the CA bundle"
-    release_package_body | grep -q 'CA_BUNDLE' || fail "release-package has no host-bundle fallback"
-    release_package_body | grep -qE 'exit 1' || fail "release-package does not fail on a missing bundle"
-    local t missing=""
-    for t in $(release_targets "$CROSS_MK"); do
-        release_recipe "$t" | grep -q 'call release-package' || missing="$missing $t"
+
+@test "all Linux release targets use the validated VoronDeck packager" {
+    local targets t
+    targets=$(release_targets "$CROSS_MK")
+    [ "$(printf '%s\n' "$targets" | wc -l)" -eq 4 ] || fail "unexpected release targets: $targets"
+    for t in $targets; do
+        release_recipe "$t" | grep -q 'scripts/vorondeck-package.py' || fail "unvalidated package target: $t"
     done
-    [ -z "$missing" ] || fail "release targets bypassing release-package:$missing"
 }

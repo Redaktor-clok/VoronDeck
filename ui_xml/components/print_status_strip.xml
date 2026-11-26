@@ -120,9 +120,10 @@
       <bind_style_if_eq name="buttons_row" subject="ps_strip_stacked" ref_value="0"/>
       <bind_style_if_eq name="buttons_stacked" subject="ps_strip_stacked" ref_value="1"/>
       <ui_button name="btn_pause"
-                 height="100%" flex_grow="1" style_min_width="#ps_strip_button" style_pad_hor="0" style_pad_ver="#space_xxs" icon="pause"
-                 bind_icon="print_control_primary_icon" text="Pause" bind_text="print_control_primary_label"
-                 icon_position="top" style_text_font="#font_xs" label_inherit_font="true" long_mode="wrap">
+                 height="100%" flex_grow="1" style_min_width="#ps_strip_button" style_pad_hor="0"
+                 style_pad_ver="#space_xxs" icon="pause" bind_icon="print_control_primary_icon" text="Pause"
+                 bind_text="print_control_primary_label" icon_position="top" style_text_font="#font_xs"
+                 label_inherit_font="true" long_mode="wrap">
         <bind_style_if_eq name="button_square" subject="ps_strip_stacked" ref_value="0"/>
         <event_cb trigger="clicked" callback="on_print_control_primary"/>
         <bind_state_if_eq subject="print_control_primary_enabled" state="disabled" ref_value="0"/>
@@ -138,7 +139,8 @@
            entry of the menu is. -->
       <ui_button name="btn_more"
                  height="100%" flex_grow="1" style_pad_hor="#space_xxs" style_pad_ver="#space_xxs" variant="ghost"
-                 style_bg_color="#elevated_bg" style_bg_opa="255" icon="dots_vertical" text="More" icon_position="top" style_text_font="#font_xs" label_inherit_font="true" long_mode="wrap">
+                 style_bg_color="#elevated_bg" style_bg_opa="255" icon="dots_vertical" text="More" icon_position="top"
+                 style_text_font="#font_xs" label_inherit_font="true" long_mode="wrap">
         <bind_style_if_eq name="button_square" subject="ps_strip_stacked" ref_value="0"/>
         <bind_flag_if cond="print_status_camera_available or printer_has_timelapse or led_controllable"
                       flag="hidden" invert="true"/>
@@ -147,7 +149,8 @@
       <!-- Cancel while a print runs (outcome NONE), Reprint once it has an outcome. -->
       <ui_button name="btn_cancel"
                  height="100%" flex_grow="1" style_pad_hor="#space_xxs" style_pad_ver="#space_xxs" variant="danger"
-                 icon="stop" text="Cancel" icon_position="top" style_text_font="#font_xs" label_inherit_font="true" long_mode="wrap">
+                 icon="stop" text="Cancel" icon_position="top" style_text_font="#font_xs" label_inherit_font="true"
+                 long_mode="wrap">
         <bind_style_if_eq name="button_square" subject="ps_strip_stacked" ref_value="0"/>
         <bind_flag_if_not_eq subject="print_outcome" flag="hidden" ref_value="0"/>
         <bind_state_if_eq subject="print_control_stop_enabled" state="disabled" ref_value="0"/>
@@ -155,7 +158,8 @@
       </ui_button>
       <ui_button name="btn_reprint"
                  height="100%" flex_grow="1" style_pad_hor="#space_xxs" style_pad_ver="#space_xxs" icon="refresh"
-                 text="Reprint" icon_position="top" style_text_font="#font_xs" label_inherit_font="true" long_mode="wrap" hidden="true">
+                 text="Reprint" icon_position="top" style_text_font="#font_xs" label_inherit_font="true"
+                 long_mode="wrap" hidden="true">
         <bind_style_if_eq name="button_square" subject="ps_strip_stacked" ref_value="0"/>
         <bind_flag_if_eq subject="print_outcome" flag="hidden" ref_value="0"/>
         <event_cb trigger="clicked" callback="on_print_status_reprint"/>

@@ -64,8 +64,6 @@ void MaterialTempsOverlay::register_callbacks() {
         {"on_material_save", [](lv_event_t*) { get_material_temps_overlay().handle_save(); }},
         {"on_material_reset_defaults",
          [](lv_event_t*) { get_material_temps_overlay().handle_reset_defaults(); }},
-        {"on_macro_dropdown_changed",
-         [](lv_event_t*) { get_material_temps_overlay().handle_macro_dropdown_changed(); }},
     });
 }
 

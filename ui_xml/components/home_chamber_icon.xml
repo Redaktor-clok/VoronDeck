@@ -8,24 +8,21 @@
     <prop name="mode_subject" type="string" default="chamber_mode"/>
     <prop name="heater_subject" type="string" default="printer_has_chamber_heater"/>
   </api>
-  <view name="home_chamber_icon" width="content" height="content" style_pad_all="0"
-        flex_flow="row" scrollable="false" clickable="false" event_bubble="true">
-    <icon name="home_chamber_sensor_glyph" src="thermometer" size="$size" variant="muted"
-          clickable="false" event_bubble="true">
+  <view name="home_chamber_icon"
+        width="content" height="content" style_pad_all="0" flex_flow="row" scrollable="false" clickable="false"
+        event_bubble="true">
+    <icon name="home_chamber_sensor_glyph"
+          src="thermometer" size="$size" variant="muted" clickable="false" event_bubble="true">
       <bind_tile_rung ladder="icon" subject="$rung_subject" animated="true"/>
       <bind_flag_if_not_eq subject="$heater_subject" flag="hidden" ref_value="0"/>
     </icon>
-    <icon name="home_chamber_cold_glyph" src="fire" size="$size" variant="muted"
-          clickable="false" event_bubble="true">
+    <icon name="home_chamber_cold_glyph" src="fire" size="$size" variant="muted" clickable="false" event_bubble="true">
       <bind_tile_rung ladder="icon" subject="$rung_subject" animated="true"/>
-      <bind_flag_if cond="${heater_subject} eq 0 or (${target_subject} gt 0 and ${mode_subject} eq 1)"
-                    flag="hidden"/>
+      <bind_flag_if cond="${heater_subject} eq 0 or (${target_subject} gt 0 and ${mode_subject} eq 1)" flag="hidden"/>
     </icon>
-    <icon name="chamber_icon_glyph" src="fire" size="$size" variant="muted"
-          clickable="false" event_bubble="true">
+    <icon name="chamber_icon_glyph" src="fire" size="$size" variant="muted" clickable="false" event_bubble="true">
       <bind_tile_rung ladder="icon" subject="$rung_subject" animated="true"/>
-      <bind_flag_if cond="${heater_subject} eq 0 or ${target_subject} le 0 or ${mode_subject} ne 1"
-                    flag="hidden"/>
+      <bind_flag_if cond="${heater_subject} eq 0 or ${target_subject} le 0 or ${mode_subject} ne 1" flag="hidden"/>
     </icon>
   </view>
 </component>

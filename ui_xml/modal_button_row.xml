@@ -81,15 +81,15 @@
            edge. Shared theme styles own each button's border and radius. -->
       <ui_button name="$quaternary_name"
                  height="100%" style_min_width="content" style_pad_hor="#space_sm" hidden="$hide_quaternary"
-                 variant="$quaternary_variant" flex_grow="1" focusable="false"
-                 icon="$quaternary_icon" text="$quaternary_text" translation_tag="$quaternary_tag">
+                 variant="$quaternary_variant" flex_grow="1" focusable="false" icon="$quaternary_icon"
+                 text="$quaternary_text" translation_tag="$quaternary_tag">
         <event_cb trigger="clicked" callback="$quaternary_callback" user_data="$quaternary_user_data"/>
       </ui_button>
       <divider_vertical name="$quaternary_divider_name" hidden="$hide_quaternary"/>
       <ui_button name="$tertiary_name"
                  height="100%" style_min_width="content" style_pad_hor="#space_sm" hidden="$hide_tertiary"
-                 variant="$tertiary_variant" flex_grow="1" focusable="false"
-                 icon="$tertiary_icon" text="$tertiary_text" translation_tag="$tertiary_tag">
+                 variant="$tertiary_variant" flex_grow="1" focusable="false" icon="$tertiary_icon" text="$tertiary_text"
+                 translation_tag="$tertiary_tag">
         <bind_flag_if_eq subject="$tertiary_show_subject" flag="hidden" ref_value="0"/>
         <event_cb trigger="clicked" callback="$tertiary_callback" user_data="$tertiary_user_data"/>
       </ui_button>
@@ -101,9 +101,8 @@
            leaves the static text standing, as ui_button skips empty bindings. -->
       <ui_button name="$secondary_name"
                  height="100%" style_min_width="content" style_pad_hor="#space_sm" hidden="$hide_secondary"
-                 variant="$secondary_variant" flex_grow="1" focusable="false"
-                 bind_text="$secondary_subject" icon="$secondary_icon" text="$secondary_text"
-                 translation_tag="$secondary_tag">
+                 variant="$secondary_variant" flex_grow="1" focusable="false" bind_text="$secondary_subject"
+                 icon="$secondary_icon" text="$secondary_text" translation_tag="$secondary_tag">
         <bind_flag_if_eq subject="$secondary_show_subject" flag="hidden" ref_value="0"/>
         <event_cb trigger="clicked" callback="$secondary_callback" user_data="$secondary_user_data"/>
       </ui_button>
@@ -123,9 +122,8 @@
            this button. -->
       <ui_button name="$primary_name"
                  height="100%" style_min_width="content" style_pad_hor="#space_sm" variant="$primary_variant"
-                 flex_grow="1" focusable="false" bind_text="$primary_subject"
-                 moves_machine="$primary_moves_machine" icon="$primary_icon" text="$primary_text"
-                 translation_tag="$primary_tag">
+                 flex_grow="1" focusable="false" bind_text="$primary_subject" moves_machine="$primary_moves_machine"
+                 icon="$primary_icon" text="$primary_text" translation_tag="$primary_tag">
         <event_cb trigger="clicked" callback="$primary_callback" user_data="$primary_user_data"/>
         <bind_flag_if_eq subject="$primary_hide_subject" flag="hidden" ref_value="1"/>
         <bind_state_if_eq subject="$primary_enable_subject" state="disabled" ref_value="0"/>

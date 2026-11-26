@@ -7,7 +7,9 @@
 
 #include "app_globals.h"
 #include "config.h"
+#include "exception_policy.h"
 #include "i_moonraker_client.h"
+#include "json_utils.h"
 #include "print_history_manager.h"
 #include "printer_state.h"
 #include "static_subject_registry.h"
@@ -116,9 +118,8 @@ void PrinterMaintenanceOverlay::send(const maintenance::Request& request,
                                 status(lv_tr("Invalid Moonraker response"));
                                 return;
                             }
-                            try {
-                                done(response["result"]);
-                            } catch (const json::exception&) {
+                            if (!helix::contain_exceptions("Printer maintenance response",
+                                                           [&] { done(response["result"]); })) {
                                 status(lv_tr("Invalid Moonraker response"));
                             }
                         });
@@ -142,9 +143,9 @@ void PrinterMaintenanceOverlay::refresh(bool check_remote) {
         return;
     if (lv_subject_get_int(&section_) == 0) {
         send({"server.history.totals", json::object()}, [this](const json& result) {
-            auto totals = result.value("job_totals", json::object());
-            const auto jobs = totals.value("total_jobs", 0);
-            const double hours = totals.value("total_time", 0.0) / 3600.0;
+            auto totals = helix::json_util::safe_object(result, "job_totals");
+            const auto jobs = helix::json_util::safe_int(totals, "total_jobs", 0);
+            const double hours = helix::json_util::safe_double(totals, "total_time", 0.0) / 3600.0;
             status(fmt::format("{}: {} · {}: {:.1f} {}", lv_tr("Jobs"), jobs, lv_tr("Total time"),
                                hours, lv_tr("h")));
         });
@@ -160,7 +161,7 @@ void PrinterMaintenanceOverlay::refresh(bool check_remote) {
     }
 }
 void PrinterMaintenanceOverlay::publish(const json& result) {
-    server_busy_ = result.value("busy", false);
+    server_busy_ = helix::json_util::safe_bool(result, "busy", true);
     components_ = maintenance::parse_components(result);
     names_.ensure_size(components_.size());
     descriptions_.ensure_size(components_.size());

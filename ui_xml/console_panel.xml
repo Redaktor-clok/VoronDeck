@@ -43,19 +43,20 @@
                     one_line="true" style_bg_opa="0" style_border_width="0" style_radius="0" style_pad_hor="0"/>
         <!-- Clear button -->
         <ui_button name="clear_btn"
-                   width="#button_height_sm" height="#button_height_sm" style_radius="#button_height_sm" style_pad_all="0" variant="ghost"
-                   icon="delete">
+                   width="#button_height_sm" height="#button_height_sm" style_radius="#button_height_sm"
+                   style_pad_all="0" variant="ghost" icon="delete">
           <event_cb trigger="clicked" callback="on_console_clear_clicked"/>
         </ui_button>
         <!-- Settings gear: opens console_settings_overlay (filter toggles, future per-pattern editor) -->
         <ui_button name="settings_btn"
-                   width="#button_height_sm" height="#button_height_sm" style_radius="#button_height_sm" style_pad_all="0" variant="ghost"
-                   icon="cog">
+                   width="#button_height_sm" height="#button_height_sm" style_radius="#button_height_sm"
+                   style_pad_all="0" variant="ghost" icon="cog">
           <event_cb trigger="clicked" callback="on_console_settings_clicked"/>
         </ui_button>
         <!-- Send button: the one accented action, kept last so it reads as commit -->
         <ui_button name="send_btn"
-                   width="#button_height_sm" height="#button_height_sm" style_radius="#button_height_sm" style_pad_all="0" icon="send">
+                   width="#button_height_sm" height="#button_height_sm" style_radius="#button_height_sm"
+                   style_pad_all="0" icon="send">
           <event_cb trigger="clicked" callback="on_console_send_clicked"/>
         </ui_button>
       </lv_obj>

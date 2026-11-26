@@ -86,7 +86,9 @@
                 height="content" style_pad_all="0" style_pad_gap="#space_md" flex_flow="row"
                 style_flex_main_place="start" style_flex_cross_place="center">
           <!-- Test Connection Button -->
-          <ui_button name="btn_test_connection" width="200" text="Test Connection" label_inherit_font="true" style_text_font="#font_xs" long_mode="wrap">
+          <ui_button name="btn_test_connection"
+                     width="200" text="Test Connection" label_inherit_font="true" style_text_font="#font_xs"
+                     long_mode="wrap">
             <!-- Disable button while connection test is in progress -->
             <bind_state_if_eq subject="connection_testing" state="disabled" ref_value="1"/>
             <!-- Remove clickable flag when connection test is in progress -->

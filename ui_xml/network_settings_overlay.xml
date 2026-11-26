@@ -41,8 +41,7 @@
         <!-- Status cards take the space above Test Network and scroll when
              both transports are connected and their cards outgrow it -->
         <lv_obj name="status_cards"
-                width="100%" style_pad_all="0" style_pad_gap="#space_sm" flex_flow="column"
-                scroll_dir="ver">
+                width="100%" style_pad_all="0" style_pad_gap="#space_sm" flex_flow="column" scroll_dir="ver">
           <bind_style_if_eq name="status_cards_wide" subject="ui_is_portrait" ref_value="0"/>
           <bind_style_if_eq name="status_cards_tall" subject="ui_is_portrait" ref_value="1"/>
           <!-- ============================================================== -->

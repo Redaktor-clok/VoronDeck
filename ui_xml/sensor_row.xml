@@ -32,11 +32,12 @@
     <lv_obj width="100%"
             height="content" style_pad_all="0" scrollable="false" flex_flow="row" style_flex_main_place="space_between"
             style_flex_cross_place="center">
-      <lv_obj width="0" height="content"
-              style_pad_all="0" scrollable="false" flex_flow="row" style_flex_cross_place="center"
+      <lv_obj width="0"
+              height="content" style_pad_all="0" scrollable="false" flex_flow="row" style_flex_cross_place="center"
               style_pad_gap="#space_sm" flex_grow="1">
         <icon src="$icon" size="sm" variant="primary"/>
-        <text_body name="name_label" width="0" bind_text="sensor_${section}_row_name_${index}" long_mode="dots" flex_grow="1"/>
+        <text_body name="name_label"
+                   width="0" bind_text="sensor_${section}_row_name_${index}" long_mode="dots" flex_grow="1"/>
       </lv_obj>
       <text_small name="state_label" bind_text="sensor_${section}_row_state_${index}">
         <bind_flag_if_eq subject="sensor_${section}_row_has_state_${index}" flag="hidden" ref_value="0"/>
@@ -62,7 +63,8 @@
                       flag="hidden"/>
         <text_small text="Role:"/>
         <!-- A held role the dropdown does not offer: shown as text until the user picks an option -->
-        <text_small name="held_role_label" width="0" flex_grow="1" long_mode="wrap" bind_text="sensor_${section}_row_held_role_${index}">
+        <text_small name="held_role_label"
+                    width="0" flex_grow="1" long_mode="wrap" bind_text="sensor_${section}_row_held_role_${index}">
           <bind_flag_if_eq subject="sensor_${section}_row_has_held_role_${index}" flag="hidden" ref_value="0"/>
         </text_small>
         <!-- Use the available row width; the toggle moves below in portrait. -->

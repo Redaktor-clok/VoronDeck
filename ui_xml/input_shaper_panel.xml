@@ -17,7 +17,8 @@
         style_pad_all="0" style_bg_opa="255" style_bg_color="#card_bg" scrollable="false" flex_flow="column">
     <!-- Header Bar -->
     <header_bar name="overlay_header"
-                title="Input Shaper" title_font="#font_body" title_long_mode="wrap" title_max_lines="2" hide_action_button="false" action_button_text="Calibrate All"
+                title="Input Shaper" title_font="#font_body" title_long_mode="wrap" title_max_lines="2"
+                hide_action_button="false" action_button_text="Calibrate All"
                 action_button_callback="input_shaper_calibrate_all_cb"
                 action_button_disabled_cond="is_calibrate_all_disabled or nav_buttons_enabled eq 0"/>
     <!-- Content Area -->
@@ -45,7 +46,8 @@
             <text_body text="Reduce vibration artifacts like ringing and ghosting"
                        flex_grow="1" style_text_color="#text_muted"/>
             <ui_button name="btn_help"
-                       width="#icon_button_size_lg" height="#icon_button_size_lg" style_pad_all="0" variant="ghost" icon="help_circle">
+                       width="#icon_button_size_lg" height="#icon_button_size_lg" style_pad_all="0" variant="ghost"
+                       icon="help_circle">
               <event_cb trigger="clicked" callback="input_shaper_help_cb"/>
             </ui_button>
           </lv_obj>

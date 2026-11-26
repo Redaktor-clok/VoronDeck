@@ -127,9 +127,9 @@ setup() {
     local head
     head="$(git rev-parse --short HEAD)"
     [ -n "$head" ]
-    run make -n k1-docker
+    run make -n pi-docker
     contains "-e HELIX_GIT_HASH=$head" "$output"
-    run make -n k1-docker HELIX_GIT_HASH=feedface
+    run make -n pi-docker HELIX_GIT_HASH=feedface
     [ "$status" -eq 0 ]
     [[ "$output" == *"-e HELIX_GIT_HASH=feedface"* ]]
 }
@@ -203,14 +203,14 @@ PY
 
 @test "a container build leaves the tree's compile_commands.json alone" {
     # Its fragments name /src, a path the host's syntax check cannot open.
-    run make -n mips-docker
+    run make -n pi-docker
     [ "$status" -eq 0 ]
-    contains 'toolchain-mips' "$output"
+    contains 'toolchain-pi' "$output"
     contains '-e SKIP_COMPILE_COMMANDS=1' "$output"
 }
 
 @test "a developer cross build gets the remote-control server" {
-    run make -n k2-docker
+    run make -n pi-docker
     [ "$status" -eq 0 ]
     [[ "$output" == *'ENABLE_REMOTE_CONTROL=yes'* ]]
 }
@@ -220,26 +220,24 @@ PY
     # is expected on a tree that has not cross-built. Asserting the docker line
     # was emitted is what proves make expanded the recipe before it stopped —
     # without it, a makefile that failed EARLIER would read green.
-    run make -n package-k2
-    contains 'toolchain-k2' "$output"
+    run make -n package-pi
+    contains 'toolchain-pi' "$output"
     contains 'ENABLE_REMOTE_CONTROL=no' "$output"
     [[ "$output" != *'ENABLE_REMOTE_CONTROL=yes'* ]]
 }
 
 @test "an explicit ENABLE_REMOTE_CONTROL still wins over the default" {
-    run make -n k2-docker ENABLE_REMOTE_CONTROL=no
+    run make -n pi-docker ENABLE_REMOTE_CONTROL=no
     [ "$status" -eq 0 ]
     contains 'ENABLE_REMOTE_CONTROL=no' "$output"
     [[ "$output" != *'ENABLE_REMOTE_CONTROL=yes'* ]]
 }
 
 @test "package-% marks packaging for every platform, shared docker targets included" {
-    # package-mips, package-k1 and package-ad5x all drive mips-docker. A
+    # package-mips, package-k1 and package-ad5x all drive pi-docker. A
     # per-target variable written on the docker rule instead of the package rule
     # would give one of them the developer default.
-    for t in package-ad5m package-cc1 package-pi package-pi32 package-mips \
-             package-k1 package-ad5x package-k1-dynamic package-k2 \
-             package-snapmaker-u1 package-x86; do
+    for t in package-pi package-pi32 package-x86 package-x86-desktop; do
         run make -n "$t"
         # See the note above on why status is not asserted here.
         [[ "$output" == *'ENABLE_REMOTE_CONTROL=no'* ]] || {
@@ -256,9 +254,10 @@ PY
 @test "CI's release workflow marks its build as packaging" {
     # release.yml builds through a bare `make PLATFORM_TARGET=...` inside its own
     # container and never runs package-*, so the marker has to be explicit there.
-    run grep -F 'make PLATFORM_TARGET=' .github/workflows/release.yml
+    run grep -F 'export HELIX_PACKAGING=1' .github/actions/scripts/build-arm-package.sh
     [ "$status" -eq 0 ]
-    [[ "$output" == *'HELIX_PACKAGING=1'* ]]
+    run grep -F 'bash .github/actions/scripts/build-arm-package.sh' .github/workflows/arm-package.yml
+    [ "$status" -eq 0 ]
 }
 
 @test "every release target refuses a binary built with the server" {
@@ -275,7 +274,12 @@ for m in re.finditer(r'^(release-[a-z0-9-]+):\s*\|\s*(.+)$', text, re.M):
     body = body[:body.index("\n\n")] if "\n\n" in body else body
     dirs = {d.group(1) for d in re.finditer(r'(build/[a-z0-9-]+/bin)/', prereqs)}
     checked = set(re.findall(r'assert-no-remote-control,(build/[a-z0-9-]+/bin)\)', body))
-    if dirs - checked:
+    shared = '$(call release-package,' in body
+    if shared:
+        packager = open('scripts/vorondeck-package.py').read()
+        assert "remote_control=no" in packager and "parser.error" in packager
+        assert 'python3 scripts/vorondeck-package.py --binary build/$(1)/bin/helix-screen' in text
+    elif dirs - checked:
         missing.append("%s: unchecked %s" % (target, ", ".join(sorted(dirs - checked))))
 if missing:
     print("\n".join(missing))

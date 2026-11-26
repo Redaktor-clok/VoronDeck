@@ -148,7 +148,7 @@ std::string base_text(CapChip chip, const CapabilityChipFacts& f) {
     case CapChip::Timelapse:
         return lv_tr("Timelapse");
     case CapChip::HelixMacros:
-        return lv_tr("HelixScreen Macros");
+        return lv_tr("VoronDeck Macros");
     case CapChip::HelixPlugin:
         return lv_tr("HelixPrint Plugin");
     case CapChip::Count:

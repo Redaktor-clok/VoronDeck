@@ -9,6 +9,12 @@ SCRIPT="scripts/resolve-backtrace.sh"
 setup() {
     load helpers
     TEST_DIR="$(mktemp -d)"
+    # Symbol-map tests must not inspect a developer's real compiled binary.
+    # Tests exercising addr2line replace these stubs with their own responses.
+    local symbolizer
+    for symbolizer in addr2line llvm-addr2line aarch64-linux-gnu-addr2line x86_64-linux-gnu-addr2line; do
+        mock_command_script "$symbolizer" 'exit 1'
+    done
 
     # Create a mock symbol file (nm -nC output format)
     cat > "$TEST_DIR/test.sym" << 'EOF'

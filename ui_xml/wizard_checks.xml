@@ -10,46 +10,52 @@
   </api>
   <consts>
     <str name="step_title" value="Checks and Calibration" value_tag="Checks and Calibration"/>
-    <str name="step_subtitle" value="Optional. Open a tool to review and start it, or skip this stage." value_tag="Optional. Open a tool to review and start it, or skip this stage."/>
+    <str name="step_subtitle"
+         value="Optional. Open a tool to review and start it, or skip this stage."
+         value_tag="Optional. Open a tool to review and start it, or skip this stage."/>
   </consts>
-  <view name="wizard_checks_root" extends="lv_obj" width="100%" height="100%" style_pad_all="0"
-        style_bg_opa="0" style_border_width="0" flex_flow="column" scrollable="true">
-    <text_small width="100%" text="Only tools supported by the connected printer are shown. Opening this page does not start heating or movement." long_mode="wrap"/>
+  <view name="wizard_checks_root"
+        extends="lv_obj" width="100%" height="100%" style_pad_all="0" style_bg_opa="0" style_border_width="0"
+        flex_flow="column" scrollable="true">
+    <text_small width="100%"
+                text="Only tools supported by the connected printer are shown. Opening this page does not start heating or movement."
+                long_mode="wrap"/>
     <ui_card width="100%" height="content" style_pad_all="0" flex_flow="column" hidden_if_prop_eq="$tools_supported|0">
-      <setting_action_row name="wizard_check_pid" label="PID Calibration" label_tag="PID Calibration" icon="thermometer"
-                          callback="on_wizard_pid">
+      <setting_action_row name="wizard_check_pid" label="PID Calibration" icon="thermometer" callback="on_wizard_pid">
         <bind_flag_if_eq subject="printer_has_heaters" flag="hidden" ref_value="0"/>
         <bind_state_if_eq subject="nav_buttons_enabled" state="disabled" ref_value="0"/>
         <icon name="wizard_check_pid_tick" src="check" size="sm" variant="success" clickable="false" event_bubble="true">
           <bind_flag_if_not_eq subject="wizard_check_pid_done" flag="hidden" ref_value="1"/>
         </icon>
       </setting_action_row>
-      <setting_action_row name="wizard_check_mesh" label="Bed Mesh" label_tag="Bed Mesh" icon="grid_large"
-                          callback="on_wizard_mesh">
+      <setting_action_row name="wizard_check_mesh" label="Bed Mesh" icon="grid_large" callback="on_wizard_mesh">
         <bind_flag_if_eq subject="printer_has_bed_mesh_calibration" flag="hidden" ref_value="0"/>
         <bind_state_if_eq subject="nav_buttons_enabled" state="disabled" ref_value="0"/>
-        <icon name="wizard_check_mesh_tick" src="check" size="sm" variant="success" clickable="false" event_bubble="true">
+        <icon name="wizard_check_mesh_tick"
+              src="check" size="sm" variant="success" clickable="false" event_bubble="true">
           <bind_flag_if_not_eq subject="wizard_check_mesh_done" flag="hidden" ref_value="1"/>
         </icon>
       </setting_action_row>
-      <setting_action_row name="wizard_check_zoffset" label="Z-Offset Calibration" label_tag="Z-Offset Calibration" icon="arrow_down"
-                          callback="on_wizard_zoffset">
+      <setting_action_row name="wizard_check_zoffset"
+                          label="Z-Offset Calibration" icon="arrow_down" callback="on_wizard_zoffset">
         <bind_flag_if_eq subject="printer_has_z_offset_calibration" flag="hidden" ref_value="0"/>
         <bind_state_if_eq subject="nav_buttons_enabled" state="disabled" ref_value="0"/>
-        <icon name="wizard_check_zoffset_tick" src="check" size="sm" variant="success" clickable="false" event_bubble="true">
+        <icon name="wizard_check_zoffset_tick"
+              src="check" size="sm" variant="success" clickable="false" event_bubble="true">
           <bind_flag_if_not_eq subject="wizard_check_zoffset_done" flag="hidden" ref_value="1"/>
         </icon>
       </setting_action_row>
-      <setting_action_row name="wizard_check_shaper" label="Input Shaping" label_tag="Input Shaping" icon="inputshaper"
-                          callback="on_wizard_shaper">
+      <setting_action_row name="wizard_check_shaper"
+                          label="Input Shaping" icon="inputshaper" callback="on_wizard_shaper">
         <bind_flag_if_eq subject="printer_has_accelerometer" flag="hidden" ref_value="0"/>
         <bind_state_if_eq subject="nav_buttons_enabled" state="disabled" ref_value="0"/>
-        <icon name="wizard_check_shaper_tick" src="check" size="sm" variant="success" clickable="false" event_bubble="true">
+        <icon name="wizard_check_shaper_tick"
+              src="check" size="sm" variant="success" clickable="false" event_bubble="true">
           <bind_flag_if_not_eq subject="wizard_check_shaper_done" flag="hidden" ref_value="1"/>
         </icon>
       </setting_action_row>
-      <setting_action_row name="wizard_check_manual_bed_screws" label="Manual Bed Screws" icon="wrench"
-                          callback="on_manual_bed_screws_clicked">
+      <setting_action_row name="wizard_check_manual_bed_screws"
+                          label="Manual Bed Screws" icon="wrench" callback="on_manual_bed_screws_clicked">
         <bind_flag_if_eq subject="printer_has_bed_screws" flag="hidden" ref_value="0"/>
         <bind_state_if_eq subject="nav_buttons_enabled" state="disabled" ref_value="0"/>
       </setting_action_row>

@@ -202,16 +202,16 @@ pr_checkout() { # <dir>
     contains "src/big.cpp is over the $CAP-line cap and grew" "$output"
 }
 
-@test "Code Quality gives every event a fork point: depth 2 plus the PR's base, full history for claude/**" {
+@test "release validation fetches full history and checks against main" {
     python3 -c "import yaml" 2>/dev/null || skip "PyYAML is not installed here"
     run python3 -c "
 import yaml
-steps = yaml.safe_load(open('$BATS_TEST_DIRNAME/../../.github/workflows/quality.yml'))['jobs']['quality-checks']['steps']
+job = yaml.safe_load(open('$BATS_TEST_DIRNAME/../../.github/workflows/release-validation.yml'))['jobs']['native']
+steps = job['steps']
 co = next(s for s in steps if str(s.get('uses', '')).startswith('actions/checkout'))
 depth = str(co.get('with', {}).get('fetch-depth', ''))
-assert \"'2'\" in depth and \"'0'\" in depth and 'refs/heads/claude/' in depth, depth
-names = [s.get('run', '') for s in steps if s.get('if') == \"github.event_name == 'pull_request'\"]
-assert any('refs/remotes/origin/\${{ github.base_ref }}\" HEAD^1' in r for r in names), names
+assert depth == '0', depth
+assert job['env']['LAND_GATE_BASE_REF'] == 'origin/main'
 "
     [ "$status" -eq 0 ] || fail "$output"
 }

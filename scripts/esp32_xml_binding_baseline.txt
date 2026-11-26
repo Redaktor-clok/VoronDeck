@@ -528,3 +528,21 @@ subject:wizard_printer_view
 subject:wizard_welcome_text
 subject:zoffset_cal_state
 subject:zoffset_warm_bed
+
+# Linux first-run wizard uses a separate ESP32 provisioning portal; PID panel is gated off.
+callback:on_pid_quick_save
+subject:pid_quick_unsaved
+subject:wizard_appearance_image
+subject:wizard_appearance_name
+callback:on_wizard_devices_ams
+callback:on_wizard_devices_fans
+callback:on_wizard_devices_heaters
+callback:on_wizard_devices_leds
+callback:on_wizard_devices_sensors
+callback:on_wizard_image
+callback:on_wizard_mesh
+callback:on_wizard_name
+callback:on_wizard_pid
+callback:on_wizard_shaper
+callback:on_wizard_theme
+callback:on_wizard_zoffset

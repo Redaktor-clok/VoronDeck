@@ -14,7 +14,8 @@
             width="100%" height="content" style_min_height="60" style_pad_left="#space_lg" style_pad_right="#space_lg"
             style_pad_top="0" style_pad_bottom="#space_lg">
       <text_body name="dialog_message"
-                 width="100%" text="Reset VoronDeck and restart setup? The printer image and theme are kept. Other screen settings are removed. Klipper settings are unchanged."
+                 width="100%"
+                 text="Reset VoronDeck and restart setup? The printer image and theme are kept. Other screen settings are removed. Klipper settings are unchanged."
                  style_text_align="left" long_mode="wrap"/>
     </lv_obj>
     <modal_button_row primary_text="Reset"

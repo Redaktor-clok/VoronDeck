@@ -240,46 +240,7 @@ run_hook_pre_start() {
     ' sh "$1" "$MI/bin/helix-launcher.sh"
 }
 
-@test "zmod hooks do not wait when a healthy instance is up" {
-    : > "$MI/bin/helix-screen"
-    chmod +x "$MI/bin/helix-screen"
-    install_resident "$BATS_TEST_TMPDIR/helix-watchdog" "$BATS_TEST_TMPDIR/watchdogs"
-    sh "$BATS_TEST_TMPDIR/helix-watchdog" >/dev/null 2>&1 3>&- &
-    wd=$!
-    OWNED_PIDS="$OWNED_PIDS $wd"
-    old=$(start_fake_launcher 600)
-    OWNED_PIDS="$OWNED_PIDS $old"
-    expose "$old"
-    expose "$wd"
 
-    for hook in hooks-ad5x.sh hooks-ad5m-zmod.sh; do
-        start=$(date +%s)
-        HELIX_PROC_ROOT="$FAKE_PROC" HELIX_LAUNCHER_PREDECESSOR_WAIT=5 \
-            run_hook_pre_start "$HOOKS_DIR/$hook"
-        elapsed=$(( $(date +%s) - start ))
-        [ "$status" -eq 0 ]
-        [[ "$output" != *"Waiting"* ]] || fail "$hook waited on a healthy instance: $output"
-        [ "$elapsed" -lt 3 ] || fail "$hook took ${elapsed}s with a healthy instance up"
-    done
-}
-
-@test "zmod hooks wait for an exiting launcher with no UI under it" {
-    : > "$MI/bin/helix-screen"
-    chmod +x "$MI/bin/helix-screen"
-
-    for hook in hooks-ad5x.sh hooks-ad5m-zmod.sh; do
-        old=$(start_fake_launcher 15)
-        OWNED_PIDS="$OWNED_PIDS $old"
-        expose "$old"
-        HELIX_PROC_ROOT="$FAKE_PROC" HELIX_LAUNCHER_PREDECESSOR_WAIT=10 \
-            run_hook_pre_start "$HOOKS_DIR/$hook"
-        [ "$status" -eq 0 ]
-        contains "Waiting up to 10s for exiting launcher (PID $old)" "$output"
-        contains "waited=1" "$output"
-        kill -0 "$old" 2>/dev/null && fail "$hook returned while launcher $old was alive"
-        rm -f "$FAKE_PROC/$old"
-    done
-}
 
 @test "the query stops waiting when the UI comes back" {
     : > "$MI/bin/helix-screen"

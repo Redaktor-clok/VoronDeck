@@ -68,8 +68,7 @@
       <!-- LEFT SECTION: Header + File card (5/9 width)                     -->
       <!-- Header is scoped to left column so right section extends to top  -->
       <!-- ================================================================== -->
-      <lv_obj name="left_column"
-              style_pad_all="0" style_pad_gap="0" flex_flow="column" scrollable="false">
+      <lv_obj name="left_column" style_pad_all="0" style_pad_gap="0" flex_flow="column" scrollable="false">
         <bind_style_if_eq name="left_landscape" subject="ui_is_portrait" ref_value="0"/>
         <bind_style_if_eq name="left_portrait" subject="ui_is_portrait" ref_value="1"/>
         <!-- HEADER BAR (left column only) -->
@@ -222,7 +221,8 @@
                    row's own hidden flag, which update_history_display()
                    owns. At micro the strip is filename + one stats line, so
                    the history row is one of the three it drops. -->
-              <lv_obj name="detail_history_wrap" width="100%" height="content" flex_flow="column" style_pad_all="0" scrollable="false">
+              <lv_obj name="detail_history_wrap"
+                      width="100%" height="content" flex_flow="column" style_pad_all="0" scrollable="false">
                 <bind_flag_if cond="ui_breakpoint eq 0 or ui_is_portrait eq 1" flag="hidden"/>
                 <lv_obj name="history_status_row"
                         width="100%" height="content" flex_flow="row" style_pad_gap="#space_xs"

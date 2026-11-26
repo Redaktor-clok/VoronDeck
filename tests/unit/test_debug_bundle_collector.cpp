@@ -2155,20 +2155,14 @@ TEST_CASE_METHOD(LVGLTestFixture,
     CHECK(bundle["printer"].dump().find("bundle-race-probe") == std::string::npos);
 }
 
-TEST_CASE("DebugBundleCollector: the bundle names the board as platform_model", "[debug-bundle]") {
-    const auto* mips = helix::platform::find("mips");
-    const auto* pi = helix::platform::find("pi");
-    REQUIRE(mips != nullptr);
-    REQUIRE(pi != nullptr);
-
+TEST_CASE("DebugBundleCollector: open Linux hosts do not claim a printer model", "[debug-bundle]") {
     using helix::board::Board;
-    CHECK(helix::DebugBundleCollector::platform_model_for(mips, Board::Creator5) ==
-          "FlashForge Creator 5");
-    CHECK(helix::DebugBundleCollector::platform_model_for(mips, Board::K1) == "Creality K1");
-    CHECK(helix::DebugBundleCollector::platform_model_for(pi, Board::Generic).empty());
+    for (const auto* key : {"pi", "pi32", "x86", "x86-desktop"}) {
+        const auto* platform = helix::platform::find(key);
+        REQUIRE(platform != nullptr);
+        CHECK(helix::DebugBundleCollector::platform_model_for(platform, Board::Generic).empty());
+    }
     CHECK(helix::DebugBundleCollector::platform_model_for(nullptr, Board::Generic).empty());
-    CHECK(helix::DebugBundleCollector::platform_model_for(
-              helix::platform::find("ad5m"), Board::Ad5m) == "FlashForge Adventurer 5M");
 }
 
 TEST_CASE("DebugBundleCollector: a printer's Moonraker API key never reaches a bundle",

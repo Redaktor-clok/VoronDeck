@@ -57,8 +57,8 @@
       <setting_section_header title="ACTIONS" icon="wrench"/>
 
       <!-- Portrait gives each translated action a full-width touch target. -->
-      <lv_obj name="probe_actions" width="100%"
-              height="content" style_pad_all="0" style_pad_gap="#space_sm" scrollable="false">
+      <lv_obj name="probe_actions"
+              width="100%" height="content" style_pad_all="0" style_pad_gap="#space_sm" scrollable="false">
         <bind_style_if name="probe_actions_column" cond="ui_is_portrait"/>
         <bind_style_if name="probe_actions_row" cond="ui_is_portrait" invert="true"/>
         <lv_obj height="content" style_pad_all="0" scrollable="false">

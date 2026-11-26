@@ -63,7 +63,8 @@
                       height="100%" flex_grow="1" bind_text="change_host_api_key" placeholder_text="None"
                       placeholder_tag="None" password_mode="true"/>
           <ui_button name="eye_toggle"
-                     width="#input_height" height="100%" variant="ghost" style_pad_all="0" icon="eye_off" click_focusable="false">
+                     width="#input_height" height="100%" variant="ghost" style_pad_all="0" icon="eye_off"
+                     click_focusable="false">
             <event_cb trigger="clicked" callback="on_toggle_password_visibility"/>
           </ui_button>
         </lv_obj>

@@ -723,11 +723,15 @@ def test_bats_takes_the_free_slots_as_jobs(monkeypatch, tmp_path):
 
 
 @linux_only
-def test_slots_beside_the_runs_own_are_tokens_and_go_back():
+@pytest.mark.parametrize('inherited', ['', 'w -- SKIP_OPTIONAL_DEPS=1'])
+def test_slots_beside_the_runs_own_are_tokens_and_go_back(inherited):
     budget = md.JobBudget()
-    env = {}
+    env = {'MAKEFLAGS': inherited}
     assert budget.make_private(3, env)
     assert '--jobserver-auth=' in env['MAKEFLAGS']
+    if ' -- ' in inherited:
+        assert env['MAKEFLAGS'].endswith(' -- SKIP_OPTIONAL_DEPS=1')
+        assert '--jobserver-auth=' in env['MAKEFLAGS'].split(' -- ')[0]
     base = budget.take_base(lambda: False)
     assert base is md.OWN_SLOT
     toks = [budget.try_token() for _ in range(3)]

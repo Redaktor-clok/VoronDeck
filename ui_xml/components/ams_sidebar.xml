@@ -59,8 +59,8 @@
     <style name="status_text_floor" min_width="50%"/>
   </styles>
   <view name="ams_sidebar"
-        extends="lv_obj" width="100%" style_pad_all="0" scrollable="true" scroll_dir="ver"
-        flex_flow="column" style_flex_main_place="start" style_flex_cross_place="center" style_pad_column="#space_sm">
+        extends="lv_obj" width="100%" style_pad_all="0" scrollable="true" scroll_dir="ver" flex_flow="column"
+        style_flex_main_place="start" style_flex_cross_place="center" style_pad_column="#space_sm">
     <bind_style_if_eq name="sidebar_landscape" subject="ui_is_portrait" ref_value="0"/>
     <bind_style_if_eq name="sidebar_portrait" subject="ui_is_portrait" ref_value="1"/>
     <bind_style_if_eq name="gap_landscape" subject="ui_is_portrait" ref_value="0"/>

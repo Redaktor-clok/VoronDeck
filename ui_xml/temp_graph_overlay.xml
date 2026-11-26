@@ -196,8 +196,8 @@
               <lv_obj height="content"
                       flex_flow="column" style_flex_cross_place="start" style_pad_all="0" style_pad_gap="#space_xs"
                       scrollable="false">
-                <home_nozzle_icon name="nozzle_heater_icon" size="xl"
-                                  target_subject="temp_graph_nozzle_target"
+                <home_nozzle_icon name="nozzle_heater_icon"
+                                  size="xl" target_subject="temp_graph_nozzle_target"
                                   badge_text_subject="temp_graph_nozzle_badge"/>
                 <lv_obj style_pad_all="0"
                         scrollable="false" flex_flow="column" style_flex_main_place="center"
@@ -265,7 +265,8 @@
                          style_border_color="#border" style_border_opa="255">
                 <event_cb trigger="clicked" callback="on_temp_graph_preset_clicked"/>
               </ui_button>
-              <ui_button name="preset_1_tiny" width="48%" height="100%" bind_text="preset_material_0_name" style_pad_hor="#space_xxs">
+              <ui_button name="preset_1_tiny"
+                         width="48%" height="100%" bind_text="preset_material_0_name" style_pad_hor="#space_xxs">
                 <bind_style name="styles.heat_blocked" subject="ams_nozzle_heat_blocked" ref_value="1"/>
                 <event_cb trigger="clicked" callback="on_temp_graph_preset_clicked"/>
               </ui_button>
@@ -273,11 +274,13 @@
             <lv_obj name="nozzle_preset_row_2_tiny"
                     width="100%" height="#tg_preset_h" style_pad_all="0" scrollable="false" flex_flow="row"
                     style_flex_main_place="space_between" style_pad_gap="#space_xs">
-              <ui_button name="preset_2_tiny" width="48%" height="100%" bind_text="preset_material_1_name" style_pad_hor="#space_xxs">
+              <ui_button name="preset_2_tiny"
+                         width="48%" height="100%" bind_text="preset_material_1_name" style_pad_hor="#space_xxs">
                 <bind_style name="styles.heat_blocked" subject="ams_nozzle_heat_blocked" ref_value="1"/>
                 <event_cb trigger="clicked" callback="on_temp_graph_preset_clicked"/>
               </ui_button>
-              <ui_button name="preset_3_tiny" width="48%" height="100%" bind_text="preset_material_2_name" style_pad_hor="#space_xxs">
+              <ui_button name="preset_3_tiny"
+                         width="48%" height="100%" bind_text="preset_material_2_name" style_pad_hor="#space_xxs">
                 <bind_style name="styles.heat_blocked" subject="ams_nozzle_heat_blocked" ref_value="1"/>
                 <event_cb trigger="clicked" callback="on_temp_graph_preset_clicked"/>
               </ui_button>
@@ -311,8 +314,8 @@
             <ui_card name="nozzle_display_card"
                      width="content" height="content" style_radius="0" flex_flow="column" style_flex_main_place="center"
                      style_flex_cross_place="center" style_pad_gap="#space_xs" style_pad_all="#space_sm">
-              <home_nozzle_icon name="nozzle_heater_icon" size="md"
-                                target_subject="temp_graph_nozzle_target"
+              <home_nozzle_icon name="nozzle_heater_icon"
+                                size="md" target_subject="temp_graph_nozzle_target"
                                 badge_text_subject="temp_graph_nozzle_badge"/>
               <temp_display name="nozzle_temp_display"
                             size="md" show_target="true" bind_current="temp_graph_nozzle_temp"
@@ -393,7 +396,8 @@
             </lv_obj>
             <ui_button name="bed_dry_button"
                        width="100%" height="#button_height_sm" text="Dry Filament" icon="heat_wave" variant="outline"
-                       style_pad_left="#space_xs" style_pad_right="#space_xs" style_pad_ver="#space_xs" style_text_font="#font_small" moves_machine="true" hidden="true">
+                       style_pad_left="#space_xs" style_pad_right="#space_xs" style_pad_ver="#space_xs"
+                       style_text_font="#font_small" moves_machine="true" hidden="true">
               <bind_flag_if_eq subject="printer_can_bed_dry" flag="hidden" ref_value="0"/>
               <event_cb trigger="clicked" callback="on_bed_drying_start_clicked"/>
             </ui_button>
@@ -434,17 +438,20 @@
                          style_border_color="#border" style_border_opa="255">
                 <event_cb trigger="clicked" callback="on_temp_graph_preset_clicked"/>
               </ui_button>
-              <ui_button name="bed_preset_1_tiny" width="48%" height="100%" bind_text="preset_material_0_name" style_pad_hor="#space_xxs">
+              <ui_button name="bed_preset_1_tiny"
+                         width="48%" height="100%" bind_text="preset_material_0_name" style_pad_hor="#space_xxs">
                 <event_cb trigger="clicked" callback="on_temp_graph_preset_clicked"/>
               </ui_button>
             </lv_obj>
             <lv_obj name="bed_preset_row_2_tiny"
                     width="100%" height="#tg_preset_h" style_pad_all="0" scrollable="false" flex_flow="row"
                     style_flex_main_place="space_between" style_pad_gap="#space_xs">
-              <ui_button name="bed_preset_2_tiny" width="48%" height="100%" bind_text="preset_material_1_name" style_pad_hor="#space_xxs">
+              <ui_button name="bed_preset_2_tiny"
+                         width="48%" height="100%" bind_text="preset_material_1_name" style_pad_hor="#space_xxs">
                 <event_cb trigger="clicked" callback="on_temp_graph_preset_clicked"/>
               </ui_button>
-              <ui_button name="bed_preset_3_tiny" width="48%" height="100%" bind_text="preset_material_2_name" style_pad_hor="#space_xxs">
+              <ui_button name="bed_preset_3_tiny"
+                         width="48%" height="100%" bind_text="preset_material_2_name" style_pad_hor="#space_xxs">
                 <event_cb trigger="clicked" callback="on_temp_graph_preset_clicked"/>
               </ui_button>
             </lv_obj>
@@ -474,7 +481,8 @@
               <heater_status name="bed_status_msg" state_subject="bed_status_state" duty_subject="bed_status"/>
               <ui_button name="bed_dry_button"
                          height="#button_height_sm" text="Dry Filament" icon="heat_wave" variant="outline"
-                         style_pad_left="#space_xs" style_pad_right="#space_xs" style_pad_ver="#space_xs" style_text_font="#font_small" moves_machine="true" hidden="true">
+                         style_pad_left="#space_xs" style_pad_right="#space_xs" style_pad_ver="#space_xs"
+                         style_text_font="#font_small" moves_machine="true" hidden="true">
                 <bind_flag_if_eq subject="printer_can_bed_dry" flag="hidden" ref_value="0"/>
                 <event_cb trigger="clicked" callback="on_bed_drying_start_clicked"/>
               </ui_button>

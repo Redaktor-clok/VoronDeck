@@ -35,7 +35,8 @@
     <style name="dots_portrait" width="50%" flex_main_place="start" align="bottom_left"/>
     <style name="right_landscape" width="#ams_right_col_w" height="100%" flex_grow="0" pad_all="#space_sm"/>
     <style name="right_portrait"
-           width="100%" height="content" flex_grow="0" pad_left="#space_sm" pad_right="#space_sm" pad_top="0" pad_bottom="#ams_actions_bottom_gap"/>
+           width="100%" height="content" flex_grow="0" pad_left="#space_sm" pad_right="#space_sm" pad_top="0"
+           pad_bottom="#ams_actions_bottom_gap"/>
   </styles>
   <!-- Right sidebar width comes from `#ams_right_col_w` (defined in
        ams_panel.xml). theme_manager scans every ui_xml file for responsive
@@ -107,7 +108,8 @@
       <!-- Left column content (cards + canvas OR the unit view) -->
       <lv_obj name="left_column"
               width="100%" style_pad_all="#space_sm" style_pad_top="0" style_pad_gap="#space_sm" flex_flow="column"
-              style_flex_main_place="start" style_flex_cross_place="center" scrollable="false" scroll_dir="ver" scrollbar_mode="auto">
+              style_flex_main_place="start" style_flex_cross_place="center" scrollable="false" scroll_dir="ver"
+              scrollbar_mode="auto">
         <bind_style_if_eq name="fill_landscape" subject="ui_is_portrait" ref_value="0"/>
         <bind_style_if_eq name="left_portrait" subject="ui_is_portrait" ref_value="1"/>
         <bind_flag_if_eq subject="ui_is_portrait" flag="scrollable" ref_value="1"/>
@@ -146,19 +148,22 @@
           <bind_style_if_eq name="unit_gap_landscape" subject="ui_is_portrait" ref_value="0"/>
           <bind_style_if_eq name="unit_gap_portrait" subject="ui_is_portrait" ref_value="1"/>
           <bind_flag_if_eq subject="ams_unit_view_active" flag="hidden" ref_value="0"/>
-          <lv_obj name="unit_tabs" width="100%" height="#ams_unit_tabs_height" style_pad_all="0"
-                  flex_flow="row" style_pad_column="#space_xs" scrollable="true"
-                  scroll_dir="hor" scrollbar_mode="off" gesture_bubble="false">
+          <lv_obj name="unit_tabs"
+                  width="100%" height="#ams_unit_tabs_height" style_pad_all="0" flex_flow="row"
+                  style_pad_column="#space_xs" scrollable="true" scroll_dir="hor" scrollbar_mode="off"
+                  gesture_bubble="false">
             <bind_flag_if_lt subject="ams_page_count" flag="hidden" ref_value="2"/>
             <repeat count="ams_page_count">
-              <lv_obj name="unit_tab_${i}" width="#ams_unit_tab_width" height="#ams_unit_tab_height" style_pad_all="0"
-                      style_radius="#border_radius" style_border_width="2" style_bg_color="#card_bg"
-                      style_bg_opa="255" scrollable="false" clickable="true">
+              <lv_obj name="unit_tab_${i}"
+                      width="#ams_unit_tab_width" height="#ams_unit_tab_height" style_pad_all="0"
+                      style_radius="#border_radius" style_border_width="2" style_bg_color="#card_bg" style_bg_opa="255"
+                      scrollable="false" clickable="true">
                 <bind_style_if_not_eq name="unit_tab_idle" subject="ams_page_current" ref_value="$i"/>
                 <bind_style_if_eq name="unit_tab_current" subject="ams_page_current" ref_value="$i"/>
                 <event_cb trigger="clicked" callback="on_ams_unit_tab_clicked"/>
-                <text_small name="unit_tab_label_${i}" bind_text="ams_unit_tab_${i}" align="center" style_text_align="center"
-                            clickable="false" event_bubble="true"/>
+                <text_small name="unit_tab_label_${i}"
+                            bind_text="ams_unit_tab_${i}" align="center" style_text_align="center" clickable="false"
+                            event_bubble="true"/>
               </lv_obj>
             </repeat>
           </lv_obj>
@@ -168,9 +173,9 @@
                    scrollable="false">
             <lv_obj name="detail_slot_area" width="100%" height="content" style_pad_all="0" scrollable="false">
               <!-- Shared spool grid + tray + labels component -->
-              <ams_unit_detail name="detail_unit_detail" detail_flow="column_reverse" slot_width="100%"
-                               slot_grow="0" env_flow="row_wrap" env_gap="#space_md"
-                               env_font="#font_heading" env_icon="md" env_min_height="48"/>
+              <ams_unit_detail name="detail_unit_detail"
+                               detail_flow="column_reverse" slot_width="100%" slot_grow="0" env_flow="row_wrap"
+                               env_gap="#space_md" env_font="#font_heading" env_icon="md" env_min_height="48"/>
             </lv_obj>
           </ui_card>
           <!-- Path canvas: filament routing from the unit's slots through the hub to the nozzle.
@@ -242,8 +247,9 @@
       <bind_state_if_not_eq subject="nav_buttons_enabled" state="disabled" ref_value="1"/>
       <bind_style_if_eq name="right_landscape" subject="ui_is_portrait" ref_value="0"/>
       <bind_style_if_eq name="right_portrait" subject="ui_is_portrait" ref_value="1"/>
-      <lv_obj name="ams_detail_climate_slot" width="100%" height="content" style_pad_all="0"
-              flex_flow="column" style_flex_cross_place="center" scrollable="false">
+      <lv_obj name="ams_detail_climate_slot"
+              width="100%" height="content" style_pad_all="0" flex_flow="column" style_flex_cross_place="center"
+              scrollable="false">
         <bind_flag_if cond="ams_unit_view_active eq 0 or ui_is_portrait eq 1" flag="hidden"/>
       </lv_obj>
       <ams_sidebar name="ams_operation_sidebar"/>

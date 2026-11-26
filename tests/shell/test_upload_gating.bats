@@ -80,7 +80,7 @@ PY
 }
 
 @test "release builds carry HELIX_PACKAGING, which the upload default keys on" {
-    run grep -F 'HELIX_PACKAGING=1' .github/workflows/release.yml
+    run grep -F 'HELIX_PACKAGING=1' .github/actions/scripts/build-arm-package.sh
     [ "$status" -eq 0 ]
 }
 

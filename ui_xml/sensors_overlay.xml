@@ -207,7 +207,9 @@
           <text_small width="100%" text="MCU, host, and auxiliary temperature monitoring" style_text_align="left"/>
 
           <!-- Chamber Assignment (inside temp sensors section) -->
-          <text_tiny width="100%" long_mode="wrap" text="Override auto-detection if your chamber sensor or heater isn't named 'chamber'."
+          <text_tiny width="100%"
+                     long_mode="wrap"
+                     text="Override auto-detection if your chamber sensor or heater isn't named 'chamber'."
                      style_text_color="#text_muted"/>
 
           <!-- Chamber Heater Row -->

@@ -22,7 +22,8 @@
         <lv_obj name="container_sounds" width="100%" style_pad_all="0" scrollable="false">
           <bind_flag_if_eq subject="printer_has_speaker" flag="hidden" ref_value="0"/>
           <setting_toggle_row name="row_sounds"
-                              label="Print completion sound" icon="notifications" description="Play a melody when printing finishes. Off by default."
+                              label="Print completion sound" icon="notifications"
+                              description="Play a melody when printing finishes. Off by default."
                               subject="settings_sounds_enabled" callback="on_sounds_changed"/>
         </lv_obj>
         <!-- Volume Slider (hidden when master sounds off) -->

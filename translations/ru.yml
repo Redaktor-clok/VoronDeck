@@ -1018,7 +1018,7 @@ translations:
   Connected Time: Время подключения
   Connected to: Подключен к
   'Connected to ': 'Подключен к '
-  ? Connected to Moonraker, but Klipper is not running. You can continue — HelixScreen will show the Klipper error, and hardware detection stays limited until Klipper starts.
+  ? Connected to Moonraker, but Klipper is not running. You can continue — VoronDeck will show the Klipper error, and hardware detection stays limited until Klipper starts.
   : Подключено к Moonraker, но Klipper не запущен. Можно продолжить — VoronDeck покажет ошибку Klipper, а определение оборудования будет ограничено до запуска Klipper.
   ? Connected to Moonraker, but printer discovery did not finish. You can continue — hardware detection stays limited until the printer responds.
   : Подключено к Moonraker, но поиск принтера не завершён. Можно продолжить — определение оборудования будет ограничено, пока принтер не ответит.
@@ -5258,7 +5258,6 @@ translations:
   "Optional prerelease · install only if you choose": "Предрелиз · установка только по вашему выбору"
   "Test release check failed. Try again later.": "Не удалось проверить предрелизы. Повторите позже."
   "Install VoronDeck {}? This is a test release and may contain errors.": "Установить VoronDeck {}? Это тестовый выпуск, в нём могут быть ошибки."
-  "Not now": "Не сейчас"
   "Downloading and verifying VoronDeck. The screen will restart.": "Загрузка и проверка VoronDeck. Экран перезапустится."
   "VoronDeck updated successfully": "VoronDeck успешно обновлён"
   "Update was not confirmed. Check component updates before retrying.": "Обновление не подтверждено. Перед повтором проверьте обновления компонентов."
@@ -5293,3 +5292,26 @@ translations:
   "Moonraker returned an unexpected update response. Check component versions.": "Moonraker вернул неожиданный ответ. Проверьте версии компонентов."
   "Package download timed out. Check the network and beta access.": "Истекло время загрузки пакета. Проверьте сеть и доступ к бета-каналу."
   "Authenticated update check failed": "Не удалось получить пакет: проверьте сеть и доступ к выбранному каналу."
+  "Checks": "Проверки"
+  "Compact passive temperature readings": "Компактные показания датчиков температуры"
+  "Could not load image": "Не удалось загрузить изображение"
+  "Doron Velta": "Doron Velta"
+  "Failed to save settings": "Не удалось сохранить настройки"
+  "HelixScreen: Preston Brown · © 2025–2026 356C LLC": "HelixScreen: Preston Brown · © 2025–2026 356C LLC"
+  "NEMESIS": "NEMESIS"
+  "Printer is busy": "Принтер занят"
+  "Sensor Bank": "Датчики"
+  "Voron 0.1 / 0.2": "Voron 0.1 / 0.2"
+  "Voron 2.4": "Voron 2.4"
+  "Voron Legacy": "Voron Legacy"
+  "Voron Switchwire": "Voron Switchwire"
+  "Voron Trident": "Voron Trident"
+  "Voron Trident CNC AWD": "Voron Trident CNC AWD"
+  "VoronDeck ": "VoronDeck "
+  "VoronDeck Crashed": "Сбой VoronDeck"
+  "VoronDeck — GPL-3.0-or-later": "VoronDeck — GPL-3.0-or-later"
+  "VzBot": "VzBot"
+  "ZeroG Hydra 255": "ZeroG Hydra 255"
+  "ZeroG Hydra 370": "ZeroG Hydra 370"
+  "ZeroG Nebula": "ZeroG Nebula"
+  "ZeroG Nebula 370": "ZeroG Nebula 370"

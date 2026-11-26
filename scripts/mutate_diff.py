@@ -1462,8 +1462,11 @@ class JobBudget:
             return False
         os.write(w, b'+' * max(0, slots - 1))
         self.pass_fds, self._rfd, self._wfd = (r, w), rfd, w
-        env['MAKEFLAGS'] = (JOBSERVER_AUTH.sub('', env.get('MAKEFLAGS', ''))
-                            + f' -j --jobserver-auth={r},{w}')
+        flags = JOBSERVER_AUTH.sub('', env.get('MAKEFLAGS', ''))
+        # Options must precede GNU make's variable-assignment separator.
+        options, separator, variables = flags.partition(' -- ')
+        env['MAKEFLAGS'] = (options + f' -j --jobserver-auth={r},{w}'
+                            + separator + variables)
         return True
 
     def try_token(self):

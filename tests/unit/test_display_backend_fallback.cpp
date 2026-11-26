@@ -533,18 +533,18 @@ TEST_CASE("standalone_rotation prefers the CLI value, then the configured one",
     CHECK(helix::standalone_rotation(0, 480, 800) == 180);
 }
 
-TEST_CASE("standalone_rotation draws a first boot in the board's known mount",
+TEST_CASE("standalone_rotation leaves an unknown panel unrotated on first boot",
           "[display][rotation]") {
     helix::ConfigDirGuard guard("standalone_rotation_mount");
-    helix::test::ScopedBoard board(helix::board::Board::K1);
+    helix::test::ScopedBoard board(helix::board::Board::Generic);
     helix::ScopedEnv no_force("HELIX_FORCE_ROTATION_PROBE", nullptr);
     const auto settings = (guard.dir / "settings.json").string();
 
-    SECTION("no saved rotation: the K1 mount") {
+    SECTION("no saved rotation: no assumed mount") {
         REQUIRE(helix::text_io::write_file(settings, R"({"display": {}})"));
-        CHECK(helix::standalone_rotation(0, 480, 800) == 270);
+        CHECK(helix::standalone_rotation(0, 480, 800) == 0);
     }
-    SECTION("another framebuffer on a K1-resolved board: no mount") {
+    SECTION("another framebuffer: no assumed mount") {
         REQUIRE(helix::text_io::write_file(settings, R"({"display": {}})"));
         CHECK(helix::standalone_rotation(0, 800, 480) == 0);
     }
@@ -559,7 +559,7 @@ TEST_CASE("standalone_rotation draws a first boot in the board's known mount",
 }
 
 TEST_CASE("a forced rotation probe skips the board's mount", "[display][rotation]") {
-    helix::test::ScopedBoard board(helix::board::Board::K1);
+    helix::test::ScopedBoard board(helix::board::Board::Generic);
     {
         helix::ScopedEnv no_force("HELIX_FORCE_ROTATION_PROBE", nullptr);
         CHECK(helix::first_boot_board_mount(-1, 480, 800) == 270);
@@ -569,7 +569,7 @@ TEST_CASE("a forced rotation probe skips the board's mount", "[display][rotation
 }
 
 TEST_CASE("a kernel panel_orientation leaves the board's mount out", "[display][rotation]") {
-    helix::test::ScopedBoard board(helix::board::Board::K1);
+    helix::test::ScopedBoard board(helix::board::Board::Generic);
     helix::ScopedEnv no_force("HELIX_FORCE_ROTATION_PROBE", nullptr);
     CHECK(helix::first_boot_board_mount(0, 480, 800) == -1);
     CHECK(helix::first_boot_board_mount(90, 480, 800) == -1);

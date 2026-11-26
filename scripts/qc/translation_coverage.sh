@@ -40,7 +40,7 @@ if [ -x "$VENV_PYTHON" ]; then
        tests/python/test_explicit_tag_coverage.py >/tmp/trans_empty.out 2>&1; then
       section_time $SECTION_START
       echo ""
-      echo "✅ Every user-facing string has a translated value in every locale"
+      echo "✅ RU/EN complete; other locales have no new gaps beyond the recorded baseline"
     else
       section_time $SECTION_START
       echo ""

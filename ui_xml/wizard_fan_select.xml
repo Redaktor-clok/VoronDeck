@@ -26,14 +26,13 @@
              flex_flow="column" style_flex_main_place="start" style_flex_cross_place="start" scrollable="true">
       <!-- Row 1: Required fans (Hotend + Part Cooling) -->
       <lv_obj width="100%"
-              height="content" style_pad_all="0" style_flex_main_place="space_between"
-              style_flex_cross_place="start" style_pad_gap="#space_md">
+              height="content" style_pad_all="0" style_flex_main_place="space_between" style_flex_cross_place="start"
+              style_pad_gap="#space_md">
         <bind_style_if_eq name="fan_row_portrait" subject="ui_is_portrait" ref_value="1"/>
         <bind_style_if_eq name="fan_row_landscape" subject="ui_is_portrait" ref_value="0"/>
         <!-- Hotend Fan (left) -->
-        <lv_obj
-                height="content" style_pad_all="0" flex_flow="column" style_flex_main_place="start"
-                style_flex_cross_place="start">
+        <lv_obj height="content"
+                style_pad_all="0" flex_flow="column" style_flex_main_place="start" style_flex_cross_place="start">
           <bind_style_if_eq name="fan_field_portrait" subject="ui_is_portrait" ref_value="1"/>
           <bind_style_if_eq name="fan_field_landscape" subject="ui_is_portrait" ref_value="0"/>
           <text_body width="100%" long_mode="wrap" text="Hotend Fan" style_pad_bottom="#space_sm"/>
@@ -44,9 +43,8 @@
           </lv_dropdown>
         </lv_obj>
         <!-- Part Cooling Fan (right) -->
-        <lv_obj
-                height="content" style_pad_all="0" flex_flow="column" style_flex_main_place="start"
-                style_flex_cross_place="start">
+        <lv_obj height="content"
+                style_pad_all="0" flex_flow="column" style_flex_main_place="start" style_flex_cross_place="start">
           <bind_style_if_eq name="fan_field_portrait" subject="ui_is_portrait" ref_value="1"/>
           <bind_style_if_eq name="fan_field_landscape" subject="ui_is_portrait" ref_value="0"/>
           <text_body width="100%" long_mode="wrap" text="Part Cooling Fan" style_pad_bottom="#space_sm"/>
@@ -64,9 +62,8 @@
         <bind_style_if_eq name="fan_row_portrait" subject="ui_is_portrait" ref_value="1"/>
         <bind_style_if_eq name="fan_row_landscape" subject="ui_is_portrait" ref_value="0"/>
         <!-- Chamber Fan (left) -->
-        <lv_obj
-                height="content" style_pad_all="0" flex_flow="column" style_flex_main_place="start"
-                style_flex_cross_place="start">
+        <lv_obj height="content"
+                style_pad_all="0" flex_flow="column" style_flex_main_place="start" style_flex_cross_place="start">
           <bind_style_if_eq name="fan_field_portrait" subject="ui_is_portrait" ref_value="1"/>
           <bind_style_if_eq name="fan_field_landscape" subject="ui_is_portrait" ref_value="0"/>
           <text_body width="100%" long_mode="wrap" text="Chamber Fan" style_pad_bottom="#space_sm"/>
@@ -77,9 +74,8 @@
           </lv_dropdown>
         </lv_obj>
         <!-- Exhaust Fan (right) -->
-        <lv_obj
-                height="content" style_pad_all="0" flex_flow="column" style_flex_main_place="start"
-                style_flex_cross_place="start">
+        <lv_obj height="content"
+                style_pad_all="0" flex_flow="column" style_flex_main_place="start" style_flex_cross_place="start">
           <bind_style_if_eq name="fan_field_portrait" subject="ui_is_portrait" ref_value="1"/>
           <bind_style_if_eq name="fan_field_landscape" subject="ui_is_portrait" ref_value="0"/>
           <text_body width="100%" long_mode="wrap" text="Exhaust Fan" style_pad_bottom="#space_sm"/>

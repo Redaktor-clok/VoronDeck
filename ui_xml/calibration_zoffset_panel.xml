@@ -7,8 +7,8 @@
   <styles>
     <style name="zoffset_idle_portrait" height="content" flex_grow="0"/>
     <style name="zoffset_idle_landscape" height="content" flex_grow="0"/>
-    <style name="zoffset_steps_portrait" layout="flex" flex_flow="column" height="content" flex_grow="0"/>
-    <style name="zoffset_steps_landscape" layout="flex" flex_flow="row" height="content" flex_grow="0"/>
+    <style name="zoffset_steps_portrait" height="content" layout="flex" flex_flow="column" flex_grow="0"/>
+    <style name="zoffset_steps_landscape" height="content" layout="flex" flex_flow="row" flex_grow="0"/>
     <style name="zoffset_section_portrait" width="100%" flex_grow="0"/>
     <style name="zoffset_section_landscape" width="0" flex_grow="1"/>
   </styles>
@@ -33,21 +33,22 @@
         <bind_style_if name="zoffset_idle_landscape" cond="ui_is_portrait" invert="true"/>
         <bind_flag_if_not_eq subject="zoffset_cal_state" flag="hidden" ref_value="0"/>
         <!-- Instructions -->
-        <lv_obj width="100%" height="content" style_pad_all="0" flex_flow="column" style_pad_gap="#space_sm" scrollable="false">
+        <lv_obj width="100%"
+                height="content" style_pad_all="0" flex_flow="column" style_pad_gap="#space_sm" scrollable="false">
           <text_heading width="100%" text="Paper Test Calibration" style_text_align="center"/>
           <text_small width="100%"
                       text="This calibration uses the paper friction method to set your Z-offset."
                       style_text_align="center"/>
         </lv_obj>
         <!-- Steps and preheat stack on narrow portrait screens. -->
-        <lv_obj name="zoffset_idle_sections" width="100%"
-                style_pad_all="0" style_flex_cross_place="center"
-                style_pad_gap="#space_md" scrollable="false">
+        <lv_obj name="zoffset_idle_sections"
+                width="100%" style_pad_all="0" style_flex_cross_place="center" style_pad_gap="#space_md"
+                scrollable="false">
           <bind_style_if name="zoffset_steps_portrait" cond="ui_is_portrait"/>
           <bind_style_if name="zoffset_steps_landscape" cond="ui_is_portrait" invert="true"/>
           <!-- Left: Steps Preview -->
-          <lv_obj name="zoffset_steps" height="content"
-                  style_bg_color="#section_bg_color" style_radius="#border_radius"
+          <lv_obj name="zoffset_steps"
+                  height="content" style_bg_color="#section_bg_color" style_radius="#border_radius"
                   style_pad_all="#space_lg" flex_flow="column" style_pad_gap="#space_xs" scrollable="false">
             <bind_style_if name="zoffset_section_portrait" cond="ui_is_portrait"/>
             <bind_style_if name="zoffset_section_landscape" cond="ui_is_portrait" invert="true"/>
@@ -63,16 +64,17 @@
             <bind_flag_if_eq subject="ui_is_portrait" flag="hidden" ref_value="1"/>
           </divider_vertical>
           <!-- Right: Warm Bed Option (only visible when printer has a heated bed) -->
-          <lv_obj name="zoffset_preheat" height="content"
-                  style_pad_all="#space_lg" style_bg_color="#section_bg_color"
+          <lv_obj name="zoffset_preheat"
+                  height="content" style_pad_all="#space_lg" style_bg_color="#section_bg_color"
                   style_radius="#border_radius" flex_flow="row" style_flex_cross_place="center"
                   style_pad_gap="#space_md" scrollable="false">
             <bind_style_if name="zoffset_section_portrait" cond="ui_is_portrait"/>
             <bind_style_if name="zoffset_section_landscape" cond="ui_is_portrait" invert="true"/>
             <bind_flag_if_not_eq subject="printer_has_heater_bed" flag="hidden" ref_value="1"/>
             <!-- Left: icon + text -->
-            <lv_obj width="0" height="content"
-                    flex_grow="1" style_pad_all="0" flex_flow="column" style_pad_gap="#space_xs" scrollable="false">
+            <lv_obj width="0"
+                    height="content" flex_grow="1" style_pad_all="0" flex_flow="column" style_pad_gap="#space_xs"
+                    scrollable="false">
               <lv_obj width="100%"
                       height="content" style_pad_all="0" flex_flow="row" style_flex_cross_place="center"
                       style_pad_gap="#space_sm" scrollable="false">
@@ -121,25 +123,32 @@
         <lv_obj width="100%"
                 flex_grow="1" style_pad_all="0" flex_flow="row" style_pad_gap="#space_md" scrollable="false">
           <!-- Z Position Display (left) -->
-          <lv_obj width="0" height="100%"
-                  flex_grow="2" style_bg_color="#section_bg_color" style_radius="#border_radius"
+          <lv_obj width="0"
+                  height="100%" flex_grow="2" style_bg_color="#section_bg_color" style_radius="#border_radius"
                   style_pad_all="#space_xs" flex_flow="column" style_flex_main_place="center"
                   style_flex_cross_place="center" style_pad_gap="#space_xs" scrollable="false">
             <!-- Saved Z-Offset (left side) -->
-            <lv_obj width="100%" height="content"
-                    style_pad_all="0" flex_flow="column" style_flex_cross_place="center"
+            <lv_obj width="100%"
+                    height="content" style_pad_all="0" flex_flow="column" style_flex_cross_place="center"
                     style_pad_gap="#space_xs" scrollable="false">
-              <text_small width="100%" long_mode="wrap" style_text_align="center" text="Saved Z-Offset" style_text_color="#text_muted"/>
-              <text_heading width="100%" long_mode="wrap" style_text_align="center" style_text_font="#font_body" name="saved_z_offset_display" text=""/>
+              <text_small width="100%"
+                          long_mode="wrap" style_text_align="center" text="Saved Z-Offset"
+                          style_text_color="#text_muted"/>
+              <text_heading name="saved_z_offset_display"
+                            width="100%" long_mode="wrap" style_text_align="center" style_text_font="#font_body" text=""/>
             </lv_obj>
             <!-- Vertical divider -->
             <divider_horizontal width="90%"/>
             <!-- Current Z Position (right side) -->
-            <lv_obj width="100%" height="content"
-                    style_pad_all="0" flex_flow="column" style_flex_cross_place="center"
+            <lv_obj width="100%"
+                    height="content" style_pad_all="0" flex_flow="column" style_flex_cross_place="center"
                     style_pad_gap="#space_xs" scrollable="false">
-              <text_small width="100%" long_mode="wrap" style_text_align="center" text="Current Z Position" style_text_color="#text_muted"/>
-              <text_heading width="100%" long_mode="wrap" style_text_align="center" style_text_font="#font_body" name="z_position_display" text="Z: 0.000"/>
+              <text_small width="100%"
+                          long_mode="wrap" style_text_align="center" text="Current Z Position"
+                          style_text_color="#text_muted"/>
+              <text_heading name="z_position_display"
+                            width="100%" long_mode="wrap" style_text_align="center" style_text_font="#font_body"
+                            text="Z: 0.000"/>
             </lv_obj>
           </lv_obj>
           <!-- Vertical meter indicator (right) -->
@@ -157,19 +166,24 @@
                   height="content" style_pad_all="0" flex_flow="row" style_flex_main_place="center"
                   style_flex_cross_place="center" style_pad_gap="#space_sm" scrollable="false">
             <text_small width="60" style_text_font="#font_xs" text="Farther"/>
-            <ui_button name="btn_z_farther_0_005" style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="+.005">
+            <ui_button name="btn_z_farther_0_005"
+                       style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="+.005">
               <event_cb trigger="clicked" callback="on_zoffset_z_adjust" user_data="0.005"/>
             </ui_button>
-            <ui_button name="btn_z_farther_0_01" style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="+.01">
+            <ui_button name="btn_z_farther_0_01"
+                       style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="+.01">
               <event_cb trigger="clicked" callback="on_zoffset_z_adjust" user_data="0.01"/>
             </ui_button>
-            <ui_button name="btn_z_farther_0_05" style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="+.05">
+            <ui_button name="btn_z_farther_0_05"
+                       style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="+.05">
               <event_cb trigger="clicked" callback="on_zoffset_z_adjust" user_data="0.05"/>
             </ui_button>
-            <ui_button name="btn_z_farther_0_1" style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="+.1">
+            <ui_button name="btn_z_farther_0_1"
+                       style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="+.1">
               <event_cb trigger="clicked" callback="on_zoffset_z_adjust" user_data="0.1"/>
             </ui_button>
-            <ui_button name="btn_z_farther_1" style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="+1">
+            <ui_button name="btn_z_farther_1"
+                       style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="+1">
               <event_cb trigger="clicked" callback="on_zoffset_z_adjust" user_data="1"/>
             </ui_button>
           </lv_obj>
@@ -178,19 +192,24 @@
                   height="content" style_pad_all="0" flex_flow="row" style_flex_main_place="center"
                   style_flex_cross_place="center" style_pad_gap="#space_sm" scrollable="false">
             <text_small width="60" style_text_font="#font_xs" text="Closer"/>
-            <ui_button name="btn_z_closer_0_005" style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="-.005">
+            <ui_button name="btn_z_closer_0_005"
+                       style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="-.005">
               <event_cb trigger="clicked" callback="on_zoffset_z_adjust" user_data="-0.005"/>
             </ui_button>
-            <ui_button name="btn_z_closer_0_01" style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="-.01">
+            <ui_button name="btn_z_closer_0_01"
+                       style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="-.01">
               <event_cb trigger="clicked" callback="on_zoffset_z_adjust" user_data="-0.01"/>
             </ui_button>
-            <ui_button name="btn_z_closer_0_05" style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="-.05">
+            <ui_button name="btn_z_closer_0_05"
+                       style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="-.05">
               <event_cb trigger="clicked" callback="on_zoffset_z_adjust" user_data="-0.05"/>
             </ui_button>
-            <ui_button name="btn_z_closer_0_1" style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="-.1">
+            <ui_button name="btn_z_closer_0_1"
+                       style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="-.1">
               <event_cb trigger="clicked" callback="on_zoffset_z_adjust" user_data="-0.1"/>
             </ui_button>
-            <ui_button name="btn_z_closer_1" style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="-1">
+            <ui_button name="btn_z_closer_1"
+                       style_pad_hor="4" label_inherit_font="true" style_text_font="#font_xs" flex_grow="1" text="-1">
               <event_cb trigger="clicked" callback="on_zoffset_z_adjust" user_data="-1"/>
             </ui_button>
           </lv_obj>

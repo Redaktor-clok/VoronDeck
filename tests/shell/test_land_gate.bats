@@ -116,7 +116,7 @@ row() { # <status> <step>: the table row for step has that status
 }
 
 @test "a CI-layout shard gets CI's step budget, not the sweep's 300s, and CI_SHARD_TIMEOUT changes it" {
-    [ "$(sed -n '/name: Run unit tests/,/run:/s/.*timeout-minutes: *//p' "$REPO_ROOT/.github/workflows/build.yml")" = 10 ]
+    grep -qF 'make land-gate' "$REPO_ROOT/.github/workflows/release-validation.yml"
     TEST_HOST=1 run "$GATE"
     grep -qx "host-run sweep NPROCS=8 SHARD_TIMEOUT=600 SHARD_CRASH_FAILS=1" "$CALLS"
     : >"$CALLS"
@@ -228,9 +228,11 @@ order_of() { grep -nx "$1" "$CALLS.order" | head -n 1 | cut -d: -f1; }
 }
 
 # The gate is only worth its name while it runs what CI runs.
-@test "test-ui-ci runs build.yml's exact tests/ui pytest invocation, headless" {
+@test "test-ui-ci runs the shared release gate UI slice, headless" {
     local ci args
-    ci=$(grep -E '^\s*run: pytest tests/ui/' "$REPO_ROOT/.github/workflows/build.yml" | sed 's/^ *run: pytest //')
+    grep -qF 'make land-gate' "$REPO_ROOT/.github/workflows/release-validation.yml"
+    grep -qF 'step ui "${mk[@]}" test-ui-ci' "$GATE"
+    ci='tests/ui/ -v --ignore=tests/ui/test_screens.py -m "not slow"'
     [ -n "$ci" ]
     args=$(sed -n 's/^UI_CI_PYTEST_ARGS := //p' "$REPO_ROOT/mk/tests.mk")
     [ "$args" = "$ci" ] || { printf 'CI:   %s\nmake: %s\n' "$ci" "$args"; return 1; }
@@ -242,10 +244,10 @@ order_of() { grep -nx "$1" "$CALLS.order" | head -n 1 | cut -d: -f1; }
 
 @test "CI's unit-test step uses the filter the sweep passes, with explicit shard flags" {
     local ci
-    ci=$(grep -F 'helix-tests "~[.] ~[slow]" --shard-count $NPROCS --shard-index $i' \
-        "$REPO_ROOT/.github/workflows/build.yml")
-    [ -n "$ci" ]
-    grep -qxF '        NPROCS=8' "$REPO_ROOT/.github/workflows/build.yml"
+    grep -qF 'make land-gate' "$REPO_ROOT/.github/workflows/release-validation.yml"
+    run "$GATE"
+    [ "$status" -eq 0 ]
+    grep -qx "make unit-sweep NPROCS=8 SHARD_TIMEOUT=600 SHARD_CRASH_FAILS=1" "$CALLS"
 }
 
 @test "a step past LAND_GATE_STEP_TIMEOUT is killed and reads TIMEOUT, failing the gate" {

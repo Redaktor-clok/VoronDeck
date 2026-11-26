@@ -1,33 +1,38 @@
 <?xml version="1.0"?>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <component>
-  <view name="panel_widget_active_spool" extends="lv_obj" width="100%" height="100%"
-        style_pad_all="0" scrollable="false">
-    <ui_button name="spoolman_btn" width="100%" height="100%" variant="ghost"
-               style_pad_all="0" style_pad_column="#space_sm" flex_flow="row"
+  <view name="panel_widget_active_spool"
+        extends="lv_obj" width="100%" height="100%" style_pad_all="0" scrollable="false">
+    <ui_button name="spoolman_btn"
+               width="100%" height="100%" variant="ghost" style_pad_all="0" style_pad_column="#space_sm" flex_flow="row"
                style_flex_main_place="center" style_flex_cross_place="center" focusable="false">
       <bind_state_if_not_eq subject="printer_connection_state" state="disabled" ref_value="2"/>
-      <lv_obj width="66" height="66" style_pad_all="0" style_bg_opa="0" style_border_width="0"
-              scrollable="false" clickable="false" event_bubble="true">
+      <lv_obj width="66"
+              height="66" style_pad_all="0" style_bg_opa="0" style_border_width="0" scrollable="false" clickable="false"
+              event_bubble="true">
         <spool_canvas name="spool_wide" size="58" view="ring" align="center" clickable="false" event_bubble="true"/>
-        <lv_obj width="20" height="20" align="bottom_right" style_pad_all="0"
-                style_radius="#border_radius" style_bg_color="#card_bg" style_border_width="0"
-                clickable="false" event_bubble="true" scrollable="false">
-          <text_tiny name="spool_simple_badge" bind_text="active_spool_badge" align="center"
-                     style_text_color="#text" clickable="false" event_bubble="true"/>
+        <lv_obj width="20"
+                height="20" align="bottom_right" style_pad_all="0" style_radius="#border_radius"
+                style_bg_color="#card_bg" style_border_width="0" clickable="false" event_bubble="true"
+                scrollable="false">
+          <text_tiny name="spool_simple_badge"
+                     bind_text="active_spool_badge" align="center" style_text_color="#text" clickable="false"
+                     event_bubble="true"/>
         </lv_obj>
       </lv_obj>
-      <lv_obj width="0" flex_grow="1" height="content" flex_flow="column" style_pad_all="0"
-              style_pad_row="0" style_bg_opa="0" style_border_width="0" scrollable="false"
-              clickable="false" event_bubble="true">
-        <text_body name="spoolman_material" width="100%" text="" long_mode="dots" max_lines="1"
-                   clickable="false" event_bubble="true"/>
-        <text_small name="spool_simple_percent" width="100%" bind_text="active_spool_percent"
-                    style_text_color="#text_muted" clickable="false" event_bubble="true">
+      <lv_obj width="0"
+              height="content" flex_grow="1" flex_flow="column" style_pad_all="0" style_pad_row="0" style_bg_opa="0"
+              style_border_width="0" scrollable="false" clickable="false" event_bubble="true">
+        <text_body name="spoolman_material"
+                   width="100%" text="" long_mode="dots" max_lines="1" clickable="false" event_bubble="true"/>
+        <text_small name="spool_simple_percent"
+                    width="100%" bind_text="active_spool_percent" style_text_color="#text_muted" clickable="false"
+                    event_bubble="true">
           <bind_flag_if_eq subject="active_spool_has_percent" flag="hidden" ref_value="0"/>
         </text_small>
-        <text_tiny name="spoolman_weight" width="100%" bind_text="active_spool_summary"
-                   style_text_color="#text_muted" long_mode="wrap" clickable="false" event_bubble="true">
+        <text_tiny name="spoolman_weight"
+                   width="100%" bind_text="active_spool_summary" style_text_color="#text_muted" long_mode="wrap"
+                   clickable="false" event_bubble="true">
           <bind_flag_if_eq subject="active_spool_has_summary" flag="hidden" ref_value="0"/>
         </text_tiny>
       </lv_obj>

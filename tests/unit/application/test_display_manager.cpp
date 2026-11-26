@@ -340,98 +340,6 @@ TEST_CASE("DisplayManager restore_display_on_shutdown is safe when not sleeping"
     REQUIRE_FALSE(mgr.is_display_sleeping());
 }
 
-// ============================================================================
-// AD5X Preset Validation Tests
-// ============================================================================
-
-// Point HELIX_DATA_DIR at the project root so find_readable() locates seed configs
-static std::string get_project_root() {
-    namespace fs = std::filesystem;
-    fs::path src(__FILE__);
-    if (src.is_relative()) {
-        src = fs::current_path() / src;
-    }
-    return src.parent_path().parent_path().parent_path().parent_path().string();
-}
-
-// RAII: point HELIX_DATA_DIR at the project root for the duration of one test so
-// find_readable() locates seed configs, then restore it. The previous one-shot
-// (setenv + static done flag, never restored) leaked HELIX_DATA_DIR to every
-// subsequent test in the process.
-struct DataDirGuard {
-    std::string saved_;
-    bool had_ = false;
-    DataDirGuard() {
-        if (const char* p = std::getenv("HELIX_DATA_DIR")) {
-            saved_ = p;
-            had_ = true;
-        }
-        setenv("HELIX_DATA_DIR", get_project_root().c_str(), 1);
-    }
-    ~DataDirGuard() {
-        if (had_) {
-            setenv("HELIX_DATA_DIR", saved_.c_str(), 1);
-        } else {
-            unsetenv("HELIX_DATA_DIR");
-        }
-    }
-};
-
-TEST_CASE("AD5X preset has required display sleep config", "[application][display][ad5x]") {
-    DataDirGuard data_dir_guard;
-    std::string preset_path = helix::find_readable("presets/ad5x.json");
-
-    std::ifstream f(preset_path);
-    REQUIRE(f.is_open());
-
-    nlohmann::json preset;
-    REQUIRE_NOTHROW(preset = nlohmann::json::parse(f));
-
-    // AD5X must NOT use backlight enable/disable ioctls (causes wake failure)
-    REQUIRE(preset.contains("display"));
-    auto& display = preset["display"];
-    REQUIRE(display.value("backlight_enable_ioctl", true) == false);
-
-    // AD5X must use hardware blank to turn off backlight during sleep (#431)
-    REQUIRE(display.value("hardware_blank", -1) == 1);
-
-    // AD5X turns backlight off during sleep (software overlay handles blanking)
-    REQUIRE(display.value("sleep_backlight_off", false) == true);
-}
-
-TEST_CASE("CC1 preset has required display sleep config", "[application][display][cc1]") {
-    DataDirGuard data_dir_guard;
-    std::string preset_path = helix::find_readable("presets/cc1.json");
-
-    std::ifstream f(preset_path);
-    REQUIRE(f.is_open());
-
-    nlohmann::json preset;
-    REQUIRE_NOTHROW(preset = nlohmann::json::parse(f));
-
-    REQUIRE(preset.contains("display"));
-    auto& display = preset["display"];
-    REQUIRE(display.value("backlight_enable_ioctl", true) == false);
-    REQUIRE(display.value("hardware_blank", -1) == 0);
-    REQUIRE(display.value("sleep_backlight_off", true) == false);
-}
-
-TEST_CASE("AD5M preset does NOT disable backlight during sleep", "[application][display][ad5m]") {
-    DataDirGuard data_dir_guard;
-    std::string preset_path = helix::find_readable("presets/ad5m.json");
-
-    std::ifstream f(preset_path);
-    REQUIRE(f.is_open());
-
-    nlohmann::json preset;
-    REQUIRE_NOTHROW(preset = nlohmann::json::parse(f));
-
-    // AD5M should not have display.sleep_backlight_off set at all (uses default=true)
-    if (preset.contains("display")) {
-        REQUIRE_FALSE(preset["display"].contains("sleep_backlight_off"));
-    }
-}
-
 TEST_CASE("sleep_backlight_off config controls backlight behavior during sleep",
           "[application][display][sleep]") {
     // Verify that Config correctly reads sleep_backlight_off
@@ -967,7 +875,7 @@ TEST_CASE_METHOD(ApplicationTestFixture,
 // ============================================================================
 
 TEST_CASE("a first boot reports the board's panel mount it applied", "[application][display]") {
-    helix::test::ScopedBoard board(helix::board::Board::K1);
+    helix::test::ScopedBoard board(helix::board::Board::Generic);
     helix::ScopedEnv no_force("HELIX_FORCE_ROTATION_PROBE", nullptr);
     helix::ScopedEnv no_env_rotation("HELIX_DISPLAY_ROTATION", nullptr);
     // No saved rotation, as on a first boot; the singleton's display block is put back.
@@ -990,11 +898,11 @@ TEST_CASE("a first boot reports the board's panel mount it applied", "[applicati
     config.first_boot_probe = true;
     config.kernel_orientation = -1;
 
-    SECTION("the K1 panel: its mount, which Application saves instead of probing") {
+    SECTION("an unknown portrait panel: let first-run orientation choose") {
         DisplayManager mgr;
         DisplayManagerTestAccess::set_size(mgr, 480, 800);
         DisplayManagerTestAccess::apply_startup_rotation(mgr, config);
-        CHECK(mgr.first_boot_orientation() == 270);
+        CHECK(mgr.first_boot_orientation() == -1);
     }
     SECTION("another framebuffer: nothing known, the probe runs") {
         DisplayManager mgr;

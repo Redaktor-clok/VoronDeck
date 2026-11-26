@@ -53,7 +53,8 @@
       <bind_flag_if_lt subject="plugin_feature_mode_${feature}" flag="hidden" ref_value="2"/>
       <icon src="puzzle_outline" size="xs" variant="secondary"/>
       <text_small name="needs_install_text"
-                  flex_grow="1" text="$install_hint" translation_tag="$install_hint" long_mode="wrap" style_text_color="#text_muted">
+                  flex_grow="1" text="$install_hint" translation_tag="$install_hint" long_mode="wrap"
+                  style_text_color="#text_muted">
         <bind_flag_if_not_eq subject="plugin_feature_mode_${feature}" flag="hidden" ref_value="2"/>
       </text_small>
       <text_small name="needs_update_text"

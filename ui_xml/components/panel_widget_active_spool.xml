@@ -32,8 +32,7 @@
         <spool_canvas name="spool_wide" size="64" view="ring" clickable="false" event_bubble="true"/>
         <lv_obj name="spoolman_text_stack"
                 width="0" height="content" flex_flow="column" flex_grow="1" style_pad_all="0" style_pad_row="0"
-                style_border_width="0" style_bg_opa="0"
-                scrollable="false" clickable="false" event_bubble="true">
+                style_border_width="0" style_bg_opa="0" scrollable="false" clickable="false" event_bubble="true">
           <!-- scroll_circular, like ams_loaded_card's material line: the composed
                vendor+filament label (Spoolman identity, #1264) can exceed the
                text column on small tiers. One line per label also keeps the
@@ -54,15 +53,16 @@
                      width="100%" text="" style_text_align="left" long_mode="dots" max_lines="1" clickable="false"
                      event_bubble="true"/>
           <text_small name="spoolman_brand_color"
-                      width="100%" text="" style_text_color="#text_muted" style_text_align="left"
-                      long_mode="dots" max_lines="1" clickable="false" event_bubble="true"/>
-          <text_small name="spool_simple_percent" width="100%" bind_text="active_spool_percent"
-                      style_text_color="#text_muted" clickable="false" event_bubble="true">
+                      width="100%" text="" style_text_color="#text_muted" style_text_align="left" long_mode="dots"
+                      max_lines="1" clickable="false" event_bubble="true"/>
+          <text_small name="spool_simple_percent"
+                      width="100%" bind_text="active_spool_percent" style_text_color="#text_muted" clickable="false"
+                      event_bubble="true">
             <bind_flag_if_eq subject="active_spool_has_percent" flag="hidden" ref_value="0"/>
           </text_small>
           <text_tiny name="spoolman_weight"
-                     width="100%" bind_text="active_spool_summary" style_text_color="#text_muted" style_text_align="left"
-                     long_mode="wrap" clickable="false" event_bubble="true">
+                     width="100%" bind_text="active_spool_summary" style_text_color="#text_muted"
+                     style_text_align="left" long_mode="wrap" clickable="false" event_bubble="true">
             <bind_flag_if_eq subject="active_spool_has_summary" flag="hidden" ref_value="0"/>
           </text_tiny>
         </lv_obj>

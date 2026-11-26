@@ -747,6 +747,7 @@
   <translation tag="Checking webcam" ru="Проверка веб-камеры"/>
   <translation tag="Checking..." ru="Проверка..."/>
   <translation tag="Checking…" ru="Проверка…"/>
+  <translation tag="Checks" ru="Проверки"/>
   <translation tag="Checks and Calibration" ru="Проверки и калибровки"/>
   <translation tag="Checks the screen installed on this device. Does not install updates automatically." ru="Проверка версии экрана на этом устройстве. Обновления автоматически не устанавливаются."/>
   <translation tag="Choose 12-hour or 24-hour time display" ru="Выберите 12-часовой или 24-часовой формат времени"/>
@@ -820,6 +821,7 @@
   <translation tag="Command failed" ru="Ошибка команды"/>
   <translation tag="Communication Test" ru="Проверка связи"/>
   <translation tag="Compact" ru="Компактный"/>
+  <translation tag="Compact passive temperature readings" ru="Компактные показания датчиков температуры"/>
   <translation tag="Compare belt paths with a resonance sweep" ru="Сравнение путей ремней резонансным свипом"/>
   <translation tag="Compare your belt paths" ru="Сравните пути ремней"/>
   <translation tag="Compares the two belt paths of a CoreXY printer with the accelerometer, so you can even out their tension. Run it on the Belt Tension screen." ru="Сравнивает два контура ремней принтера CoreXY с помощью акселерометра, чтобы выровнять их натяжение. Запускается на экране «Натяжение ремня»."/>
@@ -890,7 +892,7 @@
   <translation tag="Connected Time" ru="Время подключения"/>
   <translation tag="Connected to" ru="Подключен к"/>
   <translation tag="Connected to " ru="Подключен к "/>
-  <translation tag="Connected to Moonraker, but Klipper is not running. You can continue — HelixScreen will show the Klipper error, and hardware detection stays limited until Klipper starts." ru="Подключено к Moonraker, но Klipper не запущен. Можно продолжить — VoronDeck покажет ошибку Klipper, а определение оборудования будет ограничено до запуска Klipper."/>
+  <translation tag="Connected to Moonraker, but Klipper is not running. You can continue — VoronDeck will show the Klipper error, and hardware detection stays limited until Klipper starts." ru="Подключено к Moonraker, но Klipper не запущен. Можно продолжить — VoronDeck покажет ошибку Klipper, а определение оборудования будет ограничено до запуска Klipper."/>
   <translation tag="Connected to Moonraker, but printer discovery did not finish. You can continue — hardware detection stays limited until the printer responds." ru="Подключено к Moonraker, но поиск принтера не завершён. Можно продолжить — определение оборудования будет ограничено, пока принтер не ответит."/>
   <translation tag="Connected to {}" ru="Подключен к {}"/>
   <translation tag="Connected! Discovering printer..." ru="Подключен! Обнаружение принтера..."/>
@@ -967,6 +969,7 @@
   <translation tag="Could not forget device" ru="Не удалось забыть устройство"/>
   <translation tag="Could not free space" ru="Не удалось освободить место"/>
   <translation tag="Could not initialize WiFi hardware. Check system configuration." ru="Не удалось инициализировать оборудование WiFi. Проверьте конфигурацию системы."/>
+  <translation tag="Could not load image" ru="Не удалось загрузить изображение"/>
   <translation tag="Could not load printer database" ru="Не удалось загрузить базу данных принтеров"/>
   <translation tag="Could not move the plate" ru="Не удалось переместить стол"/>
   <translation tag="Could not open a browser for the update" ru="Не удалось открыть браузер для обновления"/>
@@ -1153,6 +1156,7 @@
   <translation tag="Door Open" ru="Дверь открыта"/>
   <translation tag="Door opened during print: {}" ru="Дверь открыта во время печати: {}"/>
   <translation tag="Door switches, buttons, and other on/off inputs" ru="Датчики дверей, кнопки и другие входы вкл/выкл"/>
+  <translation tag="Doron Velta" ru="Doron Velta"/>
   <translation tag="Download update?" ru="Загрузить обновление?"/>
   <translation tag="Download v{}?" ru="Загрузить v{}?"/>
   <translation tag="Downloading and verifying VoronDeck. The screen will restart." ru="Загрузка и проверка VoronDeck. Экран перезапустится."/>
@@ -1440,6 +1444,7 @@
   <translation tag="Failed to save hardware configuration" ru="Не удалось сохранить настройки устройств"/>
   <translation tag="Failed to save heater configuration" ru="Не удалось сохранить настройки нагревателя"/>
   <translation tag="Failed to save printer configuration" ru="Не удалось сохранить настройки принтера"/>
+  <translation tag="Failed to save settings" ru="Не удалось сохранить настройки"/>
   <translation tag="Failed to save setup completion" ru="Не удалось сохранить завершение настройки"/>
   <translation tag="Failed to save spool" ru="Не удалось сохранить катушку"/>
   <translation tag="Failed to save theme file" ru="Не удалось сохранить файл темы"/>
@@ -1773,6 +1778,7 @@
   <translation tag="HelixScreen Crashed" ru="HelixScreen аварийно завершился"/>
   <translation tag="HelixScreen is detecting your display orientation" ru="HelixScreen определяет ориентацию дисплея"/>
   <translation tag="HelixScreen&apos;s helper macros are installed in the printer&apos;s config. Update or remove them on the Advanced screen." ru="Вспомогательные макросы HelixScreen установлены в конфигурации принтера. Обновите или удалите их на экране «Дополнительно»."/>
+  <translation tag="HelixScreen: Preston Brown · © 2025–2026 356C LLC" ru="HelixScreen: Preston Brown · © 2025–2026 356C LLC"/>
   <translation tag="Help &amp; About" ru="Помощь и о программе"/>
   <translation tag="Help Improve HelixScreen" ru="Помогите улучшить HelixScreen"/>
   <translation tag="Help improve HelixScreen?" ru="Помочь улучшить HelixScreen?"/>
@@ -2378,6 +2384,7 @@
   <translation tag="My Custom Theme" ru="Моя тема"/>
   <translation tag="My Panel" ru="Моя панель"/>
   <translation tag="My Printer" ru="Мой принтер"/>
+  <translation tag="NEMESIS" ru="NEMESIS"/>
   <translation tag="NEW HIGH SCORE!&#10;{}&#10;Tap to play again" ru="НОВЫЙ РЕКОРД!&#10;{}&#10;Нажмите, чтобы сыграть снова"/>
   <translation tag="NEWLY DISCOVERED" ru="НЕДАВНО ОБНАРУЖЕНО"/>
   <translation tag="Name" ru="Название"/>
@@ -2974,6 +2981,7 @@
   <translation tag="Printer events need the HelixPrint plugin on this screen" ru="Для событий принтера на этом экране нужен плагин HelixPrint"/>
   <translation tag="Printer hardware detected" ru="Обнаружено оборудование принтера"/>
   <translation tag="Printer image set to auto-detect" ru="Изображение принтера — автоопределение"/>
+  <translation tag="Printer is busy" ru="Принтер занят"/>
   <translation tag="Printer is busy - {} stays in the queue" ru="Принтер занят – {} остаётся в очереди"/>
   <translation tag="Printer is busy with a print" ru="Принтер занят печатью"/>
   <translation tag="Printer is busy — try again in a moment" ru="Принтер занят — повторите попытку чуть позже"/>
@@ -3515,6 +3523,7 @@
   <translation tag="Sending..." ru="Отправка..."/>
   <translation tag="Sends your standing print options, such as unload at end, when a print starts from another app or the job queue." ru="Отправляет ваши постоянные параметры печати, например выгрузку в конце, когда печать запускается из другого приложения или из очереди заданий."/>
   <translation tag="Sensor" ru="Датчик"/>
+  <translation tag="Sensor Bank" ru="Датчики"/>
   <translation tag="Sensor Error" ru="Ошибка датчика"/>
   <translation tag="Sensor Response" ru="Отклик датчика"/>
   <translation tag="Sensor Source" ru="Источник датчика"/>
@@ -4434,7 +4443,15 @@
   <translation tag="Volume" ru="Громкость"/>
   <translation tag="Volume of filament used during ramming" ru="Объём филамента, расходуемый при рэмминге"/>
   <translation tag="Volume {}%" ru="Громкость {}%"/>
+  <translation tag="Voron 0.1 / 0.2" ru="Voron 0.1 / 0.2"/>
+  <translation tag="Voron 2.4" ru="Voron 2.4"/>
+  <translation tag="Voron Legacy" ru="Voron Legacy"/>
+  <translation tag="Voron Switchwire" ru="Voron Switchwire"/>
+  <translation tag="Voron Trident" ru="Voron Trident"/>
+  <translation tag="Voron Trident CNC AWD" ru="Voron Trident CNC AWD"/>
   <translation tag="VoronDeck" ru="VoronDeck"/>
+  <translation tag="VoronDeck " ru="VoronDeck "/>
+  <translation tag="VoronDeck Crashed" ru="Сбой VoronDeck"/>
   <translation tag="VoronDeck Macros" ru="Макросы VoronDeck"/>
   <translation tag="VoronDeck adds [include helix-plr/*.cfg] to printer.cfg, so a resume reloads the mesh the print started with. A backup is kept beside printer.cfg, and Klipper must restart for it to take effect." ru="VoronDeck добавляет [include helix-plr/*.cfg] в printer.cfg, чтобы при возобновлении снова загружалась сетка, с которой началась печать. Рядом с printer.cfg хранится резервная копия, а чтобы изменение вступило в силу, нужно перезапустить Klipper."/>
   <translation tag="VoronDeck and printer components" ru="VoronDeck и компоненты принтера"/>
@@ -4448,9 +4465,11 @@
   <translation tag="VoronDeck writes this to printer.cfg and restarts Klipper. The printer will briefly disconnect." ru="VoronDeck записывает это в printer.cfg и перезапускает Klipper. Принтер ненадолго отключится."/>
   <translation tag="VoronDeck {} is available ({})" ru="Доступен VoronDeck {} ({})"/>
   <translation tag="VoronDeck {} is available — tap Update" ru="Доступен VoronDeck {} — нажмите «Обновить»"/>
+  <translation tag="VoronDeck — GPL-3.0-or-later" ru="VoronDeck — GPL-3.0-or-later"/>
   <translation tag="VoronDeck&apos;s Moonraker plugin is installed, which it uses to run pre-print options. Manage it on the Advanced screen." ru="Плагин Moonraker для VoronDeck установлен; он нужен для параметров перед печатью. Управляйте им на экране «Дополнительно»."/>
   <translation tag="VoronDeck&apos;s helper macros are installed in the printer&apos;s config. Install updates on the Advanced screen." ru="Вспомогательные макросы VoronDeck установлены в конфигурации принтера. Устанавливайте обновления на экране «Дополнительно»."/>
   <translation tag="VoronDeck: first setup, controls and recovery. The beta guide requires access to the private repository." ru="VoronDeck: первая настройка, управление и восстановление печати. Для бета-руководства нужен доступ к закрытому репозиторию."/>
+  <translation tag="VzBot" ru="VzBot"/>
   <translation tag="WEIGHT SYNC" ru="СИНХРОНИЗАЦИЯ ВЕСА"/>
   <translation tag="WIDTH SENSORS" ru="ДАТЧИКИ ШИРИНЫ"/>
   <translation tag="WLED Preset" ru="Пресет WLED"/>
@@ -4615,6 +4634,10 @@
   <translation tag="Z-offset saving is off, so VoronDeck did not save this. Klipper holds it until the next config save." ru="Сохранение Z-Offset выключено, поэтому VoronDeck не сохранил это. Klipper хранит значение до следующего сохранения конфигурации."/>
   <translation tag="Z:" ru="Z:"/>
   <translation tag="Z: 0.000" ru="Z: 0.000"/>
+  <translation tag="ZeroG Hydra 255" ru="ZeroG Hydra 255"/>
+  <translation tag="ZeroG Hydra 370" ru="ZeroG Hydra 370"/>
+  <translation tag="ZeroG Nebula" ru="ZeroG Nebula"/>
+  <translation tag="ZeroG Nebula 370" ru="ZeroG Nebula 370"/>
   <translation tag="Zone {:.0f}-{:.0f} Hz" ru="Зона {:.0f}-{:.0f} Гц"/>
   <translation tag="[resonance_tester] has no probe_points, so the toolhead has no safe height for the settling laps." ru="В [resonance_tester] нет probe_points, поэтому у головы нет безопасной высоты для кругов приработки."/>
   <translation tag="already loaded" ru="уже загружен"/>

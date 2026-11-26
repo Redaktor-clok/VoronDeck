@@ -331,12 +331,12 @@ MD
     lacks "GUIDE.md:3" "$output"
 }
 
-@test "counts: a README with no filament system list cannot pass by silence" {
+@test "counts: a README without numeric claims needs no English inventory sentence" {
     make_counts_fixture
     printf 'Supports many filament systems.\n' > README.md
     run python3 "$CHECK" --counts
-    [ "$status" -eq 1 ]
-    contains 'no "<N> filament systems: <list>" line' "$output"
+    [ "$status" -eq 0 ]
+    contains '0 claims match' "$output"
 }
 
 @test "counts: the shipped README and docs/user agree with the tree" {

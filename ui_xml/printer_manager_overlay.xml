@@ -46,10 +46,11 @@
     <style name="details_portrait" width="100%" height="content" flex_grow="0"/>
   </styles>
   <view name="printer_manager_overlay"
-        extends="overlay_panel" title_font="#font_body" title_long_mode="dots" title_max_lines="2" title="Printer Manager" bg_color="#screen_bg" hide_action_button="false"
-        action_button_text="Manage Printers" action_button_callback="pm_manage_printers_clicked"
-        action_button_hidden_subject="ui_is_portrait" hide_action_icon="false" action_icon="printer_3d"
-        action_icon_hidden_cond="ui_is_portrait eq 0" action_icon_callback="pm_manage_printers_clicked">
+        extends="overlay_panel" title_font="#font_body" title_long_mode="dots" title_max_lines="2"
+        title="Printer Manager" bg_color="#screen_bg" hide_action_button="false" action_button_text="Manage Printers"
+        action_button_callback="pm_manage_printers_clicked" action_button_hidden_subject="ui_is_portrait"
+        hide_action_icon="false" action_icon="printer_3d" action_icon_hidden_cond="ui_is_portrait eq 0"
+        action_icon_callback="pm_manage_printers_clicked">
     <!-- Manage Printers: the labelled button in landscape; portrait is too narrow
          for it beside the title, so the round icon button takes its place. -->
     <!-- Body. Tapping it while the name is being edited saves the edit (C++). -->

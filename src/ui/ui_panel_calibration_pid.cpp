@@ -72,16 +72,17 @@ void query_pid_config(helix::IMoonrakerAPI* api,
         [api, epoch, success, error](const nlohmann::json& reply) {
             const bool supported = reply.contains("result") && reply["result"].is_object() &&
                                    reply["result"].contains("PID_CALIBRATE");
-            helix::ui::queue_update([api, epoch, supported, success, error]() {
-                if (api != get_moonraker_api() ||
-                    epoch != get_printer_state().network_state().klippy_epoch())
-                    return;
-                if (supported)
-                    api->query_configfile(success, error);
-                else if (error)
-                    error(MoonrakerError::unknown("PID_CALIBRATE is not supported",
-                                                  "printer.gcode.help"));
-            });
+            helix::ui::queue_update(
+                "PID::heater_capabilities", [api, epoch, supported, success, error]() {
+                    if (api != get_moonraker_api() ||
+                        epoch != get_printer_state().network_state().klippy_epoch())
+                        return;
+                    if (supported)
+                        api->query_configfile(success, error);
+                    else if (error)
+                        error(MoonrakerError::unknown("PID_CALIBRATE is not supported",
+                                                      "printer.gcode.help"));
+                });
         },
         error);
 }
@@ -125,7 +126,8 @@ void request_keypad_pid(const std::string& heater, int target) {
         api,
         [api, epoch, heater, target](const nlohmann::json& config) {
             auto request = helix::pid_heater_request(config, heater);
-            helix::ui::queue_update([api, epoch, heater, target, request]() {
+            helix::ui::queue_update("PID::calibration_start", [api, epoch, heater, target,
+                                                               request]() {
                 if (api != get_moonraker_api() ||
                     epoch != get_printer_state().network_state().klippy_epoch())
                     return;
@@ -174,7 +176,8 @@ void ui_keypad_offer_pid(const std::string& heater, lv_obj_t* parent) {
         api,
         [api, epoch, generation, heater](const nlohmann::json& config) {
             const auto request = helix::pid_heater_request(config, heater);
-            helix::ui::queue_update([api, epoch, generation, heater, request]() {
+            helix::ui::queue_update("PID::calibration_save", [api, epoch, generation, heater,
+                                                              request]() {
                 if (api != get_moonraker_api() ||
                     epoch != get_printer_state().network_state().klippy_epoch() || !request)
                     return;

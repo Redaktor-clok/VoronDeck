@@ -11,26 +11,29 @@
   </api>
   <consts>
     <str name="step_title" value="Detected Devices" value_tag="Detected Devices"/>
-    <str name="step_subtitle" value="Review device assignments or open a group to change them" value_tag="Review device assignments or open a group to change them"/>
+    <str name="step_subtitle"
+         value="Review device assignments or open a group to change them"
+         value_tag="Review device assignments or open a group to change them"/>
   </consts>
-  <view name="wizard_devices_root" extends="lv_obj" width="100%" height="100%"
-        style_bg_opa="0" style_border_width="0" style_pad_all="0" flex_flow="column">
+  <view name="wizard_devices_root"
+        extends="lv_obj" width="100%" height="100%" style_bg_opa="0" style_border_width="0" style_pad_all="0"
+        flex_flow="column">
     <text_small name="wizard_devices_status" width="100%" text="$status" long_mode="wrap"/>
     <ui_card width="100%" flex_grow="1" style_pad_all="0" flex_flow="column" scrollable="true">
-      <setting_action_row name="wizard_devices_heaters" label="Heaters" label_tag="Heaters"
-                          icon="heater" description="$heaters" description_min_bp="0"
+      <setting_action_row name="wizard_devices_heaters"
+                          label="Heaters" icon="heater" description="$heaters" description_min_bp="0"
                           callback="on_wizard_devices_heaters"/>
-      <setting_action_row name="wizard_devices_fans" label="Fans" label_tag="Fans"
-                          icon="fan" description="$fans" description_min_bp="0"
+      <setting_action_row name="wizard_devices_fans"
+                          label="Fans" icon="fan" description="$fans" description_min_bp="0"
                           callback="on_wizard_devices_fans"/>
-      <setting_action_row name="wizard_devices_ams" label="Multi-Filament System" label_tag="Multi-Filament System"
-                          icon="filament" description="$ams" description_min_bp="0"
+      <setting_action_row name="wizard_devices_ams"
+                          label="Multi-Filament System" icon="filament" description="$ams" description_min_bp="0"
                           callback="on_wizard_devices_ams"/>
-      <setting_action_row name="wizard_devices_leds" label="LEDs" label_tag="LEDs"
-                          icon="led_strip" description="$leds" description_min_bp="0"
+      <setting_action_row name="wizard_devices_leds"
+                          label="LEDs" icon="led_strip" description="$leds" description_min_bp="0"
                           callback="on_wizard_devices_leds"/>
-      <setting_action_row name="wizard_devices_sensors" label="Filament Sensors" label_tag="Filament Sensors"
-                          icon="filament_sensor" description="$sensors" description_min_bp="0"
+      <setting_action_row name="wizard_devices_sensors"
+                          label="Filament Sensors" icon="filament_sensor" description="$sensors" description_min_bp="0"
                           callback="on_wizard_devices_sensors"/>
     </ui_card>
   </view>

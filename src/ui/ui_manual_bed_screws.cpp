@@ -6,6 +6,8 @@
 
 #include "app_globals.h"
 #include "config.h"
+#include "exception_policy.h"
+#include "json_utils.h"
 #include "moonraker_error.h"
 #include "printer_state.h"
 #include "static_panel_registry.h"
@@ -141,20 +143,21 @@ void ManualBedScrewsPanel::request(const std::string& method, const json& params
     client->send_jsonrpc(
         method, params,
         [this, token, generation, printer, client, done](const json& response) {
-            token.defer(
-                "ManualBedScrews::response", [this, generation, printer, client, done, response] {
-                    if (generation != generation_ || client != get_moonraker_client() ||
-                        client->get_connection_state() != ConnectionState::CONNECTED ||
-                        printer != Config::get_instance()->get_active_printer_id())
-                        return;
-                    pending_ = false;
-                    lv_subject_set_int(&busy_, 0);
-                    try {
-                        done(response.contains("result") ? response.at("result") : response);
-                    } catch (const json::exception&) {
-                        unavailable(lv_tr("Invalid Moonraker response"));
-                    }
-                });
+            token.defer("ManualBedScrews::response", [this, generation, printer, client, done,
+                                                      response] {
+                if (generation != generation_ || client != get_moonraker_client() ||
+                    client->get_connection_state() != ConnectionState::CONNECTED ||
+                    printer != Config::get_instance()->get_active_printer_id())
+                    return;
+                pending_ = false;
+                lv_subject_set_int(&busy_, 0);
+                const auto* result = helix::json_util::find_member(response, "result");
+                if (!response.is_object() || !helix::contain_exceptions("Bed screws response", [&] {
+                        done(result ? *result : response);
+                    })) {
+                    unavailable(lv_tr("Invalid Moonraker response"));
+                }
+            });
         },
         [this, token, generation, printer, client](const MoonrakerError&) {
             token.defer("ManualBedScrews::error", [this, generation, printer, client] {
@@ -168,21 +171,32 @@ void ManualBedScrewsPanel::request(const std::string& method, const json& params
         120000);
 }
 
-void ManualBedScrewsPanel::display(const json& status) {
-    const auto& bed = status.at("bed_screws");
-    const bool active = bed.at("is_active").get<bool>();
+bool ManualBedScrewsPanel::display(const json& status) {
+    using namespace helix::json_util;
+    const auto bed = safe_object(status, "bed_screws");
+    const auto* active_value = find_member(bed, "is_active");
+    if (!active_value || !active_value->is_boolean()) {
+        unavailable(lv_tr("Invalid Moonraker response"));
+        return false;
+    }
+    const bool active = active_value->get<bool>();
     lv_subject_set_int(&phase_, active ? 1 : 0);
     lv_subject_set_int(&start_allowed_, manual_bed_screws::allowed(Action::Start, status));
     lv_subject_set_int(&next_allowed_, manual_bed_screws::allowed(Action::Accept, status));
     lv_subject_set_int(&abort_allowed_, manual_bed_screws::allowed(Action::Abort, status));
     std::string text;
     if (active) {
-        const int index = bed.at("current_screw").get<int>();
-        if (index < 0 || index > 98)
-            throw json::out_of_range::create(401, "Invalid screw", &bed);
-        const auto& settings = status.at("configfile").at("settings").at("bed_screws");
+        const auto* index_value = find_member(bed, "current_screw");
+        const int index =
+            index_value && index_value->is_number_integer() ? as_int(*index_value, -1) : -1;
+        const auto settings =
+            safe_object(safe_object(safe_object(status, "configfile"), "settings"), "bed_screws");
+        if (index < 0 || index > 98 || settings.empty()) {
+            unavailable(lv_tr("Invalid Moonraker response"));
+            return false;
+        }
         int screw = index + 1;
-        const bool fine = bed.value("state", "adjust") == "fine";
+        const bool fine = safe_string(bed, "state", "adjust") == "fine";
         if (fine) {
             int fine_index = 0;
             screw = 0;
@@ -195,11 +209,11 @@ void ManualBedScrewsPanel::display(const json& status) {
             }
             if (!screw) {
                 unavailable(lv_tr("Invalid Moonraker response"));
-                return;
+                return false;
             }
         }
         const std::string key = "screw" + std::to_string(screw);
-        std::string name = settings.value(key + "_name", key);
+        std::string name = safe_string(settings, (key + "_name").c_str(), key);
         text = fmt::format("{} {}\n{}\n{}: {}", lv_tr("Screw"), screw, name, lv_tr("Stage"),
                            lv_tr(fine ? "Fine adjustment" : "Main adjustment"));
     } else {
@@ -208,18 +222,19 @@ void ManualBedScrewsPanel::display(const json& status) {
                          : "Home all axes and finish other operations before starting.");
     }
     lv_subject_copy_string(&status_, text.c_str());
+    return true;
 }
 
 void ManualBedScrewsPanel::refresh() {
-    request("printer.objects.query", query_params(),
-            [this](const json& result) { display(result.at("status")); });
+    request("printer.objects.query", query_params(), [this](const json& result) {
+        display(helix::json_util::safe_object(result, "status"));
+    });
 }
 
 void ManualBedScrewsPanel::act(Action action) {
     request("printer.objects.query", query_params(), [this, action](const json& result) {
-        const auto& status = result.at("status");
-        display(status);
-        if (!manual_bed_screws::allowed(action, status))
+        const auto& status = helix::json_util::safe_object(result, "status");
+        if (!display(status) || !manual_bed_screws::allowed(action, status))
             return;
         request("printer.gcode.script", {{"script", manual_bed_screws::command(action)}},
                 [this](const json&) { refresh(); });

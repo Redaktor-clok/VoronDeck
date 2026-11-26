@@ -39,8 +39,8 @@
   <view name="ams_slot_view"
         extends="lv_obj" width="content" height="content" flex_flow="column" style_flex_main_place="start"
         style_flex_cross_place="center" style_flex_track_place="center" style_pad_row="#space_xs" style_pad_all="2"
-        style_bg_opa="0" style_bg_color="#text" style_border_width="0" clickable="true" scrollable="false" overflow_visible="true"
-        style_radius="#border_radius">
+        style_bg_opa="0" style_bg_color="#text" style_border_width="0" clickable="true" scrollable="false"
+        overflow_visible="true" style_radius="#border_radius">
     <style name="styles.press_wash" selector="pressed"/>
 
     <!-- Per-lane climate under a per-lane lid: the droplet says it is humidity, not
@@ -56,16 +56,16 @@
               event_bubble="true" hidden="true">
         <icon name="lane_temp_icon"
               src="thermometer" size="$climate_icon" variant="secondary" clickable="false" event_bubble="true"/>
-        <text_small name="lane_temp_text" text="" translation_tag="" style_text_font="$climate_font"
-                    clickable="false" event_bubble="true"/>
+        <text_small name="lane_temp_text"
+                    text="" translation_tag="" style_text_font="$climate_font" clickable="false" event_bubble="true"/>
       </lv_obj>
       <lv_obj name="lane_humidity_row"
               width="content" height="content" flex_flow="row" style_flex_cross_place="center" style_pad_all="0"
               style_pad_gap="#space_xxs" style_bg_opa="0" style_border_width="0" scrollable="false" clickable="false"
               event_bubble="true">
         <humidity_drop name="lane_humidity_icon" size="$climate_icon" clickable="false" event_bubble="true"/>
-        <text_small name="lane_humidity_text" text="" style_text_font="$climate_font"
-                    clickable="false" event_bubble="true"/>
+        <text_small name="lane_humidity_text"
+                    text="" style_text_font="$climate_font" clickable="false" event_bubble="true"/>
       </lv_obj>
     </lv_obj>
 
@@ -81,11 +81,11 @@
                 long_mode="dots" scrollable="false" clickable="true" event_bubble="true"/>
     <!-- Simple detail moves the material into this row. The percentage keeps
          its natural width; a long material may ellipsize without hiding it. -->
-    <lv_obj name="simple_material_row" width="100%" height="content" flex_flow="row"
-            style_pad_all="0" style_pad_gap="#space_xxs" style_flex_cross_place="center"
-            scrollable="false" clickable="false" event_bubble="true" hidden="true">
-      <text_small name="slot_percent_label" text="" translation_tag="" width="content"
-                  clickable="false" event_bubble="true"/>
+    <lv_obj name="simple_material_row"
+            width="100%" height="content" flex_flow="row" style_pad_all="0" style_pad_gap="#space_xxs"
+            style_flex_cross_place="center" scrollable="false" clickable="false" event_bubble="true" hidden="true">
+      <text_small name="slot_percent_label"
+                  width="content" text="" translation_tag="" clickable="false" event_bubble="true"/>
     </lv_obj>
 
     <!-- Spool container - holds the lane spool widget and the badges -->
@@ -97,8 +97,9 @@
       <!-- Lane spool graphic: sizes itself from the ams_slot_spool_size token;
            slot_index is assigned by ui_ams_slot.cpp once parsed. Created first
            so the badges below render on top of it. -->
-      <ams_lane_spool name="lane_spool" spool_view="$spool_view" observe_fill="$observe_fill"
-                      align="center" clickable="false" event_bubble="true"/>
+      <ams_lane_spool name="lane_spool"
+                      spool_view="$spool_view" observe_fill="$observe_fill" align="center" clickable="false"
+                      event_bubble="true"/>
 
       <!-- Status badge (bottom-right) - shows slot number with status color.
            clickable="false" so taps on the badge bubble up to the slot click

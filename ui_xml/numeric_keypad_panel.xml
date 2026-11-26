@@ -44,8 +44,8 @@
     <header_bar name="overlay_header"
                 title="" title_subject="keypad_title" title_transform="none" title_font="#keypad_title_font"
                 title_long_mode="dots" title_max_lines="2" action_button_text="Set " hide_action_button="false"/>
-    <ui_button name="keypad_secondary_action" width="100%" height="content"
-               bind_text="keypad_secondary_label" icon="thermometer" variant="ghost">
+    <ui_button name="keypad_secondary_action"
+               width="100%" height="content" bind_text="keypad_secondary_label" icon="thermometer" variant="ghost">
       <bind_flag_if_eq subject="keypad_has_secondary" flag="hidden" ref_value="0"/>
     </ui_button>
     <!-- Content -->

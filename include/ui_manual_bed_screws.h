@@ -26,7 +26,7 @@ class ManualBedScrewsPanel : public OverlayBase {
   private:
     void request(const std::string& method, const nlohmann::json& params,
                  std::function<void(const nlohmann::json&)> done);
-    void display(const nlohmann::json& status);
+    bool display(const nlohmann::json& status);
     void unavailable(const char* text);
     SubjectManager subjects_;
     lv_subject_t phase_{}, busy_{}, status_{}, start_allowed_{}, next_allowed_{}, abort_allowed_{};

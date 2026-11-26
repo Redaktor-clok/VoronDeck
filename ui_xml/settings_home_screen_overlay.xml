@@ -1,57 +1,71 @@
 <?xml version="1.0"?>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <component>
-  <view name="settings_home_screen_overlay" extends="lv_obj" width="100%" height="100%" align="right_mid"
-        flex_flow="column" style_pad_all="0" style_pad_gap="0" style_border_width="0"
-        style_bg_color="#screen_bg" style_bg_opa="255" scrollable="false">
-    <lv_obj name="home_settings_identity" width="100%" height="#space_2xl" style_pad_ver="0"
-            style_pad_hor="#space_md" style_bg_color="#screen_bg" style_border_width="0"
-            scrollable="false" flex_flow="row" style_flex_cross_place="center">
+  <view name="settings_home_screen_overlay"
+        extends="lv_obj" width="100%" height="100%" align="right_mid" flex_flow="column" style_pad_all="0"
+        style_pad_gap="0" style_border_width="0" style_bg_color="#screen_bg" style_bg_opa="255" scrollable="false">
+    <lv_obj name="home_settings_identity"
+            width="100%" height="#space_2xl" style_pad_ver="0" style_pad_hor="#space_md" style_bg_color="#screen_bg"
+            style_border_width="0" scrollable="false" flex_flow="row" style_flex_cross_place="center">
       <text_small name="home_settings_printer" width="35%" bind_text="active_printer_name" long_mode="dots"/>
-      <lv_obj name="home_settings_network" width="0" flex_grow="1" height="100%" style_pad_all="0"
-              clickable="true" scrollable="false">
+      <lv_obj name="home_settings_network"
+              width="0" height="100%" flex_grow="1" style_pad_all="0" clickable="true" scrollable="false">
         <event_cb trigger="clicked" callback="on_shared_network_clicked"/>
-        <text_small width="100%" align="center" bind_text="home_network_summary" style_text_align="center"
-                    long_mode="dots" clickable="false" event_bubble="true">
+        <text_small width="100%"
+                    align="center" bind_text="home_network_summary" style_text_align="center" long_mode="dots"
+                    clickable="false" event_bubble="true">
           <bind_flag_if_eq subject="home_network_known" flag="hidden" ref_value="0"/>
         </text_small>
       </lv_obj>
     </lv_obj>
-    <header_bar name="overlay_header" title="Home screen" title_subject="home_settings_title"
-                title_transform="none" back_button_callback="on_home_settings_back"/>
-    <lv_obj name="overlay_content" width="100%" flex_grow="1" flex_flow="column"
-            style_pad_all="#space_md" style_pad_gap="#space_md" style_pad_bottom="#space_lg" scrollable="true">
-      <lv_obj name="home_settings_menu" width="100%" height="content" flex_flow="column"
-              style_pad_all="0" style_pad_gap="#space_md" scrollable="false">
+    <header_bar name="overlay_header"
+                title="Home screen" title_subject="home_settings_title" title_transform="none"
+                back_button_callback="on_home_settings_back"/>
+    <lv_obj name="overlay_content"
+            width="100%" flex_grow="1" flex_flow="column" style_pad_all="#space_md" style_pad_gap="#space_md"
+            style_pad_bottom="#space_lg" scrollable="true">
+      <lv_obj name="home_settings_menu"
+              width="100%" height="content" flex_flow="column" style_pad_all="0" style_pad_gap="#space_md"
+              scrollable="false">
         <bind_flag_if_gt subject="home_settings_section" flag="hidden" ref_value="0"/>
-        <lv_button name="home_settings_temperatures" width="100%" height="content" style_min_height="48"
-                   style_bg_color="#screen_bg" style_bg_opa="255" style_border_width="1" style_border_color="#border"
-                   style_radius="4" style_shadow_width="0" style_pad_all="#space_md" style_pad_gap="#space_sm"
-                   flex_flow="row" style_flex_cross_place="center" scrollable="false">
-          <text_body text="Temperatures" width="44%" long_mode="wrap" clickable="false" event_bubble="true"/>
-          <text_small text="Heaters and sensors" width="0" flex_grow="1" long_mode="wrap" style_text_align="right" clickable="false" event_bubble="true"/>
+        <lv_button name="home_settings_temperatures"
+                   width="100%" height="content" style_min_height="48" style_bg_color="#screen_bg" style_bg_opa="255"
+                   style_border_width="1" style_border_color="#border" style_radius="4" style_shadow_width="0"
+                   style_pad_all="#space_md" style_pad_gap="#space_sm" flex_flow="row" style_flex_cross_place="center"
+                   scrollable="false">
+          <text_body width="44%" text="Temperatures" long_mode="wrap" clickable="false" event_bubble="true"/>
+          <text_small width="0"
+                      text="Heaters and sensors" flex_grow="1" long_mode="wrap" style_text_align="right"
+                      clickable="false" event_bubble="true"/>
           <icon src="chevron_right" size="xs" variant="muted" clickable="false" event_bubble="true"/>
           <event_cb trigger="clicked" callback="on_home_settings_section" user_data="1"/>
         </lv_button>
-        <lv_button name="home_settings_fans" width="100%" height="content" style_min_height="48"
-                   style_bg_color="#screen_bg" style_bg_opa="255" style_border_width="1" style_border_color="#border"
-                   style_radius="4" style_shadow_width="0" style_pad_all="#space_md" style_pad_gap="#space_sm"
-                   flex_flow="row" style_flex_cross_place="center" scrollable="false">
-          <text_body text="Fans" width="44%" long_mode="wrap" clickable="false" event_bubble="true"/>
-          <text_small text="Choose displayed fans" width="0" flex_grow="1" long_mode="wrap" style_text_align="right" clickable="false" event_bubble="true"/>
+        <lv_button name="home_settings_fans"
+                   width="100%" height="content" style_min_height="48" style_bg_color="#screen_bg" style_bg_opa="255"
+                   style_border_width="1" style_border_color="#border" style_radius="4" style_shadow_width="0"
+                   style_pad_all="#space_md" style_pad_gap="#space_sm" flex_flow="row" style_flex_cross_place="center"
+                   scrollable="false">
+          <text_body width="44%" text="Fans" long_mode="wrap" clickable="false" event_bubble="true"/>
+          <text_small width="0"
+                      text="Choose displayed fans" flex_grow="1" long_mode="wrap" style_text_align="right"
+                      clickable="false" event_bubble="true"/>
           <icon src="chevron_right" size="xs" variant="muted" clickable="false" event_bubble="true"/>
           <event_cb trigger="clicked" callback="on_home_settings_section" user_data="2"/>
         </lv_button>
-        <lv_button name="home_settings_filament" width="100%" height="content" style_min_height="48"
-                   style_bg_color="#screen_bg" style_bg_opa="255" style_border_width="1" style_border_color="#border"
-                   style_radius="4" style_shadow_width="0" style_pad_all="#space_md" style_pad_gap="#space_sm"
-                   flex_flow="row" style_flex_cross_place="center" scrollable="false">
-          <text_body text="Filament remaining" width="44%" long_mode="wrap" clickable="false" event_bubble="true"/>
-          <text_small text="Percent · grams · metres" width="0" flex_grow="1" long_mode="wrap" style_text_align="right" clickable="false" event_bubble="true"/>
+        <lv_button name="home_settings_filament"
+                   width="100%" height="content" style_min_height="48" style_bg_color="#screen_bg" style_bg_opa="255"
+                   style_border_width="1" style_border_color="#border" style_radius="4" style_shadow_width="0"
+                   style_pad_all="#space_md" style_pad_gap="#space_sm" flex_flow="row" style_flex_cross_place="center"
+                   scrollable="false">
+          <text_body width="44%" text="Filament remaining" long_mode="wrap" clickable="false" event_bubble="true"/>
+          <text_small width="0"
+                      text="Percent · grams · metres" flex_grow="1" long_mode="wrap" style_text_align="right"
+                      clickable="false" event_bubble="true"/>
           <icon src="chevron_right" size="xs" variant="muted" clickable="false" event_bubble="true"/>
           <event_cb trigger="clicked" callback="on_home_settings_section" user_data="3"/>
         </lv_button>
-        <text_small name="home_settings_note" width="100%" long_mode="wrap" style_pad_top="#space_sm"
+        <text_small name="home_settings_note"
+                    width="100%" long_mode="wrap" style_pad_top="#space_sm"
                     text="Home screen display settings. These do not change how equipment operates."/>
       </lv_obj>
       <setting_group name="group_home_heaters">
@@ -61,9 +75,10 @@
           <bind_flag_if_gt subject="home_heater_count" flag="hidden" ref_value="0"/>
         </text_small>
         <repeat count="home_heater_count">
-          <lv_obj width="100%" height="content" flex_flow="row" style_flex_cross_place="center"
-                  style_pad_all="#space_md" style_pad_gap="#space_sm" scrollable="false">
-            <text_body flex_grow="1" width="0" long_mode="wrap" bind_text="home_heater_${i}_name"/>
+          <lv_obj width="100%"
+                  height="content" flex_flow="row" style_flex_cross_place="center" style_pad_all="#space_md"
+                  style_pad_gap="#space_sm" scrollable="false">
+            <text_body width="0" flex_grow="1" long_mode="wrap" bind_text="home_heater_${i}_name"/>
             <lv_checkbox name="home_heater_${i}_check" text="">
               <bind_state_if_eq subject="home_heater_${i}_checked" state="checked" ref_value="1"/>
               <event_cb trigger="value_changed" callback="on_home_heater_visibility_changed" user_data="${i}"/>
@@ -78,9 +93,10 @@
           <bind_flag_if_gt subject="home_sensor_count" flag="hidden" ref_value="0"/>
         </text_small>
         <repeat count="home_sensor_count">
-          <lv_obj width="100%" height="content" flex_flow="row" style_flex_cross_place="center"
-                  style_pad_all="#space_md" style_pad_gap="#space_sm" scrollable="false">
-            <text_body flex_grow="1" width="0" long_mode="wrap" bind_text="home_sensor_${i}_name"/>
+          <lv_obj width="100%"
+                  height="content" flex_flow="row" style_flex_cross_place="center" style_pad_all="#space_md"
+                  style_pad_gap="#space_sm" scrollable="false">
+            <text_body width="0" flex_grow="1" long_mode="wrap" bind_text="home_sensor_${i}_name"/>
             <lv_checkbox name="home_sensor_${i}_check" text="">
               <bind_state_if_eq subject="home_sensor_${i}_checked" state="checked" ref_value="1"/>
               <event_cb trigger="value_changed" callback="on_home_sensor_visibility_changed" user_data="${i}"/>
@@ -95,9 +111,10 @@
           <bind_flag_if_gt subject="home_fan_count" flag="hidden" ref_value="0"/>
         </text_small>
         <repeat count="home_fan_count">
-          <lv_obj width="100%" height="content" flex_flow="row" style_flex_cross_place="center"
-                  style_pad_all="#space_md" style_pad_gap="#space_sm" scrollable="false">
-            <text_body flex_grow="1" width="0" long_mode="wrap" bind_text="home_fan_${i}_name"/>
+          <lv_obj width="100%"
+                  height="content" flex_flow="row" style_flex_cross_place="center" style_pad_all="#space_md"
+                  style_pad_gap="#space_sm" scrollable="false">
+            <text_body width="0" flex_grow="1" long_mode="wrap" bind_text="home_fan_${i}_name"/>
             <lv_checkbox name="home_fan_${i}_check" text="">
               <bind_state_if_eq subject="home_fan_${i}_checked" state="checked" ref_value="1"/>
               <event_cb trigger="value_changed" callback="on_home_fan_visibility_changed" user_data="${i}"/>
@@ -108,12 +125,12 @@
       <setting_group name="group_home_spool">
         <bind_flag_if cond="home_settings_section ne 3" flag="hidden"/>
         <setting_group_header title="FILAMENT REMAINING"/>
-        <setting_toggle_row name="row_home_spool_percent" label="Percent" subject="home_spool_percent"
-                            callback="on_home_spool_percent_changed"/>
-        <setting_toggle_row name="row_home_spool_grams" label="Grams" subject="home_spool_grams"
-                            callback="on_home_spool_grams_changed"/>
-        <setting_toggle_row name="row_home_spool_metres" label="Metres" subject="home_spool_metres"
-                            callback="on_home_spool_metres_changed"/>
+        <setting_toggle_row name="row_home_spool_percent"
+                            label="Percent" subject="home_spool_percent" callback="on_home_spool_percent_changed"/>
+        <setting_toggle_row name="row_home_spool_grams"
+                            label="Grams" subject="home_spool_grams" callback="on_home_spool_grams_changed"/>
+        <setting_toggle_row name="row_home_spool_metres"
+                            label="Metres" subject="home_spool_metres" callback="on_home_spool_metres_changed"/>
       </setting_group>
     </lv_obj>
   </view>

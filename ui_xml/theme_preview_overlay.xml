@@ -13,11 +13,10 @@
   </styles>
   <view name="theme_preview_overlay"
         extends="overlay_panel" title="Theme" bg_color="#screen_bg" hide_action_button="false"
-        action_button_text="Apply" action_button_callback="on_apply_theme_clicked"
-        action_button_height="content" action_button_pad="#space_sm"
-        action_button_disabled_subject="theme_apply_disabled" hide_action_button_2="false" action_button_2_text="Edit"
-        action_button_2_callback="on_edit_colors_clicked" action_button_2_bg_color="#secondary"
-        action_button_2_icon="pencil" action_button_2_min_width="48"
+        action_button_text="Apply" action_button_callback="on_apply_theme_clicked" action_button_height="content"
+        action_button_pad="#space_sm" action_button_disabled_subject="theme_apply_disabled" hide_action_button_2="false"
+        action_button_2_text="Edit" action_button_2_callback="on_edit_colors_clicked"
+        action_button_2_bg_color="#secondary" action_button_2_icon="pencil" action_button_2_min_width="48"
         action_button_2_label_hidden_cond="ui_is_portrait">
     <lv_obj name="overlay_content"
             width="100%" flex_grow="1" style_pad_all="#space_lg" flex_flow="column" style_pad_gap="#space_md"
@@ -46,12 +45,12 @@
           </ui_switch>
         </lv_obj>
       </lv_obj>
-      <text_muted name="preview_description" width="100%"
-                  text="Explore how the selected palette shapes text, controls, and status colors." long_mode="wrap"/>
+      <text_muted name="preview_description"
+                  width="100%" text="Explore how the selected palette shapes text, controls, and status colors."
+                  long_mode="wrap"/>
       <!-- Preview Cards Row -->
       <lv_obj name="preview_row"
-              width="100%" height="content" style_pad_all="0" style_pad_gap="#space_md"
-              scrollable="false">
+              width="100%" height="content" style_pad_all="0" style_pad_gap="#space_md" scrollable="false">
         <bind_style_if name="preview_cards_column" cond="ui_is_portrait"/>
         <bind_style_if name="preview_cards_row" cond="ui_is_portrait" invert="true"/>
         <!-- Typography Preview Card -->
@@ -66,8 +65,7 @@
               <icon name="preview_icon_typography" src="tune" size="sm" variant="primary"/>
               <text_heading name="preview_sample_heading" width="0" text="Heading" flex_grow="1"/>
             </lv_obj>
-            <ui_button name="preview_open_button"
-                       width="100%" height="content" text="Open" variant="tertiary">
+            <ui_button name="preview_open_button" width="100%" height="content" text="Open" variant="tertiary">
               <event_cb trigger="clicked" callback="on_preview_open_modal"/>
             </ui_button>
             <text_body name="preview_sample_body"
@@ -95,7 +93,8 @@
             <text_small name="preview_label_input" text="Input"/>
             <text_input name="preview_text_input"
                         width="100%" height="#input_height" placeholder_text="Type to preview input field..."
-                        placeholder_tag="Type to preview input field..." translation_tag="Type to preview input field..."/>
+                        placeholder_tag="Type to preview input field..."
+                        translation_tag="Type to preview input field..."/>
             <text_small name="preview_label_intensity" text="Intensity"/>
             <lv_obj width="100%"
                     height="content" flex_flow="row" style_pad_top="#space_sm" style_pad_bottom="#space_sm"
@@ -123,21 +122,17 @@
                     height="content" flex_flow="column" style_pad_all="0" style_pad_gap="#space_sm"
                     style_flex_cross_place="center" scrollable="false">
               <ui_button name="example_btn_primary"
-                         width="100%" height="content" style_pad_hor="#space_xs"
-                         text="Primary" variant="primary"/>
+                         width="100%" height="content" style_pad_hor="#space_xs" text="Primary" variant="primary"/>
               <ui_button name="example_btn_secondary"
-                         width="100%" height="content" style_pad_hor="#space_xs"
-                         text="Secondary" variant="secondary"/>
+                         width="100%" height="content" style_pad_hor="#space_xs" text="Secondary" variant="secondary"/>
             </lv_obj>
             <lv_obj width="100%"
                     height="content" flex_flow="column" style_pad_all="0" style_pad_gap="#space_sm"
                     style_flex_cross_place="center" scrollable="false">
               <ui_button name="example_btn_tertiary"
-                         width="100%" height="content" style_pad_hor="#space_xs"
-                         text="Tertiary" variant="tertiary"/>
+                         width="100%" height="content" style_pad_hor="#space_xs" text="Tertiary" variant="tertiary"/>
               <ui_button name="example_btn_warning"
-                         width="100%" height="content" style_pad_hor="#space_xs"
-                         text="Warning" variant="warning"/>
+                         width="100%" height="content" style_pad_hor="#space_xs" text="Warning" variant="warning"/>
             </lv_obj>
             <ui_button name="example_btn_danger" width="100%" height="content" text="Danger" variant="danger"/>
             <divider_horizontal/>
@@ -181,8 +176,9 @@
       <ui_card name="preview_background"
                width="100%" height="content" style_bg_color="#screen_bg" style_pad_gap="#space_xs" flex_flow="column">
         <text_body name="preview_bg_title" text="App Background"/>
-        <text_small name="preview_bg_description" width="100%"
-                    text="Surfaces inherit app background tokens for light and dark modes." long_mode="wrap"/>
+        <text_small name="preview_bg_description"
+                    width="100%" text="Surfaces inherit app background tokens for light and dark modes."
+                    long_mode="wrap"/>
       </ui_card>
       <!-- <info_note icon="info" text="Theme changes apply after restart." translation_tag="Theme changes apply after restart."/> -->
     </lv_obj>

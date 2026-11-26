@@ -5,7 +5,8 @@
 <!-- Quick Actions, system info, and progressive disclosure sections -->
 <component>
   <view name="ams_device_operations"
-        extends="overlay_panel" title="Multi-Filament System Management" title_font="#font_body" title_long_mode="wrap" title_max_lines="2" bg_color="#screen_bg">
+        extends="overlay_panel" title="Multi-Filament System Management" title_font="#font_body" title_long_mode="wrap"
+        title_max_lines="2" bg_color="#screen_bg">
     <!-- Content Area (scrollable) -->
     <lv_obj name="overlay_content"
             width="100%" flex_grow="1" style_pad_all="#space_md" scrollable="true" flex_flow="column"
@@ -30,17 +31,24 @@
                 width="100%" height="content" style_pad_all="0" flex_flow="row" style_pad_gap="#space_sm"
                 scrollable="false">
           <!-- Home Button -->
-          <ui_button name="btn_home" icon="home" text="Home" flex_grow="4" width="0" height="content" style_min_height="#button_height" style_pad_all="#space_xs" style_text_font="#font_small" icon_position="top" long_mode="wrap">
+          <ui_button name="btn_home"
+                     width="0" height="content" icon="home" text="Home" flex_grow="4" style_min_height="#button_height"
+                     style_pad_all="#space_xs" style_text_font="#font_small" icon_position="top" long_mode="wrap">
             <bind_state_if_eq subject="ams_device_ops_can_home" state="disabled" ref_value="0"/>
             <event_cb trigger="clicked" callback="on_ams_device_ops_home"/>
           </ui_button>
           <!-- Recover Button -->
-          <ui_button name="btn_recover" icon="refresh" text="Recover" flex_grow="5" width="0" height="content" style_min_height="#button_height" style_pad_all="#space_xs" style_text_font="#font_small" icon_position="top" long_mode="wrap">
+          <ui_button name="btn_recover"
+                     width="0" height="content" icon="refresh" text="Recover" flex_grow="5"
+                     style_min_height="#button_height" style_pad_all="#space_xs" style_text_font="#font_small"
+                     icon_position="top" long_mode="wrap">
             <bind_state_if_eq subject="ams_device_ops_can_recover" state="disabled" ref_value="0"/>
             <event_cb trigger="clicked" callback="on_ams_device_ops_recover"/>
           </ui_button>
           <!-- Abort Button -->
-          <ui_button name="btn_abort" icon="stop" text="Abort" flex_grow="4" width="0" height="content" style_min_height="#button_height" style_pad_all="#space_xs" style_text_font="#font_small" icon_position="top" long_mode="wrap">
+          <ui_button name="btn_abort"
+                     width="0" height="content" icon="stop" text="Abort" flex_grow="4" style_min_height="#button_height"
+                     style_pad_all="#space_xs" style_text_font="#font_small" icon_position="top" long_mode="wrap">
             <bind_state_if_eq subject="ams_device_ops_can_abort" state="disabled" ref_value="0"/>
             <event_cb trigger="clicked" callback="on_ams_device_ops_abort"/>
           </ui_button>

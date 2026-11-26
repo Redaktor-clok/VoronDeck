@@ -24,8 +24,10 @@
 
 #include "app_globals.h"
 #include "config.h"
+#include "exception_policy.h"
 #include "i_moonraker_api.h"
 #include "i_moonraker_client.h"
+#include "json_utils.h"
 #include "plr_backend.h"
 #include "plr_plugin_rpc.h"
 #include "post_op_cooldown_manager.h"
@@ -159,26 +161,26 @@ void PrintingSettingsOverlay::recovery_request(const std::string& method, const 
     client->send_jsonrpc(
         method, params,
         [this, token, generation, printer, client, done](const json& response) {
-            token.defer(
-                "PrintingSettings::recovery", [this, generation, printer, client, done, response] {
-                    if (!subjects_initialized_ || generation != recovery_generation_ ||
-                        client != get_moonraker_client() ||
-                        client->get_connection_state() != ConnectionState::CONNECTED ||
-                        printer != Config::get_instance()->get_active_printer_id())
-                        return;
-                    recovery_busy_ = false;
-                    try {
-                        // The mock's successful G-code acknowledgement is an empty object;
-                        // state reads still require their complete status/version payload.
-                        done(response.contains("result") ? response.at("result") : response);
-                        lv_subject_set_int(&recovery_disabled_,
-                                           recovery_supported_ && !recovery_busy_ ? 0 : 1);
-                    } catch (const json::exception&) {
-                        recovery_supported_ = false;
-                        lv_subject_set_int(&recovery_disabled_, 1);
-                        recovery_status(lv_tr("Invalid Moonraker response"));
-                    }
-                });
+            token.defer("PrintingSettings::recovery", [this, generation, printer, client, done,
+                                                       response] {
+                if (!subjects_initialized_ || generation != recovery_generation_ ||
+                    client != get_moonraker_client() ||
+                    client->get_connection_state() != ConnectionState::CONNECTED ||
+                    printer != Config::get_instance()->get_active_printer_id())
+                    return;
+                recovery_busy_ = false;
+                const auto* result = helix::json_util::find_member(response, "result");
+                // G-code replies may be strings; state callbacks validate their objects.
+                if (!response.is_object() || !helix::contain_exceptions("Recovery response", [&] {
+                        done(result ? *result : response);
+                    })) {
+                    recovery_supported_ = false;
+                    lv_subject_set_int(&recovery_disabled_, 1);
+                    recovery_status(lv_tr("Invalid Moonraker response"));
+                }
+                lv_subject_set_int(&recovery_disabled_,
+                                   recovery_supported_ && !recovery_busy_ ? 0 : 1);
+            });
         },
         [this, token, generation, printer, client](const MoonrakerError&) {
             token.defer("PrintingSettings::recovery_error", [this, generation, printer, client] {
@@ -203,24 +205,32 @@ void PrintingSettingsOverlay::query_macro_recovery() {
           {{"save_variables", json::array({"variables"})},
            {"gcode_macro RECOVERY_SET_ENABLED", nullptr}}}},
         [this](const json& result) {
-            const auto& status = result.at("status");
-            const auto macro = status.value("gcode_macro RECOVERY_SET_ENABLED", json::object());
-            recovery_supported_ = macro.value("protocol", 0) == 1;
+            const auto status = helix::json_util::safe_object(result, "status");
+            const auto macro =
+                helix::json_util::safe_object(status, "gcode_macro RECOVERY_SET_ENABLED");
+            const auto* protocol = helix::json_util::find_member(macro, "protocol");
+            recovery_supported_ = protocol && protocol->is_number_integer() && *protocol == 1;
             if (!recovery_supported_) {
                 recovery_status(
                     lv_tr("Update recovery macros to enable this switch, then restart Klipper."));
                 return;
             }
-            const auto variables = status.at("save_variables").at("variables");
-            const int enabled = variables.value("recovery_enabled", 1);
-            if (enabled != 0 && enabled != 1) {
+            const auto saved = helix::json_util::safe_object(status, "save_variables");
+            const auto* variables = helix::json_util::find_member(saved, "variables");
+            const auto* flag =
+                variables ? helix::json_util::find_member(*variables, "recovery_enabled") : nullptr;
+            const int enabled = flag && flag->is_number_integer()
+                                    ? helix::json_util::as_int(*flag, -1)
+                                : flag ? -1
+                                       : 1;
+            if (!variables || !variables->is_object() || (enabled != 0 && enabled != 1)) {
                 recovery_supported_ = false;
                 recovery_status(lv_tr("Invalid Moonraker response"));
                 return;
             }
             lv_subject_set_int(&recovery_enabled_, enabled);
             lv_subject_notify(&recovery_enabled_);
-            const auto version = macro.value("version", std::string{});
+            const auto version = helix::json_util::safe_string(macro, "version");
             const auto text =
                 std::string("VoronDeck Recovery ") + version + "\n" +
                 lv_tr(enabled ? "Recovery checkpoints enabled" : "Recovery checkpoints disabled");
@@ -248,19 +258,20 @@ void PrintingSettingsOverlay::check_recovery_updates() {
     recovery_request(
         "machine.update.refresh", {{"name", "vorondeck_recovery"}},
         [this](const json& result) {
-            const auto versions = result.value("version_info", json::object());
-            const auto component = versions.value("vorondeck_recovery", json::object());
+            const auto versions = helix::json_util::safe_object(result, "version_info");
+            const auto component = helix::json_util::safe_object(versions, "vorondeck_recovery");
             if (component.empty()) {
                 recovery_status(lv_tr("Recovery update component is not configured."));
                 return;
             }
-            const auto version = component.value("version", std::string{});
-            const auto remote = component.value("remote_version", std::string{});
+            const auto version = helix::json_util::safe_string(component, "version");
+            const auto remote = helix::json_util::safe_string(component, "remote_version");
             std::string text = "VoronDeck Recovery " + version + "\n";
-            if (component.value("restart_required", false)) {
+            if (helix::json_util::safe_bool(component, "restart_required", false)) {
                 text += lv_tr("Recovery updated. Restart Klipper to activate it.");
-            } else if (!component.value("is_valid", false) || remote.empty() ||
-                       !component.value("last_error", std::string{}).empty()) {
+            } else if (!helix::json_util::safe_bool(component, "is_valid", false) ||
+                       remote.empty() ||
+                       !helix::json_util::safe_string(component, "last_error").empty()) {
                 text +=
                     lv_tr("Recovery update check failed. Check the network and repository access.");
             } else {

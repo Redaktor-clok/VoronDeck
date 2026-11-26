@@ -33,9 +33,11 @@ TEST_CASE("reduced effects follow the board row or low memory", "[filament-path]
     using helix::board::Board;
     using helix::board::info;
     using helix::ui::reduced_effects_for;
-    CHECK(reduced_effects_for(info(Board::K2), false));
-    CHECK(reduced_effects_for(info(Board::K1), true));
-    CHECK_FALSE(reduced_effects_for(info(Board::K1), false));
+    auto constrained_board = info(Board::Generic);
+    constrained_board.reduced_effects = true;
+    CHECK(reduced_effects_for(constrained_board, false));
+    CHECK(reduced_effects_for(info(Board::Generic), true));
+    CHECK_FALSE(reduced_effects_for(info(Board::Generic), false));
     CHECK_FALSE(reduced_effects_for(info(Board::Generic), false));
 }
 
@@ -143,11 +145,12 @@ TEST_CASE_METHOD(LVGLTestFixture, "tube_accent lightens primary in light theme o
     theme_manager_init(lv_display_get_default(), original_dark);
 }
 
-TEST_CASE("reduced_effects follows a board override instead of freezing the first board seen",
+TEST_CASE("retired board IDs do not change generic memory-based reduced effects",
           "[filament-path][stroker]") {
     {
         helix::test::ScopedBoard board(helix::board::Board::K2);
-        CHECK(helix::ui::reduced_effects());
+        CHECK(helix::ui::reduced_effects() ==
+              helix::get_system_memory_info().is_constrained_device());
     }
     helix::test::ScopedBoard board(helix::board::Board::Generic);
     CHECK(helix::ui::reduced_effects() == helix::get_system_memory_info().is_constrained_device());

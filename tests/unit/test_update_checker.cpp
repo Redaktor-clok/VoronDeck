@@ -261,20 +261,18 @@ TEST_CASE("GitHub release JSON parsing", "[update_checker][json]") {
 // Release Asset Keys (prestonbrown/helixscreen#1789)
 // ============================================================================
 
-TEST_CASE("release_asset_keys gives a Creator 5 no legacy asset",
-          "[update_checker][platform][1789]") {
+TEST_CASE("release asset keys select the requested Linux architecture",
+          "[update_checker][platform]") {
     using helix::board::Board;
     using helix::platform::release_asset_keys;
     using Keys = std::vector<std::string>;
-
-    CHECK(release_asset_keys("mips", Board::Creator5) == Keys{"mips"});
-    CHECK(release_asset_keys("mips", Board::Creator5Pro) == Keys{"mips"});
-    // The AD5X by machine id or by a layout naming no machine (Forge-X), and the K1.
-    CHECK(release_asset_keys("mips", Board::Ad5x) == Keys{"mips", "ad5x"});
-    CHECK(release_asset_keys("mips", Board::K1) == Keys{"mips", "k1"});
-    // A dedicated build of a board whose legacy asset is its own key is not listed twice.
-    CHECK(release_asset_keys("k1", Board::K1) == Keys{"k1"});
-    CHECK(release_asset_keys("pi", Board::Generic) == Keys{"pi"});
+    for (const auto* key : {"pi", "pi32", "x86", "x86-desktop"}) {
+        CHECK(release_asset_keys(key, Board::Generic) == Keys{key});
+    }
+    // Retired persisted board IDs cannot add a vendor package alias.
+    for (int id = 0; id < helix::board::kBoardCount; ++id) {
+        CHECK(release_asset_keys("pi", static_cast<Board>(id)) == Keys{"pi"});
+    }
 }
 
 TEST_CASE("The Android app has no release asset and is never refused for lacking one",
@@ -312,23 +310,22 @@ TEST_CASE("The Android app has no release asset and is never refused for lacking
 
 TEST_CASE("A release with no asset for this board is refused, never given another board's build",
           "[update_checker][platform][json]") {
-    using helix::FlashForgeMachine;
     using helix::platform::release_asset_keys;
-    const auto c5_keys = release_asset_keys("mips", helix::board::Board::Creator5);
+    const auto linux_keys = release_asset_keys("pi32", helix::board::Board::Generic);
 
-    // v1.0.5 stable shape: per-board assets only, no "mips".
+    // v1.0.5 stable shape: per-board assets only, no "linux".
     const std::string manifest = R"({"version": "1.0.5", "tag": "v1.0.5", "assets": {
-        "ad5x": {"url": "https://r/ad5x.tar.gz", "sha256": "aa"},
-        "k1":   {"url": "https://r/k1.tar.gz",   "sha256": "kk"}}})";
+        "pi": {"url": "https://r/pi.tar.gz", "sha256": "aa"},
+        "x86":   {"url": "https://r/x86.tar.gz",   "sha256": "kk"}}})";
     const std::string github = R"({"tag_name": "v1.0.5", "assets": [)" +
-                               asset_json("helixscreen-ad5x-v1.0.5.tar.gz") + "," +
-                               asset_json("helixscreen-k1-v1.0.5.tar.gz") + R"(]})";
+                               asset_json("helixscreen-pi-v1.0.5.tar.gz") + "," +
+                               asset_json("helixscreen-x86-v1.0.5.tar.gz") + R"(]})";
 
     UpdateChecker::ReleaseInfo from_manifest;
     UpdateChecker::ReleaseInfo from_github;
     std::string error;
-    REQUIRE(helix::parse_release_manifest(manifest, from_manifest, error, c5_keys));
-    REQUIRE(helix::parse_github_release(github, from_github, error, c5_keys));
+    REQUIRE(helix::parse_release_manifest(manifest, from_manifest, error, linux_keys));
+    REQUIRE(helix::parse_github_release(github, from_github, error, linux_keys));
 
     SECTION("both parsers hand back the version with no download URL") {
         CHECK(from_manifest.version == "1.0.5");
@@ -338,8 +335,8 @@ TEST_CASE("A release with no asset for this board is refused, never given anothe
     }
 
     SECTION("the refusal names the version and the board") {
-        const std::string msg = helix::no_build_message("1.0.5", "FlashForge Creator 5");
-        CHECK(msg == "v1.0.5 has no build for the FlashForge Creator 5, so it can't be installed "
+        const std::string msg = helix::no_build_message("1.0.5", "Linux ARM32");
+        CHECK(msg == "v1.0.5 has no build for the Linux ARM32, so it can't be installed "
                      "here. Pick a channel with a newer release.");
     }
 
@@ -353,7 +350,7 @@ TEST_CASE("A release with no asset for this board is refused, never given anothe
               UpdateChecker::Status::UpToDate);
 
         UpdateChecker::ReleaseInfo with_asset = from_manifest;
-        with_asset.download_url = "https://r/mips.zip";
+        with_asset.download_url = "https://r/linux.zip";
         auto up = helix::decide_check_outcome("1.0.4", with_asset);
         CHECK(up.status == UpdateChecker::Status::UpdateAvailable);
         CHECK_FALSE(up.is_downgrade);
@@ -367,44 +364,44 @@ TEST_CASE("A release with no asset for this board is refused, never given anothe
     SECTION("a release that has an asset is not refused") {
         UpdateChecker::ReleaseInfo ok;
         ok.version = "1.1.0";
-        ok.download_url = "https://r/mips.zip";
+        ok.download_url = "https://r/linux.zip";
         CHECK(helix::release_has_build_for_this_board(ok));
         CHECK_FALSE(helix::release_has_build_for_this_board(from_manifest));
     }
 }
 
-TEST_CASE("a release with this board's legacy asset is offered normally",
+TEST_CASE("a release with the requested Linux asset is offered normally",
           "[update_checker][platform][json]") {
-    const auto keys = helix::platform::release_asset_keys("mips", helix::board::Board::K1);
+    const auto keys = helix::platform::release_asset_keys("x86", helix::board::Board::Generic);
     const std::string github = R"({"tag_name": "v1.0.5", "assets": [)" +
-                               asset_json("helixscreen-ad5x-v1.0.5.tar.gz") + "," +
-                               asset_json("helixscreen-k1-v1.0.5.tar.gz") + R"(]})";
+                               asset_json("helixscreen-pi32-v1.0.5.tar.gz") + "," +
+                               asset_json("helixscreen-x86-v1.0.5.tar.gz") + R"(]})";
     UpdateChecker::ReleaseInfo release;
     std::string error;
     REQUIRE(helix::parse_github_release(github, release, error, keys));
 
-    CHECK(release.download_url.find("helixscreen-k1-v1.0.5.tar.gz") != std::string::npos);
+    CHECK(release.download_url.find("helixscreen-x86-v1.0.5.tar.gz") != std::string::npos);
     CHECK(helix::release_has_build_for_this_board(release));
     CHECK(helix::decide_check_outcome("1.0.4", release).status ==
           UpdateChecker::Status::UpdateAvailable);
 }
 
-TEST_CASE("a Creator 5 Pro is refused a release with no mips asset on the main thread",
+TEST_CASE("a Linux host is refused a release with no matching asset on the main thread",
           "[update_checker][platform][json]") {
-    helix::test::ScopedBoard board(helix::board::Board::Creator5Pro);
+    helix::test::ScopedBoard board(helix::board::Board::Generic);
     auto& checker = UpdateChecker::instance();
     checker.clear_cache();
     checker.init();
 
-    // v1.0.5 stable shape: per-board assets only, no "mips".
+    // v1.0.5 stable shape: per-board assets only, no "linux".
     const std::string github = R"({"tag_name": "v1.0.5", "assets": [)" +
-                               asset_json("helixscreen-ad5x-v1.0.5.tar.gz") + "," +
-                               asset_json("helixscreen-k1-v1.0.5.tar.gz") + R"(]})";
+                               asset_json("helixscreen-pi-v1.0.5.tar.gz") + "," +
+                               asset_json("helixscreen-x86-v1.0.5.tar.gz") + R"(]})";
     UpdateChecker::ReleaseInfo release;
     std::string error;
     REQUIRE(helix::parse_github_release(
         github, release, error,
-        helix::platform::release_asset_keys("mips", helix::board::current())));
+        helix::platform::release_asset_keys("pi32", helix::board::current())));
     REQUIRE(release.download_url.empty());
 
     // The worker's own mapping, not a hand-built report: a regression that drops the
@@ -415,7 +412,9 @@ TEST_CASE("a Creator 5 Pro is refused a release with no mips asset on the main t
     CHECK(lv_subject_get_int(checker.status_subject()) ==
           static_cast<int>(UpdateChecker::Status::Error));
     const std::string shown = lv_subject_get_string(checker.version_text_subject());
-    CHECK(shown.find("no build for the FlashForge Creator 5 Pro") != std::string::npos);
+    CHECK(shown.find("no build for the " +
+                     helix::platform::display_name(helix::platform::current_key())) !=
+          std::string::npos);
     CHECK(shown.find("v1.0.5") != std::string::npos);
 
     // An error with no release attached keeps its own text.
@@ -432,27 +431,27 @@ TEST_CASE("Release manifest takes the first asset key it lists", "[update_checke
     UpdateChecker::ReleaseInfo release;
     std::string error;
 
-    // The shape of a release cut before the unified MIPS build: per-board
+    // The shape of a release cut before the unified Linux build: per-board
     // entries only, tar.gz with no zip.
     const std::string board_only = R"({
         "version": "1.0.4", "tag": "v1.0.4",
         "assets": {
-            "ad5x": {"url": "https://r/ad5x.tar.gz", "sha256": "aa", "size": 1},
-            "k1":   {"url": "https://r/k1.tar.gz",   "sha256": "kk", "size": 2},
+            "pi32": {"url": "https://r/pi32.tar.gz", "sha256": "aa", "size": 1},
+            "x86":   {"url": "https://r/x86.tar.gz",   "sha256": "kk", "size": 2},
             "pi":   {"url": "https://r/pi.tar.gz",   "sha256": "pp", "size": 3}
         }
     })";
 
-    SECTION("a MIPS build on a K1 falls back to the k1 entry") {
-        REQUIRE(helix::parse_release_manifest(board_only, release, error, {"mips", "k1"}));
+    SECTION("a Linux build on a x86 falls back to the x86 entry") {
+        REQUIRE(helix::parse_release_manifest(board_only, release, error, {"linux", "x86"}));
         CHECK(release.version == "1.0.4");
-        CHECK(release.download_url == "https://r/k1.tar.gz");
+        CHECK(release.download_url == "https://r/x86.tar.gz");
         CHECK(release.sha256 == "kk");
     }
 
-    SECTION("a MIPS build on an AD5X falls back to the ad5x entry") {
-        REQUIRE(helix::parse_release_manifest(board_only, release, error, {"mips", "ad5x"}));
-        CHECK(release.download_url == "https://r/ad5x.tar.gz");
+    SECTION("a Linux build on an ARM32 falls back to the pi32 entry") {
+        REQUIRE(helix::parse_release_manifest(board_only, release, error, {"linux", "pi32"}));
+        CHECK(release.download_url == "https://r/pi32.tar.gz");
         CHECK(release.sha256 == "aa");
     }
 
@@ -460,25 +459,25 @@ TEST_CASE("Release manifest takes the first asset key it lists", "[update_checke
         const std::string unified = R"({
             "version": "1.1.0-beta.8",
             "assets": {
-                "k1":   {"url": "https://r/k1.tar", "sha256": "kk"},
-                "mips": {"url": "https://r/mips.tar", "sha256": "mm",
-                         "zip_url": "https://r/mips.zip", "zip_sha256": "mz"}
+                "x86":   {"url": "https://r/x86.tar", "sha256": "kk"},
+                "linux": {"url": "https://r/linux.tar", "sha256": "mm",
+                         "zip_url": "https://r/linux.zip", "zip_sha256": "mz"}
             }
         })";
-        REQUIRE(helix::parse_release_manifest(unified, release, error, {"mips", "k1"}));
-        CHECK(release.download_url == "https://r/mips.zip");
+        REQUIRE(helix::parse_release_manifest(unified, release, error, {"linux", "x86"}));
+        CHECK(release.download_url == "https://r/linux.zip");
         CHECK(release.sha256 == "mz");
     }
 
     SECTION("no listed key leaves the download empty, as the GitHub parser does") {
-        REQUIRE(helix::parse_release_manifest(board_only, release, error, {"mips"}));
+        REQUIRE(helix::parse_release_manifest(board_only, release, error, {"linux"}));
         CHECK(release.version == "1.0.4");
         CHECK(release.download_url.empty());
     }
 
     SECTION("a manifest without a version is refused") {
-        REQUIRE_FALSE(helix::parse_release_manifest(R"({"assets": {"k1": {"url": "u"}}})", release,
-                                                    error, {"k1"}));
+        REQUIRE_FALSE(helix::parse_release_manifest(R"({"assets": {"x86": {"url": "u"}}})", release,
+                                                    error, {"x86"}));
         CHECK(error.find("version") != std::string::npos);
     }
 }
@@ -488,29 +487,29 @@ TEST_CASE("GitHub release takes the first asset key it carries", "[update_checke
     std::string error;
 
     const std::string board_only = R"({"tag_name": "v1.0.4", "assets": [)" +
-                                   asset_json("helixscreen-ad5x-v1.0.4.tar.gz") + "," +
-                                   asset_json("helixscreen-k1-v1.0.4.tar.gz") + R"(]})";
+                                   asset_json("helixscreen-pi32-v1.0.4.tar.gz") + "," +
+                                   asset_json("helixscreen-x86-v1.0.4.tar.gz") + R"(]})";
 
-    SECTION("a MIPS build on a K1 selects the k1 tarball") {
-        REQUIRE(helix::parse_github_release(board_only, release, error, {"mips", "k1"}));
-        CHECK(release.download_url == "https://x/helixscreen-k1-v1.0.4.tar.gz");
+    SECTION("a Linux build on a x86 selects the x86 tarball") {
+        REQUIRE(helix::parse_github_release(board_only, release, error, {"linux", "x86"}));
+        CHECK(release.download_url == "https://x/helixscreen-x86-v1.0.4.tar.gz");
     }
 
-    SECTION("a MIPS build on an AD5X selects the ad5x tarball") {
-        REQUIRE(helix::parse_github_release(board_only, release, error, {"mips", "ad5x"}));
-        CHECK(release.download_url == "https://x/helixscreen-ad5x-v1.0.4.tar.gz");
+    SECTION("a Linux build on an ARM32 selects the pi32 tarball") {
+        REQUIRE(helix::parse_github_release(board_only, release, error, {"linux", "pi32"}));
+        CHECK(release.download_url == "https://x/helixscreen-pi32-v1.0.4.tar.gz");
     }
 
     SECTION("the unified key's zip beats an alias tarball listed first") {
         const std::string unified = R"({"tag_name": "v1.1.0", "assets": [)" +
-                                    asset_json("helixscreen-k1-v1.1.0.tar.gz") + "," +
-                                    asset_json("helixscreen-mips.zip") + R"(]})";
-        REQUIRE(helix::parse_github_release(unified, release, error, {"mips", "k1"}));
-        CHECK(release.download_url == "https://x/helixscreen-mips.zip");
+                                    asset_json("helixscreen-x86-v1.1.0.tar.gz") + "," +
+                                    asset_json("helixscreen-linux.zip") + R"(]})";
+        REQUIRE(helix::parse_github_release(unified, release, error, {"linux", "x86"}));
+        CHECK(release.download_url == "https://x/helixscreen-linux.zip");
     }
 
     SECTION("no matching key leaves the download empty") {
-        REQUIRE(helix::parse_github_release(board_only, release, error, {"mips"}));
+        REQUIRE(helix::parse_github_release(board_only, release, error, {"linux"}));
         CHECK(release.version == "1.0.4");
         CHECK(release.download_url.empty());
     }
@@ -2024,9 +2023,8 @@ TEST_CASE("current_key returns a known platform", "[update_checker][platform]") 
     // here — AND a matching #elif in current_key — silently bricks
     // in-app updates for that platform (falls through to "pi", so the device
     // downloads the Pi tarball and ends up with missing shared libs).
-    std::vector<std::string> known_platforms = {
-        "pi",   "pi32", "x86", "x86-desktop", "ad5m",         "k1",     "k2",
-        "ad5x", "mips", "cc1", "esp32",       "snapmaker-u1", "android"};
+    std::vector<std::string> known_platforms = {"pi",          "pi32",  "x86",
+                                                "x86-desktop", "esp32", "android"};
     bool found = false;
     for (const auto& p : known_platforms) {
         if (platform == p) {
@@ -2074,9 +2072,8 @@ TEST_CASE("display_name returns non-empty string for all known platforms",
           "[update_checker][platform]") {
     // Mirror the known_platforms list from "current_key returns a known platform".
     // Every key that helix::platform::current_key() can return MUST have a display name.
-    std::vector<std::string> known_platforms = {
-        "pi",   "pi32", "x86", "x86-desktop", "ad5m",         "k1",     "k2",
-        "ad5x", "mips", "cc1", "esp32",       "snapmaker-u1", "android"};
+    std::vector<std::string> known_platforms = {"pi",          "pi32",  "x86",
+                                                "x86-desktop", "esp32", "android"};
 
     for (const auto& key : known_platforms) {
         INFO("platform key: " << key);
@@ -2091,8 +2088,7 @@ TEST_CASE("display_name returns non-empty string for all known platforms",
 TEST_CASE("platform table gives every Linux platform an ELF expectation",
           "[update_checker][platform]") {
     // esp32 ships a firmware image, not an ELF release zip.
-    for (const char* key : {"pi", "pi32", "x86", "x86-desktop", "ad5m", "k1", "k2", "ad5x", "mips",
-                            "cc1", "snapmaker-u1"}) {
+    for (const char* key : {"pi", "pi32", "x86", "x86-desktop"}) {
         INFO("platform key: " << key);
         const auto* p = helix::platform::find(key);
         REQUIRE(p != nullptr);
@@ -2110,46 +2106,32 @@ TEST_CASE("platform table marks which platforms name printer hardware",
     }
     for (const char* key : {"ad5m", "ad5x", "mips", "k1", "k2", "cc1", "snapmaker-u1"}) {
         INFO("platform key: " << key);
-        REQUIRE(helix::platform::find(key)->has_printer_hardware);
+        REQUIRE(helix::platform::find(key) == nullptr);
     }
-}
-
-TEST_CASE("mips platform validates MIPS32 LE and captures the AD5X zmod files",
-          "[update_checker][platform]") {
-    const auto* p = helix::platform::find("mips");
-    REQUIRE(p != nullptr);
-    REQUIRE(p->elf_class == 1);   // ELFCLASS32
-    REQUIRE(p->elf_data == 1);    // ELFDATA2LSB
-    REQUIRE(p->elf_machine == 8); // EM_MIPS
-
-    const auto* ad5x = helix::platform::find("ad5x");
-    REQUIRE(ad5x != nullptr);
-    REQUIRE(!ad5x->diagnostic_files.empty());
-    REQUIRE(p->diagnostic_files == ad5x->diagnostic_files);
 }
 
 TEST_CASE("elf_header_matches checks class, endianness and machine", "[update_checker][platform]") {
-    const auto* mips = helix::platform::find("mips");
-    REQUIRE(mips != nullptr);
+    const auto* arm32 = helix::platform::find("pi32");
+    REQUIRE(arm32 != nullptr);
 
     // 0x7f ELF, class 1, data 1 (LE), e_machine at bytes 18-19.
     uint8_t hdr[20] = {0x7f, 'E', 'L', 'F', 1, 1};
-    hdr[18] = 0x08;
-    REQUIRE(helix::platform::elf_header_matches(*mips, hdr));
+    hdr[18] = 0x28;
+    REQUIRE(helix::platform::elf_header_matches(*arm32, hdr));
 
-    SECTION("big-endian MIPS is rejected") {
+    SECTION("big-endian ARM32 is rejected") {
         hdr[5] = 2;
         hdr[18] = 0x00;
-        hdr[19] = 0x08;
-        REQUIRE_FALSE(helix::platform::elf_header_matches(*mips, hdr));
+        hdr[19] = 0x28;
+        REQUIRE_FALSE(helix::platform::elf_header_matches(*arm32, hdr));
     }
-    SECTION("ARM is rejected") {
-        hdr[18] = 0x28;
-        REQUIRE_FALSE(helix::platform::elf_header_matches(*mips, hdr));
+    SECTION("AArch64 is rejected") {
+        hdr[18] = 0xb7;
+        REQUIRE_FALSE(helix::platform::elf_header_matches(*arm32, hdr));
     }
     SECTION("64-bit is rejected") {
         hdr[4] = 2;
-        REQUIRE_FALSE(helix::platform::elf_header_matches(*mips, hdr));
+        REQUIRE_FALSE(helix::platform::elf_header_matches(*arm32, hdr));
     }
 }
 
@@ -2160,13 +2142,6 @@ TEST_CASE("display_name returns correct strings for known platforms",
     REQUIRE(helix::platform::display_name("pi32") == "Raspberry Pi (32-bit)");
     REQUIRE(helix::platform::display_name("x86") == "x86 Desktop");
     REQUIRE(helix::platform::display_name("x86-desktop") == "x86 Linux Desktop (windowed)");
-    REQUIRE(helix::platform::display_name("ad5m") == "FlashForge Adventurer 5M");
-    REQUIRE(helix::platform::display_name("ad5x") == "FlashForge Adventurer 5X");
-    REQUIRE(helix::platform::display_name("mips") == "MIPS (K1 series / AD5X)");
-    REQUIRE(helix::platform::display_name("k1") == "Creality K1");
-    REQUIRE(helix::platform::display_name("k2") == "Creality K2");
-    REQUIRE(helix::platform::display_name("cc1") == "Elegoo Centauri Carbon");
-    REQUIRE(helix::platform::display_name("snapmaker-u1") == "Snapmaker U1");
     REQUIRE(helix::platform::display_name("esp32") == "BTT K-Touch");
     // Unknown keys fall back to the key itself.
     REQUIRE(helix::platform::display_name("unknown-platform") == "unknown-platform");

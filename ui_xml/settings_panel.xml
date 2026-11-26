@@ -37,10 +37,11 @@
     <setting_group name="group_printer">
       <setting_group_header title="PRINTER"/>
       <setting_action_row name="row_printer"
-                          label="Printer" icon="printer" callback="on_printer_clicked"
-                          description="Name and image" description_min_bp="0"/>
+                          label="Printer" icon="printer" callback="on_printer_clicked" description="Name and image"
+                          description_min_bp="0"/>
       <setting_action_row name="row_printing" label="Printing" icon="printer_3d" callback="on_printing_clicked"/>
-      <setting_toggle_row name="row_preparation_time" label="Include measured preparation time" icon="clock_outline"
+      <setting_toggle_row name="row_preparation_time"
+                          label="Include measured preparation time" icon="clock_outline"
                           subject="settings_measured_preparation" callback="on_measured_preparation_changed"
                           description="Learns from completed preparation. Cold and warm starts are kept separately. No estimate until a matching measurement exists."/>
       <setting_action_row name="row_devices"
@@ -51,10 +52,12 @@
       <setting_action_row name="row_connection"
                           label="Connection" icon="lan" callback="on_connection_clicked"
                           bind_description="settings_status_connection" description_min_bp="0"/>
-      <setting_action_row name="row_printer_reset" label="Printer reset" icon="refresh"
-                          callback="on_printer_reset_clicked" description="Print history and accumulated statistics" description_min_bp="0"/>
-      <setting_action_row name="row_printer_component_updates" label="Component updates" icon="download"
-                          callback="on_printer_component_updates_clicked" description="Klipper, Moonraker and configured components" description_min_bp="0"/>
+      <setting_action_row name="row_printer_reset"
+                          label="Printer reset" icon="refresh" callback="on_printer_reset_clicked"
+                          description="Print history and accumulated statistics" description_min_bp="0"/>
+      <setting_action_row name="row_printer_component_updates"
+                          label="Component updates" icon="download" callback="on_printer_component_updates_clicked"
+                          description="Klipper, Moonraker and configured components" description_min_bp="0"/>
     </setting_group>
     <setting_group name="group_helixscreen">
       <setting_group_header title="VoronDeck"/>

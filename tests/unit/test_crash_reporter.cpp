@@ -255,13 +255,13 @@ TEST_CASE_METHOD(CrashReporterTestFixture,
 
 TEST_CASE_METHOD(CrashReporterTestFixture, "CrashReporter: crash reports carry the board",
                  "[crash_reporter]") {
-    helix::test::ScopedBoard board(helix::board::Board::Creator5Pro);
+    helix::test::ScopedBoard board(helix::board::Board::Generic);
     write_crash_file();
     auto report = cr.collect_report();
 
-    CHECK(report.board == "creator5-pro");
-    CHECK(cr.report_to_json(report)["board"] == "creator5-pro");
-    CHECK(cr.report_to_text(report).find(report.platform + " / creator5-pro") != std::string::npos);
+    CHECK(report.board == "generic");
+    CHECK(cr.report_to_json(report)["board"] == "generic");
+    CHECK(cr.report_to_text(report).find(report.platform + " / generic") != std::string::npos);
 }
 
 // ============================================================================
@@ -470,8 +470,8 @@ TEST_CASE_METHOD(CrashReporterTestFixture, "CrashReporter: the GitHub issue body
                  "[crash_reporter]") {
     write_crash_file();
     auto report = cr.collect_report();
-    report.board = "creator5-pro";
-    CHECK(cr.generate_github_url(report).find("creator5-pro") != std::string::npos);
+    report.board = "generic";
+    CHECK(cr.generate_github_url(report).find("generic") != std::string::npos);
 }
 
 TEST_CASE_METHOD(CrashReporterTestFixture, "CrashReporter: generate_github_url produces valid URL",

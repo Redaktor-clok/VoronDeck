@@ -1,30 +1,53 @@
 <?xml version="1.0"?>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <component>
-  <api><prop name="index" type="string" default="0"/></api>
-  <view name="heater_bank_device_${index}" extends="lv_obj" width="100%" height="100%" flex_flow="column" style_flex_main_place="center" style_pad_all="0" style_pad_gap="#space_xxs" style_flex_cross_place="center" style_flex_track_place="center" scrollable="false" clickable="true" event_bubble="false">
+  <api>
+    <prop name="index" type="string" default="0"/>
+  </api>
+  <view name="heater_bank_device_${index}"
+        extends="lv_obj" width="100%" height="100%" flex_flow="column" style_flex_main_place="center" style_pad_all="0"
+        style_pad_gap="#space_xxs" style_flex_cross_place="center" style_flex_track_place="center" scrollable="false"
+        clickable="true" event_bubble="false">
     <event_cb trigger="clicked" callback="heater_bank_device_cb" user_data="$index"/>
-    <lv_obj name="heater_bank_primary" width="100%" height="content" flex_flow="row" style_pad_all="0" style_pad_gap="#space_xxs" style_flex_cross_place="end" style_flex_track_place="center" scrollable="false" clickable="false" event_bubble="true">
-    <lv_obj name="heater_bank_icon_column" width="content" height="content" flex_flow="column" style_pad_all="0" style_pad_gap="0" style_flex_cross_place="center" scrollable="false" clickable="false" event_bubble="true">
-    <lv_obj name="heater_bank_icon_slot" width="content" height="content" flex_flow="row" style_pad_all="0" scrollable="false" clickable="false" event_bubble="true">
-    <home_nozzle_icon style_text_align="center" size="md" target_subject="heater_bank_${index}_target" badge_subject="">
-      <bind_flag_if_not_eq subject="heater_bank_${index}_nozzle" flag="hidden" ref_value="1"/>
-    </home_nozzle_icon>
-    <home_bed_icon style_text_align="center" size="md" target_subject="heater_bank_${index}_target">
-      <bind_flag_if_not_eq subject="heater_bank_${index}_nozzle" flag="hidden" ref_value="2"/>
-    </home_bed_icon>
-    <icon style_text_align="center" name="chamber_icon_glyph" src="fire" size="md" variant="muted" clickable="false" event_bubble="true">
-      
-      <bind_flag_if_not_eq subject="heater_bank_${index}_nozzle" flag="hidden" ref_value="0"/>
-    </icon>
-    </lv_obj>
-      <text_tiny name="heater_bank_power" bind_text="heater_bank_${index}_power" style_text_color="#primary" clickable="false" event_bubble="true"/>
-    </lv_obj>
-    <lv_obj name="heater_bank_text_column" width="0" flex_grow="1" height="content" flex_flow="column" style_pad_all="0" style_pad_gap="0" scrollable="false" clickable="false" event_bubble="true">
-      <text_heading name="heater_bank_value" bind_text="heater_bank_${index}_value" clickable="false" event_bubble="true"/>
-      <text_tiny name="heater_bank_setpoint" bind_text="heater_bank_${index}_setpoint" style_text_color="#text_muted" clickable="false" event_bubble="true"/>
-      <text_small name="heater_bank_name" bind_text="heater_bank_${index}_name" width="100%" long_mode="scroll" style_text_color="#text_muted" clickable="false" event_bubble="true"/>
-    </lv_obj>
+    <lv_obj name="heater_bank_primary"
+            width="100%" height="content" flex_flow="row" style_pad_all="0" style_pad_gap="#space_xxs"
+            style_flex_cross_place="end" style_flex_track_place="center" scrollable="false" clickable="false"
+            event_bubble="true">
+      <lv_obj name="heater_bank_icon_column"
+              width="content" height="content" flex_flow="column" style_pad_all="0" style_pad_gap="0"
+              style_flex_cross_place="center" scrollable="false" clickable="false" event_bubble="true">
+        <lv_obj name="heater_bank_icon_slot"
+                width="content" height="content" flex_flow="row" style_pad_all="0" scrollable="false" clickable="false"
+                event_bubble="true">
+          <home_nozzle_icon style_text_align="center"
+                            size="md" target_subject="heater_bank_${index}_target" badge_subject="">
+            <bind_flag_if_not_eq subject="heater_bank_${index}_nozzle" flag="hidden" ref_value="1"/>
+          </home_nozzle_icon>
+          <home_bed_icon style_text_align="center" size="md" target_subject="heater_bank_${index}_target">
+            <bind_flag_if_not_eq subject="heater_bank_${index}_nozzle" flag="hidden" ref_value="2"/>
+          </home_bed_icon>
+          <icon name="chamber_icon_glyph"
+                style_text_align="center" src="fire" size="md" variant="muted" clickable="false" event_bubble="true">
+
+            <bind_flag_if_not_eq subject="heater_bank_${index}_nozzle" flag="hidden" ref_value="0"/>
+          </icon>
+        </lv_obj>
+        <text_tiny name="heater_bank_power"
+                   bind_text="heater_bank_${index}_power" style_text_color="#primary" clickable="false"
+                   event_bubble="true"/>
+      </lv_obj>
+      <lv_obj name="heater_bank_text_column"
+              width="0" height="content" flex_grow="1" flex_flow="column" style_pad_all="0" style_pad_gap="0"
+              scrollable="false" clickable="false" event_bubble="true">
+        <text_heading name="heater_bank_value"
+                      bind_text="heater_bank_${index}_value" clickable="false" event_bubble="true"/>
+        <text_tiny name="heater_bank_setpoint"
+                   bind_text="heater_bank_${index}_setpoint" style_text_color="#text_muted" clickable="false"
+                   event_bubble="true"/>
+        <text_small name="heater_bank_name"
+                    width="100%" bind_text="heater_bank_${index}_name" long_mode="scroll" style_text_color="#text_muted"
+                    clickable="false" event_bubble="true"/>
+      </lv_obj>
     </lv_obj>
   </view>
 </component>

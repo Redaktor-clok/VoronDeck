@@ -1,25 +1,29 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "pid_heater_request.h"
 #include "ui_component_keypad.h"
-#include "ui_panel_calibration_pid.h"
 #include "ui_nav_manager.h"
+#include "ui_panel_calibration_pid.h"
 #include "ui_update_queue.h"
+
+#include "../lvgl_ui_test_fixture.h"
+#include "../test_helpers/discovery_of_objects.h"
 #include "app_globals.h"
 #include "moonraker_api.h"
 #include "moonraker_client_mock.h"
+#include "pid_heater_request.h"
 #include "printer_state.h"
 #include "temperature_sensor_manager.h"
-#include "../lvgl_ui_test_fixture.h"
-#include "../test_helpers/discovery_of_objects.h"
-#include "../catch_amalgamated.hpp"
-#include <array>
+
 #include <algorithm>
+#include <array>
+
+#include "../catch_amalgamated.hpp"
 
 using nlohmann::json;
 
 TEST_CASE("PID quick entry requires explicit native PID control and limits", "[pid-keypad]") {
-    json config = {{"extruder", {{"control", "pid"}, {"min_temp", "0"}, {"max_temp", "300"}}},
-                   {"heater_generic dryer", {{"control", "pid"}, {"min_temp", 5}, {"max_temp", 90}}}};
+    json config = {
+        {"extruder", {{"control", "pid"}, {"min_temp", "0"}, {"max_temp", "300"}}},
+        {"heater_generic dryer", {{"control", "pid"}, {"min_temp", 5}, {"max_temp", 90}}}};
     const auto nozzle = helix::pid_heater_request(config, "extruder");
     REQUIRE(nozzle);
     CHECK(nozzle->accepts(222));
@@ -50,6 +54,12 @@ TEST_CASE("PID quick entry requires explicit native PID control and limits", "[p
     config["heater_bed"] = {{"control", "pid"}, {"min_temp", 0}, {"max_temp", "100junk"}};
     CHECK_FALSE(helix::pid_heater_request(config, "heater_bed"));
     CHECK_FALSE(helix::pid_heater_request(config, "missing"));
+    for (const auto& bad : {json(""), json("nan"), json("inf"), json("1e999"), json("12 "),
+                            json(std::string("12\0bad", 6)), json(nullptr), json::array()}) {
+        config["heater_bed"]["max_temp"] = bad;
+        CHECK_FALSE(helix::pid_heater_request(config, "heater_bed"));
+    }
+    CHECK_FALSE(helix::pid_heater_request(json::array(), "extruder"));
 }
 
 namespace {
@@ -68,8 +78,8 @@ class PidKeypadFixture : public LVGLUITestFixture {
         ui_keypad_init(lv_screen_active());
         panel.init_subjects();
         panel.set_api(&mock_api);
-        state().set_hardware(helix::test::discovery_of(
-            {"extruder", "heater_bed", "heater_generic dryer"}));
+        state().set_hardware(
+            helix::test::discovery_of({"extruder", "heater_bed", "heater_generic dryer"}));
         state().network_state().set_printer_connection_state_internal(2, "Ready");
         state().set_klippy_state_sync(helix::KlippyState::READY);
         lv_subject_set_int(state().print_state().get_print_active_subject(), 0);
@@ -101,9 +111,10 @@ class PidKeypadFixture : public LVGLUITestFixture {
         });
     }
 };
-}
+} // namespace
 
-TEST_CASE_METHOD(PidKeypadFixture, "Keypad secondary action uses entered value without Set or Cancel",
+TEST_CASE_METHOD(PidKeypadFixture,
+                 "Keypad secondary action uses entered value without Set or Cancel",
                  "[pid-keypad][keypad]") {
     int sets = 0, cancels = 0;
     float action_value = -1;
@@ -116,8 +127,11 @@ TEST_CASE_METHOD(PidKeypadFixture, "Keypad secondary action uses entered value w
     settle(); // Native navigation pushes overlays on the next UI tick.
     const auto generation = ui_keypad_generation();
     REQUIRE(ui_keypad_set_secondary_action(generation, "PID Calibration",
-                                          [&](float value) { action_value = value; }));
-    tap("btn_2");tap("btn_2");tap("btn_2");tap("keypad_secondary_action");
+                                           [&](float value) { action_value = value; }));
+    tap("btn_2");
+    tap("btn_2");
+    tap("btn_2");
+    tap("keypad_secondary_action");
     CHECK(action_value == 222);
     CHECK(sets == 0);
     CHECK(cancels == 0);
@@ -125,7 +139,8 @@ TEST_CASE_METHOD(PidKeypadFixture, "Keypad secondary action uses entered value w
     settle();
     CHECK_FALSE(ui_keypad_set_secondary_action(generation, "Stale", [](float) {}));
     CHECK(lv_obj_has_flag(find("keypad_secondary_action"), LV_OBJ_FLAG_HIDDEN));
-    ui_keypad_hide();settle();
+    ui_keypad_hide();
+    settle();
     CHECK(cancels == 1);
     CHECK_FALSE(ui_keypad_set_secondary_action(ui_keypad_generation(), "Closed", [](float) {}));
 }
@@ -150,7 +165,8 @@ TEST_CASE_METHOD(PidKeypadFixture, "PID quick run sends exact generic heater and
     CHECK(lv_subject_get_int(unsaved) == 1);
 }
 
-TEST_CASE_METHOD(PidKeypadFixture, "PID capability offer survives the keypad's queued navigation push",
+TEST_CASE_METHOD(PidKeypadFixture,
+                 "PID capability offer survives the keypad's queued navigation push",
                  "[pid-keypad][keypad]") {
     ui_keypad_config_t config{};
     config.max_value = 300;
@@ -171,8 +187,12 @@ TEST_CASE_METHOD(PidKeypadFixture, "PID capability offer survives the keypad's q
 TEST_CASE_METHOD(PidKeypadFixture, "PID quick run rejects unsafe printer state and zero target",
                  "[pid-keypad]") {
     const helix::PidHeaterRequest request{"extruder", "extruder", 0, 300};
-    SECTION("zero") { CHECK_FALSE(panel.start_keypad_calibration(request, 0, lv_screen_active())); }
-    SECTION("above native maximum") { CHECK_FALSE(panel.start_keypad_calibration(request, 301, lv_screen_active())); }
+    SECTION("zero") {
+        CHECK_FALSE(panel.start_keypad_calibration(request, 0, lv_screen_active()));
+    }
+    SECTION("above native maximum") {
+        CHECK_FALSE(panel.start_keypad_calibration(request, 301, lv_screen_active()));
+    }
     SECTION("printing or paused") {
         lv_subject_set_int(state().print_state().get_print_active_subject(), 1);
         CHECK_FALSE(panel.start_keypad_calibration(request, 222, lv_screen_active()));
@@ -189,7 +209,8 @@ TEST_CASE_METHOD(PidKeypadFixture, "PID quick run rejects unsafe printer state a
     CHECK_FALSE(sent("SAVE_CONFIG"));
 }
 
-TEST_CASE_METHOD(PidKeypadFixture, "PID Save confirmation belongs to its original run and connection",
+TEST_CASE_METHOD(PidKeypadFixture,
+                 "PID Save confirmation belongs to its original run and connection",
                  "[pid-keypad]") {
     const helix::PidHeaterRequest request{"heater_generic dryer", "dryer", 5, 90};
     REQUIRE(panel.start_keypad_calibration(request, 55, lv_screen_active()));

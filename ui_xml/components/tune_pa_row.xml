@@ -19,17 +19,25 @@
     </ui_button>
     <!-- Coarse steps give way in portrait and on the smallest panels, where the
          row shares its width with the reset button. -->
-    <ui_button name="btn_pa_minus_5" width="content" style_min_width="#tune_pa_btn_w" height="#button_height_sm" style_pad_hor="#space_xs" style_pad_ver="#space_xs" text="-.005">
+    <ui_button name="btn_pa_minus_5"
+               width="content" height="#button_height_sm" style_min_width="#tune_pa_btn_w" style_pad_hor="#space_xs"
+               style_pad_ver="#space_xs" text="-.005">
       <bind_flag_if cond="ui_is_portrait eq 1 or ui_breakpoint le 1" flag="hidden"/>
       <event_cb trigger="clicked" callback="on_tune_pa_adjust" user_data="-5"/>
     </ui_button>
-    <ui_button name="btn_pa_minus_1" width="content" style_min_width="#tune_pa_btn_w" height="#button_height_sm" style_pad_hor="#space_xs" style_pad_ver="#space_xs" text="-.001">
+    <ui_button name="btn_pa_minus_1"
+               width="content" height="#button_height_sm" style_min_width="#tune_pa_btn_w" style_pad_hor="#space_xs"
+               style_pad_ver="#space_xs" text="-.001">
       <event_cb trigger="clicked" callback="on_tune_pa_adjust" user_data="-1"/>
     </ui_button>
-    <ui_button name="btn_pa_plus_1" width="content" style_min_width="#tune_pa_btn_w" height="#button_height_sm" style_pad_hor="#space_xs" style_pad_ver="#space_xs" text="+.001">
+    <ui_button name="btn_pa_plus_1"
+               width="content" height="#button_height_sm" style_min_width="#tune_pa_btn_w" style_pad_hor="#space_xs"
+               style_pad_ver="#space_xs" text="+.001">
       <event_cb trigger="clicked" callback="on_tune_pa_adjust" user_data="1"/>
     </ui_button>
-    <ui_button name="btn_pa_plus_5" width="content" style_min_width="#tune_pa_btn_w" height="#button_height_sm" style_pad_hor="#space_xs" style_pad_ver="#space_xs" text="+.005">
+    <ui_button name="btn_pa_plus_5"
+               width="content" height="#button_height_sm" style_min_width="#tune_pa_btn_w" style_pad_hor="#space_xs"
+               style_pad_ver="#space_xs" text="+.005">
       <bind_flag_if cond="ui_is_portrait eq 1 or ui_breakpoint le 1" flag="hidden"/>
       <event_cb trigger="clicked" callback="on_tune_pa_adjust" user_data="5"/>
     </ui_button>

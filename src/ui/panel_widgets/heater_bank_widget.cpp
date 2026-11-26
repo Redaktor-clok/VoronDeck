@@ -1,6 +1,5 @@
+#include "json_utils.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "heater_bank_widget.h"
-
 #include "ui_component_keypad.h"
 #include "ui_error_reporting.h"
 #include "ui_icon.h"
@@ -15,6 +14,7 @@
 #include "config.h"
 #include "device_display_name.h"
 #include "heater_bank_layout.h"
+#include "heater_bank_widget.h"
 #include "helix-xml/src/xml/lv_xml.h"
 #include "helix/ui/shared_font_style.h"
 #include "helix/ui/text_metrics.h"
@@ -568,7 +568,7 @@ bool HeaterBankWidget::on_edit_configure() {
     if (PanelWidgetManager::refuse_layout_edit())
         return false;
     auto names = inventory();
-    auto values = config_.is_object() ? config_.value("heaters", nlohmann::json::object())
+    auto values = config_.is_object() ? helix::json_util::safe_object(config_, "heaters")
                                       : nlohmann::json::object();
     if (!values.is_object())
         values = nlohmann::json::object();

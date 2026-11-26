@@ -4,7 +4,9 @@
 <!-- Hardware Health Overlay - Shows detailed hardware validation results -->
 <!-- Displays issues grouped by severity: Critical, Warning, Info -->
 <component>
-  <view name="hardware_health_overlay" extends="overlay_panel" title_font="#font_body" title_long_mode="dots" title_max_lines="2" title="Hardware Health" bg_color="#screen_bg">
+  <view name="hardware_health_overlay"
+        extends="overlay_panel" title_font="#font_body" title_long_mode="dots" title_max_lines="2"
+        title="Hardware Health" bg_color="#screen_bg">
     <!-- Content Area -->
     <lv_obj name="overlay_content"
             width="100%" flex_grow="1" style_pad_top="#space_lg" style_pad_bottom="#space_lg" style_pad_left="0"
@@ -39,7 +41,9 @@
           <icon name="status_icon_crit" src="alert_octagon" size="md" variant="text"/>
         </lv_obj>
         <!-- Status text -->
-        <lv_obj width="0" height="content" flex_grow="1" style_pad_all="0" scrollable="false" flex_flow="column" style_pad_gap="#space_xs">
+        <lv_obj width="0"
+                height="content" flex_grow="1" style_pad_all="0" scrollable="false" flex_flow="column"
+                style_pad_gap="#space_xs">
           <text_heading name="status_title" width="100%" long_mode="wrap" bind_text="hardware_status_title"/>
           <text_small name="status_detail" width="100%" long_mode="wrap" bind_text="hardware_status_detail"/>
         </lv_obj>

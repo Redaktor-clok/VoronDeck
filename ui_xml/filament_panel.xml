@@ -304,8 +304,7 @@
           <!-- Keep native action touch targets at their normal height. If the
                additional material row leaves too little room, the column scrolls
                rather than clipping or shrinking the operation group. -->
-          <filament_operations_group height="content" flex_grow="0"
-                                     row_height="#button_height" row_grow="0"/>
+          <filament_operations_group height="content" flex_grow="0" row_height="#button_height" row_grow="0"/>
         </lv_obj>
       </lv_obj>
     </if>

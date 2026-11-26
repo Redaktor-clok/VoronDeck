@@ -80,7 +80,6 @@ void AdvancedPanel::init_subjects() {
         {"on_advanced_macros", on_macros_clicked},
         {"on_console_row_clicked", on_console_clicked},
         {"on_history_row_clicked", on_history_clicked},
-        {"on_helix_plugin_install_clicked", on_helix_plugin_install_clicked},
         {"on_helix_plugin_uninstall_clicked", on_helix_plugin_uninstall_clicked},
         {"on_helix_plugin_overview_clicked",
          [](lv_event_t*) {

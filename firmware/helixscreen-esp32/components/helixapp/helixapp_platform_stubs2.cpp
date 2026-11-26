@@ -411,15 +411,6 @@ void DebugBundleCollector::upload_async(const BundleOptions&, ResultCallback cal
 std::string host_arch_string() {
     return std::string("xtensa");
 }
-std::optional<FlashForgeMachine> flashforge_machine_id(const std::string&) {
-    return std::nullopt;
-}
-FlashForgeModTree flashforge_mod_tree(const std::string&) {
-    return FlashForgeModTree::None;
-}
-const char* flashforge_mod_tree_name(FlashForgeModTree) {
-    return "none";
-}
 
 // --- IppPrinter (IPP/PWG-Raster over libhv HTTP; detached print thread) ------
 // The slice UI constructs one before calling the setters, so ctor/dtor and
