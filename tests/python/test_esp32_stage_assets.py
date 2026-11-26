@@ -8,6 +8,7 @@ confirm the minified output still parses and carries identical text/attrs.
 """
 
 import json
+import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -19,8 +20,20 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import esp32_printer_images  # noqa: E402
 from esp32_stage_assets import (minify_xml, stage_config, stage_printer_images,  # noqa: E402
-                                stage_translations, stage_ui_xml, stage_ui_xml_overrides,
+                                stage_fonts, stage_translations, stage_ui_xml, stage_ui_xml_overrides,
                                 UI_XML_OVERRIDES_DIR)
+
+
+def test_runtime_fonts_include_every_boot_face(tmp_path):
+    loader = (REPO_ROOT / "firmware/helixscreen-esp32/main/font_registration.c").read_text()
+    faces = re.findall(r'A:/assets/assets/fonts/([^"/]+\.bin)', loader)
+    assert len(faces) == len(set(faces)) == 32
+    assert "orbitron_18.bin" in faces and "orbitron_bold_28.bin" in faces
+    stage_fonts(tmp_path)
+    for name in faces:
+        data = (tmp_path / "assets/fonts" / name).read_bytes()
+        assert data[4:8] == b"head", name
+        assert b"cmap" in data and b"glyf" in data, name
 
 
 def test_firmware_updates_keep_remote_components_without_linux_installer(tmp_path):

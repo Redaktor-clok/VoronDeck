@@ -6,6 +6,30 @@
 
 // NEMESIS uses VoronDeck Orbit for Latin/Russian; Noto supplies other scripts.
 // The orbitron_* symbols are retained internal names, not font-family metadata.
+#if defined(HELIX_PLATFORM_ESP32)
+// Firmware loads these writable font descriptors from compressed runtime files.
+extern lv_font_t orbitron_8;
+extern lv_font_t orbitron_10;
+extern lv_font_t orbitron_11;
+extern lv_font_t orbitron_12;
+extern lv_font_t orbitron_14;
+extern lv_font_t orbitron_16;
+extern lv_font_t orbitron_18;
+extern lv_font_t orbitron_20;
+extern lv_font_t orbitron_24;
+extern lv_font_t orbitron_26;
+extern lv_font_t orbitron_28;
+extern lv_font_t orbitron_32;
+extern lv_font_t orbitron_40;
+extern lv_font_t orbitron_bold_14;
+extern lv_font_t orbitron_bold_16;
+extern lv_font_t orbitron_bold_18;
+extern lv_font_t orbitron_bold_20;
+extern lv_font_t orbitron_bold_24;
+extern lv_font_t orbitron_bold_28;
+extern lv_font_t orbitron_bold_32;
+extern lv_font_t orbitron_bold_40;
+#else
 LV_FONT_DECLARE(orbitron_8);
 LV_FONT_DECLARE(orbitron_10);
 LV_FONT_DECLARE(orbitron_11);
@@ -31,6 +55,7 @@ LV_FONT_DECLARE(orbitron_bold_32);
 LV_FONT_DECLARE(orbitron_bold_40);
 LV_FONT_DECLARE(orbitron_bold_48);
 LV_FONT_DECLARE(orbitron_bold_64);
+#endif
 
 /// Switch registered text faces in place; existing widgets keep valid font pointers.
 /// Call on the LVGL thread when the active theme changes, and restore at shutdown.

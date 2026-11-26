@@ -25,3 +25,26 @@ lv_font_t source_code_pro_14;
 lv_font_t mdi_icons_16;
 lv_font_t mdi_icons_24;
 lv_font_t mdi_icons_32;
+
+// VoronDeck Orbit runtime faces, loaded before theme selection.
+lv_font_t orbitron_8;
+lv_font_t orbitron_10;
+lv_font_t orbitron_11;
+lv_font_t orbitron_12;
+lv_font_t orbitron_14;
+lv_font_t orbitron_16;
+lv_font_t orbitron_18;
+lv_font_t orbitron_20;
+lv_font_t orbitron_24;
+lv_font_t orbitron_26;
+lv_font_t orbitron_28;
+lv_font_t orbitron_32;
+lv_font_t orbitron_40;
+lv_font_t orbitron_bold_14;
+lv_font_t orbitron_bold_16;
+lv_font_t orbitron_bold_18;
+lv_font_t orbitron_bold_20;
+lv_font_t orbitron_bold_24;
+lv_font_t orbitron_bold_28;
+lv_font_t orbitron_bold_32;
+lv_font_t orbitron_bold_40;

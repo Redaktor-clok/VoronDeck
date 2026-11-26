@@ -549,6 +549,9 @@ void UpdatesSettingsOverlay::install_test_update(const std::string& selection, b
 }
 
 void UpdatesSettingsOverlay::repair_update_manager() {
+#if defined(HELIX_PLATFORM_ESP32)
+    return; // Firmware has no local Moonraker service or Python update manager.
+#else
     auto* client = get_moonraker_client();
     auto* config = Config::get_instance();
     if (!client || !config || vorondeck_install_busy_ ||
@@ -604,6 +607,7 @@ void UpdatesSettingsOverlay::repair_update_manager() {
             });
         },
         options);
+#endif
 }
 
 void UpdatesSettingsOverlay::show_update_download_modal(bool start_immediately) {

@@ -11,6 +11,28 @@
 
 static const char* TAG = "font_registration";
 
+extern lv_font_t orbitron_8;
+extern lv_font_t orbitron_10;
+extern lv_font_t orbitron_11;
+extern lv_font_t orbitron_12;
+extern lv_font_t orbitron_14;
+extern lv_font_t orbitron_16;
+extern lv_font_t orbitron_18;
+extern lv_font_t orbitron_20;
+extern lv_font_t orbitron_24;
+extern lv_font_t orbitron_26;
+extern lv_font_t orbitron_28;
+extern lv_font_t orbitron_32;
+extern lv_font_t orbitron_40;
+extern lv_font_t orbitron_bold_14;
+extern lv_font_t orbitron_bold_16;
+extern lv_font_t orbitron_bold_18;
+extern lv_font_t orbitron_bold_20;
+extern lv_font_t orbitron_bold_24;
+extern lv_font_t orbitron_bold_28;
+extern lv_font_t orbitron_bold_32;
+extern lv_font_t orbitron_bold_40;
+
 // Repopulates the alias faces (components/helixapp/font_aliases.cpp) from the
 // now-populated noto_sans_18 shim; they hold montserrat_14 from static init.
 extern void helix_font_aliases_refresh(void);
@@ -29,7 +51,7 @@ static struct {
     const char* name;
     int64_t ms;
     bool ok;
-} s_load_results[11];
+} s_load_results[32];
 
 // Re-log the .bin load results outside the ~2s WiFi RF-cal serial dead window.
 // Called from app_boot at home-panel-up.
@@ -79,6 +101,27 @@ void helix_fonts_register(void) {
         {"mdi_icons_16", "A:/assets/assets/fonts/mdi_icons_16.bin", &mdi_icons_16},
         {"mdi_icons_24", "A:/assets/assets/fonts/mdi_icons_24.bin", &mdi_icons_24},
         {"mdi_icons_32", "A:/assets/assets/fonts/mdi_icons_32.bin", &mdi_icons_32},
+        {"orbitron_8", "A:/assets/assets/fonts/orbitron_8.bin", &orbitron_8},
+        {"orbitron_10", "A:/assets/assets/fonts/orbitron_10.bin", &orbitron_10},
+        {"orbitron_11", "A:/assets/assets/fonts/orbitron_11.bin", &orbitron_11},
+        {"orbitron_12", "A:/assets/assets/fonts/orbitron_12.bin", &orbitron_12},
+        {"orbitron_14", "A:/assets/assets/fonts/orbitron_14.bin", &orbitron_14},
+        {"orbitron_16", "A:/assets/assets/fonts/orbitron_16.bin", &orbitron_16},
+        {"orbitron_18", "A:/assets/assets/fonts/orbitron_18.bin", &orbitron_18},
+        {"orbitron_20", "A:/assets/assets/fonts/orbitron_20.bin", &orbitron_20},
+        {"orbitron_24", "A:/assets/assets/fonts/orbitron_24.bin", &orbitron_24},
+        {"orbitron_26", "A:/assets/assets/fonts/orbitron_26.bin", &orbitron_26},
+        {"orbitron_28", "A:/assets/assets/fonts/orbitron_28.bin", &orbitron_28},
+        {"orbitron_32", "A:/assets/assets/fonts/orbitron_32.bin", &orbitron_32},
+        {"orbitron_40", "A:/assets/assets/fonts/orbitron_40.bin", &orbitron_40},
+        {"orbitron_bold_14", "A:/assets/assets/fonts/orbitron_bold_14.bin", &orbitron_bold_14},
+        {"orbitron_bold_16", "A:/assets/assets/fonts/orbitron_bold_16.bin", &orbitron_bold_16},
+        {"orbitron_bold_18", "A:/assets/assets/fonts/orbitron_bold_18.bin", &orbitron_bold_18},
+        {"orbitron_bold_20", "A:/assets/assets/fonts/orbitron_bold_20.bin", &orbitron_bold_20},
+        {"orbitron_bold_24", "A:/assets/assets/fonts/orbitron_bold_24.bin", &orbitron_bold_24},
+        {"orbitron_bold_28", "A:/assets/assets/fonts/orbitron_bold_28.bin", &orbitron_bold_28},
+        {"orbitron_bold_32", "A:/assets/assets/fonts/orbitron_bold_32.bin", &orbitron_bold_32},
+        {"orbitron_bold_40", "A:/assets/assets/fonts/orbitron_bold_40.bin", &orbitron_bold_40},
     };
     for (size_t i = 0; i < sizeof(moved_faces) / sizeof(moved_faces[0]); i++) {
         int64_t t0 = esp_timer_get_time();
@@ -119,5 +162,5 @@ void helix_fonts_register(void) {
     lv_xml_register_font(NULL, "mdi_icons_48", &mdi_icons_48);
     lv_xml_register_font(NULL, "mdi_icons_64", &mdi_icons_64);
 
-    ESP_LOGI(TAG, "registered 11 medium-tier fonts (11 runtime .bin; montserrat_14 fallback)");
+    ESP_LOGI(TAG, "registered 32 runtime fonts (Noto and Orbit; montserrat_14 fallback)");
 }

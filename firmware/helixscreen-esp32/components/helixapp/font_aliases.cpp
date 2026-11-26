@@ -78,6 +78,7 @@ lv_font_t noto_sans_bold_32 = lv_font_montserrat_14;
 lv_font_t noto_sans_bold_40 = lv_font_montserrat_14;
 
 // --- noto_sans_light: tiers beyond helixcore's light_12/light_16 ------------
+lv_font_t noto_sans_light_8 = lv_font_montserrat_14;
 lv_font_t noto_sans_light_10 = lv_font_montserrat_14;
 lv_font_t noto_sans_light_11 = lv_font_montserrat_14;
 lv_font_t noto_sans_light_14 = lv_font_montserrat_14;
@@ -119,6 +120,7 @@ extern "C" void helix_font_aliases_refresh(void) {
     noto_sans_bold_24 = noto_sans_18;
     noto_sans_bold_32 = noto_sans_18;
     noto_sans_bold_40 = noto_sans_18;
+    noto_sans_light_8 = noto_sans_18;
     noto_sans_light_10 = noto_sans_18;
     noto_sans_light_11 = noto_sans_18;
     noto_sans_light_14 = noto_sans_18;
