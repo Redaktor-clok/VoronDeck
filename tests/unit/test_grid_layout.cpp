@@ -7,6 +7,7 @@
  *        widget placement, collision detection, and breakpoint adaptation.
  */
 
+#include "../lvgl_ui_test_fixture.h"
 #include "grid_layout.h"
 #include "panel_widget.h"
 #include "panel_widget_registry.h"
@@ -472,6 +473,9 @@ TEST_CASE("PanelWidgetDef: half-cell capability is classified per widget",
         {"host_health", {true, true}},       // decide_host_health_layout() is measured
         {"temp_stack", {true, true}},        // 2-3 stacked readout rows
         {"fan_stack", {true, true}},         // 2-3 stacked readout rows
+        {"heater_bank", {true, true}},       // measured heater grid/list
+        {"home_sensor_bank", {true, true}},  // wrapping sensor rows
+        {"cooldown", {true, true}},          // scalable action glyph
         {"tool_switcher", {true, true}},     // horizontal chip strip
         {"clog_detection", {true, true}},    // horizontal bar scales with the box
         {"filament_buffer", {false, false}}, // slider tile; the trace needs a whole second cell
@@ -513,8 +517,9 @@ TEST_CASE("PanelWidgetDef: half-cell capability is classified per widget",
     }
 }
 
-TEST_CASE("PanelWidgetDef: a sub-cell floor belongs only to a widget that can decline one",
-          "[widget_def][half_cell][1126][1559]") {
+TEST_CASE_METHOD(LVGLUITestFixture,
+                 "PanelWidgetDef: a sub-cell floor belongs only to a widget that can decline one",
+                 "[widget_def][half_cell][1126][1559]") {
     // A one-track span is 31-40px on the small tiers, which clips a widget whose
     // layout is authored around whole cells. Only a widget that measures itself
     // may sit below a cell on either axis, because only it can refuse a box it

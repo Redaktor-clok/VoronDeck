@@ -52,8 +52,8 @@
     <!-- NON-TINY: Standard two-column content (hidden on TINY)       -->
     <!-- ============================================================ -->
     <lv_obj name="standard_content"
-            width="100%" height="content" style_pad_all="#space_md" flex_flow="row" style_pad_gap="#space_lg"
-            scrollable="false">
+            width="100%" height="content" style_pad_all="#space_md" style_pad_ver="#space_sm" flex_flow="row"
+            style_pad_gap="#space_lg" scrollable="false">
       <bind_flag_if_lt subject="ui_breakpoint" flag="hidden" ref_value="2"/>
       <!-- LEFT COLUMN: Preview + HSV Picker (fixed width to prevent jumping) -->
       <lv_obj width="190"

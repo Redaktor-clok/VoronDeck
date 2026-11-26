@@ -260,14 +260,15 @@ class LiveDefaultFixture : public LVGLUITestFixture {
         CHECK(lv_obj_find_by_name(container_, "filament") == nullptr);
     }
 
-    /// The spool slot holds led and filament, and the AMS is off.
+    /// External spool and runout sensor stay available without an AMS.
     void check_env_fil_slot(const std::string& panel) {
         CHECK_FALSE(entry(panel, "ams")->enabled);
         CHECK(lv_obj_find_by_name(container_, "ams") == nullptr);
-        CHECK(placed(panel, "led"));
+        CHECK(placed(panel, "active_spool"));
+        CHECK_FALSE(placed(panel, "led"));
         CHECK(placed(panel, "filament"));
-        check_tile("filament", 6, 2, 2, 2);
-        check_tile("led", 4, 2, 2, 2);
+        check_tile("active_spool", 6, 2, 2, 2);
+        check_tile("filament", 4, 2, 2, 2);
     }
 
     /// Every enabled widget on the main page holds a cell.
@@ -366,7 +367,8 @@ TEST_CASE_METHOD(LiveDefaultFixture, "live default: a moved widget makes the lay
     REQUIRE(rebuilds >= 1);
     CHECK_FALSE(entry(panel, "ams")->is_placed());
     CHECK(placed(panel, "filament"));
-    CHECK(placed(panel, "led"));
+    CHECK(placed(panel, "active_spool"));
+    CHECK_FALSE(placed(panel, "led"));
     CHECK(config(panel).page_entries(0) == before);
 }
 
@@ -376,12 +378,12 @@ TEST_CASE_METHOD(LiveDefaultFixture,
     use_geometry(kMedium12x8);
     pin_capabilities(0);
     ScopedConfigWriteCounter writes;
-    const std::string panel = fresh_panel("live_default_led_config");
+    const std::string panel = fresh_panel("live_default_spool_config");
     populate(panel);
-    REQUIRE(placed(panel, "led"));
+    REQUIRE(placed(panel, "active_spool"));
 
-    const nlohmann::json strip{{"strip", "neopixel chamber"}};
-    config(panel).set_widget_config("led", strip);
+    const nlohmann::json strip{{"display_mode", "weight"}};
+    config(panel).set_widget_config("active_spool", strip);
     CHECK(config(panel).is_unedited_default());
 
     GateObserverScope scope{panel};
@@ -389,12 +391,12 @@ TEST_CASE_METHOD(LiveDefaultFixture,
     set("ams_slot_count", 4);
     run_rebuild();
     check_ams_slot(panel);
-    CHECK(config(panel).get_widget_config("led") == strip);
+    CHECK(config(panel).get_widget_config("active_spool") == strip);
 
     set("ams_slot_count", 0);
     run_rebuild();
     check_env_fil_slot(panel);
-    CHECK(config(panel).get_widget_config("led") == strip);
+    CHECK(config(panel).get_widget_config("active_spool") == strip);
 }
 
 TEST_CASE_METHOD(LiveDefaultFixture,
@@ -414,7 +416,7 @@ TEST_CASE_METHOD(LiveDefaultFixture,
     nlohmann::json node = saved_node(panel);
     REQUIRE(node.contains("default"));
     for (auto& w : node["pages"][0]["widgets"]) {
-        if (w["id"] == "notifications") {
+        if (w["id"] == "temperature") {
             w["row"] = w["row"].get<int>() + 2;
         }
     }

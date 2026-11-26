@@ -127,12 +127,12 @@ TEST_CASE("Display step calculation with wifi skipped", "[android][wizard]") {
     REQUIRE(wizard_display_number(StepId::PrinterIdentify, v) == 4);
 }
 
-TEST_CASE("Display step at telemetry (last) with wifi skipped is the last number",
+TEST_CASE("Display step at checks (last) with wifi skipped is the last number",
           "[android][wizard]") {
     auto v = all_steps();
     skip(v, StepId::Wifi);
-    // Telemetry is last: every step but the skipped wifi is numbered.
-    REQUIRE(wizard_display_number(StepId::Telemetry, v) == helix::wizard::STEP_COUNT - 1);
+    // Checks is last: every step but the skipped wifi is numbered.
+    REQUIRE(wizard_display_number(StepId::Checks, v) == helix::wizard::STEP_COUNT - 1);
 }
 
 // ============================================================================
@@ -164,8 +164,8 @@ TEST_CASE("Navigation forward skips all disabled steps correctly", "[android][wi
 
 TEST_CASE("wizard_next reports done at end", "[android][wizard]") {
     auto v = all_steps();
-    REQUIRE(wizard_is_last(StepId::Telemetry, v));
-    REQUIRE_FALSE(wizard_next(StepId::Telemetry, v).has_value());
+    REQUIRE(wizard_is_last(StepId::Checks, v));
+    REQUIRE_FALSE(wizard_next(StepId::Checks, v).has_value());
 }
 
 // ============================================================================

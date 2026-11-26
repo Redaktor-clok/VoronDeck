@@ -72,7 +72,7 @@ struct PrintHooksRowFixture : LVGLUITestFixture {
     }
 
     lv_obj_t* in_row(const char* name) const {
-        lv_obj_t* row = lv_obj_find_by_name(root_, "row_print_hooks");
+        lv_obj_t* row = lv_obj_find_by_name(root_, "plugin_feature_row_print_hooks");
         return row ? lv_obj_find_by_name(row, name) : nullptr;
     }
 
@@ -92,9 +92,8 @@ struct PrintHooksRowFixture : LVGLUITestFixture {
     }
 
     lv_obj_t* toggle() const {
-        lv_obj_t* row = lv_obj_find_by_name(root_, "row_print_hooks");
-        lv_obj_t* switch_row =
-            row ? lv_obj_find_by_name(row, "plugin_feature_row_print_hooks") : nullptr;
+        lv_obj_t* row = lv_obj_find_by_name(root_, "plugin_feature_row_print_hooks");
+        lv_obj_t* switch_row = row;
         return switch_row ? lv_obj_find_by_name(switch_row, "toggle") : nullptr;
     }
 };
@@ -107,7 +106,8 @@ TEST_CASE_METHOD(PrintHooksRowFixture, "the print_hooks switch shows the plugin'
     set_print_hooks(true);
     process_lvgl(5);
     CHECK(lv_obj_has_state(toggle(), LV_STATE_CHECKED));
-    CHECK_FALSE(lv_obj_has_flag(lv_obj_find_by_name(root_, "row_print_hooks"), LV_OBJ_FLAG_HIDDEN));
+    CHECK_FALSE(lv_obj_has_flag(lv_obj_find_by_name(root_, "plugin_feature_row_print_hooks"),
+                                LV_OBJ_FLAG_HIDDEN));
 
     set_print_hooks(false);
     process_lvgl(5);
@@ -135,68 +135,20 @@ TEST_CASE_METHOD(PrintHooksRowFixture, "the print_hooks switch writes plugin_fea
 }
 
 TEST_CASE_METHOD(PrintHooksRowFixture,
-                 "without the plugin the print_hooks switch still works through the app",
+                 "print hooks retain the app fallback without a legacy install",
                  "[plugin_feature][settings]") {
     auto& plugin = get_printer_state().plugin_status_state();
     REQUIRE(toggle() != nullptr);
-
-    SECTION("on the printer's own host: no hint") {
-        set_local(true);
+    for (const bool local : {false, true}) {
+        set_local(local);
         plugin.set_installed(false);
         process_lvgl(5);
         CHECK(visible(toggle()));
-        CHECK_FALSE(visible(in_row("plugin_hint")));
-        CHECK_FALSE(visible(in_row("greyed_row")));
-    }
-    SECTION("on a remote screen: the hint and Install") {
-        set_local(false);
-        plugin.set_installed(false);
-        process_lvgl(5);
-        CHECK(visible(toggle()));
-        CHECK(visible(in_row("plugin_hint")));
-        CHECK(visible(in_row("fallback_install_text")));
-        CHECK(visible(in_row("install_button")));
-        CHECK_FALSE(visible(in_row("needs_install_text")));
-    }
-    SECTION("a remote screen with a plugin too old for it: the hint asks for an update") {
-        set_local(false);
+        CHECK(in_row("install_button") == nullptr);
         plugin.set_installed(true);
         plugin.set_features({});
         process_lvgl(5);
         CHECK(visible(toggle()));
-        CHECK(visible(in_row("fallback_update_text")));
-        CHECK_FALSE(visible(in_row("install_button")));
-    }
-    SECTION("a locality verdict arriving after the plugin state moves the hint") {
-        set_local(true);
-        plugin.set_installed(false);
-        process_lvgl(5);
-        REQUIRE_FALSE(visible(in_row("plugin_hint")));
-
-        set_local(false);
-        process_lvgl(5);
-        CHECK(visible(in_row("plugin_hint")));
-
-        set_local(true);
-        process_lvgl(5);
-        REQUIRE_FALSE(visible(in_row("plugin_hint")));
-        // An unknown locality is not a local screen.
-        get_printer_state().clear_moonraker_locality();
-        helix::ui::UpdateQueue::instance().drain();
-        process_lvgl(5);
-        CHECK(visible(in_row("plugin_hint")));
-    }
-    SECTION("the switch shows the stored opt-in and writes it") {
-        plugin.set_installed(false);
-        plugin.set_stored_opt_ins({{"print_hooks", true}});
-        process_lvgl(5);
-        CHECK(lv_obj_has_state(toggle(), LV_STATE_CHECKED));
-
-        lv_obj_remove_state(toggle(), LV_STATE_CHECKED);
-        lv_obj_send_event(toggle(), LV_EVENT_VALUE_CHANGED, nullptr);
-        helix::ui::UpdateQueue::instance().drain();
-        CHECK(client.mock_db_get(helix::kPluginFeaturesNamespace, "plugin_features.print_hooks") ==
-              false);
     }
 }
 

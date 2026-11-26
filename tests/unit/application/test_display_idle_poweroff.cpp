@@ -150,6 +150,7 @@ TEST_CASE_METHOD(LVGLTestFixture,
     SECTION("screensaver ON: setting sleep < dim is clamped up to dim") {
         config->set<int>("/display/screensaver_type", 1); // Flying Toasters → enabled
         config->set<int>("/display/dim_sec", 600);
+        config->set<int>("/display/screensaver_sec", 600);
         config->set<int>("/display/sleep_sec", 600);
         DisplaySettingsManager::instance().deinit_subjects();
         DisplaySettingsManager::instance().init_subjects();
@@ -160,14 +161,15 @@ TEST_CASE_METHOD(LVGLTestFixture,
         REQUIRE(DisplaySettingsManager::instance().screensaver_enabled());
         REQUIRE(DisplaySettingsManager::instance().should_couple_sleep_to_dim());
 
-        // Reporter's exact mistake: sleep=60 < dim=600. Must be forced up to 600.
+        // Sleep must be strictly later than the 600s saver: the next sleep option is 1200s.
         DisplaySettingsManager::instance().set_display_sleep_sec(60);
-        REQUIRE(DisplaySettingsManager::instance().get_display_sleep_sec() == 600);
+        REQUIRE(DisplaySettingsManager::instance().get_display_sleep_sec() == 1200);
     }
 
     SECTION("screensaver OFF + no backlight: short sleep is NOT clamped") {
         config->set<int>("/display/screensaver_type", 0); // OFF
         config->set<int>("/display/dim_sec", 600);
+        config->set<int>("/display/screensaver_sec", 600);
         config->set<int>("/display/sleep_sec", 1200);
         DisplaySettingsManager::instance().deinit_subjects();
         DisplaySettingsManager::instance().init_subjects();
@@ -191,20 +193,22 @@ TEST_CASE_METHOD(LVGLTestFixture,
     DisplaySettingsManager::instance().init_subjects();
 }
 
-TEST_CASE_METHOD(LVGLTestFixture,
-                 "raising dim above sleep bumps sleep up when a screensaver is enabled",
+TEST_CASE_METHOD(LVGLTestFixture, "screensaver delay controls sleep independently of dimming",
                  "[application][display][sleep][screensaver][1049]") {
     helix::Config* config = helix::Config::get_instance();
     config->set<int>("/display/screensaver_type", 1);
     config->set<int>("/display/dim_sec", 60);
-    config->set<int>("/display/sleep_sec", 120);
+    config->set<int>("/display/screensaver_sec", 60);
+    config->set<int>("/display/sleep_sec", 300);
     DisplaySettingsManager::instance().deinit_subjects();
     DisplaySettingsManager::instance().init_subjects();
 
-    // Raising dim above the current sleep must bump sleep up to match.
-    DisplaySettingsManager::instance().set_display_dim_sec(300);
-    REQUIRE(DisplaySettingsManager::instance().get_display_dim_sec() == 300);
+    // Dimming does not change the independent saver deadline.
+    DisplaySettingsManager::instance().set_display_dim_sec(600);
+    REQUIRE(DisplaySettingsManager::instance().get_display_dim_sec() == 600);
     REQUIRE(DisplaySettingsManager::instance().get_display_sleep_sec() == 300);
+    DisplaySettingsManager::instance().set_screensaver_delay_sec(300);
+    REQUIRE(DisplaySettingsManager::instance().get_display_sleep_sec() == 600);
 
     // Re-init rather than leaving the singleton torn down. A deinitialised
     // DisplaySettingsManager withdraws settings_animations_enabled from the XML
@@ -226,13 +230,14 @@ TEST_CASE_METHOD(
     helix::Config* config = helix::Config::get_instance();
     config->set<int>("/display/screensaver_type", 1);
     config->set<int>("/display/dim_sec", 600);
+    config->set<int>("/display/screensaver_sec", 600);
     config->set<int>("/display/sleep_sec", 60); // inconsistent persisted value
 
     DisplaySettingsManager::instance().deinit_subjects();
     DisplaySettingsManager::instance().init_subjects();
 
-    REQUIRE(DisplaySettingsManager::instance().get_display_sleep_sec() == 600);
-    REQUIRE(config->get<int>("/display/sleep_sec", -1) == 600);
+    REQUIRE(DisplaySettingsManager::instance().get_display_sleep_sec() == 1200);
+    REQUIRE(config->get<int>("/display/sleep_sec", -1) == 1200);
 
     // Re-init rather than leaving the singleton torn down. A deinitialised
     // DisplaySettingsManager withdraws settings_animations_enabled from the XML
@@ -254,6 +259,7 @@ TEST_CASE_METHOD(LVGLTestFixture,
     helix::Config* config = helix::Config::get_instance();
     config->set<int>("/display/screensaver_type", 1); // enabled
     config->set<int>("/display/dim_sec", 600);
+    config->set<int>("/display/screensaver_sec", 30);
     config->set<int>("/display/sleep_sec", 1200);
     DisplaySettingsManager::instance().deinit_subjects();
     DisplaySettingsManager::instance().init_subjects();
@@ -269,6 +275,7 @@ TEST_CASE_METHOD(LVGLTestFixture,
     // manual (process_lvgl drives lv_tick_inc) — a wall-clock sleep would NOT
     // move lv_display_get_inactive_time(), so use process_lvgl, not delay().
     lv_display_trigger_activity(nullptr);
+    lv_tick_inc(30000);
     process_lvgl(1300);
 
     REQUIRE_FALSE(mgr.is_display_sleeping());

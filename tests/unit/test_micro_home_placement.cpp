@@ -163,10 +163,9 @@ const AuthoredAnchor kMicroAnchors[] = {
     {"printer_image",    0,  0,  6, 4},
     {"temperature",      6,  0,  2, 2},
     {"bed_temperature",  8,  0,  2, 2},
-    {"notifications",   10,  0,  2, 2},
     {"fan_stack",        6,  2,  2, 2},
-    {"filament",         8,  2,  2, 2},
-    {"led",             10,  2,  2, 2},
+    {"active_spool",     8,  2,  2, 2},
+    {"filament",        10,  2,  2, 2},
     {"print_status",     0,  4,  8, 4},
     {"temp_graph",       8,  4,  4, 4},
 };
@@ -180,7 +179,6 @@ const AuthoredAnchor kMediumAnchors[] = {
     {"temperature",      4, 0, 2, 2},
     {"bed_temperature",  6, 0, 2, 2},
     {"fan_stack",        8, 0, 2, 2},
-    {"notifications",   10, 0, 2, 2},
     {"temp_graph",       8, 2, 4, 6},
     {"print_status",     0, 4, 8, 4},
 };
@@ -190,7 +188,6 @@ const AuthoredAnchor kMediumAnchors[] = {
 const AuthoredAnchor kMicro8x6Anchors[] = {
     {"temperature",     0, 0, 2, 2},
     {"bed_temperature", 2, 0, 2, 2},
-    {"notifications",   6, 0, 2, 2},
     {"print_status",    0, 2, 8, 4},
 };
 // clang-format on
@@ -334,8 +331,8 @@ TEST_CASE_METHOD(DefaultPlacementFixture, "medium default layout is unchanged at
     }
 
     CHECK(lv_obj_find_by_name(container, "ams") == nullptr);
-    check_anchor(container, {"filament", 6, 2, 2, 2});
-    check_anchor(container, {"led", 4, 2, 2, 2});
+    check_anchor(container, {"active_spool", 6, 2, 2, 2});
+    check_anchor(container, {"filament", 4, 2, 2, 2});
 
     PanelWidgetManager::instance().clear_panel_config("test_medium_home_800");
 }

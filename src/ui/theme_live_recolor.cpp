@@ -54,32 +54,15 @@ static void swap_map_add(std::vector<ColorSwapEntry>& map, lv_color_t from, lv_c
 }
 
 /// True for ThemeManager's shared styles whose colors the walker replaces: the
-/// semantic text styles on labels and the button surfaces on buttons.
+/// semantic text styles and the legacy untyped button surface.
 static bool is_walker_replaced_style(const lv_style_t* style) {
     auto& tm = ThemeManager::instance();
     if (style == tm.get_style(StyleRole::TextPrimary) ||
         style == tm.get_style(StyleRole::TextMuted))
         return true;
-    static constexpr StyleRole kButtonRoles[] = {
-        StyleRole::Button,
-        StyleRole::ButtonPrimary,
-        StyleRole::ButtonSecondary,
-        StyleRole::ButtonTertiary,
-        StyleRole::ButtonDanger,
-        StyleRole::ButtonGhost,
-        StyleRole::ButtonTransparent,
-        StyleRole::ButtonOutline,
-        StyleRole::ButtonSuccess,
-        StyleRole::ButtonWarning,
-        StyleRole::ButtonDisabled,
-        StyleRole::ButtonPressed,
-        StyleRole::ButtonChecked,
-    };
-    for (StyleRole r : kButtonRoles) {
-        if (style == tm.get_style(r))
-            return true;
-    }
-    return false;
+    // Variant colors follow ThemeManager's palette. A local heuristic would
+    // mask secondary fills and semantic outlines, especially gray palettes.
+    return style == tm.get_style(StyleRole::Button) && !tm.current_palette().vorondeck_buttons;
 }
 
 /// True when `prop` at `selector` comes from a style someone chose for `obj`:

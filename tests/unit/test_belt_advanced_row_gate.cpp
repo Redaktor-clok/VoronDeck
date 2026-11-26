@@ -22,6 +22,8 @@
 #include "setting_group.h"
 
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "../catch_amalgamated.hpp"
 
@@ -49,11 +51,18 @@ class AdvancedBeltRowFixture : public XMLTestFixture {
         ensure_subject("printer_supports_belt_compare", 0);
         ensure_subject("printer_has_tool_offset_cal", 0);
         ensure_subject("printer_has_probe", 1);
+        ensure_subject("printer_has_extruder", 1);
+        ensure_subject("printer_has_z_offset_calibration", 1);
         ensure_subject("hide_manual_z_calibration", 0);
         beta_ = subject("show_beta_features");
         beta_before_ = lv_subject_get_int(beta_);
         lv_subject_set_int(beta_, 0);
 
+        for (const char* name : {"printer_has_extruder", "printer_has_z_offset_calibration"}) {
+            auto* s = subject(name);
+            saved_capabilities_.emplace_back(s, lv_subject_get_int(s));
+            lv_subject_set_int(s, 1);
+        }
         panel_ = create_component("advanced_panel");
         REQUIRE(panel_ != nullptr);
         row_ = lv_obj_find_by_name(panel_, "row_belt_tension");
@@ -63,6 +72,8 @@ class AdvancedBeltRowFixture : public XMLTestFixture {
 
     ~AdvancedBeltRowFixture() override {
         lv_subject_set_int(beta_, beta_before_);
+        for (const auto& [s, value] : saved_capabilities_)
+            lv_subject_set_int(s, value);
     }
 
     /// Hidden itself or under a hidden ancestor, up to the panel root.
@@ -91,6 +102,7 @@ class AdvancedBeltRowFixture : public XMLTestFixture {
     lv_obj_t* row_ = nullptr;
     lv_subject_t* beta_ = nullptr;
     int beta_before_ = 0;
+    std::vector<std::pair<lv_subject_t*, int>> saved_capabilities_;
 
   private:
     /// Registers `name` in the global XML scope at `value` when absent,
@@ -98,9 +110,9 @@ class AdvancedBeltRowFixture : public XMLTestFixture {
     /// untouched.
     static void ensure_subject(const char* name, int value) {
         if (!lv_xml_get_subject(nullptr, name)) {
-            static lv_subject_t subjects[6];
+            static lv_subject_t subjects[8];
             static size_t next = 0;
-            REQUIRE(next < 6);
+            REQUIRE(next < 8);
             lv_subject_init_int(&subjects[next], value);
             lv_xml_register_subject(nullptr, name, &subjects[next]);
             next++;

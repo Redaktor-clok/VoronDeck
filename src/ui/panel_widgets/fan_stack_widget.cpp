@@ -282,6 +282,31 @@ void FanStackWidget::on_activate() {
     }
 }
 
+bool FanStackWidget::fits_at(int width_px, int height_px) const {
+    const auto* text = theme_manager_get_font("font_xs");
+    if (!text)
+        return false;
+    const int gap = theme_manager_get_spacing("space_xs");
+    const int icon = mdi_icons_16.line_height;
+    const int value = measure_text_px(kWidestSpeedText, text);
+    const int letter = measure_text_px("H", text);
+    const auto is_visible = [](const lv_subject_t& subject) {
+        return lv_subject_get_int(const_cast<lv_subject_t*>(&subject)) != 0;
+    };
+    const int count = std::max(1, is_visible(part_visible_) + is_visible(hotend_visible_) +
+                                      is_visible(aux_visible_));
+    if (get_component_name() == "panel_widget_fan_portrait") {
+        const int small_gap = theme_manager_get_spacing("space_xxs");
+        return width_px >=
+                   count * std::max(icon + small_gap + letter, value) + (count - 1) * small_gap &&
+               height_px >= std::max<int>(icon, text->line_height) + small_gap + text->line_height;
+    }
+    if (is_carousel_mode())
+        return width_px >= icon + value + 2 * gap && height_px >= icon + text->line_height + gap;
+    return width_px >= std::max(80, icon + letter + value + 4 * gap) &&
+           height_px >= count * std::max<int>(icon, text->line_height) + (count - 1) * gap;
+}
+
 void FanStackWidget::on_size_changed(int colspan, int rowspan, int width_px, int height_px) {
     // Size adaptation only applies to stack mode
     if (!widget_obj_ || is_carousel_mode())

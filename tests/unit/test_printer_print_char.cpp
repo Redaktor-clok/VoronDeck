@@ -527,52 +527,52 @@ TEST_CASE("Print characterization: time tracking from JSON", "[characterization]
         REQUIRE(lv_subject_get_int(state.print_state().get_print_elapsed_subject()) == 360);
     }
 
-    SECTION("time_left estimated from progress and print_duration") {
+    SECTION("time_left uses file metadata and progress") {
+        state.print_state().set_estimated_print_time(7200);
         // Set progress to 50%
         json status1 = {{"virtual_sdcard", {{"progress", 0.5}}}};
         state.update_from_status(status1);
 
         // Set print_duration (actual print time) and total_duration (wall-clock)
-        // Remaining estimate uses print_duration, not total_duration
+        // Elapsed time does not replace the file estimate
         json status2 = {{"print_stats", {{"print_duration", 3600.0}, {"total_duration", 3600.0}}}};
         state.update_from_status(status2);
 
-        // remaining = print_duration * (100 - progress) / progress
-        // remaining = 3600 * (100 - 50) / 50 = 3600
+        // File estimate: 7200 * (100 - 50) / 100 = 3600
         REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 3600);
     }
 
-    SECTION("time_left zero when progress is 100%") {
+    SECTION("time_left remains unknown at 100% without file metadata") {
         json status = {{"virtual_sdcard", {{"progress", 1.0}}},
                        {"print_stats", {{"print_duration", 7200.0}, {"total_duration", 7200.0}}}};
         state.update_from_status(status);
 
-        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 0);
+        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == -1);
     }
 
-    SECTION("time_left estimated at low progress with extrapolation") {
-        // At 3% progress with no slicer estimate, pure extrapolation is used
-        // (blend only engages when estimated_print_time_ > 0)
+    SECTION("time_left remains unknown without file metadata") {
+        // Elapsed time alone must not invent an estimate.
         json status1 = {{"virtual_sdcard", {{"progress", 0.03}}}};
         state.update_from_status(status1);
 
         json status2 = {{"print_stats", {{"print_duration", 360.0}, {"total_duration", 400.0}}}};
         state.update_from_status(status2);
 
-        // 360 * (100-3) / 3 = 11640
-        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 11640);
+        // No file estimate is available.
+        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == -1);
     }
 
-    SECTION("time_left not updated when progress is 0") {
+    SECTION("time_left is unknown at zero progress without metadata") {
         // With no progress, remaining cannot be estimated
         json status = {{"print_stats", {{"print_duration", 360.0}, {"total_duration", 360.0}}}};
         state.update_from_status(status);
 
-        // time_left stays at 0
-        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 0);
+        // Unknown is distinct from a completed print.
+        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == -1);
     }
 
-    SECTION("time_left uses print_duration not total_duration (prep time excluded)") {
+    SECTION("time_left is independent of elapsed prep and printing time") {
+        state.print_state().set_estimated_print_time(430);
         // Simulate a print that spent significant time in prep:
         // 300s total wall-clock, but only 30s of actual printing at 7% progress
         json progress_status = {{"virtual_sdcard", {{"progress", 0.07}}}};
@@ -581,14 +581,13 @@ TEST_CASE("Print characterization: time tracking from JSON", "[characterization]
         json status = {{"print_stats", {{"print_duration", 30.0}, {"total_duration", 300.0}}}};
         state.update_from_status(status);
 
-        // Using print_duration: 30 * (100-7)/7 = 30 * 93/7 = 398
-        // NOT total_duration:  300 * (100-7)/7 = 300 * 93/7 = 3985 (wildly wrong)
+        // File estimate: 430 * 93 / 100 = 399.
         int remaining = lv_subject_get_int(state.print_state().get_print_time_left_subject());
-        REQUIRE(remaining == 398);
+        REQUIRE(remaining == 399);
         REQUIRE(remaining < 500); // Sanity check: reasonable for a short print
     }
 
-    SECTION("time_left not updated when print_duration is 0 (all prep time)") {
+    SECTION("time_left is unknown during preparation without metadata") {
         // Progress is 5% but print_duration is 0 (Moonraker sometimes does this
         // at very early stages when only prep has happened)
         json progress_status = {{"virtual_sdcard", {{"progress", 0.05}}}};
@@ -597,11 +596,12 @@ TEST_CASE("Print characterization: time tracking from JSON", "[characterization]
         json status = {{"print_stats", {{"print_duration", 0.0}, {"total_duration", 200.0}}}};
         state.update_from_status(status);
 
-        // Should stay at 0 (can't estimate with no actual print time)
-        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 0);
+        // No metadata estimate was supplied.
+        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == -1);
     }
 
     SECTION("both duration and total in same update with progress") {
+        state.print_state().set_estimated_print_time(7200);
         // Set progress first
         json progress_status = {{"virtual_sdcard", {{"progress", 0.25}}}};
         state.update_from_status(progress_status);
@@ -611,7 +611,7 @@ TEST_CASE("Print characterization: time tracking from JSON", "[characterization]
 
         REQUIRE(lv_subject_get_int(state.print_state().get_print_duration_subject()) == 1800);
         REQUIRE(lv_subject_get_int(state.print_state().get_print_elapsed_subject()) == 2000);
-        // remaining = print_duration * (100 - 25) / 25 = 1800 * 3 = 5400
+        // File estimate: 7200 * 75 / 100 = 5400.
         REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 5400);
     }
 }
@@ -1326,7 +1326,7 @@ TEST_CASE("Print characterization: print_job_state_to_string function",
 // ============================================================================
 
 TEST_CASE_METHOD(HelixTestFixture,
-                 "Print characterization: slicer estimated_print_time used as fallback",
+                 "Print characterization: file estimated_print_time remains authoritative",
                  "[characterization][print][time][slicer]") {
     lv_init_safe();
 
@@ -1350,20 +1350,19 @@ TEST_CASE_METHOD(HelixTestFixture,
         REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 78);
     }
 
-    SECTION("progress-based estimate takes over when print_duration > 0") {
+    SECTION("elapsed print duration does not replace the file estimate") {
         state.print_state().set_estimated_print_time(83);
 
         // Set progress to 25%
         json progress_status = {{"virtual_sdcard", {{"progress", 0.25}}}};
         state.update_from_status(progress_status);
 
-        // Now print_duration has real data - progress-based estimate should be used
+        // Actual elapsed time may differ from the file estimate.
         json status = {{"print_stats", {{"print_duration", 20.0}, {"total_duration", 50.0}}}};
         state.update_from_status(status);
 
-        // Progress-based: 20 * (100-25) / 25 = 20 * 3 = 60
-        // NOT slicer-based: 83 * 75 / 100 = 62
-        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 60);
+        // File estimate: 83 * 75 / 100 = 62
+        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 62);
     }
 
     SECTION("estimated_print_time preserved across reset_for_new_print") {
@@ -1385,8 +1384,8 @@ TEST_CASE_METHOD(HelixTestFixture,
         json status = {{"print_stats", {{"print_duration", 0.0}, {"total_duration", 30.0}}}};
         state.update_from_status(status);
 
-        // No fallback available, should stay at 0
-        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 0);
+        // No file estimate is available.
+        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == -1);
     }
 
     SECTION("slicer estimate seeds time_left at progress 0") {
@@ -1419,7 +1418,7 @@ TEST_CASE_METHOD(HelixTestFixture,
         REQUIRE(time_left == 2619);
     }
 
-    SECTION("blend still active at 5% progress") {
+    SECTION("file estimate remains authoritative at 5% progress") {
         state.print_state().set_estimated_print_time(2700);
 
         json progress_status = {{"virtual_sdcard", {{"progress", 0.05}}}};
@@ -1428,13 +1427,8 @@ TEST_CASE_METHOD(HelixTestFixture,
         json status = {{"print_stats", {{"print_duration", 150.0}, {"total_duration", 160.0}}}};
         state.update_from_status(status);
 
-        // At 5%, still in 15% blend window
-        // Progress-based: 150 * 95 / 5 = 2850
-        // Slicer-based: 2700 * 95 / 100 = 2565
-        // Blend weight at 5%: (15-5)/15 = 0.6667 slicer, 0.3333 progress
-        // Blended: 0.6667 * 2565 + 0.3333 * 2850 = 2660
-        // EMA seeds on first call
-        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 2660);
+        // File estimate: 2700 * 95 / 100 = 2565.
+        REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 2565);
     }
 
     SECTION("negative estimated_print_time is clamped to 0") {

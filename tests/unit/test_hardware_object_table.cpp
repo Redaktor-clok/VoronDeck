@@ -49,7 +49,6 @@ TEST_CASE("hw table: every kitchen-sink name classifies", "[hw_object_table]") {
         {"tmc2240 stepper_x", ObjectKind::DriverTemperature, "stepper_x"},
         {"mcu", ObjectKind::Mcu, ""},
         {"mcu toolhead", ObjectKind::Mcu, "toolhead"},
-        {"zmod_ifs_switch_sensor head", ObjectKind::BackendFilamentSensor, "head"},
         {"filament_switch_sensor runout", ObjectKind::FilamentSwitch, "runout"},
         {"filament_motion_sensor encoder", ObjectKind::FilamentMotion, "encoder"},
         {"hall_filament_width_sensor", ObjectKind::WidthSensor, ""},
@@ -215,7 +214,8 @@ TEST_CASE("hw table: Beacon section is a probe unless it carries accelerometer f
 }
 
 TEST_CASE("hw table: vendor and unknown names", "[hw_object_table]") {
-    CHECK(obj("zmod_ifs_motion_sensor head").kind == ObjectKind::BackendFilamentSensor);
+    CHECK(obj("zmod_ifs_motion_sensor head").kind == ObjectKind::Unknown);
+    CHECK(obj("zmod_ifs_switch_sensor head").kind == ObjectKind::Unknown);
     CHECK(obj("zmod_ifs_switch_sensor").kind == ObjectKind::Unknown);
     CHECK(obj("power_loss_check e0").kind == ObjectKind::Unknown);
     CHECK(obj("stepper_x").kind == ObjectKind::Stepper);

@@ -179,6 +179,9 @@ TEST_CASE("registry spans: authored spans land in the intended pixel band",
         {"led", {0, 0}},
         {"led_controls", {0, 0}},
         {"fan_stack", {0, 0}},
+        {"heater_bank", {0, 0}},
+        {"home_sensor_bank", {0, 0}},
+        {"cooldown", {0, 0}},
         {"fan", {0, 0}},
         {"bypass", {0, 0}},
         {"temperature", {0, 0}},
@@ -236,8 +239,16 @@ TEST_CASE("registry spans: authored spans land in the intended pixel band",
             REQUIRE(it != expected.end());
             INFO(g.name << " " << def.id << " span " << def.colspan << "x" << def.rowspan << " -> "
                         << w << "x" << h << "px");
-            CHECK(width_band(w, tier_of(g)) == it->second.first);
-            CHECK(height_band(h, tier_of(g)) == it->second.second);
+            auto bands = it->second;
+            if (std::string_view(def.id) == "heater_bank") {
+                // The 3x3 bank gains its normal form on the two denser grids.
+                if (g.panel_w == 480 && g.panel_h == 320)
+                    bands = {1, 1};
+                else if (g.panel_w == 800 && g.panel_h == 480)
+                    bands = {0, 1};
+            }
+            CHECK(width_band(w, tier_of(g)) == bands.first);
+            CHECK(height_band(h, tier_of(g)) == bands.second);
         }
     }
 }

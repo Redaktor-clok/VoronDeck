@@ -143,7 +143,11 @@ TEST_CASE_METHOD(HomeProjectionFixture,
     REQUIRE(carousel != nullptr);
     REQUIRE(ui_carousel_get_state(carousel) != nullptr);
     CHECK(ui_carousel_get_state(carousel)->real_tiles.empty());
-    CHECK(lv_obj_has_flag(tile.root, LV_OBJ_FLAG_HIDDEN));
+    // Keep the editable tile reachable even when all its devices are hidden.
+    CHECK_FALSE(lv_obj_has_flag(tile.root, LV_OBJ_FLAG_HIDDEN));
+    auto* placeholder = lv_obj_find_by_name(tile.root, "fan_hidden_placeholder");
+    REQUIRE(placeholder != nullptr);
+    CHECK_FALSE(lv_obj_has_flag(placeholder, LV_OBJ_FLAG_HIDDEN));
 
     FanStackWidget controls("controls_projection_fan_carousel", state());
     controls.set_config({{"display_mode", "carousel"}});

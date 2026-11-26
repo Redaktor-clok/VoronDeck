@@ -18,7 +18,7 @@ class WiFiManager;
 
 class NetworkWidget : public TiledPanelWidget {
   public:
-    NetworkWidget();
+    explicit NetworkWidget(std::shared_ptr<WiFiManager> wifi_manager = nullptr);
     ~NetworkWidget() override;
 
     void attach(lv_obj_t* widget_obj, lv_obj_t* parent_screen) override;

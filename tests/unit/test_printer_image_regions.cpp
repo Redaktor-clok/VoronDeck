@@ -69,9 +69,9 @@ TEST_CASE("lookup_image_regions: reads the shipped regions.json on first lookup"
           "[printer_image][regions]") {
     const ConfigDirGuard cfg("regions_shipped_read");
     unload_image_regions();
-    const auto* regions = lookup_image_regions("creality-k1c", 947, 1188);
+    const auto* regions = lookup_image_regions("voron-v2", 1000, 1000);
     REQUIRE(regions != nullptr);
-    CHECK(regions->src_w == 947);
+    CHECK(regions->src_w == 1000);
     unload_image_regions();
 }
 
@@ -171,9 +171,7 @@ TEST_CASE("Tagger preview follows partial placement and undo without phantom anc
     ImageTagSession s;
     CalloutChipWidths widths{};
     widths.fill(40);
-    const auto layout = [&] {
-        return tagger_callout_layout(s, 300, 300, 400, 400, widths, 20, 4);
-    };
+    const auto layout = [&] { return tagger_callout_layout(s, 300, 300, 400, 400, widths, 20, 4); };
     const auto has = [&](CalloutKind kind) {
         const auto out = layout();
         return std::any_of(out.chips.begin(), out.chips.end(),
@@ -276,8 +274,7 @@ TEST_CASE("ImageTagSession: every combination of skipped prompts has only real a
                 REQUIRE(s.skip());
             const auto r = s.regions(300, 300);
             CHECK(r.nozzle_tagged == bool(mask & 1));
-            CHECK(r.bed_tagged == bool(mask & ((step >= 2 ? 4u : 0u) |
-                                               (step >= 3 ? 8u : 0u))));
+            CHECK(r.bed_tagged == bool(mask & ((step >= 2 ? 4u : 0u) | (step >= 3 ? 8u : 0u))));
             const auto preview = tagger_callout_layout(s, 300, 300, 600, 600, widths, 20, 4);
             if (!r.nozzle_tagged)
                 for (const auto& chip : preview.chips) {

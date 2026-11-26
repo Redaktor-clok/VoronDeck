@@ -115,16 +115,17 @@ TEST_CASE_METHOD(XMLTestFixture, "edit-mode chrome icons clear WCAG AA on their 
     em.select_widget(widget);
     REQUIRE(em.selected_widget() == widget);
 
-    // The pill as it lands on screen: text-coloured fill at half opacity
-    // floating over the screen background (the top-row pills overhang the
-    // grid entirely), re-derived here rather than asked of the helper.
-    const lv_color_t pill_fill = theme_manager_get_color("text");
-    const lv_color_t pill_composited =
-        lv_color_mix(pill_fill, theme_manager_get_color("screen_bg"), LV_OPA_50);
+    // Read the actual surface: VoronDeck themes use semantic button styles;
+    // upstream themes use translucent pills.
+    auto composited = [](lv_obj_t* button) {
+        return lv_color_mix(lv_obj_get_style_bg_color(button, LV_PART_MAIN),
+                            theme_manager_get_color("screen_bg"),
+                            lv_obj_get_style_bg_opa(button, LV_PART_MAIN));
+    };
     auto check_pill = [&](lv_obj_t* pill, const char* what) {
         REQUIRE(pill != nullptr);
         CAPTURE(what);
-        CHECK(lv_obj_get_style_bg_opa(pill, LV_PART_MAIN) == LV_OPA_50);
+        const lv_color_t pill_composited = composited(pill);
         const lv_color_t icon = lv_obj_get_style_text_color(icon_label_of(pill), LV_PART_MAIN);
         CAPTURE(lv_color_to_u32(icon) & 0xFFFFFF, lv_color_to_u32(pill_composited) & 0xFFFFFF,
                 wcag::contrast(icon, pill_composited));
@@ -137,9 +138,7 @@ TEST_CASE_METHOD(XMLTestFixture, "edit-mode chrome icons clear WCAG AA on their 
     // The theme layer's own contrast bar is 4:1, so that is the assertion.
     lv_obj_t* del = GridEditModeTestAccess::delete_page_button(em);
     REQUIRE(del != nullptr);
-    const lv_color_t del_composited =
-        lv_color_mix(ThemeManager::instance().current_palette().danger,
-                     ThemeManager::instance().current_palette().screen_bg, LV_OPA_80);
+    const lv_color_t del_composited = composited(del);
     const lv_color_t del_icon = lv_obj_get_style_text_color(icon_label_of(del), LV_PART_MAIN);
     CAPTURE(lv_color_to_u32(del_icon) & 0xFFFFFF, lv_color_to_u32(del_composited) & 0xFFFFFF,
             wcag::contrast(del_icon, del_composited));

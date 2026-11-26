@@ -251,9 +251,9 @@ TEST_CASE_METHOD(Landscape800, "the printer tile follows a change of printer ima
     tiles().use_displayed_image();
     settle();
     const std::string before = subject_str("ps_printer_image_src");
-    images.set_active_image("shipped:qidi-q2");
+    images.set_active_image("shipped:voron-v2");
     settle();
-    CHECK(subject_str("ps_printer_image_src").find("qidi-q2") != std::string::npos);
+    CHECK(subject_str("ps_printer_image_src").find("voron-v2") != std::string::npos);
     images.set_active_image("");
     settle();
     CHECK(subject_str("ps_printer_image_src") == before);
@@ -980,11 +980,13 @@ TEST_CASE_METHOD(Landscape800,
     auto& images = helix::PrinterImageManager::instance();
     const int32_t screen_w = lv_display_get_horizontal_resolution(lv_display_get_default());
     const std::string first = images.get_displayed_image_path(screen_w);
-    images.set_active_image("shipped:qidi-q2");
+    images.set_active_image("shipped:voron-v2");
     const std::string second = images.get_displayed_image_path(screen_w);
     images.set_active_image("");
     REQUIRE_FALSE(first.empty());
     REQUIRE(second != first);
+    // Isolate this generation from the fixture's earlier preview request.
+    tiles().on_tree_destroyed();
     // Both lay out alike, so the two copies are cut for one rect. No picture
     // until the caches are cleared, so nothing generates early.
     std::string source;
@@ -1021,6 +1023,8 @@ TEST_CASE_METHOD(Landscape800,
 
 TEST_CASE_METHOD(Landscape800, "a cache generation landing after deinit leaves the tile alone",
                  "[print_status]") {
+    // A previous preview must not occupy the one in-flight generation slot.
+    tiles().on_tree_destroyed();
     const std::string source = helix::PrinterImageManager::instance().get_displayed_image_path(
         lv_display_get_horizontal_resolution(lv_display_get_default()));
     REQUIRE_FALSE(source.empty());

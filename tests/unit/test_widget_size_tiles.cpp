@@ -11,6 +11,7 @@
  */
 
 #include "ui_humidity_drop.h"
+#include "ui_notification_manager.h"
 #include "ui_tile_rung.h"
 #include "ui_update_queue.h"
 
@@ -382,6 +383,10 @@ void collect_icon_fonts(lv_obj_t* root, std::vector<const lv_font_t*>& out) {
     const uint32_t n = lv_obj_get_child_count(root);
     for (uint32_t i = 0; i < n; ++i) {
         lv_obj_t* child = lv_obj_get_child(root, i);
+        // The separate cooldown action keeps its touch-button icon size.
+        const char* name = lv_obj_get_name(child);
+        if (name && std::string(name) == "home_cooldown")
+            continue;
         const lv_font_t* f = lv_obj_get_style_text_font(child, LV_PART_MAIN);
         const bool glyph =
             lv_obj_check_type(child, &lv_label_class) || helix::ui::is_humidity_drop(child);
@@ -405,6 +410,9 @@ TEST_CASE("every centred-icon tile RENDERS a different glyph at two sizes",
 
     std::vector<std::string> unscaled;
     for (const auto& id : kCentredIconTiles) {
+        // The shared header indicator is intentionally fixed-size.
+        if (id == "notifications")
+            continue;
         const auto* def = find_widget_def(id);
         INFO("tile " << id);
         REQUIRE(def != nullptr);
@@ -690,42 +698,6 @@ TEST_CASE("an unconfigured power tile reserves no state line", "[widget_size][ti
     const int configured = lv_subject_get_int(rung);
     INFO("rung " << unconfigured << " unconfigured, " << configured << " with a state line");
     CHECK(unconfigured > configured);
-    lv_obj_delete(root);
-}
-
-TEST_CASE("the alerts badge scales with the bell and hangs from its shoulder",
-          "[widget_size][tile][badge]") {
-    // A fixed badge floats off a large bell and swamps a small one.
-    LVGLUITestFixture fixture;
-    helix::init_widget_registrations();
-    const auto* def = find_widget_def("notifications");
-    REQUIRE(def != nullptr);
-    auto instance = def->factory("notifications");
-    REQUIRE(instance != nullptr);
-    lv_obj_t* root = static_cast<lv_obj_t*>(lv_xml_create(
-        fixture.test_screen(), instance->get_component_name().c_str(), instance->xml_attrs()));
-    REQUIRE(root != nullptr);
-    lv_obj_t* badge = lv_obj_find_by_name(root, "notification_badge");
-    lv_obj_t* bell = lv_obj_find_by_name(root, "status_notification_icon");
-    REQUIRE(badge != nullptr);
-    REQUIRE(bell != nullptr);
-    auto check_at = [&](int px) {
-        lv_obj_set_size(root, px, px);
-        instance->notify_size_changed(2, 2, px, px);
-        lv_obj_update_layout(root);
-        // Hung from the glyph box's top-right corner, not the tile's.
-        lv_area_t b, g;
-        lv_obj_get_coords(badge, &b);
-        lv_obj_get_coords(bell, &g);
-        CHECK(b.x2 <= g.x2 + 1);
-        CHECK(b.y1 >= g.y1 - 1);
-        CHECK(b.x1 > g.x1);
-        return lv_obj_get_width(badge);
-    };
-    const int small = check_at(60);
-    const int large = check_at(420);
-    INFO("badge " << small << "px at 60, " << large << "px at 420");
-    CHECK(large > small);
     lv_obj_delete(root);
 }
 
@@ -1090,139 +1062,46 @@ TEST_CASE("a bypass tile re-decides its box when bypass engages and disengages",
 // The notifications tile's count badge follows the rung its bell glyph draws at
 // ============================================================================
 
-namespace {
-
-/// One notifications tile, built the way the manager builds it: a factory
-/// instance owns the TileSizing (so the per-instance subjects exist before the
-/// component is parsed) and the component is created with its attrs.
-struct NotificationsTile {
-    std::unique_ptr<helix::PanelWidget> widget;
-    lv_obj_t* root = nullptr;
-    lv_obj_t* bell = nullptr;
-    lv_obj_t* badge = nullptr;
-
-    explicit NotificationsTile(LVGLUITestFixture& fixture) {
-        const helix::PanelWidgetDef* def = helix::find_widget_def("notifications");
-        REQUIRE(def != nullptr);
-        REQUIRE(def->factory != nullptr);
-        widget = def->factory("notifications:0");
-        REQUIRE(widget != nullptr);
-
-        root = static_cast<lv_obj_t*>(lv_xml_create(
-            fixture.test_screen(), "panel_widget_notifications", widget->xml_attrs()));
-        REQUIRE(root != nullptr);
-        bell = lv_obj_find_by_name(root, "status_notification_icon");
-        badge = lv_obj_find_by_name(root, "notification_badge");
-        REQUIRE(bell != nullptr);
-        REQUIRE(badge != nullptr);
-    }
-
-    ~NotificationsTile() {
-        if (widget)
-            widget->detach();
-    }
-
-    /// Publish @p rung as TileSizing does: the requested rung, and the rung
-    /// the glyph draws at (@p drawn, or this build's own answer).
-    void set_rung(int rung, int drawn = -1) const {
-        lv_subject_set_int(lv_xml_get_subject(nullptr, "notifications:0_tile_icon"), rung);
-        lv_subject_set_int(lv_xml_get_subject(nullptr, "notifications:0_tile_drawn"),
-                           drawn >= 0 ? drawn : helix::ui::tile_drawn_rung(rung));
-        helix::ui::UpdateQueue::instance().drain();
-    }
-};
-
-} // namespace
-
-TEST_CASE("the notification badge follows the bell's rung", "[widget_size][tile]") {
-    LVGLUITestFixture fixture;
+TEST_CASE_METHOD(LVGLUITestFixture, "notification tile keeps its shared indicator inside the tile",
+                 "[widget_size][tile][notifications]") {
     helix::init_widget_registrations();
-    NotificationsTile tile(fixture);
-
-    for (int rung = 0; rung < helix::kTileRungs; ++rung) {
-        INFO("rung " << rung);
-        tile.set_rung(rung);
-
-        const lv_font_t* bell_face = lv_obj_get_style_text_font(tile.bell, LV_PART_MAIN);
-        REQUIRE(bell_face != nullptr);
-
-        const int32_t badge_w = lv_obj_get_style_width(tile.badge, LV_PART_MAIN);
-
-        // The contract is the proportion, not the ladder value: 2/5 of the
-        // glyph the bell is actually drawing at this rung.
-        // The xxl glyph may draw a smaller face scaled up to its size.
-        const int bell_h = bell_face->line_height *
-                           lv_obj_get_style_transform_scale_x(tile.bell, LV_PART_MAIN) /
-                           LV_SCALE_NONE;
-        INFO("badge " << badge_w << " on bell line_height " << bell_h);
-        CHECK(std::abs(badge_w * 5 - bell_h * 2) <= 6);
-    }
-}
-
-TEST_CASE("the notification badge's label face fits the circle", "[widget_size][tile]") {
-    LVGLUITestFixture fixture;
-    helix::init_widget_registrations();
-    NotificationsTile tile(fixture);
-
-    const lv_obj_t* label = lv_obj_get_child(tile.badge, 0);
-    REQUIRE(label != nullptr);
-
-    const lv_font_t* font_xs = theme_manager_get_font("font_xs");
-    const lv_font_t* font_small = theme_manager_get_font("font_small");
-    REQUIRE(font_xs != nullptr);
-    REQUIRE(font_small != nullptr);
-    REQUIRE(font_xs != font_small);
-
-    // The cramped end: a badge too small for any face falls back to the
-    // smallest one rather than keeping a face that overflows.
-    tile.set_rung(0);
-    const int32_t dot = lv_obj_get_style_width(tile.badge, LV_PART_MAIN);
-    if (font_xs->line_height > dot) {
-        CHECK(lv_obj_get_style_text_font(label, LV_PART_MAIN) == font_xs);
-    }
-
-    // The roomy end: the face grows past font_xs and stays inside the circle.
-    tile.set_rung(4);
-    const int32_t big = lv_obj_get_style_width(tile.badge, LV_PART_MAIN);
-    const lv_font_t* face = lv_obj_get_style_text_font(label, LV_PART_MAIN);
-    REQUIRE(face != nullptr);
-    CHECK(face != font_xs);
-    CHECK(face->line_height <= big);
-}
-
-TEST_CASE("an xxl bell held to its xl face keeps the xl badge", "[widget_size][tile][xxl]") {
-    // xxl requested where the cap leaves the largest face at the xl size (the
-    // ESP32 image, or an animated glyph): the glyph draws at xl, so the badge
-    // must too, not at the xxl size the rung asked for.
-    LVGLUITestFixture fixture;
-    helix::init_widget_registrations();
-    NotificationsTile tile(fixture);
-
-    const int xxl = helix::kTileRungs - 1;
-    const int drawn = helix::ui::tile_drawn_rung(xxl, 64, 64);
-    REQUIRE(drawn == xxl - 1);
-    tile.set_rung(xxl, drawn);
-    CHECK(lv_obj_get_style_width(tile.badge, LV_PART_MAIN) ==
-          theme_manager_get_spacing("tile_badge_xl"));
-    CHECK(theme_manager_get_spacing("tile_badge_xl") !=
-          theme_manager_get_spacing("tile_badge_xxl"));
-}
-
-TEST_CASE("the notifications tile publishes the rung its bell draws at",
-          "[widget_size][tile][xxl]") {
-    LVGLUITestFixture fixture;
-    helix::init_widget_registrations();
-    NotificationsTile tile(fixture);
-    lv_subject_t* icon = lv_xml_get_subject(nullptr, "notifications:0_tile_icon");
-    lv_subject_t* drawn = lv_xml_get_subject(nullptr, "notifications:0_tile_drawn");
+    auto& notices = NotificationManager::instance();
+    notices.init_subjects();
+    const auto* def = helix::find_widget_def("notifications");
+    REQUIRE(def != nullptr);
+    auto widget = def->factory("notifications:0");
+    REQUIRE(widget != nullptr);
+    auto* root = static_cast<lv_obj_t*>(
+        lv_xml_create(test_screen(), "panel_widget_notifications", widget->xml_attrs()));
+    REQUIRE(root != nullptr);
+    auto* indicator = lv_obj_find_by_name(root, "home_notification_button");
+    auto* count = lv_obj_find_by_name(root, "home_notification_count");
+    auto* icon = lv_obj_find_by_name(root, "home_notification_severity");
+    REQUIRE(indicator != nullptr);
+    REQUIRE(count != nullptr);
     REQUIRE(icon != nullptr);
-    REQUIRE(drawn != nullptr);
-
-    for (int px : {60, 420, 900}) {
-        INFO("box " << px);
-        tile.widget->notify_size_changed(2, 2, px, px);
-        CHECK(lv_subject_get_int(drawn) == helix::ui::tile_drawn_rung(lv_subject_get_int(icon)));
+    const auto* face = lv_obj_get_style_text_font(icon, LV_PART_MAIN);
+    for (int px : {60, 120, 420}) {
+        lv_obj_set_size(root, px, px);
+        widget->notify_size_changed(2, 2, px, px);
+        for (int number : {0, 1, 9, 99}) {
+            INFO("tile " << px << " count " << number);
+            notices.update_notification_count(number);
+            lv_obj_update_layout(root);
+            CHECK(lv_obj_has_flag(count, LV_OBJ_FLAG_HIDDEN) == (number == 0));
+            if (number)
+                CHECK(std::string(lv_label_get_text(count)) == std::to_string(number));
+            CHECK(lv_obj_get_style_text_font(icon, LV_PART_MAIN) == face);
+            lv_area_t outer, inner;
+            lv_obj_get_coords(root, &outer);
+            lv_obj_get_coords(indicator, &inner);
+            CHECK(inner.x1 >= outer.x1);
+            CHECK(inner.y1 >= outer.y1);
+            CHECK(inner.x2 <= outer.x2);
+            CHECK(inner.y2 <= outer.y2);
+        }
     }
-    // The biggest box asks for the top rung, which the default seed never holds.
-    CHECK(lv_subject_get_int(icon) != 2);
+    lv_obj_delete(root);
+    widget->detach();
+    notices.deinit_subjects();
 }

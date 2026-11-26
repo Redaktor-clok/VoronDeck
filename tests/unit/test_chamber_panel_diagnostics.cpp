@@ -1006,11 +1006,11 @@ TEST_CASE_METHOD(ChamberOverlayFixture,
             lv_obj_get_height(lv_obj_find_by_name(overlay_, "chamber_preset_1"))};
     };
 
-    // Healthy baseline: the chamber_preset_h token at tiny (43), above the
+    // Healthy baseline: the chamber_preset_h token at tiny (42), above the
     // generic #button_height (32) these rows would otherwise fall back to.
     const auto healthy = button_heights();
     for (const int32_t height : healthy)
-        CHECK(height == 43);
+        CHECK(height == 42);
 
     // Tallest card content: banner with reason plus every readout row and
     // the External marker.

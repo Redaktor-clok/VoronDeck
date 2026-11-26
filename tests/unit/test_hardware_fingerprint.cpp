@@ -240,8 +240,9 @@ TEST_CASE("Hardware fingerprint covers every filament-system inventory", "[hardw
     CHECK(with({"AFC_extruder extruder"}) != base);
     CHECK(with({"AFC_buffer TN"}) != base);
     CHECK(with({"AFC_unit Turtle_1"}) != base);
-    CHECK(with({"zmod_afclite"}) != base);
-    CHECK(with({"filament_detect"}) != base);
+    // Retired proprietary objects cannot add a supported filament system.
+    CHECK(with({"zmod_afclite"}) == base);
+    CHECK(with({"filament_detect"}) == base);
 }
 
 TEST_CASE("Hardware fingerprint detects a firmware change", "[hardware_fingerprint]") {

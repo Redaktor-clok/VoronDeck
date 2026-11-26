@@ -558,11 +558,11 @@ TEST_CASE("standalone_rotation leaves an unknown panel unrotated on first boot",
     }
 }
 
-TEST_CASE("a forced rotation probe skips the board's mount", "[display][rotation]") {
+TEST_CASE("generic panels never assume a mounting rotation", "[display][rotation]") {
     helix::test::ScopedBoard board(helix::board::Board::Generic);
     {
         helix::ScopedEnv no_force("HELIX_FORCE_ROTATION_PROBE", nullptr);
-        CHECK(helix::first_boot_board_mount(-1, 480, 800) == 270);
+        CHECK(helix::first_boot_board_mount(-1, 480, 800) == -1);
     }
     helix::ScopedEnv force("HELIX_FORCE_ROTATION_PROBE", "1");
     CHECK(helix::first_boot_board_mount(-1, 480, 800) == -1);

@@ -54,92 +54,9 @@ const nlohmann::json* nested_object(const nlohmann::json& status, const char* ob
     return &(*inner);
 }
 
-/// Read a firmware on/off flag out of an already-located variables dict.
-/// nullopt for a missing key or a type we cannot read - the frame is silent
-/// about the setting, which no caller may treat as an off.
-std::optional<bool> read_flag(const nlohmann::json* variables, const char* key) {
-    if (!variables) {
-        return std::nullopt;
-    }
-    auto it = variables->find(key);
-    if (it == variables->end()) {
-        return std::nullopt;
-    }
-    // Both spellings are live: a firmware that stores the flag as a Python bool
-    // serialises true/false, one that stores it as an int serialises 0/1, and
-    // Forge-X emits BOTH - the integer for a param still at its declared
-    // default, the bool once something has set it explicitly.
-    if (it->is_boolean()) {
-        return it->get<bool>();
-    }
-    if (it->is_number()) {
-        return it->get<double>() != 0.0;
-    }
-    return std::nullopt;
-}
-
-// --- ZMOD (AD5M / AD5X and friends) -----------------------------------------
-//
-// ZMOD's SET_GCODE_OFFSET override writes every offset the user dials in to the
-// `gcode_offsets` save-variable, its END_PRINT/CANCEL_PRINT zero the live
-// gcode_move offset, and START_PRINT re-applies the stored one via
-// LOAD_GCODE_OFFSET, gated on the load_zoffset save-variable that
-// read_enabled_zmod() below reads.
-//
-// The write is `z - _TEST_POINT.temp_z_offset`: mid-print that subtraction is
-// the point, excluding the per-print probe delta START_PRINT stashed in the
-// variable. Through ZMOD 1.7.2 the variable is zeroed only at
-// BED_MESH_CALIBRATE, _MESH_TEST, SAVE_ZMOD_DATA and boot - not at
-// END_PRINT/CANCEL_PRINT - so an adjustment sent while idle AFTER a print
-// stores the intended value minus the last print's delta (ghzserg/zmod#699).
-// ghzserg/z_ad5x@6a0adf3 zeroes it in _COMMON_END_PRINT, which both END_PRINT
-// and CANCEL_PRINT call, and no release carries that yet. Callers clear the
-// variable right before an idle adjustment: load-bearing below the fix, a
-// write of zero over zero above it. The command lives here because only ZMOD
-// has the variable.
-//
-// That same commit also zeroes the live gcode_move offset at print end in the
-// alt-screen config, so post-print the live offset reads 0 while the stored
-// value stands. Reading the stored one is exactly what this provider is for.
-
-// ZMOD ships no load_zoffset key. Its `start_led` delayed_gcode runs
-// GET_ZMOD_DATA ten seconds after every Klipper start, which reads
-// `save_variables.variables['load_zoffset']|default(1)|int` and writes the
-// result straight back - and Klipper's Jinja is non-strict, so an absent key
-// really does take the default. The setting therefore comes up ON by itself and
-// a 0 here is always a deliberate user choice. Two consequences for the enable
-// gate: sending the gcode buys nothing on a healthy ZMOD box, and the ten-second
-// window before the key exists must read as unknown rather than off.
-
-// --- Forge-X (FlashForge Adventurer 5M / Pro mod) ----------------------------
-//
-// The mod's klippy plugin keeps its parameters - z-offset among them - in its
-// own INI store, not klipper's save_variables, and mirrors them into the
-// `mod_params` status object. Its SET_GCODE_OFFSET override persists every
-// offset the user dials in; print start re-applies the stored one only when
-// the load_zoffset param is on, hence the enable command.
-
-// The mod's plugin populates every declared param when it loads, so once
-// mod_params is subscribed the key is always present; the declared default in
-// mod_params.json is 0. An off here is thus the shipped state rather than a user
-// decision, which is what makes the one enable write worth sending on this
-// firmware and not on ZMOD.
-
-// --- Helper-Script save-zoffset (Creality K1/K1C/K1 Max and friends) --------
-//
-// Guilouz's Helper-Script ships save-zoffset.cfg: it wraps SET_GCODE_OFFSET
-// (rename_existing: _SET_GCODE_OFFSET), mirrors every offset into the
-// `zoffset` save-variable, and a boot-time delayed_gcode re-applies that value
-// 2s after every Klipper start. The module IS a z-offset persistence provider:
-// the offset survives restarts without any probe fold.
-//
-// That is exactly why our "Save Z Offset" is dangerous on these boxes
-// (prestonbrown/helixscreen#1401): Z_OFFSET_APPLY_PROBE folds the gcode offset
-// into the probe's z_offset, SAVE_CONFIG restarts Klipper, and the boot gcode
-// re-applies the SAME offset on top - the probe value grows by the full offset
-// on every save cycle (observed 0.060 -> 2.515mm over five cycles, ending in
-// nozzle-on-bed). Detection flips the save path to firmware-managed, the same
-// treatment ZMOD and Forge-X already get.
+// Generic SET_GCODE_OFFSET wrappers can persist the live offset in
+// save_variables.zoffset and restore it at startup. Avoid folding that same
+// value into the probe configuration a second time.
 std::optional<int> read_helper_script(const nlohmann::json& status) {
     const nlohmann::json* variables = nested_object(status, "save_variables", "variables");
     if (!variables) {
@@ -189,9 +106,7 @@ const std::vector<Provider>& providers() {
         // SET_GCODE_OFFSET` in objects/list is exactly "a renaming wrapper
         // exists" - stock Klipper never lists it. The renamed original the
         // wrapper creates is a bare command, not an object; verified against
-        // debug bundle 5J49T5RU: 83 macro objects including
-        // SET_GCODE_OFFSET, none named _SET_GCODE_OFFSET. Must stay below
-        // ZMOD, which also wraps the command.
+        // printer object lists: the wrapper is listed, the renamed command is not.
         //
         // That signature proves a wrapper exists, NOT that it persists
         // anything, so this is the one row that carries a refutation - see

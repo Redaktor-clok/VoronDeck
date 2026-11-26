@@ -13,6 +13,7 @@
 #include "device_display_name.h"
 #include "home_heater_visibility.h"
 #include "i_moonraker_api.h"
+#include "observe_language.h"
 #include "observer_factory.h"
 #include "panel_widget_manager.h"
 #include "panel_widget_registry.h"
@@ -149,7 +150,7 @@ void HeaterTempWidget::refresh_home_visibility() {
         break;
     }
     const std::string label = get_display_name(object, DeviceType::HEATER);
-    lv_subject_copy_string(&home_name_, label.c_str());
+    lv_subject_copy_string(&home_name_, lv_tr(label.c_str()));
 }
 
 HeaterTempWidget::~HeaterTempWidget() {
@@ -160,6 +161,8 @@ void HeaterTempWidget::attach(lv_obj_t* widget_obj, lv_obj_t* parent_screen) {
     widget_obj_ = widget_obj;
     parent_screen_ = parent_screen;
     refresh_home_visibility();
+    language_observer_ = helix::ui::observe_language_change(
+        this, [](HeaterTempWidget* self) { self->refresh_home_visibility(); });
     auto refresh = [](HeaterTempWidget* self, int) { self->refresh_home_visibility(); };
     auto& temperatures = printer_state_.temperature_state();
     home_extruder_observer_ =
@@ -185,6 +188,7 @@ void HeaterTempWidget::attach(lv_obj_t* widget_obj, lv_obj_t* parent_screen) {
 
 void HeaterTempWidget::detach() {
     lifetime_.invalidate();
+    language_observer_.reset();
     home_extruder_observer_.reset();
     home_inventory_observer_.reset();
     icon_binder_.unbind();

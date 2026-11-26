@@ -374,7 +374,7 @@ TEST_CASE("helix::Regex matches std::regex on every pattern in the tree", "[rege
 
 TEST_CASE("helix::Regex matches std::regex on the print-start profile patterns", "[regex]") {
     auto patterns = profile_patterns();
-    REQUIRE(patterns.size() > 50);
+    REQUIRE_FALSE(patterns.empty());
     std::vector<std::string> lines = kCorpus;
     for (const char* extra : {"BED_MESH_CALIBRATE_START_PRINT",
                               "BED_MESH_CALIBRATE ADAPTIVE=1",

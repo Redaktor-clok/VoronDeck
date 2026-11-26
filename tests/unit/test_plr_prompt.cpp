@@ -89,8 +89,9 @@ TEST_CASE("plr_prompt_strings: an approximate-layer plan gets the caveated copy"
     const helix::ui::PlrPromptStrings approximate{"approx {}", "approx generic"};
     const helix::ui::PlrPromptStrings standard{"standard {}", "standard generic"};
 
-    SECTION("the probed backend's plan selects the caveated copy") {
-        auto plan = helix::plr_build_plan(helix::PlrBackendType::CREALITY, "a.gcode", {});
+    SECTION("an approximate plan selects the caveated copy") {
+        helix::PlrRecoveryPlan plan;
+        plan.resume_layer_approximate = true;
         auto got = helix::ui::plr_prompt_strings(plan, approximate, standard);
         REQUIRE(std::string(got.with_file) == "approx {}");
         REQUIRE(std::string(got.generic) == "approx generic");

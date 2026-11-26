@@ -211,8 +211,9 @@
     <style name="home_heater_row"
            layout="flex" flex_flow="row" flex_main_place="start" flex_cross_place="center" pad_left="#space_sm"
            pad_right="#space_xl" pad_column="#space_xs"/>
+    <style name="home_heater_column" flex_flow="column" flex_main_place="center" pad_left="0" pad_right="0"/>
     <style name="home_heater_values" width="0" flex_grow="1"/>
-    <style name="home_heater_values_column" width="100%" max_width="100%"/>
+    <style name="home_heater_values_column" width="100%" max_width="100%" flex_grow="0"/>
   </styles>
   <!-- Registration requires a <view>; nothing ever instantiates this
        component, so an empty lv_obj keeps it harmless. -->

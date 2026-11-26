@@ -70,22 +70,11 @@ struct SystemCallbacksFixture : LVGLUITestFixture {
 
 } // namespace
 
-TEST_CASE_METHOD(SystemCallbacksFixture, "System page: the telemetry toggle drives the setting",
+TEST_CASE_METHOD(SystemCallbacksFixture, "System page omits telemetry controls",
                  "[settings][system_callbacks]") {
-    auto& sys = SystemSettingsManager::instance();
-    const bool before = sys.get_telemetry_enabled();
-
-    lv_obj_t* toggle = part("row_telemetry", "toggle");
-    lv_obj_add_state(toggle, LV_STATE_CHECKED);
-    lv_obj_send_event(toggle, LV_EVENT_VALUE_CHANGED, nullptr);
-    CHECK(sys.get_telemetry_enabled());
-
-    lv_obj_remove_state(toggle, LV_STATE_CHECKED);
-    lv_obj_send_event(toggle, LV_EVENT_VALUE_CHANGED, nullptr);
-    CHECK_FALSE(sys.get_telemetry_enabled());
-
-    sys.set_telemetry_enabled(before);
-    helix::ui::UpdateQueue::instance().drain();
+    REQUIRE(lv_obj_find_by_name(root_, "row_storage") != nullptr);
+    CHECK(lv_obj_find_by_name(root_, "row_telemetry") == nullptr);
+    CHECK(lv_obj_find_by_name(root_, "row_telemetry_view_data") == nullptr);
 }
 
 TEST_CASE_METHOD(SystemCallbacksFixture, "System page: the log-level dropdown applies its choice",
@@ -110,36 +99,10 @@ TEST_CASE_METHOD(SystemCallbacksFixture, "System page: every action row runs its
     };
     for (const Binding& b : {Binding{"row_security", "on_security_clicked"},
                              Binding{"row_performance", "on_system_performance_clicked"},
-                             Binding{"row_telemetry_view_data", "on_telemetry_view_data"},
+                             Binding{"row_storage", "on_storage_clicked"},
                              Binding{"row_restart_helix", "on_restart_helix_settings_clicked"},
                              Binding{"row_factory_reset", "on_factory_reset_clicked"}}) {
         CAPTURE(b.row, b.callback);
         CHECK(row_runs(b.row, b.callback));
     }
-}
-
-TEST_CASE_METHOD(SystemCallbacksFixture,
-                 "System page: telemetry data is offered only where the platform has it",
-                 "[settings][system_callbacks]") {
-    auto& sys = SystemSettingsManager::instance();
-    const bool before = sys.get_telemetry_enabled();
-    lv_subject_t* extras = lv_xml_get_subject(nullptr, "platform_extras_available");
-    REQUIRE(extras != nullptr);
-    const int extras_before = lv_subject_get_int(extras);
-    lv_obj_t* row = lv_obj_find_by_name(root_, "row_telemetry_view_data");
-    REQUIRE(row != nullptr);
-
-    sys.set_telemetry_enabled(true);
-    lv_subject_set_int(extras, 1);
-    process_lvgl(5);
-    CHECK_FALSE(lv_obj_has_flag(row, LV_OBJ_FLAG_HIDDEN));
-
-    // The firmware build reports no platform extras: no data screen to open.
-    lv_subject_set_int(extras, 0);
-    process_lvgl(5);
-    CHECK(lv_obj_has_flag(row, LV_OBJ_FLAG_HIDDEN));
-
-    lv_subject_set_int(extras, extras_before);
-    sys.set_telemetry_enabled(before);
-    helix::ui::UpdateQueue::instance().drain();
 }

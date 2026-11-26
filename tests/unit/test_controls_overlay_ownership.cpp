@@ -19,6 +19,7 @@
 #include "../test_helpers/controls_panel_test_access.h"
 #include "../test_helpers/process_async_timers.h"
 #include "../test_helpers/update_queue_test_access.h"
+#include "app_globals.h"
 #include "static_panel_registry.h"
 
 #include <array>
@@ -49,12 +50,31 @@ void seed_nav_panels() {
     NavigationManager::instance().set_panels(panels.data());
 }
 
+struct ApiScope {
+    helix::IMoonrakerAPI* previous = get_moonraker_api();
+    explicit ApiScope(MoonrakerAPI* api) {
+        set_moonraker_api(api);
+    }
+    ~ApiScope() {
+        set_moonraker_api(previous);
+    }
+};
+
 } // namespace
 
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "ControlsPanel destroyed after Bed Mesh opened and closed touches no freed tree",
                  "[controls][bed_mesh][overlay_ownership]") {
     seed_nav_panels();
+    REQUIRE(api() != nullptr);
+    ApiScope global_api(api());
+    api()->hardware().parse_objects(nlohmann::json::array({"bed_mesh", "probe"}));
+    state().set_hardware(api()->hardware());
+    lv_subject_set_int(
+        state().capabilities_state().subject(helix::Capability::HasBedMeshCalibration), 1);
+    state().set_klippy_state_sync(helix::KlippyState::READY);
+    state().set_printer_connection_state(2, "Connected");
+    settle();
     auto panel = std::make_unique<ControlsPanel>(state(), nullptr);
 
     ControlsPanelTestAccess::open_bed_mesh(*panel, lv_screen_active());
@@ -82,6 +102,15 @@ TEST_CASE_METHOD(LVGLUITestFixture,
                  "destroying ControlsPanel leaves an open Bed Mesh tree to its owner",
                  "[controls][bed_mesh][overlay_ownership]") {
     seed_nav_panels();
+    REQUIRE(api() != nullptr);
+    ApiScope global_api(api());
+    api()->hardware().parse_objects(nlohmann::json::array({"bed_mesh", "probe"}));
+    state().set_hardware(api()->hardware());
+    lv_subject_set_int(
+        state().capabilities_state().subject(helix::Capability::HasBedMeshCalibration), 1);
+    state().set_klippy_state_sync(helix::KlippyState::READY);
+    state().set_printer_connection_state(2, "Connected");
+    settle();
     auto panel = std::make_unique<ControlsPanel>(state(), nullptr);
 
     ControlsPanelTestAccess::open_bed_mesh(*panel, lv_screen_active());

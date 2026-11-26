@@ -177,7 +177,7 @@ TEST_CASE("Restored settings subjects come back on defaults, not the previous te
 
         CHECK(helix::AudioSettingsManager::instance().get_volume() == 80);
         CHECK(helix::AudioSettingsManager::instance().get_sounds_enabled() == false);
-        CHECK(helix::AudioSettingsManager::instance().get_ui_sounds_enabled() == true);
+        CHECK_FALSE(helix::AudioSettingsManager::instance().get_ui_sounds_enabled());
         CHECK(helix::SafetySettingsManager::instance().get_min_toast_severity() == 0);
         CHECK(helix::SafetySettingsManager::instance().get_allow_cold_extrude() == false);
         // set_min_toast_severity() pushes an inline cache the toast sites read

@@ -16,6 +16,7 @@
 #include "../../include/ui_panel_motion.h" // helix::JogMode
 #include "../lvgl_test_fixture.h"
 #include "../lvgl_ui_test_fixture.h"
+#include "theme_loader.h"
 #include "theme_manager.h"
 
 #include <string>
@@ -126,6 +127,17 @@ TEST_CASE_METHOD(LVGLTestFixture, "Jog pad label draw tasks own their text", "[j
 // primary circle, the outer one on the secondary ring.
 TEST_CASE_METHOD(LVGLUITestFixture, "Jog pad distance labels read on their own ring",
                  "[jog_pad][ui]") {
+    struct PaletteRestore {
+        helix::ThemeData theme = theme_manager_get_active_theme();
+        bool dark = theme_manager_is_dark_mode();
+        ~PaletteRestore() {
+            theme_manager_apply_theme(theme, dark);
+        }
+    } restore;
+    auto theme = restore.theme;
+    theme.dark.primary = "#000000";
+    theme.dark.secondary = "#ffffff";
+    theme_manager_apply_theme(theme, true);
     lv_obj_t* pad = ui_jog_pad_create(lv_screen_active());
     REQUIRE(pad != nullptr);
     lv_obj_set_size(pad, 200, 200);

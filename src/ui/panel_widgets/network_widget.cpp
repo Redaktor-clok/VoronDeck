@@ -50,8 +50,9 @@ void register_network_widget() {
 
 using namespace helix;
 
-NetworkWidget::NetworkWidget()
-    : TiledPanelWidget("network", TileSizing::Content{"", "", "Network", false}) {}
+NetworkWidget::NetworkWidget(std::shared_ptr<WiFiManager> wifi_manager)
+    : TiledPanelWidget("network", TileSizing::Content{"", "", "Network", false}),
+      wifi_manager_(std::move(wifi_manager)) {}
 
 NetworkWidget::~NetworkWidget() {
     detach();
@@ -72,7 +73,8 @@ void NetworkWidget::attach(lv_obj_t* widget_obj, lv_obj_t* parent_screen) {
     network_icon_state_ = &s_network_icon_state;
 
     // Get WiFiManager for connection and signal status reads
-    wifi_manager_ = get_wifi_manager();
+    if (!wifi_manager_)
+        wifi_manager_ = get_wifi_manager();
 
     install_delete_hook(widget_obj_);
 
@@ -156,7 +158,6 @@ void NetworkWidget::detach() {
     cancel_signal_poll_timer();
 
     ethernet_manager_.reset();
-    wifi_manager_.reset();
     network_icon_state_ = nullptr;
 
     if (widget_obj_) {

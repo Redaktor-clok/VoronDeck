@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "home_sensor_bank_widget.h"
 
+#include "ui_icon.h"
 #include "ui_temperature_utils.h"
 
 #include "config.h"
@@ -8,7 +9,10 @@
 #include "observer_factory.h"
 #include "panel_widget_registry.h"
 #include "temperature_sensor_manager.h"
+#include "text_measure.h"
+#include "theme_manager.h"
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 
@@ -61,6 +65,20 @@ void HomeSensorBankWidget::detach() {
 
 void HomeSensorBankWidget::on_activate() {
     refresh();
+}
+
+bool HomeSensorBankWidget::fits_at(int width_px, int height_px) const {
+    const auto* text = theme_manager_get_font("font_xs");
+    const auto* icon = ui::icon::font_for_size("xs");
+    if (!text || !icon)
+        return false;
+    const int gap = theme_manager_get_spacing("space_xxs");
+    const int padding = theme_manager_get_spacing("space_xs");
+    // Each half-width cell must retain its glyph and reading; extra rows scroll.
+    const int cell = icon->line_height + ui::measure_text_px("-888°", text) +
+                     ui::measure_text_px("M", text) + 2 * gap + padding;
+    return width_px >= 2 * cell &&
+           height_px >= std::max<int>(icon->line_height, text->line_height) + gap + 1;
 }
 
 void HomeSensorBankWidget::refresh() {

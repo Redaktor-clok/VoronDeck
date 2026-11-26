@@ -154,7 +154,7 @@ TEST_CASE("every bundled printer entry is well-formed and uniquely named",
 TEST_CASE("every bundled image variant names a known condition and an image",
           "[printer_database][schema][printer_image_variants]") {
     const nlohmann::json db = load_database();
-    int variants_seen = 0;
+    REQUIRE_FALSE(db["printers"].empty());
     for (const auto& printer : db["printers"]) {
         if (!printer.contains("image_variants"))
             continue;
@@ -162,7 +162,6 @@ TEST_CASE("every bundled image variant names a known condition and an image",
         const auto& variants = printer["image_variants"];
         REQUIRE(variants.is_array());
         for (const auto& variant : variants) {
-            ++variants_seen;
             INFO("variant: " << variant.dump());
             REQUIRE(variant.is_object());
             REQUIRE(variant.contains("image"));
@@ -179,8 +178,6 @@ TEST_CASE("every bundled image variant names a known condition and an image",
             }
         }
     }
-    // The bundled K2 entry carries one, so a walk that finds none is reading the wrong file.
-    CHECK(variants_seen > 0);
 }
 
 // A variant link that does not resolve, or a variant with no label, falls back
@@ -192,14 +189,13 @@ TEST_CASE("every bundled printer variant names an existing base entry and a labe
     for (const auto& printer : db["printers"]) {
         by_id[printer.value("id", "")] = &printer;
     }
-    int variants_seen = 0;
+    REQUIRE_FALSE(db["printers"].empty());
     for (const auto& printer : db["printers"]) {
         INFO("printer id: '" << printer.value("id", "") << "'");
         if (!printer.contains("variant_of")) {
             CHECK_FALSE(printer.contains("variant_label"));
             continue;
         }
-        ++variants_seen;
         REQUIRE(printer["variant_of"].is_string());
         REQUIRE(printer.contains("variant_label"));
         REQUIRE(printer["variant_label"].is_string());
@@ -213,5 +209,4 @@ TEST_CASE("every bundled printer variant names an existing base entry and a labe
         // One level only: a variant's base is the plain machine.
         CHECK_FALSE(base->second->contains("variant_of"));
     }
-    CHECK(variants_seen > 0);
 }

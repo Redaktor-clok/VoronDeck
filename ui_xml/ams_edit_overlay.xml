@@ -34,6 +34,9 @@
     <px name="field_w_text_small" value="120"/>
     <px name="field_w_text_medium" value="150"/>
     <px name="field_w_text_large" value="180"/>
+    <px name="color_field_w_small" value="104"/>
+    <px name="color_field_w_medium" value="150"/>
+    <px name="color_field_w_large" value="180"/>
     <!-- Vertical gap between the editor's rows: the theme's space_xs (4)
          everywhere except the cramped small class, where the stack needs two
          pixels back to fit the fold. -->
@@ -606,11 +609,11 @@
 
         <!-- Custom hue: HSV + hex + Select -->
         <lv_obj name="color_custom"
-                width="content" height="content" style_pad_all="0" flex_flow="row" style_pad_gap="#space_xl"
+                width="content" height="content" style_pad_all="0" flex_flow="row" style_pad_gap="#space_sm"
                 style_flex_cross_place="center" scrollable="false">
           <bind_flag_if cond="ams_edit_color_fits eq 0 and ams_edit_color_pane eq 0" flag="hidden"/>
           <ui_hsv_picker name="ams_color_hsv" sv_size="#sv_size" hue_height="#hue_height" gap="#space_sm"/>
-          <lv_obj width="#field_w_text"
+          <lv_obj width="#color_field_w"
                   height="content" style_pad_all="0" flex_flow="column" style_flex_main_place="start"
                   style_flex_cross_place="start" style_pad_gap="#space_sm" scrollable="false">
             <!-- A colour area, not a swatch: a rounded rect. -->

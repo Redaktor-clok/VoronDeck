@@ -81,6 +81,7 @@ TEST_CASE_METHOD(XMLTestFixture, "context menus: every one resolves its card and
 TEST_CASE_METHOD(XMLTestFixture,
                  "context menus: the close control is flush with the card's content",
                  "[xml][context-menu][sweep]") {
+    const int card_width = GENERATE(240, 360);
     // The title sits at the card's content-left with no padding of its own, so the
     // close control has to sit at the content-right for the header to read evenly.
     // ui_button carries 16px of internal padding, which is why the XML zeroes
@@ -97,6 +98,10 @@ TEST_CASE_METHOD(XMLTestFixture,
         lv_obj_t* close = lv_obj_find_by_name(backdrop, "btn_close");
         REQUIRE(card != nullptr);
         REQUIRE(close != nullptr);
+
+        // ContextMenu supplies the card's width before presenting dynamic rows.
+        lv_obj_set_width(card, card_width);
+        lv_obj_update_layout(backdrop);
 
         lv_area_t card_area;
         lv_area_t close_area;

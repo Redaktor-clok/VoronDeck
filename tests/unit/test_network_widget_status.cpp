@@ -34,6 +34,7 @@ constexpr int kIconEthernet = 5;
 struct NetworkWidgetStatusFixture : LVGLUITestFixture {
     ScopedRuntimeConfig scoped_config_;
     WifiBackendMock* wifi = nullptr;
+    std::shared_ptr<helix::WiFiManager> wifi_manager;
     std::unique_ptr<NetworkWidget> widget;
 
     explicit NetworkWidgetStatusFixture(bool ethernet_up = false) {
@@ -46,9 +47,9 @@ struct NetworkWidgetStatusFixture : LVGLUITestFixture {
         // A module static: without this a previous test's icon satisfies a wait.
         lv_subject_set_int(lv_xml_get_subject(nullptr, "home_network_icon_state"), 0);
 
-        auto wm = helix::get_wifi_manager();
-        wifi = dynamic_cast<WifiBackendMock*>(helix::WiFiManagerTestAccess::backend(*wm));
-        REQUIRE(wifi != nullptr);
+        auto backend = std::make_unique<WifiBackendMock>();
+        wifi = backend.get();
+        wifi_manager = std::make_shared<helix::WiFiManager>(std::move(backend));
     }
 
     ~NetworkWidgetStatusFixture() override {
@@ -62,7 +63,7 @@ struct NetworkWidgetStatusFixture : LVGLUITestFixture {
         lv_obj_t* tile =
             static_cast<lv_obj_t*>(lv_xml_create(test_screen(), "panel_widget_network", nullptr));
         REQUIRE(tile != nullptr);
-        widget = std::make_unique<NetworkWidget>();
+        widget = std::make_unique<NetworkWidget>(wifi_manager);
         widget->attach(tile, test_screen());
     }
 
@@ -74,7 +75,7 @@ struct NetworkWidgetStatusFixture : LVGLUITestFixture {
     /// issued now is answered, every earlier answer has been applied.
     void await_earlier_answers() {
         auto delivered = std::make_shared<bool>(false);
-        helix::get_wifi_manager()->get_status_async(
+        wifi_manager->get_status_async(
             probe_guard_.token(),
             [delivered](const WifiBackend::ConnectionStatus&) { *delivered = true; });
         REQUIRE(wait_until([&]() { return *delivered; }));
@@ -175,6 +176,6 @@ TEST_CASE_METHOD(NetworkWidgetStatusFixture,
     REQUIRE(wait_until([&]() { return icon() == 4; }));
 
     // Clears the mock's link, then fires the event exactly as the backend does.
-    helix::WiFiManagerTestAccess::fire_disconnected(*helix::get_wifi_manager());
+    helix::WiFiManagerTestAccess::fire_disconnected(*wifi_manager);
     CHECK(wait_until([&]() { return icon() == 0; }));
 }

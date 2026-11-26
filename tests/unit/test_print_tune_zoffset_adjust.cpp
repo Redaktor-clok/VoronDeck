@@ -1,20 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//
-// Wiring tests for PrintTuneOverlay's z-offset baby-step: which base it adjusts
-// from, and which SET_GCODE_OFFSET form it puts on the wire. The pressure
-// advance row's and the speed/flow step buttons' cases share the overlay fixture.
-//
-// The helper choosing between relative and absolute is unit-tested in
-// test_z_offset_utils.cpp. These tests pin the WIRING: that the overlay seeds its
-// base from the resolved offset (not the raw live one) and hands the helper the
-// right arguments. That is the half that regressed, and the half a helper test
-// cannot see.
-//
-// Background: ZMOD zeroes gcode_move's live offset in END_PRINT/CANCEL_PRINT and
-// keeps the real one in save_variables.gcode_offsets. An idle relative
-// Z_ADJUST would therefore compute from a phantom 0, and ZMOD's
-// SET_GCODE_OFFSET override persists whatever it computes -- silently discarding
-// the user's stored offset.
 
 #include "ui_nav_manager.h"
 #include "ui_print_tune_overlay.h"
@@ -44,22 +28,15 @@ namespace {
 class PrintTuneZOffsetFixture : public LVGLUITestFixture {
   public:
     PrintTuneZOffsetFixture() : mock_client(MoonrakerClientMock::PrinterType::VORON_24) {
-        // Production always has the active root panel at panel_stack_[0], and
-        // push_overlay() reads panel_stack_.back() to inherit from.
-        // LVGLUITestFixture already called NavigationManager::init().
         for (auto& p : root_panels_) {
             p = lv_obj_create(lv_screen_active());
         }
         NavigationManager::instance().set_panels(root_panels_.data());
 
-        // execute_gcode() silently swallows sends while klippy reads SHUTDOWN,
-        // which is the default once the client is connected.
         state().set_klippy_state_sync(KlippyState::READY);
         mock_client.connect("ws://mock/websocket", []() {}, []() {});
         capture_api = std::make_unique<MoonrakerAPI>(mock_client, state());
 
-        // The discovery snapshot persists on the process-wide state across test
-        // cases; start each one plain so only set_zmod() cases see the provider.
         state().set_hardware(helix::PrinterDiscovery{});
     }
 
@@ -68,17 +45,11 @@ class PrintTuneZOffsetFixture : public LVGLUITestFixture {
         mock_client.stop_temperature_simulation();
         mock_client.disconnect();
         capture_api.reset();
-        // The overlay is a lazily-created singleton owning XML-scope subjects;
-        // drop it so the next test case builds a clean one.
         StaticPanelRegistry::instance().destroy_all();
         helix::ui::UpdateQueue::instance().drain();
-        // Cases that stage a toolchanger leave ToolState holding a tool with a
-        // dirty offset; Catch2 shuffles order within a shard, so whatever runs
-        // next must not inherit it.
         helix::ToolState::instance().deinit_subjects();
     }
 
-    /// Bring the overlay up the way ControlsPanel::handle_zoffset_tune() does.
     PrintTuneOverlay& show_overlay() {
         auto& overlay = get_print_tune_overlay();
         overlay.show(lv_screen_active(), capture_api.get(), state());
@@ -89,15 +60,13 @@ class PrintTuneZOffsetFixture : public LVGLUITestFixture {
         return overlay;
     }
 
-    /// Klipper's live gcode offset, in mm.
     void set_live_offset(double mm) {
         state().update_from_status(
             json{{"gcode_move", json{{"homing_origin", {0.0, 0.0, mm, 0.0}}}}});
     }
-    /// ZMOD's stored offset, in mm.
     void set_persisted_offset(double mm) {
-        state().update_from_status(json{
-            {"save_variables", json{{"variables", json{{"gcode_offsets", json{{"z", mm}}}}}}}});
+        state().update_from_status(
+            json{{"save_variables", json{{"variables", json{{"zoffset", json{{"z", mm}}}}}}}});
     }
     void set_printing(bool printing) {
         state().update_from_status(
@@ -106,11 +75,9 @@ class PrintTuneZOffsetFixture : public LVGLUITestFixture {
     void set_homed(bool homed) {
         state().update_from_status(json{{"toolhead", json{{"homed_axes", homed ? "xyz" : ""}}}});
     }
-    /// Give the discovery snapshot ZMOD's signature macro, the way a real
-    /// session does once Moonraker lists the printer's gcode macros.
-    void set_zmod() {
+    void set_persistence_wrapper() {
         helix::PrinterDiscovery hw;
-        json objects = json::array({"gcode_macro SAVE_ZMOD_DATA"});
+        json objects = json::array({"gcode_macro SET_GCODE_OFFSET"});
         hw.parse_objects(objects);
         state().set_hardware(std::move(hw));
     }
@@ -126,10 +93,10 @@ class PrintTuneZOffsetFixture : public LVGLUITestFixture {
 
 } // namespace
 
-TEST_CASE_METHOD(PrintTuneZOffsetFixture,
-                 "PrintTune: idle ZMOD baby-step sends absolute Z= from the stored offset",
-                 "[ui_integration][zoffset][zmod][regression]") {
-    // The data-loss path. Stored -0.150, live zeroed by END_PRINT, printer idle.
+TEST_CASE_METHOD(
+    PrintTuneZOffsetFixture,
+    "PrintTune: idle persistent-offset baby-step sends absolute Z= from the stored offset",
+    "[ui_integration][zoffset][persistence][regression]") {
     set_persisted_offset(-0.15);
     set_live_offset(0.0);
     set_printing(false);
@@ -140,46 +107,17 @@ TEST_CASE_METHOD(PrintTuneZOffsetFixture,
     overlay.handle_z_adjust(-1);     // one step closer to the bed
     helix::ui::UpdateQueue::instance().drain();
 
-    // Relative would have been Z_ADJUST=-0.010, landing on -0.010 and persisting
-    // that over the user's -0.150.
     CHECK(last_gcode() == "SET_GCODE_OFFSET Z=-0.160 MOVE=1");
 }
 
 TEST_CASE_METHOD(PrintTuneZOffsetFixture,
-                 "PrintTune: idle ZMOD baby-step zeroes the stale probe delta first",
-                 "[ui_integration][zoffset][zmod][regression]") {
-    // ZMOD persists each SET_GCODE_OFFSET as `z - _TEST_POINT.temp_z_offset`, and
-    // that variable survives END_PRINT/CANCEL_PRINT. Without the zeroing line the
-    // -0.160 above is stored as -0.160 minus the last print's probe delta
-    // (ghzserg/zmod#699). One script so the variable is cleared before the
-    // override reads it.
-    set_persisted_offset(-0.15);
-    set_live_offset(0.0);
-    set_printing(false);
-    set_homed(true);
-    set_zmod();
-
-    auto& overlay = show_overlay();
-    overlay.handle_z_step_select(2);
-    overlay.handle_z_adjust(-1);
-    helix::ui::UpdateQueue::instance().drain();
-
-    CHECK(last_gcode() == "SET_GCODE_VARIABLE MACRO=_TEST_POINT VARIABLE=temp_z_offset VALUE=0\n"
-                          "SET_GCODE_OFFSET Z=-0.160 MOVE=1");
-}
-
-TEST_CASE_METHOD(PrintTuneZOffsetFixture,
-                 "PrintTune: mid-print ZMOD baby-step never zeroes the probe delta",
-                 "[ui_integration][zoffset][zmod][regression]") {
-    // THE GATE. Mid-print the subtraction is correct: temp_z_offset holds the
-    // live per-print transient the override is supposed to exclude. Zeroing it
-    // here would corrupt in-flight baby steps, so the clear line must appear
-    // only on the idle path.
+                 "PrintTune: mid-print persistent-offset baby-step stays relative",
+                 "[ui_integration][zoffset][persistence][regression]") {
     set_persisted_offset(-0.15);
     set_live_offset(-0.15);
     set_printing(true);
     set_homed(true);
-    set_zmod();
+    set_persistence_wrapper();
 
     auto& overlay = show_overlay();
     overlay.handle_z_step_select(2);
@@ -190,10 +128,8 @@ TEST_CASE_METHOD(PrintTuneZOffsetFixture,
 }
 
 TEST_CASE_METHOD(PrintTuneZOffsetFixture,
-                 "PrintTune: idle ZMOD baby-step moves the persisted subject with it",
-                 "[ui_integration][zoffset][zmod]") {
-    // Otherwise the Controls row keeps showing the pre-adjust value until ZMOD's
-    // save_variables change is broadcast back.
+                 "PrintTune: idle persistent-offset baby-step moves the persisted subject with it",
+                 "[ui_integration][zoffset][persistence]") {
     set_persisted_offset(-0.15);
     set_live_offset(0.0);
     set_printing(false);
@@ -210,10 +146,7 @@ TEST_CASE_METHOD(PrintTuneZOffsetFixture,
 
 TEST_CASE_METHOD(PrintTuneZOffsetFixture,
                  "PrintTune: mid-print baby-step still sends the relative Z_ADJUST form",
-                 "[ui_integration][zoffset][zmod]") {
-    // Mid-print START_PRINT has already applied the stored offset, so the live
-    // value IS the base and the cheap relative form is correct. This is the
-    // guard against the fix changing behavior during a print.
+                 "[ui_integration][zoffset][persistence]") {
     set_persisted_offset(-0.15);
     set_live_offset(-0.15);
     set_printing(true);
@@ -228,10 +161,8 @@ TEST_CASE_METHOD(PrintTuneZOffsetFixture,
 }
 
 TEST_CASE_METHOD(PrintTuneZOffsetFixture,
-                 "PrintTune: a non-ZMOD printer keeps the legacy relative behavior",
+                 "PrintTune: a non-persistent-offset printer keeps the legacy relative behavior",
                  "[ui_integration][zoffset][regression]") {
-    // No save_variables ever arrives, so nothing about the emitted gcode changes
-    // for the overwhelming majority of printers.
     set_live_offset(-0.15);
     set_printing(false);
     set_homed(true);
@@ -246,8 +177,6 @@ TEST_CASE_METHOD(PrintTuneZOffsetFixture,
 
 TEST_CASE_METHOD(PrintTuneZOffsetFixture, "PrintTune: MOVE=1 is omitted when the axes are unhomed",
                  "[ui_integration][zoffset]") {
-    // MOVE=1 against an unhomed axis is a Klipper error, and idle-on-ZMOD is
-    // exactly when the printer is most likely to be unhomed.
     set_persisted_offset(-0.15);
     set_live_offset(0.0);
     set_printing(false);
@@ -264,9 +193,6 @@ TEST_CASE_METHOD(PrintTuneZOffsetFixture, "PrintTune: MOVE=1 is omitted when the
 TEST_CASE_METHOD(PrintTuneZOffsetFixture,
                  "PrintTune: an offset already past the travel guard still steps normally",
                  "[ui_integration][zoffset][1280][regression]") {
-    // #1280: the guard used to clamp the ABSOLUTE offset to +/-2mm. A toolhead
-    // running +2.5mm was yanked to 2.000 on the first tap -- a 0.5mm nose dive
-    // into the print. The guard bounds session travel now, so a step is a step.
     set_live_offset(2.5);
     set_printing(true);
     set_homed(true);
@@ -283,8 +209,6 @@ TEST_CASE_METHOD(PrintTuneZOffsetFixture,
 TEST_CASE_METHOD(PrintTuneZOffsetFixture,
                  "PrintTune: stepping toward the bed from a large offset moves one step",
                  "[ui_integration][zoffset][1280][regression]") {
-    // The dangerous direction. Under the absolute clamp this produced a
-    // -0.500mm jump; it must be -0.010mm.
     set_live_offset(2.5);
     set_printing(true);
     set_homed(true);
@@ -300,8 +224,6 @@ TEST_CASE_METHOD(PrintTuneZOffsetFixture,
 
 TEST_CASE_METHOD(PrintTuneZOffsetFixture, "PrintTune: session travel is still bounded at 2mm",
                  "[ui_integration][zoffset][1280]") {
-    // The guard has to survive the fix: 60 x 0.05mm would reach 3mm of travel,
-    // and must stop at 2mm past the offset the overlay opened on.
     set_live_offset(2.5);
     set_printing(true);
     set_homed(true);
@@ -313,14 +235,12 @@ TEST_CASE_METHOD(PrintTuneZOffsetFixture, "PrintTune: session travel is still bo
     }
     helix::ui::UpdateQueue::instance().drain();
 
-    // 2.5 - 2.0 = 0.5mm, not 2.5 - 3.0 = -0.5mm.
     CHECK(lv_subject_get_int(state().motion_state().get_gcode_z_offset_subject()) == 500);
 }
 
 TEST_CASE_METHOD(PrintTuneZOffsetFixture,
                  "PrintTune: the displayed offset seeds from the stored value while idle",
-                 "[ui_integration][zoffset][zmod][regression]") {
-    // Negan's report: opening the tune screen while idle showed 0.000.
+                 "[ui_integration][zoffset][persistence][regression]") {
     set_persisted_offset(-0.15);
     set_live_offset(0.0);
     set_printing(false);
@@ -338,10 +258,6 @@ TEST_CASE_METHOD(PrintTuneZOffsetFixture,
 TEST_CASE_METHOD(PrintTuneZOffsetFixture,
                  "PrintTune: a status frame moving the active tool's Z updates the tool readout",
                  "[ui_integration][zoffset][tool-offsets]") {
-    // The tool's own Z is data in ToolState, not a subject: tools_version_ is
-    // the only thing telling the overlay a frame moved it. This pins that
-    // wiring - without the observer the display freezes on the last value
-    // rendered by hand.
     helix::PrinterDiscovery hw;
     json objects = json::array({"toolchanger", "gcode_move", "tool T0", "extruder"});
     hw.parse_objects(objects);

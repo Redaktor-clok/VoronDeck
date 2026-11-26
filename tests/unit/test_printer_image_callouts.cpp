@@ -385,7 +385,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
     settle();
     REQUIRE(ctrl.chamber_light().empty());
     CHECK_FALSE(shown(h, "callout_chip_light"));
-    CHECK(mode_now() == static_cast<int>(CalloutMode::BothSides));
+    CHECK(mode_now() == static_cast<int>(CalloutMode::OneSide));
     ctrl.deinit();
 }
 
@@ -436,7 +436,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
     h.resize(8, 4, 480, 160);
     settle();
     lv_obj_update_layout(h.root());
-    REQUIRE(mode_now() == static_cast<int>(CalloutMode::BothSides));
+    REQUIRE(mode_now() == static_cast<int>(CalloutMode::OneSide));
     CHECK(text_of(h, "callout_chip_bed") == helix::ui::temperature::heater_display(400, 600).temp);
     CHECK_FALSE(lv_obj_has_flag(lv_obj_find_by_name(chip, "heater_icon"), LV_OBJ_FLAG_HIDDEN));
     CHECK(lv_obj_get_style_text_font(label, LV_PART_MAIN) == theme_manager_get_font("font_small"));
@@ -993,11 +993,19 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 
 namespace {
 
-/// Where the layout draws the image when it does not move it: contain-fit into
-/// the container, from prepare_tagged_widget()'s default source size.
+/// Contain-fit into the image object at its actual offset after callout placement.
 CalloutRect fitted_image(PanelWidgetHarness<PrinterImageWidget>& h) {
-    lv_obj_t* c = h.child("printer_container");
-    return fit_image(lv_obj_get_content_width(c), lv_obj_get_content_height(c), 1601, 1204);
+    auto* image = h.child("printer_image");
+    if (mode_now() == static_cast<int>(CalloutMode::Pinned)) {
+        auto rect = fit_image(lv_obj_get_content_width(image), lv_obj_get_content_height(image),
+                              1601, 1204);
+        rect.x += lv_obj_get_x(image);
+        rect.y += lv_obj_get_y(image);
+        return rect;
+    }
+    // The rendered image has already been contain-fitted; fitting it again loses a pixel.
+    return {lv_obj_get_x(image), lv_obj_get_y(image), lv_obj_get_content_width(image),
+            lv_obj_get_content_height(image)};
 }
 
 /// Deletes one scaled-image cache entry, refusing anything outside the cache.
@@ -1019,7 +1027,7 @@ TEST_CASE_METHOD(LVGLUITestFixture, "callouts: wide widget draws a line to the b
     lv_subject_set_int(state().temperature_state().get_bed_target_subject(), 600);
     lv_subject_set_int(state().temperature_state().get_bed_temp_subject(), 400);
     settle();
-    REQUIRE(mode_now() == static_cast<int>(CalloutMode::BothSides));
+    REQUIRE(mode_now() == static_cast<int>(CalloutMode::OneSide));
     CHECK_FALSE(lv_obj_has_flag(h.child("callout_line_bed"), LV_OBJ_FLAG_HIDDEN));
     CHECK_FALSE(lv_obj_has_flag(h.child("callout_bed_glow"), LV_OBJ_FLAG_HIDDEN));
     CHECK(lv_obj_has_flag(h.child("callout_line_nozzle"), LV_OBJ_FLAG_HIDDEN));
@@ -1050,7 +1058,7 @@ TEST_CASE_METHOD(LVGLUITestFixture, "callouts: the bed line runs from the bed po
     lv_subject_set_int(state().temperature_state().get_bed_temp_subject(), 400);
     settle();
     lv_obj_update_layout(h.root());
-    REQUIRE(mode_now() == static_cast<int>(CalloutMode::BothSides));
+    REQUIRE(mode_now() == static_cast<int>(CalloutMode::OneSide));
     lv_obj_t* line = h.child("callout_line_bed");
     lv_obj_t* chip = h.child("callout_chip_bed");
     // Point, elbow, chip edge: the last run is level into the chip.
@@ -1068,8 +1076,7 @@ TEST_CASE_METHOD(LVGLUITestFixture, "callouts: the bed line runs from the bed po
     CHECK(p[1].x <= std::max(p[0].x, p[2].x));
 }
 
-TEST_CASE_METHOD(LVGLUITestFixture,
-                 "callouts: a one-side layout moves the image aside; a wider tile restores it",
+TEST_CASE_METHOD(LVGLUITestFixture, "callouts: a wider tile keeps the preferred side column",
                  "[printer_image][callouts]") {
     const auto regions = prepare_tagged_widget();
     PanelWidgetHarness<PrinterImageWidget> h(test_screen());
@@ -1080,7 +1087,6 @@ TEST_CASE_METHOD(LVGLUITestFixture,
     lv_obj_update_layout(h.root());
     REQUIRE(mode_now() == static_cast<int>(CalloutMode::OneSide));
     lv_obj_t* img = h.child("printer_image");
-    lv_obj_t* container = h.child("printer_container");
     const CalloutRect fit = fitted_image(h);
     CHECK(lv_obj_get_x(img) == 0);
     CHECK(lv_obj_get_y(img) == fit.y);
@@ -1091,18 +1097,20 @@ TEST_CASE_METHOD(LVGLUITestFixture,
     h.resize(8, 4, 480, 160);
     settle();
     lv_obj_update_layout(h.root());
-    REQUIRE(mode_now() == static_cast<int>(CalloutMode::BothSides));
+    REQUIRE(mode_now() == static_cast<int>(CalloutMode::OneSide));
     CHECK(lv_obj_get_x(img) == 0);
-    CHECK(lv_obj_get_y(img) == 0);
-    CHECK(lv_obj_get_width(img) == lv_obj_get_content_width(container));
-    CHECK(lv_obj_get_height(img) == lv_obj_get_content_height(container));
+    const auto wider_fit = fitted_image(h);
+    CHECK(lv_obj_get_y(img) == wider_fit.y);
+    CHECK(lv_obj_get_width(img) == wider_fit.w);
+    CHECK(lv_obj_get_height(img) == wider_fit.h);
+    CHECK(lv_obj_get_x(h.child("callout_chip_bed")) >= wider_fit.x + wider_fit.w);
 }
 
 TEST_CASE_METHOD(LVGLUITestFixture,
-                 "callouts: a both-sides layout with a shrunk image places it at its rect",
+                 "callouts: a side-column layout shrinks its image within the allowed budget",
                  "[printer_image][callouts]") {
-    // Too short to stack the three budget chips on one side, so only both sides
-    // draws lines; narrowing the tile reaches the widths where that needs the shrink.
+    // Narrowing the side-column tile eventually needs a smaller image while
+    // preserving readable chips and the allowed image-shrink budget.
     const auto regions = prepare_tagged_widget();
     PanelWidgetHarness<PrinterImageWidget> h(test_screen());
     lv_obj_t* img = h.child("printer_image");
@@ -1110,29 +1118,30 @@ TEST_CASE_METHOD(LVGLUITestFixture,
     bool shrunk_seen = false;
     // The container pads its content box, so the tile carries that on top.
     const int pad = theme_manager_get_spacing("space_sm");
-    for (int w = 480; w >= 320 && !shrunk_seen; w -= 2) {
+    for (int w = 480; w >= 160 && !shrunk_seen; w -= 2) {
         h.resize(8, 4, w + 2 * pad, 120 + 2 * pad);
         settle();
         lv_obj_update_layout(h.root());
-        if (mode_now() != static_cast<int>(CalloutMode::BothSides))
-            break;
-        if (lv_obj_get_width(img) == lv_obj_get_content_width(container))
+        if (mode_now() != static_cast<int>(CalloutMode::OneSide))
+            continue;
+        const auto fit = fit_image(lv_obj_get_content_width(container),
+                                   lv_obj_get_content_height(container), 1601, 1204);
+        if (lv_obj_get_width(img) >= fit.w)
             continue;
         shrunk_seen = true;
-        const CalloutRect fit = fitted_image(h);
         CAPTURE(w, fit.w, lv_obj_get_width(img));
         CHECK(lv_obj_get_width(img) < fit.w);
         CHECK(lv_obj_get_width(img) >=
-              fit.w - fit.w * callout_detail::kMaxImageShrinkPctBothSides / 100);
-        CHECK(lv_obj_get_x(img) ==
-              (lv_obj_get_content_width(container) - lv_obj_get_width(img)) / 2);
+              fit.w - fit.w * callout_detail::kMaxImageShrinkPctOneSide / 100);
+        CHECK(lv_obj_get_x(img) == 0);
     }
     CHECK(shrunk_seen);
 }
 
-TEST_CASE_METHOD(LVGLUITestFixture,
-                 "callouts: a moved image drops the exact-size copy cut for its old rect",
-                 "[printer_image][callouts]") {
+TEST_CASE_METHOD(
+    LVGLUITestFixture,
+    "callouts: a wider side column reuses the cache when the rendered image size is unchanged",
+    "[printer_image][callouts]") {
     const auto regions = prepare_tagged_widget();
     PanelWidgetHarness<PrinterImageWidget> h(test_screen());
     h.resize(8, 4, 480, 160);
@@ -1153,7 +1162,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
     h.resize(8, 4, 400, 160);
     settle();
     REQUIRE(mode_now() == static_cast<int>(CalloutMode::OneSide));
-    CHECK(src_now() != full_cache);
+    CHECK(src_now() == full_cache);
     h.widget().detach();
 }
 
@@ -1342,7 +1351,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
                  "callouts: a capability found after layout relayouts with no chip change",
                  "[printer_image][callouts]") {
     // The chamber joins the budget with no chip showing; the bands spread their
-    // chips, so the image keeps both sides and the light chip stays put.
+    // chips, so the image keeps the side column and the light chip stays put.
     const auto regions = prepare_tagged_widget();
     lv_subject_t* has_led = lv_xml_get_subject(nullptr, "printer_has_led");
     lv_subject_t* has_chamber = state().capabilities_state().subject(Capability::HasChamberHeater);
@@ -1353,13 +1362,13 @@ TEST_CASE_METHOD(LVGLUITestFixture,
     PanelWidgetHarness<PrinterImageWidget> h(test_screen());
     h.resize(8, 4, 480, 160);
     settle();
-    REQUIRE(mode_now() == static_cast<int>(CalloutMode::BothSides));
+    REQUIRE(mode_now() == static_cast<int>(CalloutMode::OneSide));
     REQUIRE(shown(h, "callout_chip_light"));
     lv_subject_set_int(has_chamber, 1);
     settle();
     CHECK_FALSE(shown(h, "callout_chip_chamber"));
     CHECK(shown(h, "callout_chip_light"));
-    CHECK(mode_now() == static_cast<int>(CalloutMode::BothSides));
+    CHECK(mode_now() == static_cast<int>(CalloutMode::OneSide));
 }
 
 // A custom image can be re-imported in place: same id, same path, new pixels.

@@ -148,10 +148,10 @@ const std::vector<Row>& rows() {
          GET(im().get_keypad_layout), SUBJ(im().subject_keypad_layout)},
 
         // AudioSettingsManager
-        {"settings_sounds_enabled", Mgr::Audio, false, "/sounds_enabled", true, 0, 0, 1,
+        {"settings_sounds_enabled", Mgr::Audio, false, "/print_completion_sound", true, 0, 0, 1,
          "sounds_enabled", true, SETB(am().set_sounds_enabled), GET(am().get_sounds_enabled),
          SUBJ(am().subject_sounds_enabled)},
-        {"settings_ui_sounds_enabled", Mgr::Audio, false, "/ui_sounds_enabled", true, 1, 0, 1,
+        {"settings_ui_sounds_enabled", Mgr::Audio, false, "/ui_sounds_enabled", true, 0, 0, 1,
          "ui_sounds_enabled", true, SETB(am().set_ui_sounds_enabled),
          GET(am().get_ui_sounds_enabled), SUBJ(am().subject_ui_sounds_enabled)},
         {"settings_volume", Mgr::Audio, false, "/sounds/volume", false, 80, 0, 100, "volume", true,

@@ -1063,15 +1063,11 @@ TEST_CASE("PanelWidgetConfig: build_default_grid produces correct layout",
     auto* fs = find_entry("fan_stack");
     REQUIRE(fs);
 
-    // notifications is enabled (default_enabled, no gate) and, since the
-    // landscape rework, anchored top-right of the readout block rather than
-    // left to auto-place.
+    // Notifications live in the shared header; no duplicate tile is auto-placed.
     auto* notif = find_entry("notifications");
     REQUIRE(notif);
-    REQUIRE(notif->enabled);
-    REQUIRE(notif->has_grid_position());
-    REQUIRE(notif->col == 10);
-    REQUIRE(notif->row == 0);
+    REQUIRE_FALSE(notif->enabled);
+    REQUIRE_FALSE(notif->has_grid_position());
 
     // bed_temperature: default_enabled=false in registry, but build_default_grid()
     // overrides to enabled when no AMS present (which is the case in tests).
@@ -2793,29 +2789,26 @@ TEST_CASE_METHOD(PanelWidgetConfigFixture, "import_layout: parked grids are clea
 }
 
 TEST_CASE_METHOD(PanelWidgetConfigFixture,
-                 "import_layout: client screen-scoped defaults are appended unplaced",
+                 "import_layout: disabled screen defaults are not reintroduced",
                  "[widget_config][import_layout]") {
-    std::set<std::string> screen_defaults;
     for (const auto& e : PanelWidgetConfig::build_default_grid()) {
-        if (e.enabled && is_screen_scoped(e.id)) {
-            screen_defaults.insert(e.id);
+        if (is_screen_scoped(e.id)) {
+            INFO(e.id);
+            REQUIRE_FALSE(e.enabled);
         }
     }
-    REQUIRE_FALSE(screen_defaults.empty());
-
     setup_empty_config();
     PanelWidgetConfig wc("home", config);
     prepare_client_with_parked_grid(wc);
     REQUIRE(wc.import_layout(make_import(12, 8, source_widgets_12x8()), 10, 8));
-
-    const auto& main = wc.pages()[wc.main_page_index()].widgets;
-    for (const auto& id : screen_defaults) {
-        INFO("widget " << id);
-        const auto n = std::count_if(main.begin(), main.end(),
-                                     [&](const PanelWidgetEntry& e) { return e.id == id; });
-        CHECK(n == 1);
-        CHECK(wc.is_enabled(id));
-        CHECK_FALSE(wc.is_placed(id));
+    CHECK(wc.is_enabled("temperature"));
+    CHECK_FALSE(wc.is_enabled("notifications"));
+    CHECK_FALSE(wc.is_placed("notifications"));
+    for (const auto& e : wc.pages()[wc.main_page_index()].widgets) {
+        if (is_screen_scoped(e.id)) {
+            INFO(e.id);
+            CHECK_FALSE(e.enabled);
+        }
     }
 }
 

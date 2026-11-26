@@ -22,18 +22,22 @@
       <style name="styles.tile_column"/>
       <bind_style_if_eq name="styles.tile_row" subject="$tile_dir_subject" ref_value="1"/>
       <bind_style_if_eq name="styles.home_heater_row" subject="ui_is_portrait" ref_value="1"/>
+      <bind_style_if_eq name="styles.home_heater_column" subject="$tile_dir_subject" ref_value="0"/>
       <bind_state_if_not_eq subject="printer_connection_state" state="disabled" ref_value="2"/>
       <event_cb trigger="clicked" callback="temp_clicked_cb"/>
       <home_nozzle_icon name="temp_icon_container" size="#icon_size" rung_subject="$tile_icon_subject"/>
       <lv_obj height="content"
               flex_flow="column" style_pad_all="0" style_pad_gap="#space_xxs" scrollable="false" event_bubble="true">
         <style name="styles.home_heater_values_column"/>
-        <bind_style_if_eq name="styles.home_heater_values" subject="ui_is_portrait" ref_value="1"/>
+        <bind_style_if_eq name="styles.home_heater_values" subject="$tile_dir_subject" ref_value="1"/>
         <temp_display name="temp_text_label"
                       size_target_subject="$tile_target_subject" rung_subject="$tile_icon_subject" size="sm"
                       show_target="true" hide_target_when_off="true" hide_target_below_bp="small"
                       bind_current="extruder_temp" bind_target="extruder_target" align="center"/>
-        <text_tiny width="100%" bind_text="$home_name_subject" long_mode="dots" event_bubble="true"/>
+        <text_tiny width="100%" bind_text="$home_name_subject" long_mode="dots" event_bubble="true">
+          <bind_tile_rung ladder="label" subject="$tile_icon_subject"/>
+          <bind_flag_if_eq subject="$tile_label_subject" flag="hidden" ref_value="0"/>
+        </text_tiny>
       </lv_obj>
     </ui_button>
     <!-- Klipper duty cycle, not progress towards the requested temperature.

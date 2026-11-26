@@ -233,6 +233,32 @@ TEST_CASE_METHOD(LVGLUITestFixture, "A new toast redraws only the area it ends u
     lv_obj_delete(stack);
 }
 
+TEST_CASE_METHOD(LVGLUITestFixture, "Action toast keeps readable text on a narrow screen",
+                 "[toast][xml]") {
+    lv_obj_t* stack = lv_obj_create(lv_layer_top());
+    lv_obj_set_style_pad_all(stack, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(stack, 0, LV_PART_MAIN);
+    lv_obj_set_size(stack, 244, LV_SIZE_CONTENT);
+    const char* attrs[] = {"message",     "New hardware detected. Review the available devices.",
+                           "hide_action", "false",
+                           "action_text", "Review",
+                           nullptr};
+    lv_obj_t* toast = helix::ui::create_xml_laid_out(stack, "toast_notification", attrs);
+    REQUIRE(toast != nullptr);
+    lv_obj_update_layout(stack);
+    auto* message = lv_obj_find_by_name(toast, "toast_message");
+    auto* action = lv_obj_find_by_name(toast, "toast_action_btn");
+    REQUIRE(message != nullptr);
+    REQUIRE(action != nullptr);
+    CHECK(lv_obj_get_width(message) >= 100);
+    CHECK(lv_obj_get_scroll_right(toast) <= 0);
+    lv_area_t text_area, action_area;
+    lv_obj_get_coords(message, &text_area);
+    lv_obj_get_coords(action, &action_area);
+    CHECK(action_area.y1 > text_area.y2);
+    lv_obj_delete(stack);
+}
+
 // A toast shown before init() waits in PendingStartupWarnings for the drain
 // that follows init(), rather than being built before init() has registered
 // its close-button callback and teardown. The component is registered here,

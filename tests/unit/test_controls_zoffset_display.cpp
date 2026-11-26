@@ -1,12 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//
-// Wiring tests for the Controls panel's "Z-Offset:" row.
-//
-// The row is what Negan actually looked at: on ZMOD while idle it read +0.000mm
-// even though the printer's real offset was stored elsewhere. The selection rule
-// itself is unit-tested in test_z_offset_utils.cpp; what these tests pin is that
-// the panel is wired to it AND that all three inputs retrigger a reformat --
-// a missing observer would leave the row stale in exactly the way that shipped.
 
 #include "ui_panel_controls.h"
 #include "ui_update_queue.h"
@@ -39,8 +31,6 @@ class ControlsZOffsetFixture : public LVGLUITestFixture {
         helix::ui::UpdateQueue::instance().drain();
     }
 
-    /// Build the panel the way production does. register_observers() only runs
-    /// from setup(), and the observers no-op until on_activate() sets active_.
     void build_and_activate() {
         panel.init_subjects();
         panel_obj = static_cast<lv_obj_t*>(lv_xml_create(test_screen(), "controls_panel", nullptr));
@@ -59,8 +49,8 @@ class ControlsZOffsetFixture : public LVGLUITestFixture {
         settle();
     }
     void set_persisted_offset(double mm) {
-        state().update_from_status(json{
-            {"save_variables", json{{"variables", json{{"gcode_offsets", json{{"z", mm}}}}}}}});
+        state().update_from_status(
+            json{{"save_variables", json{{"variables", json{{"zoffset", json{{"z", mm}}}}}}}});
         settle();
     }
     void set_printing(bool printing) {
@@ -74,7 +64,6 @@ class ControlsZOffsetFixture : public LVGLUITestFixture {
         process_lvgl(10);
     }
 
-    /// The string the "Z-Offset:" row renders.
     std::string row_text() {
         lv_subject_t* subj = lv_xml_get_subject(nullptr, "controls_z_offset");
         if (!subj) {
@@ -91,10 +80,8 @@ class ControlsZOffsetFixture : public LVGLUITestFixture {
 } // namespace
 
 TEST_CASE_METHOD(ControlsZOffsetFixture,
-                 "Controls row shows the stored ZMOD offset while idle, not 0.000",
-                 "[ui_integration][controls][zoffset][zmod][regression]") {
-    // Negan's exact complaint. Live is zeroed by ZMOD's END_PRINT; -0.150 is what
-    // the next print will apply.
+                 "Controls row shows the stored persistent-offset offset while idle, not 0.000",
+                 "[ui_integration][controls][zoffset][persistence][regression]") {
     set_persisted_offset(-0.15);
     set_live_offset(0.0);
     set_printing(false);
@@ -106,31 +93,25 @@ TEST_CASE_METHOD(ControlsZOffsetFixture,
 }
 
 TEST_CASE_METHOD(ControlsZOffsetFixture, "Controls row follows the live offset during a print",
-                 "[ui_integration][controls][zoffset][zmod]") {
+                 "[ui_integration][controls][zoffset][persistence]") {
     set_persisted_offset(-0.15);
     set_live_offset(-0.15);
     set_printing(true);
     build_and_activate();
 
-    // A mid-print baby step lands in gcode_move first; the row must track it
-    // rather than the not-yet-updated stored value.
     set_live_offset(-0.16);
 
     CHECK(row_text().find("0.160") != std::string::npos);
 }
 
 TEST_CASE_METHOD(ControlsZOffsetFixture, "Controls row re-picks its source when the print ends",
-                 "[ui_integration][controls][zoffset][zmod][regression]") {
-    // This is the observer that would be easiest to forget: nothing about the
-    // z-offset subjects changes at END_PRINT except print_active going false,
-    // yet the row has to switch back to the stored value.
+                 "[ui_integration][controls][zoffset][persistence][regression]") {
     set_persisted_offset(-0.16);
     set_live_offset(-0.16);
     set_printing(true);
     build_and_activate();
     REQUIRE(row_text().find("0.160") != std::string::npos);
 
-    // END_PRINT: ZMOD zeroes the live offset, print goes idle.
     set_live_offset(0.0);
     set_printing(false);
 
@@ -140,9 +121,7 @@ TEST_CASE_METHOD(ControlsZOffsetFixture, "Controls row re-picks its source when 
 
 TEST_CASE_METHOD(ControlsZOffsetFixture,
                  "Controls row updates when the stored offset changes underneath it",
-                 "[ui_integration][controls][zoffset][zmod]") {
-    // Someone adjusting from Fluidd/Mainsail moves save_variables with no
-    // gcode_move change while idle.
+                 "[ui_integration][controls][zoffset][persistence]") {
     set_persisted_offset(-0.15);
     set_live_offset(0.0);
     set_printing(false);
@@ -154,10 +133,9 @@ TEST_CASE_METHOD(ControlsZOffsetFixture,
     CHECK(row_text().find("0.075") != std::string::npos);
 }
 
-TEST_CASE_METHOD(ControlsZOffsetFixture, "Controls row is unchanged on a non-ZMOD printer",
+TEST_CASE_METHOD(ControlsZOffsetFixture,
+                 "Controls row is unchanged on a non-persistent-offset printer",
                  "[ui_integration][controls][zoffset][regression]") {
-    // No save_variables ever arrives, so the row must keep rendering the live
-    // offset in every print state.
     set_live_offset(-0.2);
     set_printing(false);
     build_and_activate();

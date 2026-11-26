@@ -275,6 +275,7 @@ TEST_CASE_METHOD(HelixTestFixture,
     // Start a print
     json printing = {{"print_stats", {{"state", "printing"}}}};
     state.update_from_status(printing);
+    state.print_state().set_estimated_print_time(1200);
 
     // Activate slicer at 50% with 600s print_duration
     json status = {{"virtual_sdcard", {{"progress", 0.8}}},
@@ -284,9 +285,8 @@ TEST_CASE_METHOD(HelixTestFixture,
     json time = {{"print_stats", {{"print_duration", 600.0}, {"total_duration", 620.0}}}};
     state.update_from_status(time);
 
-    // remaining = print_duration * (100 - progress) / progress
-    // With slicer at 50%: 600 * (100 - 50) / 50 = 600
-    // NOT with file at 80%: 600 * (100 - 80) / 80 = 150
+    // The file estimate is scaled by slicer progress: 1200 * 50 / 100 = 600.
+    // Byte progress would yield 240 instead.
     REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 600);
 }
 
@@ -302,6 +302,7 @@ TEST_CASE_METHOD(HelixTestFixture,
     // Start a print -- no slicer
     json printing = {{"print_stats", {{"state", "printing"}}}};
     state.update_from_status(printing);
+    state.print_state().set_estimated_print_time(1200);
 
     json status = {{"virtual_sdcard", {{"progress", 0.8}}}};
     state.update_from_status(status);
@@ -309,8 +310,8 @@ TEST_CASE_METHOD(HelixTestFixture,
     json time = {{"print_stats", {{"print_duration", 600.0}, {"total_duration", 620.0}}}};
     state.update_from_status(time);
 
-    // remaining = 600 * (100 - 80) / 80 = 150
-    REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 150);
+    // Without slicer progress, use byte progress: 1200 * 20 / 100 = 240.
+    REQUIRE(lv_subject_get_int(state.print_state().get_print_time_left_subject()) == 240);
 }
 
 // ============================================================================

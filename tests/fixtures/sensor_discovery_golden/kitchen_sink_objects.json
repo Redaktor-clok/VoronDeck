@@ -16,7 +16,6 @@
   "tmc2240 stepper_x",
   "mcu",
   "mcu toolhead",
-  "zmod_ifs_switch_sensor head",
   "filament_switch_sensor runout",
   "filament_motion_sensor encoder",
   "hall_filament_width_sensor",

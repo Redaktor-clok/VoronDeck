@@ -1,21 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/**
- * @file test_z_offset_calibration_send.cpp
- * @brief Wiring tests for the calibration panel's accept send under ZMOD.
- *
- * The FIRMWARE_MANAGED accept arm puts a bare SET_GCODE_OFFSET Z= on the wire.
- * ZMOD's override of that command persists `z - _TEST_POINT.temp_z_offset`
- * (ghzserg/zmod#699), and the variable survives END_PRINT/CANCEL_PRINT - so an
- * accept after a print stores the calibrated value minus that print's probe
- * delta. These tests pin that the stale-delta clear line rides in front of the
- * offset on ZMOD, and only there: never on a printer without the mechanism,
- * and never while a print is running (mid-print the subtraction excludes the
- * live per-print transient and is correct).
- *
- * Companion to test_print_tune_zoffset_adjust.cpp, which pins the same gate on
- * the tune overlay's baby-step path.
- */
+// Calibration command wiring and capability-gated movement.
 
 #include "ui_panel_calibration_zoffset.h"
 
@@ -99,13 +84,12 @@ class CalibrationSendFixture : public LVGLTestFixture {
 } // namespace
 
 TEST_CASE_METHOD(CalibrationSendFixture,
-                 "Calibration accept: ZMOD clears the stale probe delta before the offset",
+                 "Calibration accept: a retired firmware macro adds no vendor commands",
                  "[ui_integration][zoffset][zmod][regression]") {
     set_zmod();
     set_printing(false);
 
-    CHECK(accept_sends() == "SET_GCODE_VARIABLE MACRO=_TEST_POINT VARIABLE=temp_z_offset VALUE=0\n"
-                            "SET_GCODE_OFFSET Z=-0.150");
+    CHECK(accept_sends() == "SET_GCODE_OFFSET Z=-0.150");
 }
 
 TEST_CASE_METHOD(CalibrationSendFixture,
@@ -244,6 +228,12 @@ StartOutcome start_calibration(ZOffsetCalibrationStrategy strategy, helix::Print
                                bool travel_known = true) {
     auto& ps = get_printer_state();
     helix::PrinterStateTestAccess::pin_z_offset_strategy(ps, strategy);
+    ps.set_printer_connection_state(2, "Connected");
+    if (strategy == ZOffsetCalibrationStrategy::ENDSTOP) {
+        hw.parse_config_keys(json{{"stepper_z", {{"endstop_pin", "PA1"}}}});
+    } else if (!hw.has_probe()) {
+        hw.parse_objects(json::array({"probe"}));
+    }
     json toolhead{{"homed_axes", "xyz"}};
     if (travel_known) {
         toolhead["axis_minimum"] = json::array({0.0, 0.0, 0.0, 0.0});
@@ -303,6 +293,7 @@ TEST_CASE_METHOD(CalibrationSendFixture,
                  "Calibration start: the discovered probe offset puts the probe on centre",
                  "[ui_integration][zoffset][zoffset_center]") {
     helix::PrinterDiscovery hw;
+    hw.parse_objects(json::array({"probe"}));
     hw.parse_probe_xy_offset(json{{"probe", {{"x_offset", -40.0}, {"y_offset", 10.0}}}});
     CHECK(start_script(ZOffsetCalibrationStrategy::PROBE_CALIBRATE, "PROBE_CALIBRATE",
                        std::move(hw)) ==
@@ -316,6 +307,7 @@ TEST_CASE_METHOD(CalibrationSendFixture,
     // the plate centre; the probe offset shifts the target only where a probe
     // does the reading.
     helix::PrinterDiscovery hw;
+    hw.parse_objects(json::array({"probe"}));
     hw.parse_probe_xy_offset(json{{"probe", {{"x_offset", -40.0}, {"y_offset", 10.0}}}});
     CHECK(start_script(ZOffsetCalibrationStrategy::FIRMWARE_MANAGED, "G1 Z0.1", std::move(hw)) ==
           "G90\nG1 Z5.0 F600\nG1 X175.0 Y175.0 F6000\nG1 Z0.1 F300");

@@ -1477,6 +1477,11 @@ bool PanelWidgetConfig::import_layout(const helix::home_layout::ParsedLayout& la
         return false;
     }
 
+    std::vector<PanelWidgetEntry> screen_widgets;
+    for (const auto& page : pages_)
+        for (const auto& entry : page.widgets)
+            if (is_screen_scoped(entry.id))
+                screen_widgets.push_back(entry);
     restore_pages(payload);
     // The import is the user's arrangement, whatever bookkeeping it carried.
     read_default_block(json());
@@ -1492,20 +1497,17 @@ bool PanelWidgetConfig::import_layout(const helix::home_layout::ParsedLayout& la
     const int seated = port_pages(layout.cols, layout.rows, cols, rows);
     grid_signature_ = std::to_string(cols) + "x" + std::to_string(rows);
 
-    // Screen-scoped widgets describe this screen, so it keeps its own. A copy
-    // the registry appended disabled is replaced by the enabled one.
+    // Imported pages carry printer widgets; keep this screen's choices and settings.
+    for (auto& page : pages_) {
+        auto& widgets = page.widgets;
+        widgets.erase(
+            std::remove_if(widgets.begin(), widgets.end(),
+                           [](const PanelWidgetEntry& e) { return is_screen_scoped(e.id); }),
+            widgets.end());
+    }
     auto& main_widgets = pages_[main_page_index_].widgets;
     int added = 0;
-    for (auto& entry : build_defaults()) {
-        if (!entry.enabled || !is_screen_scoped(entry.id) || is_enabled(entry.id)) {
-            continue;
-        }
-        for (auto& page : pages_) {
-            auto& w = page.widgets;
-            w.erase(std::remove_if(w.begin(), w.end(),
-                                   [&](const PanelWidgetEntry& e) { return e.id == entry.id; }),
-                    w.end());
-        }
+    for (auto& entry : screen_widgets) {
         entry.col = -1;
         entry.row = -1;
         main_widgets.push_back(std::move(entry));

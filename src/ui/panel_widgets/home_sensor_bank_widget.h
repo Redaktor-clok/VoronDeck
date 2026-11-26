@@ -27,6 +27,7 @@ class HomeSensorBankWidget : public PanelWidget {
     void attach(lv_obj_t* widget_obj, lv_obj_t* parent_screen) override;
     void detach() override;
     void on_activate() override;
+    bool fits_at(int width_px, int height_px) const override;
 
   private:
     void refresh();

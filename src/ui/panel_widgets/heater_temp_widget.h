@@ -78,6 +78,7 @@ class HeaterTempWidget : public TiledPanelWidget {
     SubjectManager home_subjects_;
     ObserverGuard home_extruder_observer_;
     ObserverGuard home_inventory_observer_;
+    ObserverGuard language_observer_;
 
     // MUST stay declared LAST: reverse-declaration destruction makes this the
     // first member torn down, invalidating every captured token before any

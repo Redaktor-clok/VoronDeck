@@ -55,6 +55,8 @@ class SleepWhilePrintingFixture : public LVGLTestFixture {
 
         auto& ds = DisplaySettingsManager::instance();
         prev_sleep_while_printing_ = ds.get_sleep_while_printing();
+        prev_screensaver_type_ = ds.get_screensaver_type();
+        ds.set_screensaver_type(0);
         prev_dim_sec_ = ds.get_display_dim_sec();
         prev_sleep_sec_ = ds.get_display_sleep_sec();
 
@@ -69,6 +71,7 @@ class SleepWhilePrintingFixture : public LVGLTestFixture {
         auto& ds = DisplaySettingsManager::instance();
         ds.set_display_dim_sec(prev_dim_sec_);
         ds.set_display_sleep_sec(prev_sleep_sec_);
+        ds.set_screensaver_type(prev_screensaver_type_);
         ds.set_sleep_while_printing(prev_sleep_while_printing_);
         helix::ui::UpdateQueue::instance().drain();
         helix::PrinterStateTestAccess::reset(printer_state);
@@ -103,6 +106,7 @@ class SleepWhilePrintingFixture : public LVGLTestFixture {
 
   private:
     bool prev_sleep_while_printing_ = true;
+    int prev_screensaver_type_ = 0;
     int prev_dim_sec_ = 0;
     int prev_sleep_sec_ = 0;
 };

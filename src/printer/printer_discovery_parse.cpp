@@ -233,13 +233,6 @@ void PrinterDiscovery::parse_objects(const nlohmann::json& objects) {
             has_mmu_ = true;
             mmu_type_ = AmsType::AFC;
         }
-        // Z-Mod's afclite extra for the Creator 5 line registers the `AFC`
-        // object above through its own name; recorded separately so backend
-        // selection can tell the shim from real Happy Hare AFC, which never
-        // publishes this object.
-        else if (name == "zmod_afclite") {
-            has_zmod_afclite_ = true;
-        }
         // klipper_openams. The name alone cannot claim the printer: a
         // manager that predates its versioned API publishes only
         // current_group, and AFC drives OpenAMS hardware without this

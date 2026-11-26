@@ -442,8 +442,13 @@ TEST_CASE_METHOD(XMLTestFixture,
     lv_subject_deinit(&label_subject);
 }
 
-TEST_CASE_METHOD(XMLTestFixture, "the palette walker still themes a neutral button's fill",
+TEST_CASE_METHOD(XMLTestFixture, "the palette walker preserves the transparent button variant",
                  "[theme][xml]") {
+    RestoreTheme restore;
+    const auto theme =
+        helix::load_theme_from_file(helix::get_default_themes_directory() + "/nord.json");
+    REQUIRE(theme.is_valid());
+    theme_manager_apply_theme(theme, true);
     const char* xml = R"(<component>
   <view extends="lv_obj" width="300" height="300">
     <ui_button name="btn" variant="transparent" text="Cancel"/>
@@ -454,12 +459,12 @@ TEST_CASE_METHOD(XMLTestFixture, "the palette walker still themes a neutral butt
     REQUIRE(root != nullptr);
     lv_obj_t* btn = named(root, "btn");
 
-    // ThemeManager's shared variant style is not a chosen style: the walker
-    // still gives this gray button the palette's control surface.
-    const uint32_t elevated = const_rgb("elevated_bg");
-    REQUIRE(bg_rgb(btn) != elevated);
+    const uint32_t before = bg_rgb(btn);
+    const auto opacity = lv_obj_get_style_bg_opa(btn, LV_PART_MAIN);
+    REQUIRE(before != const_rgb("elevated_bg"));
     theme_apply_current_palette_to_tree(root);
-    CHECK(bg_rgb(btn) == elevated);
+    CHECK(bg_rgb(btn) == before);
+    CHECK(lv_obj_get_style_bg_opa(btn, LV_PART_MAIN) == opacity);
 }
 
 TEST_CASE_METHOD(XMLTestFixture, "chart_measured is each theme's primary, readable on the plot",

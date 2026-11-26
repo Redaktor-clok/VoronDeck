@@ -15,6 +15,6 @@
   </api>
   <view name="panel_widget_notifications"
         extends="lv_obj" height="100%" flex_grow="1" style_pad_all="0" scrollable="false">
-    <home_notification_indicator align="center"/>
+    <home_notification_indicator align="center" style_pad_all="0"/>
   </view>
 </component>

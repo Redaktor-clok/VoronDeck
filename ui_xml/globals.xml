@@ -626,7 +626,7 @@
          above; small keeps the ladder monotone and xlarge/xxlarge fall back
          to _large. -->
     <px name="chamber_preset_h_micro" value="26"/>
-    <px name="chamber_preset_h_tiny" value="43"/>
+    <px name="chamber_preset_h_tiny" value="42"/>
     <px name="chamber_preset_h_small" value="52"/>
     <px name="chamber_preset_h_medium" value="54"/>
     <px name="chamber_preset_h_large" value="79"/>

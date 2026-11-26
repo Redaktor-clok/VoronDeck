@@ -136,22 +136,24 @@ TEST_CASE_METHOD(PlrSettingsRowFixture, "PLR settings row follows the plugin's p
     SECTION("hidden until the plugin probe answers") {
         CHECK_FALSE(visible(row));
     }
-    SECTION("no plugin: greyed, with Install") {
+    SECTION("no plugin: legacy row stays hidden") {
         get_printer_state().plugin_status_state().set_installed(false);
         process_lvgl(5);
-        CHECK(visible(row));
+        CHECK_FALSE(visible(row));
         CHECK_FALSE(visible(switch_row));
-        CHECK(visible(needs_plugin));
-        CHECK(visible(install));
+        CHECK_FALSE(visible(needs_plugin));
+        CHECK_FALSE(visible(install));
+        CHECK(visible(find("row_recovery_missing")));
         CHECK_FALSE(visible(needs_update));
     }
-    SECTION("a plugin that reports no plr feature: greyed, asking for an update") {
+    SECTION("a plugin without plr keeps the legacy row hidden") {
         auto& plugin = get_printer_state().plugin_status_state();
         plugin.set_installed(true);
         plugin.set_features({});
         process_lvgl(5);
-        CHECK(visible(needs_plugin));
-        CHECK(visible(needs_update));
+        CHECK_FALSE(visible(row));
+        CHECK_FALSE(visible(needs_plugin));
+        CHECK_FALSE(visible(needs_update));
         CHECK_FALSE(visible(install));
         CHECK_FALSE(visible(switch_row));
     }

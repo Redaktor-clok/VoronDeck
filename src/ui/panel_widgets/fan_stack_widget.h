@@ -37,6 +37,7 @@ class FanStackWidget : public PanelWidget {
     void detach() override;
     void on_activate() override;
     void on_size_changed(int colspan, int rowspan, int width_px, int height_px) override;
+    bool fits_at(int width_px, int height_px) const override;
     bool has_edit_configure() const override {
         return true;
     }

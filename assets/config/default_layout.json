@@ -810,6 +810,12 @@
         4,
         8,
         2
+      ],
+      [
+        14,
+        0,
+        2,
+        2
       ]
     ],
     "xlarge": [
@@ -824,6 +830,12 @@
         4,
         8,
         2
+      ],
+      [
+        14,
+        0,
+        2,
+        2
       ]
     ],
     "xxlarge": [
@@ -832,6 +844,52 @@
         10,
         8,
         4
+      ],
+      [
+        22,
+        0,
+        2,
+        2
+      ]
+    ],
+    "micro": [
+      [
+        10,
+        0,
+        2,
+        2
+      ]
+    ],
+    "micro@8x6": [
+      [
+        6,
+        0,
+        2,
+        2
+      ]
+    ],
+    "tiny": [
+      [
+        8,
+        0,
+        2,
+        2
+      ]
+    ],
+    "small": [
+      [
+        8,
+        0,
+        2,
+        2
+      ]
+    ],
+    "medium": [
+      [
+        10,
+        0,
+        2,
+        2
       ]
     ]
   },
@@ -1115,6 +1173,12 @@
             0,
             20,
             4
+          ],
+          [
+            34,
+            0,
+            2,
+            2
           ]
         ],
         "small": [
@@ -1123,6 +1187,12 @@
             0,
             30,
             4
+          ],
+          [
+            44,
+            0,
+            2,
+            2
           ]
         ]
       }
@@ -1503,58 +1573,6 @@
           ]
         },
         {
-          "slot": "readout_1",
-          "placements": {
-            "xxlarge": {
-              "col": 10,
-              "row": 2,
-              "colspan": 2,
-              "rowspan": 2
-            }
-          },
-          "alternatives": [
-            {
-              "cells": [
-                {
-                  "candidates": "ENV_FIL",
-                  "at": [
-                    0,
-                    0,
-                    2,
-                    2
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "slot": "readout_2",
-          "placements": {
-            "xxlarge": {
-              "col": 12,
-              "row": 2,
-              "colspan": 2,
-              "rowspan": 2
-            }
-          },
-          "alternatives": [
-            {
-              "cells": [
-                {
-                  "candidates": "ENV_FIL",
-                  "at": [
-                    0,
-                    0,
-                    2,
-                    2
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
           "slot": "mesh",
           "placements": {
             "xxlarge": {
@@ -1576,6 +1594,18 @@
               "rowspan": 6
             },
             "small@10x44": {
+              "col": 0,
+              "row": 22,
+              "colspan": 8,
+              "rowspan": 6
+            },
+            "tiny@8x48": {
+              "col": 0,
+              "row": 22,
+              "colspan": 8,
+              "rowspan": 6
+            },
+            "small@10x64": {
               "col": 0,
               "row": 22,
               "colspan": 8,
@@ -1681,44 +1711,158 @@
       "disabled": {
         "micro": [
           "tips",
-          "notifications"
+          "notifications",
+          "led",
+          "filament"
         ],
         "tiny": [
           "tips",
-          "notifications"
+          "notifications",
+          "led",
+          "filament"
         ],
         "tiny@8x34": [
-          "notifications"
+          "tips",
+          "notifications",
+          "led",
+          "filament"
         ],
         "small": [
           "tips",
-          "notifications"
+          "notifications",
+          "led",
+          "filament"
         ],
         "medium": [
           "tips",
-          "notifications"
+          "notifications",
+          "led",
+          "filament"
         ],
         "large": [
           "tips",
-          "notifications"
+          "notifications",
+          "led",
+          "filament"
         ],
         "xlarge": [
           "tips",
-          "notifications"
+          "notifications",
+          "led",
+          "filament"
         ],
         "xxlarge": [
           "tips",
-          "notifications"
+          "notifications",
+          "led",
+          "filament"
         ]
       },
       "gaps": {
-        "xxlarge": [],
+        "micro": [
+          [
+            0,
+            15,
+            8,
+            1
+          ]
+        ],
+        "tiny": [
+          [
+            0,
+            15,
+            8,
+            1
+          ]
+        ],
+        "small": [
+          [
+            8,
+            9,
+            2,
+            2
+          ],
+          [
+            0,
+            15,
+            10,
+            1
+          ]
+        ],
+        "medium": [
+          [
+            0,
+            15,
+            8,
+            1
+          ]
+        ],
+        "large": [
+          [
+            8,
+            9,
+            2,
+            2
+          ],
+          [
+            0,
+            15,
+            10,
+            5
+          ]
+        ],
+        "xlarge": [
+          [
+            8,
+            9,
+            2,
+            2
+          ],
+          [
+            0,
+            15,
+            10,
+            7
+          ]
+        ],
+        "xxlarge": [
+          [
+            8,
+            9,
+            6,
+            2
+          ],
+          [
+            0,
+            15,
+            14,
+            5
+          ],
+          [
+            8,
+            20,
+            6,
+            4
+          ],
+          [
+            0,
+            24,
+            14,
+            10
+          ]
+        ],
         "xxlarge@14x32": [
           [
-            6,
-            4,
             8,
+            9,
+            6,
             2
+          ],
+          [
+            0,
+            15,
+            14,
+            7
           ],
           [
             8,
@@ -1733,21 +1877,73 @@
             6
           ]
         ],
-        "tiny@8x34": [
+        "xxlarge@14x44": [
           [
-            4,
-            28,
-            4,
+            8,
+            9,
+            6,
             2
           ],
           [
             0,
-            30,
+            15,
+            14,
+            5
+          ],
+          [
             8,
+            20,
+            6,
             4
+          ],
+          [
+            0,
+            24,
+            14,
+            20
+          ]
+        ],
+        "tiny@8x34": [
+          [
+            0,
+            15,
+            8,
+            7
+          ],
+          [
+            0,
+            28,
+            8,
+            6
+          ]
+        ],
+        "tiny@8x48": [
+          [
+            0,
+            15,
+            8,
+            7
+          ],
+          [
+            0,
+            28,
+            8,
+            20
           ]
         ],
         "small@10x44": [
+          [
+            8,
+            9,
+            2,
+            2
+          ],
+          [
+            0,
+            15,
+            10,
+            7
+          ],
           [
             8,
             22,
@@ -1761,12 +1957,32 @@
             16
           ]
         ],
-        "micro": [],
-        "tiny": [],
-        "small": [],
-        "medium": [],
-        "large": [],
-        "xlarge": []
+        "small@10x64": [
+          [
+            8,
+            9,
+            2,
+            2
+          ],
+          [
+            0,
+            15,
+            10,
+            7
+          ],
+          [
+            8,
+            22,
+            2,
+            6
+          ],
+          [
+            0,
+            28,
+            10,
+            36
+          ]
+        ]
       }
     }
   }

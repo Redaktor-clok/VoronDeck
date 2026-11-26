@@ -140,13 +140,13 @@ TEST_CASE("get_printer_image_size returns correct target size", "[assets][printe
 
 TEST_CASE("get_prerendered_printer_path generates correct paths", "[assets][printer]") {
     SECTION("Path format is correct") {
-        std::string path = get_prerendered_printer_path("creality-k1", 800);
+        std::string path = get_prerendered_printer_path("voron-v0", 800);
 
         // Should start with LVGL prefix
         REQUIRE(path.substr(0, 2) == "A:");
 
         // Should contain printer name
-        REQUIRE(path.find("creality-k1") != std::string::npos);
+        REQUIRE(path.find("voron-v0") != std::string::npos);
 
         // Should be .bin or .png
         bool is_bin = path.find(".bin") != std::string::npos;
@@ -170,8 +170,10 @@ TEST_CASE("get_prerendered_printer_path generates correct paths", "[assets][prin
 
     SECTION("Various printer names work correctly") {
         std::vector<std::string> printers = {
-            "creality-k1",    "creality-ender-3", "voron-v2", "flashforge-adventurer-5m",
-            "anycubic-kobra",
+            "voron-v0",
+            "voron-trident",
+            "voron-v2",
+            "voron-switchwire",
         };
 
         for (const auto& printer : printers) {

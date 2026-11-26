@@ -156,6 +156,7 @@ class SleepWakeFixture : public LVGLTestFixture {
     void configure_idle(int screensaver_type, int dim_sec, int sleep_sec) {
         helix::Config* config = helix::Config::get_instance();
         config->set<int>("/display/screensaver_type", screensaver_type);
+        config->set<int>("/display/screensaver_sec", 30);
         config->set<int>("/display/dim_sec", dim_sec);
         config->set<int>("/display/sleep_sec", sleep_sec);
         DisplaySettingsManager::instance().deinit_subjects();
@@ -193,10 +194,10 @@ TEST_CASE_METHOD(SleepWakeFixture, "waking from sleep resumes the panel the scre
     DisplayManager mgr; // no init(): no backlight, software-overlay sleep
     mgr.set_dim_timeout(1);
 
-    // Dim stage: 1.3s idle crosses the 1s dim timeout, starts the screensaver
+    // Saver stage: 31s idle crosses the independent 30s saver timeout
     // and suspends the active panel's lifecycle.
     lv_display_trigger_activity(nullptr);
-    process_lvgl(1300);
+    advance_idle(31000);
     mgr.check_display_sleep();
     REQUIRE(mgr.is_display_dimmed());
     REQUIRE_FALSE(mgr.is_display_sleeping());
@@ -222,7 +223,7 @@ TEST_CASE_METHOD(SleepWakeFixture, "waking from sleep resumes the panel the scre
     // The latch must be clear: a second idle cycle suspends again instead of
     // silently skipping the suspend forever.
     lv_display_trigger_activity(nullptr);
-    process_lvgl(1300);
+    advance_idle(31000);
     mgr.check_display_sleep();
     REQUIRE(mgr.is_display_dimmed());
     REQUIRE(panel_.deactivates == 2);
@@ -265,7 +266,7 @@ TEST_CASE_METHOD(SleepWakeFixture,
 
     // Idle starts the saver; activity wakes it.
     lv_display_trigger_activity(nullptr);
-    process_lvgl(1300);
+    advance_idle(31000);
     mgr.check_display_sleep();
     REQUIRE(mgr.is_display_dimmed());
     lv_display_trigger_activity(nullptr);
@@ -275,7 +276,7 @@ TEST_CASE_METHOD(SleepWakeFixture,
     CHECK(window().stopped_other.empty());
 
     // A wake the app asks for (print done, remote control) is not a touch.
-    process_lvgl(1300);
+    advance_idle(31000);
     mgr.check_display_sleep();
     REQUIRE(mgr.is_display_dimmed());
     mgr.wake_display();
@@ -304,7 +305,7 @@ TEST_CASE_METHOD(SleepWakeFixture, "waking does not resume a lifecycle Applicati
     mgr.set_dim_timeout(1);
 
     lv_display_trigger_activity(nullptr);
-    process_lvgl(1300);
+    advance_idle(31000);
     mgr.check_display_sleep();
     REQUIRE(mgr.is_display_dimmed());
     REQUIRE(panel_.deactivates == 0); // the dim stage suspended nothing
