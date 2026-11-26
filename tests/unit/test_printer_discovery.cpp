@@ -334,23 +334,22 @@ TEST_CASE("PrinterDiscovery detects standard screws_tilt_adjust", "[printer_disc
     }
 }
 
-TEST_CASE("PrinterDiscovery detects the Snapmaker auto_screws_tilt_adjust dialect",
-          "[printer_discovery]") {
-    SECTION("objects/list entry sets the capability and the dialect") {
+TEST_CASE("PrinterDiscovery ignores unsupported auto_screws_tilt_adjust", "[printer_discovery]") {
+    SECTION("objects/list entry does not enable the capability") {
         PrinterDiscovery hw;
         json objects = {"extruder", "heater_bed", "auto_screws_tilt_adjust"};
         hw.parse_objects(objects);
-        REQUIRE(hw.has_screws_tilt());
-        REQUIRE(hw.screws_tilt_dialect() == ScrewsTiltDialect::SnapmakerAuto);
+        REQUIRE_FALSE(hw.has_screws_tilt());
+        REQUIRE(hw.screws_tilt_dialect() == ScrewsTiltDialect::Standard);
     }
 
-    SECTION("configfile key sets the capability and the dialect") {
+    SECTION("configfile key does not enable the capability") {
         PrinterDiscovery hw;
         json config = {{"auto_screws_tilt_adjust",
                         {{"screw1", "15,15"}, {"screw1_name", "front left screw"}}}};
         hw.parse_config_keys(config);
-        REQUIRE(hw.has_screws_tilt());
-        REQUIRE(hw.screws_tilt_dialect() == ScrewsTiltDialect::SnapmakerAuto);
+        REQUIRE_FALSE(hw.has_screws_tilt());
+        REQUIRE(hw.screws_tilt_dialect() == ScrewsTiltDialect::Standard);
     }
 }
 
@@ -925,7 +924,8 @@ TEST_CASE("PrinterDiscovery detects tool changer", "[printer_discovery]") {
     REQUIRE(tools.size() == 3);
 }
 
-TEST_CASE("PrinterDiscovery prefers AFC over Snapmaker when both present", "[printer_discovery]") {
+TEST_CASE("PrinterDiscovery keeps AFC alongside unsupported vendor markers",
+          "[printer_discovery]") {
     // SnapMaker U1 with aftermarket AFC filament changers — filament_detect
     // (native Snapmaker) is present but AFC should win since it provides
     // real filament management with lanes and hubs.
@@ -958,8 +958,8 @@ TEST_CASE("PrinterDiscovery prefers AFC over Snapmaker when both present", "[pri
     REQUIRE(hw.detected_ams_systems().size() == 1);
     REQUIRE(hw.detected_ams_systems()[0].type == AmsType::AFC);
 
-    // Snapmaker and toolchanger flags still set for other queries
-    REQUIRE(hw.has_snapmaker());
+    // Only the generic toolchanger capability remains available.
+    REQUIRE_FALSE(hw.has_snapmaker());
     REQUIRE(hw.has_tool_changer());
 
     // AFC discovery data preserved
@@ -984,17 +984,18 @@ TEST_CASE("PrinterDiscovery prefers AFC over standalone toolchanger", "[printer_
     REQUIRE(hw.has_tool_changer());
 }
 
-TEST_CASE("PrinterDiscovery uses Snapmaker backend when no MMU present", "[printer_discovery]") {
+TEST_CASE("PrinterDiscovery uses the generic toolchanger beside unsupported vendor markers",
+          "[printer_discovery]") {
     // Native Snapmaker U1 without aftermarket filament changer
     PrinterDiscovery hw;
 
     json objects = {"filament_detect", "toolchanger", "tool T0", "tool T1", "tool T2", "tool T3"};
     hw.parse_objects(objects);
 
-    REQUIRE(hw.has_snapmaker());
-    REQUIRE(hw.mmu_type() == AmsType::SNAPMAKER);
+    REQUIRE_FALSE(hw.has_snapmaker());
+    REQUIRE(hw.mmu_type() == AmsType::TOOL_CHANGER);
     REQUIRE(hw.detected_ams_systems().size() == 1);
-    REQUIRE(hw.detected_ams_systems()[0].type == AmsType::SNAPMAKER);
+    REQUIRE(hw.detected_ams_systems()[0].type == AmsType::TOOL_CHANGER);
 }
 
 // ============================================================================
@@ -1836,7 +1837,8 @@ TEST_CASE("AFC unknown unit types detected generically", "[printer_discovery][af
 // AD5X IFS Detection
 // ==========================================================================
 
-TEST_CASE("PrinterDiscovery detects AD5X IFS via zmod sensors", "[printer_discovery][ad5x_ifs]") {
+TEST_CASE("PrinterDiscovery does not activate IFS from port sensors",
+          "[printer_discovery][ad5x_ifs]") {
     helix::PrinterDiscovery discovery;
     discovery.parse_objects(nlohmann::json::array({
         "extruder",
@@ -1848,13 +1850,12 @@ TEST_CASE("PrinterDiscovery detects AD5X IFS via zmod sensors", "[printer_discov
         "filament_switch_sensor head_switch_sensor",
     }));
 
-    REQUIRE(discovery.has_mmu());
-    REQUIRE(discovery.mmu_type() == AmsType::AD5X_IFS);
-    REQUIRE(discovery.detected_ams_systems().size() == 1);
-    REQUIRE(discovery.detected_ams_systems()[0].type == AmsType::AD5X_IFS);
+    REQUIRE_FALSE(discovery.has_mmu());
+    REQUIRE(discovery.mmu_type() == AmsType::NONE);
+    REQUIRE(discovery.detected_ams_systems().empty());
 }
 
-TEST_CASE("PrinterDiscovery detects native ZMOD IFS via motion sensor",
+TEST_CASE("PrinterDiscovery keeps unsupported motion sensors visible",
           "[printer_discovery][ad5x_ifs]") {
     helix::PrinterDiscovery discovery;
     // Native ZMOD IFS (without lessWaste) only exposes a motion sensor and head
@@ -1866,10 +1867,9 @@ TEST_CASE("PrinterDiscovery detects native ZMOD IFS via motion sensor",
         "filament_switch_sensor head_switch_sensor",
     }));
 
-    REQUIRE(discovery.has_mmu());
-    REQUIRE(discovery.mmu_type() == AmsType::AD5X_IFS);
-    REQUIRE(discovery.detected_ams_systems().size() == 1);
-    REQUIRE(discovery.detected_ams_systems()[0].type == AmsType::AD5X_IFS);
+    REQUIRE_FALSE(discovery.has_mmu());
+    REQUIRE(discovery.mmu_type() == AmsType::NONE);
+    REQUIRE(discovery.detected_ams_systems().empty());
 
     // Both sensors must appear in filament_sensor_names (not just head_switch_sensor)
     auto& sensors = discovery.filament_sensor_names();
@@ -1894,7 +1894,7 @@ TEST_CASE("PrinterDiscovery detects native ZMOD IFS via motion sensor",
 // Detection key: presence of any `box_stepper slot*` object. That's the
 // unambiguous signal — the other names ride along.
 
-TEST_CASE("PrinterDiscovery detects QIDI Box via box_stepper objects",
+TEST_CASE("PrinterDiscovery does not activate QIDI Box from proprietary objects",
           "[printer_discovery][qidi_box]") {
     helix::PrinterDiscovery discovery;
     discovery.parse_objects(nlohmann::json::array({
@@ -1911,16 +1911,14 @@ TEST_CASE("PrinterDiscovery detects QIDI Box via box_stepper objects",
         "box_rfid card_reader_2",
     }));
 
-    REQUIRE(discovery.has_mmu());
-    REQUIRE(discovery.mmu_type() == AmsType::QIDI_BOX);
-    REQUIRE(discovery.detected_ams_systems().size() == 1);
-    REQUIRE(discovery.detected_ams_systems()[0].type == AmsType::QIDI_BOX);
+    REQUIRE_FALSE(discovery.has_mmu());
+    REQUIRE(discovery.mmu_type() == AmsType::NONE);
+    REQUIRE(discovery.detected_ams_systems().empty());
 }
 
-TEST_CASE("PrinterDiscovery counts QIDI Box slots from box_stepper objects",
+TEST_CASE("PrinterDiscovery does not expose unsupported QIDI Box slots",
           "[printer_discovery][qidi_box]") {
-    // The backend needs to know how many slots exist to size system_info_
-    // correctly. Slot count = number of `box_stepper slot*` objects.
+    // Unsupported slot markers must not populate a selectable system.
 
     SECTION("Single box: 4 slots") {
         helix::PrinterDiscovery discovery;
@@ -1930,7 +1928,7 @@ TEST_CASE("PrinterDiscovery counts QIDI Box slots from box_stepper objects",
             "box_stepper slot2",
             "box_stepper slot3",
         }));
-        REQUIRE(discovery.qidi_box_slot_count() == 4);
+        REQUIRE(discovery.qidi_box_slot_count() == 0);
     }
 
     SECTION("Two boxes: 8 slots") {
@@ -1940,7 +1938,7 @@ TEST_CASE("PrinterDiscovery counts QIDI Box slots from box_stepper objects",
             objects.push_back("box_stepper slot" + std::to_string(i));
         }
         discovery.parse_objects(objects);
-        REQUIRE(discovery.qidi_box_slot_count() == 8);
+        REQUIRE(discovery.qidi_box_slot_count() == 0);
     }
 
     SECTION("Four boxes: 16 slots (max)") {
@@ -1950,7 +1948,7 @@ TEST_CASE("PrinterDiscovery counts QIDI Box slots from box_stepper objects",
             objects.push_back("box_stepper slot" + std::to_string(i));
         }
         discovery.parse_objects(objects);
-        REQUIRE(discovery.qidi_box_slot_count() == 16);
+        REQUIRE(discovery.qidi_box_slot_count() == 0);
     }
 
     SECTION("No QIDI Box: slot count is 0") {

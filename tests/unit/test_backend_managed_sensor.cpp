@@ -188,49 +188,31 @@ TEST_CASE("backend-managed sensor: AFC per-extruder toolhead sensors", "[ams][se
 }
 
 // ---------------------------------------------------------------------------
-// AD5X IFS: ifs_motion_sensor, head_switch_sensor,
-//           _ifs_port_sensor_N, _ifs_motion_sensor_N
+// Unsupported backends must not hide a printer's ordinary filament sensors.
 // ---------------------------------------------------------------------------
-TEST_CASE("backend-managed sensor: AD5X IFS named sensors", "[ams][sensor-ownership]") {
-    auto ifs = make_discovery(AmsType::AD5X_IFS);
-    REQUIRE(ifs.mmu_type() == AmsType::AD5X_IFS);
-
-    CHECK(is_ams("ifs_motion_sensor", ifs));
-    CHECK(is_ams("head_switch_sensor", ifs));
-    CHECK(is_ams("_ifs_port_sensor_1", ifs));
-    CHECK(is_ams("_ifs_port_sensor_4", ifs));
-    CHECK(is_ams("_ifs_motion_sensor_2", ifs));
-
-    // Not owned.
-    CHECK_FALSE(is_ams("head_runout", ifs));
-    CHECK_FALSE(is_ams("ifs_port_sensor_1", ifs)); // missing leading underscore
-}
-
-// ---------------------------------------------------------------------------
-// CFS: bare "filament_sensor"
-// ---------------------------------------------------------------------------
-TEST_CASE("backend-managed sensor: CFS toolhead sensor", "[ams][sensor-ownership]") {
-    auto cfs = make_discovery(AmsType::CFS);
-    REQUIRE(cfs.mmu_type() == AmsType::CFS);
-
-    CHECK(is_ams("filament_sensor", cfs));
-
-    // CFS owns only that one bare name.
-    CHECK_FALSE(is_ams("extruder", cfs));
-    CHECK_FALSE(is_ams("toolhead", cfs));
-    CHECK_FALSE(is_ams("tool_start", cfs));
+TEST_CASE("backend-managed sensor: retired markers do not claim sensors",
+          "[ams][sensor-ownership]") {
+    for (AmsType type :
+         {AmsType::AD5X_IFS, AmsType::CFS, AmsType::ACE, AmsType::QIDI_BOX, AmsType::SNAPMAKER}) {
+        CAPTURE(static_cast<int>(type));
+        auto discovery = make_discovery(type);
+        REQUIRE_FALSE(discovery.has_mmu());
+        REQUIRE(discovery.detected_ams_systems().empty());
+        for (const char* name : {"ifs_motion_sensor", "head_switch_sensor", "_ifs_port_sensor_1",
+                                 "_ifs_motion_sensor_2", "filament_sensor"}) {
+            CAPTURE(name);
+            CHECK_FALSE(is_ams(name, discovery));
+        }
+    }
 }
 
 TEST_CASE("backend-managed sensor: a named claim lapses once the backend reports no hardware",
           "[ams][sensor-ownership][1904]") {
-    auto cfs = make_discovery(AmsType::CFS);
-    REQUIRE(cfs.mmu_type() == AmsType::CFS);
-    REQUIRE(PrinterHardware::is_ams_sensor("filament_switch_sensor filament_sensor", cfs, false));
-
-    CHECK_FALSE(PrinterHardware::is_ams_sensor("filament_switch_sensor filament_sensor", cfs,
-                                               /*filament_hardware_absent=*/true));
-    // A name that says filament system is one whatever the backend reports.
-    CHECK(PrinterHardware::is_ams_sensor("filament_switch_sensor lane1", cfs, true));
+    auto hh = make_discovery(AmsType::HAPPY_HARE);
+    REQUIRE(hh.mmu_type() == AmsType::HAPPY_HARE);
+    REQUIRE(PrinterHardware::is_ams_sensor("filament_switch_sensor extruder", hh, false));
+    CHECK_FALSE(PrinterHardware::is_ams_sensor("filament_switch_sensor extruder", hh, true));
+    CHECK(PrinterHardware::is_ams_sensor("filament_switch_sensor lane1", hh, true));
 }
 
 // ---------------------------------------------------------------------------

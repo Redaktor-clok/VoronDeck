@@ -88,8 +88,8 @@ void fit_carousel_page(lv_event_t* e) {
     auto* name = lv_obj_find_by_name(page, "fan_carousel_name");
     if (!core || !name)
         return;
-    const int height = std::max(1, lv_obj_get_content_height(page));
-    const int width = std::max(1, lv_obj_get_content_width(page));
+    const int height = std::max<int32_t>(1, lv_obj_get_content_height(page));
+    const int width = std::max<int32_t>(1, lv_obj_get_content_width(page));
     const bool compact = height < 72;
     lv_obj_set_flex_flow(page, compact ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_grow(core, compact ? 0 : 1);
@@ -313,8 +313,8 @@ void FanStackWidget::on_size_changed(int colspan, int rowspan, int width_px, int
                         continue;
                     if (std::max(icon->line_height, text->line_height) + gap + text->line_height <=
                             available_h &&
-                        std::max(icon->line_height + gap + measure_text_px("H", text),
-                                 measure_text_px(kWidestSpeedText, text)) <= available_w) {
+                        std::max<int32_t>(icon->line_height + gap + measure_text_px("H", text),
+                                          measure_text_px(kWidestSpeedText, text)) <= available_w) {
                         icon_font = icon;
                         text_font = text;
                         fitted = true;

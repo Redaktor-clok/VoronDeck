@@ -89,13 +89,13 @@ struct ChamberPanelHarness {
     }
 };
 
-/// A FilamentPanel with the REAL shipped presets/k2.json applied to a real
+/// A FilamentPanel with the test-only chamber preset applied to a real
 /// Config, so Cool Down's gcode reflects the preset's persisted
 /// default_macros.cooldown the way an installed printer's does, not just
 /// FilamentPanel's own in-memory fallback (which `cfg->get_macro()` only ever
 /// reaches when no printer profile has been created, i.e. never in the field).
 /// Local to this file, like VariantPresetFixture in test_printer_detector.cpp.
-struct K2PresetCooldownHarness {
+struct ChamberPresetCooldownHarness {
     helix::Config config;
     std::string temp_dir;
     std::string saved_config_dir_;
@@ -109,10 +109,11 @@ struct K2PresetCooldownHarness {
     MoonrakerAPI api{client, state};
     std::unique_ptr<FilamentPanel> panel;
 
-    K2PresetCooldownHarness() {
+    ChamberPresetCooldownHarness() {
         namespace fs = std::filesystem;
         temp_dir =
-            (fs::temp_directory_path() / ("test_k2_cooldown_" + std::to_string(getpid()))).string();
+            (fs::temp_directory_path() / ("test_chamber_cooldown_" + std::to_string(getpid())))
+                .string();
         fs::create_directories(temp_dir + "/presets");
 
         if (const char* prev = std::getenv("HELIX_CONFIG_DIR")) {
@@ -126,11 +127,11 @@ struct K2PresetCooldownHarness {
         setenv("HELIX_CONFIG_DIR", temp_dir.c_str(), 1);
         setenv("HELIX_DATA_DIR", temp_dir.c_str(), 1);
 
-        fs::path shipped = fs::current_path() / "assets" / "config" / "presets" / "k2.json";
+        fs::path shipped = fs::current_path() / "tests" / "fixtures" / "presets" / "chamber.json";
         INFO("reading " << shipped.string() << " (tests must run from the repo root)");
         REQUIRE(fs::exists(shipped));
         std::error_code ec;
-        fs::copy_file(shipped, fs::path(temp_dir) / "presets" / "k2.json",
+        fs::copy_file(shipped, fs::path(temp_dir) / "presets" / "chamber.json",
                       fs::copy_options::overwrite_existing, ec);
         REQUIRE_FALSE(ec);
 
@@ -141,7 +142,7 @@ struct K2PresetCooldownHarness {
             {"printers",
              {{"default", {{"moonraker_host", "127.0.0.1"}, {"wizard_completed", false}}}}}};
 
-        REQUIRE(config.apply_preset_file("k2"));
+        REQUIRE(config.apply_preset_file("chamber"));
 
         saved_instance_ = helix::ConfigTestAccess::instance_ref();
         helix::ConfigTestAccess::instance_ref() = &config;
@@ -153,7 +154,7 @@ struct K2PresetCooldownHarness {
         panel->init_subjects();
     }
 
-    ~K2PresetCooldownHarness() {
+    ~ChamberPresetCooldownHarness() {
         panel.reset();
         helix::AmsState::instance().deinit_subjects();
         ToolState::instance().deinit_subjects();
@@ -263,18 +264,19 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 }
 
 // ============================================================================
-// The shared k2 preset's cooldown macro and a family member without the
+// The shared chamber preset's cooldown macro and a family member without the
 // heater it assumes
 // ============================================================================
 
-TEST_CASE_METHOD(
-    LVGLUITestFixture,
-    "Cool Down on a base K2 never addresses the chamber heater the shared k2 preset assumes",
-    "[filament][chamber][presets]") {
-    K2PresetCooldownHarness h;
+TEST_CASE_METHOD(LVGLUITestFixture,
+                 "Cool Down on a printer without chamber heating never addresses the chamber "
+                 "heater the shared chamber preset assumes",
+                 "[filament][chamber][presets]") {
+    ChamberPresetCooldownHarness h;
 
-    // Real base K2 shape: no heater_generic chamber_heater object; chamber_fan
-    // is the only chamber-related object Klipper reports (docs/devel/CHAMBER_HEATER.md).
+    // Real printer without chamber heating shape: no heater_generic chamber_heater object;
+    // chamber_fan is the only chamber-related object Klipper reports
+    // (docs/devel/CHAMBER_HEATER.md).
     h.discover("auto", {"temperature_fan chamber_fan", "temperature_sensor chamber_temp",
                         "extruder", "heater_bed"});
     TA::handle_cooldown(*h.panel);
@@ -284,11 +286,11 @@ TEST_CASE_METHOD(
     CHECK_FALSE(h.sent("chamber_heater"));
 }
 
-TEST_CASE_METHOD(
-    LVGLUITestFixture,
-    "Cool Down on a K2 Plus still turns off its chamber heater via the shared k2 preset",
-    "[filament][chamber][presets]") {
-    K2PresetCooldownHarness h;
+TEST_CASE_METHOD(LVGLUITestFixture,
+                 "Cool Down on a printer with chamber heating still turns off its chamber heater "
+                 "via the shared chamber preset",
+                 "[filament][chamber][presets]") {
+    ChamberPresetCooldownHarness h;
 
     h.discover("auto", {"heater_generic chamber_heater", "extruder", "heater_bed"});
     TA::handle_cooldown(*h.panel);
@@ -302,9 +304,9 @@ TEST_CASE_METHOD(
     LVGLUITestFixture,
     "Cool Down runs a user-customized macro verbatim, even with a resolved chamber heater",
     "[filament][chamber][presets]") {
-    K2PresetCooldownHarness h;
+    ChamberPresetCooldownHarness h;
 
-    // A user edited their Cool Down macro after the k2 preset installed it.
+    // A user edited their Cool Down macro after the chamber preset installed it.
     helix::ConfigTestAccess::data(h.config)["printers"]["default"]["default_macros"]["cooldown"] =
         "MY_CUSTOM_COOLDOWN_MACRO";
 

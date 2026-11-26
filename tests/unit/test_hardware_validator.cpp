@@ -1019,18 +1019,18 @@ TEST_CASE_METHOD(MmuDetectionFixture,
         REQUIRE(is_missing_in_result(result, "indx"));
     }
 
-    SECTION("CFS present: no warning") {
+    SECTION("retired marker does not restore a backend") {
         client.set_additional_objects({"box"});
-        REQUIRE(client.hardware().mmu_type() == AmsType::CFS);
+        REQUIRE_FALSE(client.hardware().has_mmu());
         setup_config_with_expected({"cfs"});
         auto result = HardwareValidator{}.validate(&config, client.hardware());
         REQUIRE_FALSE(is_missing_in_result(result, "cfs"));
     }
 
-    SECTION("CFS gone: warning") {
+    SECTION("retired expected entry is ignored") {
         setup_config_with_expected({"cfs"});
         auto result = HardwareValidator{}.validate(&config, client.hardware());
-        REQUIRE(is_missing_in_result(result, "cfs"));
+        REQUIRE_FALSE(is_missing_in_result(result, "cfs"));
     }
 
     SECTION("a tool changer detected from several tools, without klipper-toolchanger") {
@@ -1443,14 +1443,13 @@ TEST_CASE_METHOD(ExpectedHardwareSuppressFixture,
     REQUIRE_FALSE(has_newly_discovered(result, "filament_switch_sensor htlf1_home_pin"));
 }
 
-TEST_CASE_METHOD(ExpectedHardwareSuppressFixture,
-                 "HardwareValidator - AD5X IFS lessWaste port sensors auto-suppressed",
-                 "[hardware][validator][ams][ad5x_ifs]") {
+TEST_CASE_METHOD(
+    ExpectedHardwareSuppressFixture,
+    "HardwareValidator - AD5X IFS lessWaste port sensors remain visible without a provider",
+    "[hardware][validator][ams][ad5x_ifs]") {
     // lessWaste plugin exports per-port HUB sensors as
     // filament_switch_sensor _ifs_port_sensor_{1..4}. The IFS detection
-    // pattern in PrinterDiscovery already tags these as IFS-side, but
-    // they still land in filament_sensor_names_ and need explicit
-    // suppression on the toast path.
+    // marker no longer claims a provider, so the sensors stay visible.
     client.set_heaters({"extruder", "heater_bed"});
     client.set_mmu_enabled(false);
     client.set_filament_sensors(
@@ -1465,21 +1464,22 @@ TEST_CASE_METHOD(ExpectedHardwareSuppressFixture,
                       {"expected", json::array()},
                       {"last_snapshot", json::object()}}}}}});
 
-    REQUIRE(client.hardware().mmu_type() == AmsType::AD5X_IFS);
+    REQUIRE_FALSE(client.hardware().has_mmu());
 
     HardwareValidator validator;
     auto result = validator.validate(&config, client.hardware());
 
-    REQUIRE_FALSE(has_newly_discovered(result, "filament_switch_sensor _ifs_port_sensor_1"));
-    REQUIRE_FALSE(has_newly_discovered(result, "filament_switch_sensor _ifs_port_sensor_2"));
-    REQUIRE_FALSE(has_newly_discovered(result, "filament_switch_sensor _ifs_port_sensor_3"));
-    REQUIRE_FALSE(has_newly_discovered(result, "filament_switch_sensor _ifs_port_sensor_4"));
-    REQUIRE_FALSE(has_newly_discovered(result, "filament_switch_sensor head_switch_sensor"));
+    REQUIRE(has_newly_discovered(result, "filament_switch_sensor _ifs_port_sensor_1"));
+    REQUIRE(has_newly_discovered(result, "filament_switch_sensor _ifs_port_sensor_2"));
+    REQUIRE(has_newly_discovered(result, "filament_switch_sensor _ifs_port_sensor_3"));
+    REQUIRE(has_newly_discovered(result, "filament_switch_sensor _ifs_port_sensor_4"));
+    REQUIRE(has_newly_discovered(result, "filament_switch_sensor head_switch_sensor"));
 }
 
-TEST_CASE_METHOD(ExpectedHardwareSuppressFixture,
-                 "HardwareValidator - AD5X IFS native ZMOD motion sensor auto-suppressed",
-                 "[hardware][validator][ams][ad5x_ifs]") {
+TEST_CASE_METHOD(
+    ExpectedHardwareSuppressFixture,
+    "HardwareValidator - AD5X IFS native ZMOD motion sensor remain visible without a provider",
+    "[hardware][validator][ams][ad5x_ifs]") {
     // Native ZMOD exposes ifs_motion_sensor (post-hub boolean) plus the
     // toolhead head_switch_sensor.
     client.set_heaters({"extruder", "heater_bed"});
@@ -1494,18 +1494,19 @@ TEST_CASE_METHOD(ExpectedHardwareSuppressFixture,
                       {"expected", json::array()},
                       {"last_snapshot", json::object()}}}}}});
 
-    REQUIRE(client.hardware().mmu_type() == AmsType::AD5X_IFS);
+    REQUIRE_FALSE(client.hardware().has_mmu());
 
     HardwareValidator validator;
     auto result = validator.validate(&config, client.hardware());
 
-    REQUIRE_FALSE(has_newly_discovered(result, "filament_motion_sensor ifs_motion_sensor"));
-    REQUIRE_FALSE(has_newly_discovered(result, "filament_switch_sensor head_switch_sensor"));
+    REQUIRE(has_newly_discovered(result, "filament_motion_sensor ifs_motion_sensor"));
+    REQUIRE(has_newly_discovered(result, "filament_switch_sensor head_switch_sensor"));
 }
 
-TEST_CASE_METHOD(ExpectedHardwareSuppressFixture,
-                 "HardwareValidator - CFS toolhead filament_sensor auto-suppressed",
-                 "[hardware][validator][ams][cfs]") {
+TEST_CASE_METHOD(
+    ExpectedHardwareSuppressFixture,
+    "HardwareValidator - CFS toolhead filament_sensor remain visible without a provider",
+    "[hardware][validator][ams][cfs]") {
     // K2 CFS exposes a single filament_switch_sensor at the toolhead
     // named just 'filament_sensor'. Generic name, conventional on many
     // printers — only safe to suppress when CFS is the detected backend.
@@ -1521,12 +1522,12 @@ TEST_CASE_METHOD(ExpectedHardwareSuppressFixture,
                       {"expected", json::array()},
                       {"last_snapshot", json::object()}}}}}});
 
-    REQUIRE(client.hardware().mmu_type() == AmsType::CFS);
+    REQUIRE_FALSE(client.hardware().has_mmu());
 
     HardwareValidator validator;
     auto result = validator.validate(&config, client.hardware());
 
-    REQUIRE_FALSE(has_newly_discovered(result, "filament_switch_sensor filament_sensor"));
+    REQUIRE(has_newly_discovered(result, "filament_switch_sensor filament_sensor"));
 }
 
 TEST_CASE_METHOD(ExpectedHardwareSuppressFixture,
@@ -1555,22 +1556,10 @@ TEST_CASE_METHOD(ExpectedHardwareSuppressFixture,
     REQUIRE(has_newly_discovered(result, "filament_switch_sensor filament_sensor"));
 }
 
-// The bespoke aux-fan check in validate_configured_hardware() turns any fans/aux
-// mapping into an expected-missing warning when discovery does not return that
-// object. Feed it the fans block HelixScreen actually ships for the k1 so the
-// preset data and the check are held to the same contract.
 TEST_CASE_METHOD(HardwareValidatorConfigFixture,
-                 "HardwareValidator - shipped k1 preset maps no aux fan to warn about",
-                 "[hardware][validator][k1]") {
-    std::filesystem::path shipped =
-        std::filesystem::current_path() / "assets" / "config" / "presets" / "k1.json";
-    INFO("reading " << shipped.string() << " (tests must run from the repo root)");
-    REQUIRE(std::filesystem::exists(shipped));
-    std::ifstream in(shipped);
-    REQUIRE(in.good());
-    json preset = json::parse(in);
-    REQUIRE(preset["printer"].contains("fans"));
-    json fans = preset["printer"]["fans"];
+                 "HardwareValidator reports only configured missing auxiliary fans",
+                 "[hardware][validator][fans]") {
+    json fans = {{"part", "output_pin fan0"}, {"hotend", "heater_fan hotend_fan"}};
 
     // A printer whose config comments the aux and exhaust output pins out.
     MoonrakerClientMock client;
@@ -1607,28 +1596,13 @@ TEST_CASE_METHOD(HardwareValidatorConfigFixture,
     }
 }
 
-// Creality K2 Plus preset regression: the PTC heater's own blower keeps
-// Klipper's factory name "heater_fan chamber_fan" on a stock unit, distinct by
-// section prefix from the chamber circulation loop "temperature_fan
-// chamber_fan" (see the "stock K2 naming" fixture in test_printer_hardware.cpp).
-// The preset's hardware/expected list must cover that stock name, or a stock
-// rig's real fan reads as newly discovered on every boot.
 TEST_CASE_METHOD(ExpectedHardwareSuppressFixture,
-                 "HardwareValidator - shipped k2 preset covers the stock chamber heater fan",
-                 "[hardware][validator][k2]") {
-    std::filesystem::path shipped =
-        std::filesystem::current_path() / "assets" / "config" / "presets" / "k2.json";
-    INFO("reading " << shipped.string() << " (tests must run from the repo root)");
-    REQUIRE(std::filesystem::exists(shipped));
-    std::ifstream in(shipped);
-    REQUIRE(in.good());
-    json preset = json::parse(in);
-    REQUIRE(preset["printer"].contains("hardware"));
-    REQUIRE(preset["printer"]["hardware"].contains("expected"));
-    REQUIRE(preset["printer"].contains("fans"));
+                 "HardwareValidator respects an expected chamber heater fan",
+                 "[hardware][validator][fans]") {
+    const json preset = {
+        {"printer",
+         {{"fans", json::object()}, {"hardware", {{"expected", {"heater_fan chamber_fan"}}}}}}};
 
-    // Object list as reported by Moonraker /printer/objects/list on a stock K2
-    // Plus, unmodified from the factory config.
     client.set_heaters({"extruder", "heater_bed", "heater_generic chamber_heater"});
     client.set_fans({"heater_fan hotend_fan", "output_pin fan0", "output_pin fan2",
                      "output_pin fan1", "heater_fan chamber_fan", "temperature_fan chamber_fan",

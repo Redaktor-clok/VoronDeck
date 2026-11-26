@@ -9,7 +9,6 @@
 #include "printer_detector.h"
 #include "printer_discovery.h"
 #include "test_helpers/mock_personas.h"
-#include "test_helpers/printer_capture.h"
 
 #include <algorithm>
 #include <fstream>
@@ -49,19 +48,10 @@ struct Expectation {
 constexpr Expectation kExpected[] = {
     {"voron_24",           "Voron 2.4",                 "",             true},
     {"voron_trident",      "Voron Trident",             "",             false},
-    {"k1",                 "Creality K1C",              "k1c",          true},
-    {"k1max",              "Creality K1 Max",           "k1",           true},
-    {"ad5m",               "FlashForge Adventurer 5M",  "ad5m",         true},
-    {"creator5",           "FlashForge Creator 5 Pro",  "creator5_pro", true},
-    {"creator5_zmod",      "FlashForge Creator 5 Pro",  "creator5_pro", true},
     {"generic_corexy",     "",                          "",             false},
     {"generic_bedslinger", "",                          "",             false},
     {"multi_extruder",     "",                          "",             false},
     {"delta",              "",                          "",             false},
-    {"snapmaker_u1",       "Snapmaker U1",              "snapmaker_u1", true},
-    {"cc1",                "Elegoo Centauri Carbon",    "cc1",          true},
-    {"ad5x",               "FlashForge Adventurer 5X",  "ad5x",         true},
-    {"k2",                 "Creality K2 Plus",          "k2",           true},
 };
 // clang-format on
 
@@ -103,27 +93,6 @@ TEST_CASE("The Voron personas model real centre-origin beds", "[mock][persona]")
     CHECK(hw.build_volume().y_max == 175.0f);
 }
 
-/// Every object, heater and fan the real machine reported is one the persona reports.
-void check_mirrors_capture(const helix::PrinterDiscovery& hw, const std::string& slug) {
-    const auto cap = helix::test::load_printer_capture(slug);
-    auto contains = [](const auto& list, const std::string& v) {
-        return std::find(list.begin(), list.end(), v) != list.end();
-    };
-    for (const auto& o : cap.value("printer_objects", nlohmann::json::array())) {
-        INFO(slug << " object " << o);
-        CHECK(contains(hw.printer_objects(), o.get<std::string>()));
-    }
-    for (const auto& h : cap.value("heaters", nlohmann::json::array())) {
-        INFO(slug << " heater " << h);
-        CHECK(contains(hw.heaters(), h.get<std::string>()));
-    }
-    for (const auto& f : cap.value("fans", nlohmann::json::array())) {
-        INFO(slug << " fan " << f);
-        CHECK(contains(hw.fans(), f.get<std::string>()));
-    }
-    CHECK(hw.hostname() == cap.value("hostname", std::string{}));
-}
-
 } // namespace
 
 TEST_CASE("Every persona has a detection expectation", "[mock][persona][detect]") {
@@ -163,96 +132,10 @@ TEST_CASE_METHOD(HelixTestFixture, "Each mock persona auto-detects as the printe
     }
 }
 
-TEST_CASE_METHOD(HelixTestFixture, "The cc1 persona mirrors the real CC1 capture",
-                 "[mock][persona][cc1]") {
-    PersonaEnv env("cc1");
-    check_mirrors_capture(discover(*helix::mock::find_persona("cc1")), "elegoo_centauri_carbon");
-}
-
-TEST_CASE_METHOD(HelixTestFixture, "An env override restores an omitted default",
-                 "[mock][persona][cc1]") {
-    PersonaEnv env("cc1");
-    const auto* p = helix::mock::find_persona("cc1");
-    {
-        const auto objs = discover(*p).printer_objects();
-        CHECK(std::find(objs.begin(), objs.end(), "cartographer") == objs.end());
+TEST_CASE("Retired printer personas are not selectable", "[mock][persona]") {
+    for (const auto* id : {"k1", "k1max", "ad5m", "creator5", "creator5_zmod", "snapmaker_u1",
+                           "cc1", "ad5x", "k2"}) {
+        CAPTURE(id);
+        CHECK(helix::mock::find_persona(id) == nullptr);
     }
-    helix::ScopedEnv probe("HELIX_MOCK_PROBE_TYPE", "cartographer");
-    helix::ScopedEnv sensors("HELIX_MOCK_FILAMENT_SENSORS", "switch:extra_runout");
-    const auto objs = discover(*p).printer_objects();
-    CHECK(std::find(objs.begin(), objs.end(), "filament_switch_sensor extra_runout") != objs.end());
-    const auto probe_objects = helix::sim::mock_probe_status(p->type);
-    REQUIRE(probe_objects.contains("cartographer"));
-    for (auto it = probe_objects.begin(); it != probe_objects.end(); ++it) {
-        INFO(it.key());
-        CHECK(std::find(objs.begin(), objs.end(), it.key()) != objs.end());
-    }
-}
-
-TEST_CASE_METHOD(HelixTestFixture, "The ad5x persona carries the AD5X preset's expected hardware",
-                 "[mock][persona][ad5x]") {
-    PersonaEnv env("ad5x");
-    const auto hw = discover(*helix::mock::find_persona("ad5x"));
-    std::ifstream f("assets/config/presets/ad5x.json");
-    REQUIRE(f.good());
-    const auto preset = nlohmann::json::parse(f);
-    const auto& expected = preset["printer"]["hardware"]["expected"];
-    REQUIRE_FALSE(expected.empty());
-    const auto& objs = hw.printer_objects();
-    for (const auto& name : expected) {
-        INFO(name);
-        CHECK(std::find(objs.begin(), objs.end(), name.get<std::string>()) != objs.end());
-    }
-    CHECK(std::find(objs.begin(), objs.end(), "gcode_macro SET_EXTRUDER_SLOT") != objs.end());
-}
-
-TEST_CASE_METHOD(HelixTestFixture, "The ad5x persona does not stand up the production IFS backend",
-                 "[mock][persona][ad5x][ams]") {
-    PersonaEnv env("ad5x");
-    const auto hw = discover(*helix::mock::find_persona("ad5x"));
-    CHECK(hw.mmu_type() != helix::AmsType::AD5X_IFS);
-    for (const auto& o : hw.printer_objects()) {
-        INFO(o);
-        CHECK(o.rfind("ifs", 0) != 0);
-        CHECK(o.rfind("zmod_ifs", 0) != 0);
-        CHECK(o.find("_ifs_port_sensor") == std::string::npos);
-    }
-}
-
-TEST_CASE_METHOD(HelixTestFixture, "The k2 persona mirrors the K2 Plus capture",
-                 "[mock][persona][k2]") {
-    PersonaEnv env("k2");
-    check_mirrors_capture(discover(*helix::mock::find_persona("k2")), "creality_k2_plus");
-}
-
-TEST_CASE_METHOD(HelixTestFixture, "HELIX_MOCK_AMS=none removes the k2 persona's box",
-                 "[mock][persona][k2][ams]") {
-    PersonaEnv env("k2");
-    CHECK(helix::mock::effective_mock_ams(nullptr, "k2") == "cfs");
-    {
-        const auto hw = discover(*helix::mock::find_persona("k2"));
-        const auto& objs = hw.printer_objects();
-        CHECK(std::find(objs.begin(), objs.end(), "box") != objs.end());
-    }
-    helix::ScopedEnv none("HELIX_MOCK_AMS", "none");
-    CHECK(helix::mock::effective_mock_ams("none", "k2") == "none");
-    const auto hw = discover(*helix::mock::find_persona("k2"));
-    const auto& objs = hw.printer_objects();
-    CHECK(std::find(objs.begin(), objs.end(), "box") == objs.end());
-}
-
-TEST_CASE_METHOD(HelixTestFixture, "The snapmaker_u1 persona mirrors the U1 capture",
-                 "[mock][persona][snapmaker]") {
-    PersonaEnv env("snapmaker_u1");
-    const auto hw = discover(*helix::mock::find_persona("snapmaker_u1"));
-    check_mirrors_capture(hw, "snapmaker_u1");
-
-    size_t extruders = 0;
-    for (const auto& h : hw.heaters()) {
-        extruders += h.rfind("extruder", 0) == 0;
-    }
-    CHECK(extruders == 4);
-    CHECK(helix::mock::effective_mock_ams(nullptr, "snapmaker_u1") == "snapmaker");
-    const auto& objs = hw.printer_objects();
-    CHECK(std::find(objs.begin(), objs.end(), "filament_detect") == objs.end());
 }

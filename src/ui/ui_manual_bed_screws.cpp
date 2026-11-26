@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 #include "ui_manual_bed_screws.h"
 
 #include "ui_callback_helpers.h"

@@ -181,13 +181,13 @@ TEST_CASE_METHOD(LVGLTestFixture,
     sensors.init_subjects();
     FilamentSensorManagerTestAccess::reset(sensors);
 
-    // A K2's objects: the CFS's `box` and the toolhead switch it claims by name.
+    // Happy Hare owns the named extruder sensor until it reports no hardware.
     PrinterDiscovery discovery;
     discovery.parse_objects(
-        nlohmann::json::array({"box", "extruder", "filament_switch_sensor filament_sensor"}));
-    REQUIRE(discovery.mmu_type() == AmsType::CFS);
+        nlohmann::json::array({"mmu", "extruder", "filament_switch_sensor extruder"}));
+    REQUIRE(discovery.mmu_type() == AmsType::HAPPY_HARE);
     get_printer_state().set_hardware(discovery);
-    discover_filament_sensors(sensors, {"filament_switch_sensor filament_sensor"});
+    discover_filament_sensors(sensors, {"filament_switch_sensor extruder"});
     REQUIRE(sensors.entries().size() == 1);
     const auto toolhead = sensors.entries().front();
 

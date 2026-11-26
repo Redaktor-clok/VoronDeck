@@ -222,12 +222,16 @@ TEST_CASE_METHOD(PresetConfigFixture,
                  "[config][preset]") {
     SetUp();
 
-    // Machine provisioned before the ForgeX preset landed: wizard done, generic
-    // ad5m fan names in config, no chamber/exhaust/aux/led keys.
+    // Existing printer settings have no chamber/exhaust/aux/LED role keys.
     printer_data()["wizard_completed"] = true;
-    copy_shipped_preset("ad5m_pro_forgex");
+    write_preset("role_defaults", {{"printer",
+                                    {{"fans",
+                                      {{"chamber", "fan_generic chamber_fan"},
+                                       {"exhaust", "fan_generic external_fan"},
+                                       {"aux", "fan_generic internal_fan"}}},
+                                     {"leds", {{"strip", "led chamber_light"}}}}}});
 
-    REQUIRE(config.apply_preset_file("ad5m_pro_forgex") == true);
+    REQUIRE(config.apply_preset_file("role_defaults") == true);
 
     auto& pd = printer_data();
     REQUIRE(pd["fans"]["chamber"] == "fan_generic chamber_fan");
@@ -264,10 +268,11 @@ TEST_CASE_METHOD(PresetConfigFixture,
     TearDown();
 }
 
-TEST_CASE_METHOD(PresetConfigFixture,
-                 "Config::apply_preset_file post-wizard unions hardware/expected without AMS "
-                 "keywords",
-                 "[config][preset]") {
+TEST_CASE_METHOD(
+    PresetConfigFixture,
+    "Config::apply_preset_file post-wizard unions hardware/expected without supported AMS "
+    "keywords",
+    "[config][preset]") {
     SetUp();
 
     printer_data()["wizard_completed"] = true;
@@ -284,15 +289,16 @@ TEST_CASE_METHOD(PresetConfigFixture,
 
     auto& expected = printer_data()["hardware"]["expected"];
     // Scaffold holds heater_bed + extruder; the union adds the rest, no duplicates.
-    REQUIRE(expected.size() == 5);
+    REQUIRE(expected.size() == 7);
+    // Retired backend names are opaque entries, not supported AMS keywords.
+    REQUIRE(std::find(expected.begin(), expected.end(), "ace") != expected.end());
+    REQUIRE(std::find(expected.begin(), expected.end(), "cfs") != expected.end());
     for (const auto& entry : expected) {
         std::string name = entry.get<std::string>();
         REQUIRE(name != "AFC");
         REQUIRE(name != "mmu");
         REQUIRE(name != "toolchanger");
-        REQUIRE(name != "ace");
         REQUIRE(name != "indx");
-        REQUIRE(name != "cfs");
     }
 
     TearDown();
@@ -466,14 +472,14 @@ TEST_CASE_METHOD(PresetConfigFixture,
     printer_data().erase("type");
 
     // Use a preset name that exists in the shipped printer_database.json so the
-    // DB lookup can resolve "ad5x" → "FlashForge Adventurer 5X".
+    // DB lookup can resolve "cc1" → "Elegoo Centauri Carbon".
     json preset = {{"printer", {{"heaters", {{"bed", "heater_bed"}}}}}};
-    write_preset("ad5x", preset);
+    write_preset("cc1", preset);
 
-    REQUIRE(config.apply_preset_file("ad5x") == true);
+    REQUIRE(config.apply_preset_file("cc1") == true);
 
     REQUIRE(printer_data().contains("type"));
-    REQUIRE(printer_data()["type"] == "FlashForge Adventurer 5X");
+    REQUIRE(printer_data()["type"] == "Elegoo Centauri Carbon");
 
     TearDown();
 }
@@ -487,9 +493,9 @@ TEST_CASE_METHOD(PresetConfigFixture,
     printer_data()["type"] = "Custom Voron";
 
     json preset = {{"printer", {{"heaters", {{"bed", "heater_bed"}}}}}};
-    write_preset("ad5x", preset);
+    write_preset("cc1", preset);
 
-    REQUIRE(config.apply_preset_file("ad5x") == true);
+    REQUIRE(config.apply_preset_file("cc1") == true);
 
     // Should preserve the user-selected type even though the preset maps to a DB entry
     REQUIRE(printer_data()["type"] == "Custom Voron");
@@ -762,128 +768,6 @@ TEST_CASE_METHOD(PresetConfigFixture,
     TearDown();
 }
 
-// The k1 preset seeds a printer whose stock config leaves the aux fan and the
-// chamber temperature sensor commented out. Naming absent Klipper objects costs
-// the owner a hardware warning to hand-silence and a discovery-time miss on
-// every pass, so the preset must claim neither. mutate-diff does not mutate
-// assets/*.json, which leaves this the only guard over that data.
-TEST_CASE_METHOD(PresetConfigFixture, "k1 preset claims no aux fan and no fixed chamber sensor",
-                 "[config][preset][k1]") {
-    SetUp();
-
-    copy_shipped_preset("k1");
-    REQUIRE(config.apply_preset_file("k1") == true);
-
-    auto& pd = printer_data();
-
-    // resolve_aux_fan() picks the aux slot out of discovered fans at runtime and
-    // prefers a user-commandable one, so a mapping here only ever adds a claim.
-    REQUIRE(pd.contains("fans"));
-    REQUIRE_FALSE(pd["fans"].contains("aux"));
-
-    // "auto" hands the chamber sensor to discovery; "" would mean "no chamber".
-    REQUIRE(pd["temp_sensors"]["chamber"] == "auto");
-
-    // The exhaust fan is a live role feeding the fan UI and stays mapped.
-    REQUIRE(pd["fans"]["exhaust"] == "output_pin fan2");
-
-    // Nothing the preset expects may name an object it no longer maps.
-    for (const auto& expected : pd["hardware"]["expected"]) {
-        REQUIRE(expected.get<std::string>() != "output_pin fan1");
-        REQUIRE(expected.get<std::string>() != "temperature_sensor chamber_temp");
-    }
-
-    TearDown();
-}
-
-// The creator5 presets give each fd_ex head switch the runout role and name the
-// head it watches in "lane": the names encode no head, and without the lane a
-// switch cannot speak for its own head in the pre-print check
-// (prestonbrown/helixscreen#1714). mutate-diff does not mutate assets/*.json,
-// which leaves this the only guard over that data.
-static void check_fd_ex_runout_lanes(const nlohmann::json& sensors) {
-    int switches = 0;
-    for (const auto& sensor : sensors) {
-        const std::string klipper_name = sensor.at("klipper_name").get<std::string>();
-        const std::string prefix = "filament_switch_sensor fd_ex";
-        if (klipper_name.rfind(prefix, 0) != 0) {
-            continue;
-        }
-        ++switches;
-        INFO(klipper_name);
-        CHECK(sensor.at("role").get<std::string>() == "runout");
-        CHECK(sensor.value("lane", -1) == std::stoi(klipper_name.substr(prefix.size())));
-    }
-    // The loop must have seen the four head switches, not an empty array.
-    REQUIRE(switches == 4);
-}
-
-TEST_CASE_METHOD(PresetConfigFixture,
-                 "creator5 preset gives each fd_ex switch the runout role for its own head",
-                 "[config][preset][creator5]") {
-    SetUp();
-
-    copy_shipped_preset("creator5");
-    REQUIRE(config.apply_preset_file("creator5") == true);
-
-    auto& pd = printer_data();
-
-    REQUIRE(pd.contains("filament_sensors"));
-    check_fd_ex_runout_lanes(pd["filament_sensors"]["sensors"]);
-
-    TearDown();
-}
-
-// The Creator 5 has no chamber heater: the Pro's heated-chamber objects must
-// stay out of the non-Pro preset entirely, or a Creator 5 boots expecting
-// hardware it does not have and warns about it on every start.
-TEST_CASE_METHOD(PresetConfigFixture, "creator5 preset carries no chamber heater",
-                 "[config][preset][creator5]") {
-    SetUp();
-
-    copy_shipped_preset("creator5");
-    REQUIRE(config.apply_preset_file("creator5") == true);
-
-    auto& pd = printer_data();
-
-    CHECK(pd["heaters"].value("chamber", "") == "");
-    CHECK(pd["temp_sensors"].value("chamber", "") == "");
-    CHECK(pd["fans"].value("chamber", "") == "");
-    CHECK(pd["fans"].value("aux", "") == "");
-    // The chamber LED is shared hardware and stays; the heater and the fan
-    // suite are the Pro's.
-    for (const auto& expected : pd["hardware"]["expected"]) {
-        const std::string name = expected.get<std::string>();
-        INFO(name);
-        CHECK(name.find("chamber_heater") == std::string::npos);
-        CHECK(name.find("chamber_fan") == std::string::npos);
-        CHECK(name.find("chamber_loop_fan") == std::string::npos);
-    }
-    CHECK(pd["default_macros"].value("cooldown", "").find("chamber_heater") == std::string::npos);
-
-    TearDown();
-}
-
-TEST_CASE_METHOD(PresetConfigFixture,
-                 "creator5_pro preset gives each fd_ex switch the runout role for its own head",
-                 "[config][preset][creator5]") {
-    SetUp();
-
-    copy_shipped_preset("creator5_pro");
-    REQUIRE(config.apply_preset_file("creator5_pro") == true);
-
-    auto& pd = printer_data();
-
-    REQUIRE(pd.contains("filament_sensors"));
-    check_fd_ex_runout_lanes(pd["filament_sensors"]["sensors"]);
-
-    // The Pro's chamber heater is what separates it from the Creator 5; the
-    // preset must keep mapping it.
-    REQUIRE(pd["heaters"].value("chamber", "") == "heater_generic chamber_heater");
-
-    TearDown();
-}
-
 // ============================================================================
 // apply_preset_file post-wizard migration 2: default_macros
 // ============================================================================
@@ -894,7 +778,7 @@ constexpr const char* kStaleK2Cooldown = "SET_HEATER_TEMPERATURE HEATER=extruder
                                          "SET_HEATER_TEMPERATURE HEATER=heater_bed TARGET=0\n"
                                          "SET_HEATER_TEMPERATURE HEATER=chamber_heater TARGET=0";
 
-/// The cooldown text the sandboxed copy of k2.json currently ships, so these
+/// The cooldown text in the sandboxed migration fixture, so these
 /// tests track the shipped preset instead of a second hardcoded copy of it.
 std::string current_k2_cooldown_text(const std::string& temp_dir) {
     std::ifstream in(temp_dir + "/presets/k2.json");
@@ -920,7 +804,9 @@ TEST_CASE_METHOD(PresetConfigFixture,
                  "[config][preset][macros]") {
     SetUp();
 
-    copy_shipped_preset("k2");
+    std::ifstream fixture("tests/fixtures/presets/chamber.json");
+    REQUIRE(fixture.good());
+    write_preset("k2", json::parse(fixture));
     printer_data()["wizard_completed"] = true;
     printer_data()["filament_sensors"] = matching_k2_filament_sensors();
     printer_data()["default_macros"]["cooldown"] = kStaleK2Cooldown;
@@ -939,7 +825,9 @@ TEST_CASE_METHOD(PresetConfigFixture,
                  "[config][preset][macros]") {
     SetUp();
 
-    copy_shipped_preset("k2");
+    std::ifstream fixture("tests/fixtures/presets/chamber.json");
+    REQUIRE(fixture.good());
+    write_preset("k2", json::parse(fixture));
     printer_data()["wizard_completed"] = true;
     printer_data()["filament_sensors"] = matching_k2_filament_sensors();
     printer_data()["default_macros"]["cooldown"] = "MY_CUSTOM_COOLDOWN_MACRO";
@@ -956,7 +844,9 @@ TEST_CASE_METHOD(PresetConfigFixture,
                  "[config][preset][macros]") {
     SetUp();
 
-    copy_shipped_preset("k2");
+    std::ifstream fixture("tests/fixtures/presets/chamber.json");
+    REQUIRE(fixture.good());
+    write_preset("k2", json::parse(fixture));
     printer_data()["wizard_completed"] = true;
     printer_data()["filament_sensors"] = matching_k2_filament_sensors();
     printer_data()["default_macros"]["cooldown"] = kStaleK2Cooldown;
@@ -970,21 +860,6 @@ TEST_CASE_METHOD(PresetConfigFixture,
     // one, so there is nothing left to migrate.
     REQUIRE(config.apply_preset_file("k2") == false);
     REQUIRE(printer_data()["default_macros"]["cooldown"] == current_text);
-
-    TearDown();
-}
-
-// A preset's layout would be stored as raw track coordinates with no grid
-// named, which load() refuses to read; the home arrangement comes from the
-// default layout tables instead (prestonbrown/helixscreen#1216).
-TEST_CASE_METHOD(PresetConfigFixture, "snapmaker_u1 preset carries no home panel layout",
-                 "[config][preset][snapmaker_u1]") {
-    SetUp();
-
-    copy_shipped_preset("snapmaker_u1");
-    REQUIRE(config.apply_preset_file("snapmaker_u1") == true);
-
-    CHECK_FALSE(printer_data().contains("panel_widgets"));
 
     TearDown();
 }

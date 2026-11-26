@@ -204,7 +204,7 @@ TEST_CASE("medusahc_calibrate alone does not make a changer", "[printer_discover
 // Regression matrix — none of these may be re-typed by MedusaHC detection
 // ============================================================================
 
-TEST_CASE("MedusaHC detection never displaces another AMS system",
+TEST_CASE("MedusaHC detection distinguishes supported systems and retired markers",
           "[printer_discovery][medusahc][regression]") {
     // Every case here was measured resolving to MedusaHC when pin_watch and
     // `T<n>` macros were wired as an MMU type. They are load-bearing: each one
@@ -219,7 +219,7 @@ TEST_CASE("MedusaHC detection never displaces another AMS system",
                          "gcode_macro T31", "extruder", "toolhead"}));
 
         REQUIRE_FALSE(helix::toolchanger_addon::present(hw));
-        REQUIRE(hw.mmu_type() == AmsType::SNAPMAKER);
+        REQUIRE(hw.mmu_type() == AmsType::NONE);
     }
 
     SECTION("Happy Hare") {
@@ -236,7 +236,7 @@ TEST_CASE("MedusaHC detection never displaces another AMS system",
             {"filament_motion_sensor ifs_motion_sensor", "gcode_macro T0", "extruder"}));
 
         REQUIRE_FALSE(helix::toolchanger_addon::present(hw));
-        REQUIRE(hw.mmu_type() == AmsType::AD5X_IFS);
+        REQUIRE(hw.mmu_type() == AmsType::NONE);
     }
 
     SECTION("QIDI Box") {
@@ -245,7 +245,7 @@ TEST_CASE("MedusaHC detection never displaces another AMS system",
             json::array({"box_stepper slot0", "box_stepper slot1", "gcode_macro T0", "extruder"}));
 
         REQUIRE_FALSE(helix::toolchanger_addon::present(hw));
-        REQUIRE(hw.mmu_type() == AmsType::QIDI_BOX);
+        REQUIRE(hw.mmu_type() == AmsType::NONE);
     }
 
     SECTION("plain IDEX with T0/T1 macros and no MMU at all") {

@@ -170,17 +170,22 @@ cat > "$BATS_TEST_TMPDIR/ssh-in-$n"; exit 0'
 @test "remote-build.sh passes no -j unless JOBS names one, so the remote make sizes its own" {
     capture_ssh
     hosts REMOTE_HOST=ok.invalid
-    # It reads only git (a diff, the untracked list) and writes a temp dir, so the
-    # real checkout is safe; the scratch tree has no .git for it to read.
-    cd "$ROOT"
-    run scripts/remote-build.sh test
+    # Keep the command independent of the developer checkout's remote history.
+    local repo="$BATS_TEST_TMPDIR/remote-source"
+    git init -q "$repo"
+    cd "$repo"
+    git -c core.hooksPath=/dev/null -c user.name=Fixture -c user.email=fixture@example.invalid \
+        commit -q --allow-empty -m fixture
+    git remote add origin https://example.invalid/fixture.git
+    git update-ref refs/remotes/origin/main HEAD
+    run "$ROOT/scripts/remote-build.sh" test
     [ "$status" -eq 0 ] || fail "remote-build failed: $output"
     build=$(grep -l "JOBS_ARG=" "$BATS_TEST_TMPDIR"/ssh-in-*)
     [ -n "$build" ] || fail "no build script captured: $(ls "$BATS_TEST_TMPDIR")"
     grep -qx 'JOBS_ARG=""' "$build" || fail "$(grep JOBS_ARG= "$build")"
 
     rm -f "$BATS_TEST_TMPDIR"/ssh-in-*
-    JOBS=-j7 run scripts/remote-build.sh test
+    JOBS=-j7 run "$ROOT/scripts/remote-build.sh" test
     [ "$status" -eq 0 ] || fail "remote-build failed: $output"
     build=$(grep -l "JOBS_ARG=" "$BATS_TEST_TMPDIR"/ssh-in-*)
     grep -qx 'JOBS_ARG="-j7"' "$build" || fail "$(grep JOBS_ARG= "$build")"

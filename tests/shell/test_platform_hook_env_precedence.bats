@@ -124,12 +124,19 @@ file_scope_exports() {
     }
 }
 
-@test "the hooks actually export something (the check above is not vacuous)" {
-    local n=0
-    for f in "$HOOKS_DIR"/hooks-*.sh; do
-        n=$((n + $(helix_exports "$f" | grep -c . || true)))
-    done
-    [ "$n" -gt 0 ]
+@test "the export scan recognizes a hook default even when Pi hooks need none" {
+    local fixture="$BATS_TEST_TMPDIR/export-fixture.sh"
+    cat > "$fixture" <<'EOF'
+platform_pre_start() {
+    export HELIX_LOG_DEST="${HELIX_LOG_DEST:-file}"
+}
+EOF
+    run helix_exports "$fixture"
+    [ "$status" -eq 0 ]
+    contains 'export HELIX_LOG_DEST=' "$output"
+    run unguarded_hook_exports "$fixture"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
 }
 
 @test "the defaulting scan sees unguarded exports inside helper functions" {
