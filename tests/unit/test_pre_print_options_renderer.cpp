@@ -5,6 +5,7 @@
 #include "ui_print_preparation_manager.h"
 
 #include "../lvgl_ui_test_fixture.h"
+#include "../test_helpers/preprint_database_fixture.h"
 #include "macro_param_cache.h"
 #include "pre_print_option.h"
 #include "printer_detector.h"
@@ -79,6 +80,7 @@ PrePrintOptionSet make_multi_category_set() {
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: empty option set leaves container empty",
                  "[print_file_detail][pre_print_options]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrePrintOptionsRenderer renderer;
     lv_obj_t* container = lv_obj_create(test_screen());
 
@@ -91,6 +93,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 
 TEST_CASE_METHOD(LVGLUITestFixture, "PrePrintOptionsRenderer: single-category set has no subheader",
                  "[print_file_detail][pre_print_options]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrePrintOptionsRenderer renderer;
     lv_obj_t* container = lv_obj_create(test_screen());
 
@@ -120,6 +123,7 @@ TEST_CASE_METHOD(LVGLUITestFixture, "PrePrintOptionsRenderer: single-category se
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: multi-category set emits flat row list",
                  "[print_file_detail][pre_print_options]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrePrintOptionsRenderer renderer;
     lv_obj_t* container = lv_obj_create(test_screen());
 
@@ -142,6 +146,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: state subjects initialized from default_enabled",
                  "[print_file_detail][pre_print_options]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrePrintOptionsRenderer renderer;
     lv_obj_t* container = lv_obj_create(test_screen());
 
@@ -163,6 +168,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: visibility lookup hides row when subject is 0",
                  "[print_file_detail][pre_print_options]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrePrintOptionsRenderer renderer;
     lv_obj_t* container = lv_obj_create(test_screen());
 
@@ -212,6 +218,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: set_state updates subject and persists across reads",
                  "[print_file_detail][pre_print_options]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrePrintOptionsRenderer renderer;
     lv_obj_t* container = lv_obj_create(test_screen());
 
@@ -230,11 +237,12 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: AD5M Pro live DB entry produces one row, no subheader",
                  "[print_file_detail][pre_print_options][db]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // Sanity-checks the live printer_database.json: AD5M Pro currently has a
     // single mechanical option (bed_mesh). Only one category present means
     // exactly one subheader (per category) is emitted. If the DB grows new
     // categories for this printer, this test will need adjustment.
-    auto set = PrinterDetector::get_pre_print_option_set("FlashForge Adventurer 5M Pro");
+    auto set = PrinterDetector::get_pre_print_option_set("Test Macro Printer Pro");
     REQUIRE_FALSE(set.empty());
 
     PrePrintOptionsRenderer renderer;
@@ -251,7 +259,8 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 
 TEST_CASE_METHOD(LVGLUITestFixture, "PrePrintOptionsRenderer: K1C live DB entry produces one row",
                  "[print_file_detail][pre_print_options][db]") {
-    auto set = PrinterDetector::get_pre_print_option_set("Creality K1C");
+    helix::test::PreprintDatabaseFixture preprint_database;
+    auto set = PrinterDetector::get_pre_print_option_set("Test Multi Command Printer");
     REQUIRE_FALSE(set.empty());
 
     PrePrintOptionsRenderer renderer;
@@ -268,11 +277,12 @@ TEST_CASE_METHOD(LVGLUITestFixture, "PrePrintOptionsRenderer: K1C live DB entry 
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: K2 Plus live DB renders bed_mesh and ai_detect",
                  "[print_file_detail][pre_print_options][db][ai_detect]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // K2 Plus advertises bed_mesh (Mechanical) + ai_detect (Monitoring).
     // Renderer emits a flat row list with no subheaders (categories are sort
     // keys only; the section title comes from print_file_detail.xml's
     // PRINT OPTIONS card header).
-    auto set = PrinterDetector::get_pre_print_option_set("Creality K2 Plus");
+    auto set = PrinterDetector::get_pre_print_option_set("Test Gcode Printer");
     REQUIRE_FALSE(set.empty());
 
     PrePrintOptionsRenderer renderer;
@@ -288,6 +298,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: DB option labels are English text, not semantic keys",
                  "[print_file_detail][pre_print_options][i18n]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // English loads NO translation pack (translation_loader.cpp skips
     // kIdentityLocale), so lv_tr(key) returns the key unchanged — in tests
     // and in the English UI alike. A label_key holding a semantic key such
@@ -296,7 +307,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
     // is covered in test_has_any_preprint_options.cpp against the C++
     // synthesis). This reads the REAL printer_database.json entry so a
     // semantic key reintroduced in the DB fails here.
-    auto k2set = PrinterDetector::get_pre_print_option_set("Creality K2 Plus");
+    auto k2set = PrinterDetector::get_pre_print_option_set("Test Gcode Printer");
     const PrePrintOption* ai = k2set.find("ai_detect");
     REQUIRE(ai != nullptr);
     REQUIRE_FALSE(ai->label_key.empty());
@@ -317,6 +328,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 
 TEST_CASE_METHOD(LVGLUITestFixture, "PrePrintOptionsRenderer: label_key wins over humanize_id",
                  "[print_file_detail][pre_print_options][label]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // When `label_key` is present, the renderer must look it up via lv_tr
     // and never fall through to the humanize_id path. We verify by giving
     // the option an id that humanize_id WOULD garble (mixed case, no
@@ -381,6 +393,7 @@ TEST_CASE_METHOD(LVGLUITestFixture, "PrePrintOptionsRenderer: label_key wins ove
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: a phase toggle reads as its phase's step name",
                  "[print_file_detail][pre_print_options][label]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     const auto label = [](const std::string& id, bool adaptive = false) {
         PrePrintOption opt;
         opt.id = id;
@@ -401,6 +414,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: clear() drops rows and resets subjects",
                  "[print_file_detail][pre_print_options]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrePrintOptionsRenderer renderer;
     lv_obj_t* container = lv_obj_create(test_screen());
     auto set = make_multi_category_set();
@@ -421,6 +435,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: provider integration with PrintPreparationManager",
                  "[print_file_detail][pre_print_options][integration]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrePrintOptionsRenderer renderer;
     lv_obj_t* container = lv_obj_create(test_screen());
     auto set = make_multi_category_set();
@@ -459,6 +474,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: plugin visibility subject is tri-state",
                  "[print_file_detail][pre_print_options][preprint][plugin_gate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // Mirrors the plugin-gate wiring: the visibility subject is the
     // helix_plugin_installed tri-state (-1 unknown/checking, 0 confirmed-absent,
     // 1 present). Rows stay visible during the -1 startup window and only hide
@@ -520,6 +536,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 
 TEST_CASE("is_macro_gate_closed: empty requires_macro is never gated",
           "[print_file_detail][pre_print_options][requires_macro]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     helix::MacroParamCache::instance().clear();
 
     PrePrintOption opt;
@@ -530,6 +547,7 @@ TEST_CASE("is_macro_gate_closed: empty requires_macro is never gated",
 
 TEST_CASE("is_macro_gate_closed: declared macro absent -> gated",
           "[print_file_detail][pre_print_options][requires_macro]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     helix::MacroParamCache::instance().clear();
 
     PrePrintOption opt;
@@ -540,6 +558,7 @@ TEST_CASE("is_macro_gate_closed: declared macro absent -> gated",
 
 TEST_CASE("is_macro_gate_closed: declared macro present -> not gated",
           "[print_file_detail][pre_print_options][requires_macro]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     helix::MacroParamCache::instance().clear();
     nlohmann::json config = nlohmann::json::object();
     config["gcode_macro LOAD_AI_RUN"] = {{"gcode", "{action_respond_info('ai run')}"}};
@@ -555,6 +574,7 @@ TEST_CASE("is_macro_gate_closed: declared macro present -> not gated",
 
 TEST_CASE("is_macro_gate_closed: case-insensitive macro lookup",
           "[print_file_detail][pre_print_options][requires_macro]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // MacroParamCache lowercases keys; requires_macro values in
     // printer_database.json use uppercase ("LOAD_AI_RUN"). Confirms the
     // predicate survives the case mismatch the same way has_macro() does.
@@ -573,6 +593,7 @@ TEST_CASE("is_macro_gate_closed: case-insensitive macro lookup",
 
 TEST_CASE("filter_macro_gated_options: removes only macro-gated options",
           "[print_file_detail][pre_print_options][requires_macro]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     helix::MacroParamCache::instance().clear();
 
     PrePrintOptionSet input;
@@ -604,6 +625,7 @@ TEST_CASE("filter_macro_gated_options: removes only macro-gated options",
 
 TEST_CASE("filter_macro_gated_options: preserves all options when no macros are gated",
           "[print_file_detail][pre_print_options][requires_macro]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     helix::MacroParamCache::instance().clear();
     nlohmann::json config = nlohmann::json::object();
     config["gcode_macro LOAD_AI_RUN"] = {{"gcode", "{action_respond_info('ai run')}"}};
@@ -624,6 +646,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: K2 Plus without LOAD_AI_RUN renders no ai_detect row "
                  "(issue #1122 regression)",
                  "[print_file_detail][pre_print_options][requires_macro][db][ai_detect]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // Issue #1122: K2 Plus declares ai_detect with requires_macro=LOAD_AI_RUN.
     // Stock firmware that doesn't register LOAD_AI_RUN must NOT render the
     // ai_detect toggle — it would be inert. populate_option_rows() now applies
@@ -631,7 +654,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
     // test reproduces that pipeline against the live DB entry.
     helix::MacroParamCache::instance().clear(); // Stock K2 Plus, no LOAD_AI_RUN.
 
-    auto set = PrinterDetector::get_pre_print_option_set("Creality K2 Plus");
+    auto set = PrinterDetector::get_pre_print_option_set("Test Gcode Printer");
     REQUIRE_FALSE(set.empty());
 
     PrePrintOptionSet filtered = filter_macro_gated_options(set);
@@ -651,6 +674,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: K2 Plus with LOAD_AI_RUN still renders ai_detect row",
                  "[print_file_detail][pre_print_options][requires_macro][db][ai_detect]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // Positive-path companion to the regression above: when LOAD_AI_RUN IS
     // registered (Creality OS variants), ai_detect renders normally.
     helix::MacroParamCache::instance().clear();
@@ -658,7 +682,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
     config["gcode_macro LOAD_AI_RUN"] = {{"gcode", "{action_respond_info('ai run')}"}};
     helix::MacroParamCache::instance().populate_from_configfile(config, {"LOAD_AI_RUN"});
 
-    auto set = PrinterDetector::get_pre_print_option_set("Creality K2 Plus");
+    auto set = PrinterDetector::get_pre_print_option_set("Test Gcode Printer");
     PrePrintOptionSet filtered = filter_macro_gated_options(set);
 
     PrePrintOptionsRenderer renderer;
@@ -672,14 +696,16 @@ TEST_CASE_METHOD(LVGLUITestFixture,
     helix::MacroParamCache::instance().clear();
 }
 
-TEST_CASE_METHOD(LVGLUITestFixture,
-                 "PrePrintOptionsRenderer: Snapmaker U1 live DB renders three preference toggles",
-                 "[print_file_detail][pre_print_options][db][snapmaker_u1]") {
+TEST_CASE_METHOD(
+    LVGLUITestFixture,
+    "PrePrintOptionsRenderer: Test Preference Printer live DB renders three preference toggles",
+    "[print_file_detail][pre_print_options][db][snapmaker_u1]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // Every U1 row drives SET_PRINT_PREFERENCES, which is a setter: an absent
     // parameter leaves the stored preference at its previous value, so each
     // option must emit its line even when switched OFF or turning one off would
     // silently keep the old setting.
-    auto set = PrinterDetector::get_pre_print_option_set("Snapmaker U1");
+    auto set = PrinterDetector::get_pre_print_option_set("Test Preference Printer");
     REQUIRE_FALSE(set.empty());
     REQUIRE(set.options.size() == 3);
 
@@ -687,7 +713,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
     REQUIRE(set.find("shaper_calibrate") == nullptr);
     REQUIRE_FALSE(set.declares_capability("shaper_calibrate"));
 
-    for (const char* id : {"bed_mesh", "flow_calibrate", "u1_timelapse"}) {
+    for (const char* id : {"bed_mesh", "flow_calibrate", "test_timelapse"}) {
         CAPTURE(id);
         const PrePrintOption* opt = set.find(id);
         REQUIRE(opt != nullptr);
@@ -718,10 +744,11 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 }
 
 TEST_CASE("PrePrintOptionsRenderer: default icon per option id", "[pre_print_options][icons]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     CHECK(PrePrintOptionsRenderer::default_icon_for("bed_mesh") == "grid_large");
     CHECK(PrePrintOptionsRenderer::default_icon_for("flow_calibrate") == "gauge");
     CHECK(PrePrintOptionsRenderer::default_icon_for("timelapse") == "camera_timer");
-    CHECK(PrePrintOptionsRenderer::default_icon_for("u1_timelapse") == "camera_timer");
+    CHECK(PrePrintOptionsRenderer::default_icon_for("test_timelapse") == "camera_timer");
     CHECK(PrePrintOptionsRenderer::default_icon_for("ai_detect") == "robot");
     CHECK(PrePrintOptionsRenderer::default_icon_for("qgl") == "spirit_level");
     CHECK(PrePrintOptionsRenderer::default_icon_for("z_tilt") == "spirit_level");
@@ -731,6 +758,7 @@ TEST_CASE("PrePrintOptionsRenderer: default icon per option id", "[pre_print_opt
 
 TEST_CASE_METHOD(LVGLUITestFixture, "PrePrintOptionsRenderer: a tap on a tile toggles its option",
                  "[print_file_detail][pre_print_options]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrePrintOptionsRenderer renderer;
     lv_obj_t* container = lv_obj_create(test_screen());
     std::string toggled_id;
@@ -759,6 +787,7 @@ TEST_CASE_METHOD(LVGLUITestFixture, "PrePrintOptionsRenderer: a tap on a tile to
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: the label wraps beside the icon slot, inside the pill",
                  "[print_file_detail][pre_print_options]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrePrintOptionsRenderer renderer;
     lv_obj_t* container = lv_obj_create(test_screen());
     // Narrow enough that "Auto Bed Mesh" needs more than two lines.
@@ -803,6 +832,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "PrePrintOptionsRenderer: tile children follow the checked state",
                  "[print_file_detail][pre_print_options]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrePrintOptionsRenderer renderer;
     lv_obj_t* container = lv_obj_create(test_screen());
     renderer.populate(container, make_multi_category_set(), nullptr, nullptr);

@@ -32,59 +32,14 @@ PrinterDiscovery u1_hardware() {
 
 } // namespace
 
-TEST_CASE("enclosure top: detected by its status object beside a firmware marker",
-          "[enclosure_top]") {
-    PrinterDiscovery hw = u1_hardware();
-    CHECK(firmware_reports_enclosure_top(hw));
-    // Only the one field is subscribed: the object's fan readings change every tick.
-    CHECK(required_status_objects(hw) == json{{"purifier", {"power_detected"}}});
-}
-
-TEST_CASE("enclosure top: a printer without the object subscribes nothing", "[enclosure_top]") {
-    PrinterDiscovery hw = hardware_with_objects({"extruder", "fan_generic purifier_fan"});
-    CHECK_FALSE(firmware_reports_enclosure_top(hw));
-    CHECK(required_status_objects(hw).empty());
-}
-
-TEST_CASE("enclosure top: a purifier object alone does not identify the firmware",
-          "[enclosure_top]") {
-    // "purifier" is a generic name another Klipper module can publish.
-    PrinterDiscovery hw = hardware_with_objects({"purifier", "extruder"});
-    CHECK_FALSE(firmware_reports_enclosure_top(hw));
-    CHECK(required_status_objects(hw).empty());
-    CHECK_FALSE(fitted_from_status(hw, json{{"purifier", {{"power_detected", true}}}}).has_value());
-}
-
-TEST_CASE("enclosure top: the reading follows the firmware's flag", "[enclosure_top]") {
-    const PrinterDiscovery hw = u1_hardware();
-    // The shape a U1 with its top fitted reports.
-    json s = {{"purifier",
-               {{"power_detected", true},
-                {"power_det_value", 2.5},
-                {"mode", 0},
-                {"inner_fan_rpm", 0.0},
-                {"exhaust_fan", json::object()}}}};
-    REQUIRE(fitted_from_status(hw, s) == std::optional<bool>(true));
-    s["purifier"]["power_detected"] = false;
-    REQUIRE(fitted_from_status(hw, s) == std::optional<bool>(false));
-}
-
-TEST_CASE("enclosure top: a frame that does not carry the flag says nothing", "[enclosure_top]") {
-    // Delta frames carry only what changed; silence is not a removal.
-    const PrinterDiscovery hw = u1_hardware();
-    CHECK_FALSE(fitted_from_status(hw, json::object()).has_value());
-    CHECK_FALSE(fitted_from_status(hw, json{{"extruder", {{"temperature", 200.0}}}}).has_value());
-    CHECK_FALSE(
-        fitted_from_status(hw, json{{"purifier", {{"inner_fan_rpm", 1200.0}}}}).has_value());
-    CHECK_FALSE(fitted_from_status(hw, json::array()).has_value());
-}
-
-TEST_CASE("enclosure top: a flag of the wrong type says nothing", "[enclosure_top]") {
-    const PrinterDiscovery hw = u1_hardware();
-    CHECK_FALSE(fitted_from_status(hw, json{{"purifier", {{"power_detected", 1}}}}).has_value());
-    CHECK_FALSE(
-        fitted_from_status(hw, json{{"purifier", {{"power_detected", "true"}}}}).has_value());
-    CHECK_FALSE(
-        fitted_from_status(hw, json{{"purifier", {{"power_detected", nullptr}}}}).has_value());
-    CHECK_FALSE(fitted_from_status(hw, json{{"purifier", true}}).has_value());
+TEST_CASE("enclosure top: retired markers never select a provider", "[enclosure_top]") {
+    for (const auto& hw : {u1_hardware(), hardware_with_objects({"purifier", "extruder"}),
+                           hardware_with_objects({"extruder", "heater_bed"})}) {
+        CHECK_FALSE(firmware_reports_enclosure_top(hw));
+        CHECK(required_status_objects(hw).empty());
+        CHECK_FALSE(
+            fitted_from_status(hw, json{{"purifier", {{"power_detected", true}}}}).has_value());
+        CHECK_FALSE(
+            fitted_from_status(hw, json{{"purifier", {{"power_detected", false}}}}).has_value());
+    }
 }

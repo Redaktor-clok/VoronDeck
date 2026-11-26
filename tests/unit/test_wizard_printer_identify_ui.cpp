@@ -12,6 +12,7 @@
 
 #include "../lvgl_ui_test_fixture.h"
 #include "../test_helpers/one_line_label.h"
+#include "../test_helpers/printer_database_fixture.h"
 #include "../test_helpers/wizard_printer_identify_test_access.h"
 #include "app_globals.h"
 #include "config.h"
@@ -331,10 +332,10 @@ TEST_CASE_METHOD(WizardPrinterIdentifyUIFixture,
                  "[wizard][selector]") {
     require_ready();
 
-    const std::string machine = "FlashForge Adventurer 5M";
+    const std::string machine = "Voron 2.4";
 
     // Select the machine the way a user does: search it, click its row.
-    lv_textarea_set_text(search_input(), "Adventurer 5M");
+    lv_textarea_set_text(search_input(), "Voron 2.4");
     REQUIRE(view() == kViewSearch);
 
     lv_obj_t* target = nullptr;
@@ -368,7 +369,7 @@ TEST_CASE_METHOD(WizardPrinterIdentifyUIFixture,
     const auto entries = detector_entries();
     size_t expected = 0;
     for (const auto& e : entries) {
-        if (e.group == "FlashForge") {
+        if (e.group == "Voron") {
             ++expected;
         }
     }
@@ -377,7 +378,7 @@ TEST_CASE_METHOD(WizardPrinterIdentifyUIFixture,
 
     lv_obj_t* title = lv_obj_find_by_name(step_root, "vendor_title_label");
     REQUIRE(title != nullptr);
-    CHECK(lv_streq(lv_label_get_text(title), "FlashForge"));
+    CHECK(lv_streq(lv_label_get_text(title), "Voron"));
 
     // The selected machine's row survived the cache round-trip and is showing.
     bool found = false;
@@ -474,8 +475,7 @@ TEST_CASE("Wizard selector groups every visible machine exactly once", "[selecto
 
 namespace {
 
-// A K2 whose hostname names neither model and whose config declares no bed:
-// the detector cannot tell the K2 Plus from the K2 Pro.
+// Identical evidence must leave the choice to the user.
 class WizardPrinterIdentifyTiedFixture : public WizardPrinterIdentifyUIFixture {
   public:
     WizardPrinterIdentifyTiedFixture() : WizardPrinterIdentifyUIFixture(DeferOpen{}) {
@@ -483,19 +483,19 @@ class WizardPrinterIdentifyTiedFixture : public WizardPrinterIdentifyUIFixture {
         saved_type_ = config->get<std::string>(config->df() + helix::wizard::PRINTER_TYPE, "");
         saved_name_ = config->get<std::string>(config->df() + helix::wizard::PRINTER_NAME, "");
 
-        const std::vector<std::string> objects = {"extruder",
-                                                  "heater_bed",
-                                                  "box",
-                                                  "motor_control",
-                                                  "fan_feedback",
-                                                  "load_ai",
-                                                  "filament_rack",
-                                                  "heater_generic chamber_heater",
-                                                  "temperature_sensor chamber_temp"};
+        database_ = std::make_unique<helix::test::PrinterDatabaseFixture>(R"({"printers":[
+            {"id":"test_tie", "name":"Test Tie", "manufacturer":"Test", "heuristics":[
+                {"type":"hostname_match", "field":"hostname", "pattern":"test-tied", "confidence":95}]},
+            {"id":"test_tie_plus", "name":"Test Tie Plus", "manufacturer":"Test", "heuristics":[
+                {"type":"hostname_match", "field":"hostname", "pattern":"test-tied", "confidence":95}]},
+            {"id":"test_tie_pro", "name":"Test Tie Pro", "manufacturer":"Test", "heuristics":[
+                {"type":"hostname_match", "field":"hostname", "pattern":"test-tied", "confidence":95}]}
+        ]})");
+        const std::vector<std::string> objects = {"extruder", "heater_bed"};
         helix::PrinterDiscovery& hardware = api()->hardware();
         hardware.parse_objects(nlohmann::json(objects));
         hardware.set_printer_objects(objects);
-        hardware.set_hostname("creality-k2");
+        hardware.set_hostname("test-tied");
         hardware.parse_config_keys(nlohmann::json{{"printer", {{"kinematics", "corexy"}}}});
         set_moonraker_api(api());
 
@@ -534,6 +534,7 @@ class WizardPrinterIdentifyTiedFixture : public WizardPrinterIdentifyUIFixture {
         return lv_subject_get_int(subject) == 1;
     }
 
+    std::unique_ptr<helix::test::PrinterDatabaseFixture> database_;
     std::string saved_type_;
     std::string saved_name_;
 };
@@ -557,8 +558,7 @@ TEST_CASE_METHOD(WizardPrinterIdentifyTiedFixture,
             shown.push_back(row_name(row));
         }
         // Rows keep the printer list's own order.
-        CHECK(shown ==
-              std::vector<std::string>{"Creality K2", "Creality K2 Plus", "Creality K2 Pro"});
+        CHECK(shown == std::vector<std::string>{"Test Tie", "Test Tie Plus", "Test Tie Pro"});
         CHECK(selected_index() < 0);
         CHECK_FALSE(next_enabled());
 
@@ -580,23 +580,23 @@ TEST_CASE_METHOD(WizardPrinterIdentifyTiedFixture,
         Config* config = Config::get_instance();
         // cleanup() ran: it saved the name it filled in from the hostname.
         CHECK(config->get<std::string>(config->df() + helix::wizard::PRINTER_NAME, "") ==
-              "creality-k2");
+              "test-tied");
         CHECK(config->get<std::string>(config->df() + helix::wizard::PRINTER_TYPE, "").empty());
     }
 
     SECTION("picking a candidate selects it and enables Next") {
         lv_obj_t* pro = nullptr;
         for (lv_obj_t* row : visible_rows()) {
-            if (row_name(row) == "Creality K2 Pro") {
+            if (row_name(row) == "Test Tie Pro") {
                 pro = row;
             }
         }
         REQUIRE(pro != nullptr);
         lv_obj_send_event(pro, LV_EVENT_CLICKED, nullptr);
-        CHECK(PrinterDetector::get_list_name_at(selected_index(), "corexy") == "Creality K2 Pro");
+        CHECK(PrinterDetector::get_list_name_at(selected_index(), "corexy") == "Test Tie Pro");
         CHECK(next_enabled());
         // Leave without a printer so cleanup() only records the pick; applying
-        // the K2 preset is the detector tests' business.
+        // a device preset is outside this selector test.
         set_moonraker_api(nullptr);
     }
 }

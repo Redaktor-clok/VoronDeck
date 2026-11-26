@@ -16,6 +16,7 @@
 #include "ui_print_preparation_manager.h"
 
 #include "../test_helpers/planted_gcode.h"
+#include "../test_helpers/preprint_database_fixture.h"
 #include "../test_helpers/print_select_panel_fixture.h"
 #include "../test_helpers/print_select_panel_test_access.h"
 #include "../test_helpers/scoped_macros_read.h"
@@ -82,6 +83,7 @@ class FileCheckFixture : private helix::PrintSelectGlobalStateReset,
 
 TEST_CASE_METHOD(FileCheckFixture, "Print waits on the file check only when an option needs it",
                  "[print_select][file_check][start_waiter]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     REQUIRE(can_print() == 1);
 
     SECTION("bed mesh off: Print is disabled until the scan lands") {
@@ -107,7 +109,7 @@ TEST_CASE_METHOD(FileCheckFixture, "Print waits on the file check only when an o
     }
     SECTION("turning a step off while the file reads holds Print") {
         // A printer whose option set renders a bed mesh row.
-        get_printer_state().set_printer_type_sync("Creality K2 Plus");
+        get_printer_state().set_printer_type_sync("Test Gcode Printer");
         open();
         REQUIRE(can_print() == 1);
         lv_obj_t* row = lv_obj_find_by_name(lv_screen_active(), "option_tile_bed_mesh");

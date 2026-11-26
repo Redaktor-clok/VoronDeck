@@ -14,6 +14,7 @@
 #include "ui_update_queue.h"
 
 #include "../lvgl_test_fixture.h"
+#include "../test_helpers/preprint_database_fixture.h"
 #include "../test_helpers/printer_state_test_access.h"
 #include "../test_helpers/sensors_forget.h"
 #include "../test_helpers/update_queue_test_access.h"
@@ -30,6 +31,7 @@ using namespace helix;
 
 TEST_CASE("PrinterState: printer type lookup is case-insensitive",
           "[printer_state][capabilities][edge]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
 
     PrinterState& state = get_printer_state();
@@ -37,11 +39,11 @@ TEST_CASE("PrinterState: printer type lookup is case-insensitive",
     state.init_subjects(false);
 
     // Correct case should work
-    state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+    state.set_printer_type_sync("Test Macro Printer Pro");
     REQUIRE_FALSE(state.profile_state().pre_print_option_set().empty());
 
     // Different case should also work (database lookup is case-insensitive)
-    state.set_printer_type_sync("flashforge adventurer 5m pro");
+    state.set_printer_type_sync("test macro printer pro");
     REQUIRE_FALSE(state.profile_state().pre_print_option_set().empty());
 }
 
@@ -64,6 +66,7 @@ TEST_CASE("PrinterState: printer type lookup is case-insensitive",
  */
 TEST_CASE("PrinterState: a capability answered before subject init survives it",
           "[printer_state][capabilities]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
 
     PrinterState& state = get_printer_state();
@@ -81,6 +84,7 @@ TEST_CASE("PrinterState: a capability answered before subject init survives it",
 
 TEST_CASE("PrinterState: a pre-init 'absent' answer is honoured too",
           "[printer_state][capabilities]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // The latch must carry a false as faithfully as a true - seeding only the
     // positive case would make an absent component look present.
     lv_init_safe();
@@ -99,6 +103,7 @@ TEST_CASE("PrinterState: a pre-init 'absent' answer is honoured too",
 
 TEST_CASE("PrinterState: a post-init answer still wins over the latched one",
           "[printer_state][capabilities]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // The latch bridges the gap before the first init; it must not shadow a
     // later, fresher answer.
     lv_init_safe();
@@ -120,6 +125,7 @@ TEST_CASE("PrinterState: a post-init answer still wins over the latched one",
 
 TEST_CASE("PrinterCapabilitiesState: every setter's pre-init answer survives init",
           "[printer_state][capabilities]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
 
     PrinterDiscovery hardware;
@@ -158,6 +164,7 @@ TEST_CASE("PrinterCapabilitiesState: every setter's pre-init answer survives ini
 
 TEST_CASE("PrinterState: an external z-offset persistence provider forces firmware-managed save",
           "[printer_state][capabilities][1401]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
 
     PrinterState& state = get_printer_state();
@@ -228,6 +235,7 @@ nlohmann::json save_variables_frame(const nlohmann::json& variables) {
 
 TEST_CASE("PrinterState: a status frame without the store refutes a wrapper-only match",
           "[printer_state][capabilities][1401]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     LVGLTestFixture fixture;
 
     helix::PrinterState state;
@@ -265,6 +273,7 @@ TEST_CASE("PrinterState: a status frame without the store refutes a wrapper-only
 
 TEST_CASE("PrinterState: a real store, a seeded one, and no news all keep the stand-down",
           "[printer_state][capabilities][1401]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // The damaging direction. Every frame here must leave Save Z Offset down:
     // re-enabling it on a printer that really persists folds the offset into the
     // probe and the firmware re-applies it at boot, growing the probe offset by
@@ -301,6 +310,7 @@ TEST_CASE("PrinterState: a real store, a seeded one, and no news all keep the st
 
 TEST_CASE("PrinterState: an unambiguously detected provider is not refuted by a frame",
           "[printer_state][capabilities][1401]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // ZMOD is matched on SAVE_ZMOD_DATA, which belongs to one firmware and means
     // one thing, so no status frame gets to argue with it - not even the very
     // frame shape that refutes the wrapper row. ZMOD's own store lives under a
@@ -334,56 +344,13 @@ const json kTopFitted = {{"purifier", {{"power_detected", true}, {"mode", 0}}}};
 
 } // namespace
 
-TEST_CASE("PrinterState: the enclosure top follows status frames",
+TEST_CASE("PrinterState: retired enclosure telemetry does not change the picture",
           "[printer_state][enclosure_top]") {
-    helix::test::SensorsForget forget;
-    lv_init_safe();
-    PrinterState& state = get_printer_state();
-    PrinterStateTestAccess::reset(state);
+    LVGLTestFixture fixture;
+    PrinterState state;
     state.init_subjects(false);
-    auto& caps = state.capabilities_state();
-    const json u1_objects = {"purifier", "fm175xx_reader", "tool"};
-
-    SECTION("discovery, then the first frame") {
-        state.set_hardware(discovery_with(u1_objects));
-        REQUIRE_FALSE(caps.enclosure_top_fitted());
-
-        state.update_from_status(kTopFitted);
-        CHECK(caps.enclosure_top_fitted());
-
-        // Delta frames that do not carry the flag keep the last report.
-        state.update_from_status({{"purifier", {{"inner_fan_rpm", 1500.0}}}});
-        CHECK(caps.enclosure_top_fitted());
-        state.update_from_status({{"extruder", {{"temperature", 25.0}}}});
-        CHECK(caps.enclosure_top_fitted());
-
-        state.update_from_status({{"purifier", {{"power_detected", false}}}});
-        CHECK_FALSE(caps.enclosure_top_fitted());
-
-        // A second printer of the same kind starts from its own first frame.
-        state.update_from_status(kTopFitted);
-        REQUIRE(caps.enclosure_top_fitted());
-        state.set_hardware(discovery_with(u1_objects));
-        CHECK_FALSE(caps.enclosure_top_fitted());
-    }
-
-    SECTION("a frame before discovery, then the subscribe response's status") {
-        // A live frame can reach PrinterState while it still holds the previous
-        // printer's discovery; discovery then dispatches the subscribe
-        // response's whole-object status after set_hardware.
-        state.set_hardware(discovery_with({"extruder"}));
-        state.update_from_status(kTopFitted);
-        CHECK_FALSE(caps.enclosure_top_fitted());
-
-        state.set_hardware(discovery_with(u1_objects));
-        CHECK_FALSE(caps.enclosure_top_fitted());
-        state.update_from_status(kTopFitted);
-        CHECK(caps.enclosure_top_fitted());
-    }
-
-    SECTION("a purifier on another printer is not an enclosure top") {
-        state.set_hardware(discovery_with({"purifier", "extruder"}));
-        state.update_from_status(kTopFitted);
-        CHECK_FALSE(caps.enclosure_top_fitted());
-    }
+    state.set_hardware(discovery_with({"purifier", "fm175xx_reader", "tool"}));
+    state.update_from_status(kTopFitted);
+    UpdateQueueTestAccess::drain(UpdateQueue::instance());
+    CHECK_FALSE(state.capabilities_state().enclosure_top_fitted());
 }

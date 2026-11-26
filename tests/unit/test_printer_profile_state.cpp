@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "../lvgl_test_fixture.h"
+#include "../test_helpers/printer_database_fixture.h"
 #include "printer_profile_state.h"
 
 #include <fstream>
@@ -14,9 +15,21 @@
 
 using namespace helix;
 
+namespace {
+const char* kProfileDatabase = R"({"printers":[
+        {"id":"test_toolchanger", "name":"Test Toolchanger", "manufacturer":"Test",
+         "z_offset_calibration_strategy":"firmware_managed", "z_offset_persists":false,
+         "tool_change_resets_z_offset":true, "klipper_hides_dot_dirs":true},
+        {"id":"test_auto_save", "name":"Test Auto Save", "manufacturer":"Test",
+         "z_offset_calibration_strategy":"firmware_managed", "z_offset_persists":true}
+    ]})";
+}
+
 TEST_CASE("PrinterProfileState resolves a type once and honours external persistence",
           "[printer_state][profile][1401]") {
     LVGLTestFixture fixture;
+    helix::test::PrinterDatabaseFixture database(kProfileDatabase);
+
     PrinterProfileState profile;
     profile.init_subjects(false);
 
@@ -76,18 +89,13 @@ TEST_CASE("PrinterProfileState synthesizes the timelapse option only while avail
 TEST_CASE("PrinterProfileState knows which printers cannot print from a dot-directory",
           "[printer_state][profile][staging]") {
     LVGLTestFixture fixture;
+    helix::test::PrinterDatabaseFixture database(kProfileDatabase);
+
     PrinterProfileState profile;
     profile.init_subjects(false);
 
-    REQUIRE(profile.set_printer_type("FlashForge Adventurer 5M (ForgeX)", true, false, false));
+    REQUIRE(profile.set_printer_type("Test Toolchanger", true, false, false));
     CHECK(profile.klipper_hides_dot_dirs());
-    REQUIRE(profile.set_printer_type("FlashForge Adventurer 5M Pro (ForgeX)", true, false, false));
-    CHECK(profile.klipper_hides_dot_dirs());
-    REQUIRE(profile.set_printer_type("FlashForge Adventurer 5X", true, false, false));
-    CHECK(profile.klipper_hides_dot_dirs());
-    // Stock firmware and everything else print from .helix_temp as before.
-    REQUIRE(profile.set_printer_type("FlashForge Adventurer 5M", true, false, false));
-    CHECK_FALSE(profile.klipper_hides_dot_dirs());
     REQUIRE(profile.set_printer_type("Unknown Printer", true, false, false));
     CHECK_FALSE(profile.klipper_hides_dot_dirs());
 }
@@ -139,6 +147,8 @@ TEST_CASE("Z-offset tune hint is temporary when Z-offset saving is off",
 TEST_CASE("PrinterProfileState republishes the tune hint when Z-offset saving changes",
           "[printer_state][profile][zoffset][save-toggle]") {
     LVGLTestFixture fixture;
+    helix::test::PrinterDatabaseFixture database(kProfileDatabase);
+
     PrinterProfileState profile;
     profile.init_subjects(false);
     auto hint = [&] {
@@ -154,7 +164,7 @@ TEST_CASE("PrinterProfileState republishes the tune hint when Z-offset saving ch
     CHECK_FALSE(profile.set_z_offset_save_enabled(false));
 
     // A type change keeps honouring the setting.
-    REQUIRE(profile.set_printer_type("Snapmaker U1", true, false, false));
+    REQUIRE(profile.set_printer_type("Test Toolchanger", true, false, false));
     CHECK(hint() == ZOffsetTuneHint::TEMPORARY_TOOL_CHANGE);
     REQUIRE(profile.set_printer_type("Unknown Printer", true, false, false));
     CHECK(hint() == ZOffsetTuneHint::TEMPORARY);
@@ -168,6 +178,8 @@ TEST_CASE("PrinterProfileState republishes the tune hint when Z-offset saving ch
 TEST_CASE("PrinterProfileState publishes the z-offset tune hint from the database",
           "[printer_state][profile][zoffset]") {
     LVGLTestFixture fixture;
+    helix::test::PrinterDatabaseFixture database(kProfileDatabase);
+
     PrinterProfileState profile;
     profile.init_subjects(false);
     auto hint = [&] {
@@ -175,8 +187,8 @@ TEST_CASE("PrinterProfileState publishes the z-offset tune hint from the databas
             lv_subject_get_int(profile.get_z_offset_tune_hint_subject()));
     };
 
-    SECTION("Snapmaker U1: no save path, and a tool change re-applies the head's offset") {
-        REQUIRE(profile.set_printer_type("Snapmaker U1", true, false, false));
+    SECTION("Test Toolchanger: no save path, and a tool change re-applies the head's offset") {
+        REQUIRE(profile.set_printer_type("Test Toolchanger", true, false, false));
         CHECK(profile.z_offset_calibration_strategy() ==
               ZOffsetCalibrationStrategy::FIRMWARE_MANAGED);
         CHECK(lv_subject_get_int(profile.get_z_offset_can_save_subject()) == 0);
@@ -184,18 +196,15 @@ TEST_CASE("PrinterProfileState publishes the z-offset tune hint from the databas
 
         // A provider latching later is a change even though the strategy is not.
         REQUIRE(profile.set_external_persistence(true));
-        REQUIRE(profile.set_printer_type("Snapmaker U1", true, false, false));
+        REQUIRE(profile.set_printer_type("Test Toolchanger", true, false, false));
         CHECK(hint() == ZOffsetTuneHint::AUTO_SAVED);
         REQUIRE(profile.set_external_persistence(false));
-        REQUIRE(profile.set_printer_type("Snapmaker U1", true, false, false));
+        REQUIRE(profile.set_printer_type("Test Toolchanger", true, false, false));
         CHECK(hint() == ZOffsetTuneHint::TEMPORARY_TOOL_CHANGE);
     }
 
     SECTION("the other firmware-managed printers keep the auto-saved claim") {
-        for (const char* type :
-             {"FlashForge Adventurer 5M (ForgeX)", "FlashForge Adventurer 5M Pro (ForgeX)",
-              "FlashForge Adventurer 5X", "FlashForge Creator 5", "FlashForge Creator 5 Pro",
-              "Artillery M1 Pro"}) {
+        for (const char* type : {"Test Auto Save"}) {
             INFO(type);
             REQUIRE(profile.set_printer_type(type, true, false, false));
             CHECK(profile.z_offset_calibration_strategy() ==
@@ -250,10 +259,12 @@ std::map<std::string, int> tune_hint_label_values(const std::string& path) {
 TEST_CASE("Print Tune shows exactly the label for the resolved z-offset tune hint",
           "[printer_state][profile][zoffset][xml]") {
     LVGLTestFixture fixture;
+    helix::test::PrinterDatabaseFixture database(kProfileDatabase);
+
     PrinterProfileState profile;
     profile.init_subjects(false);
-    REQUIRE(profile.set_printer_type("Snapmaker U1", true, false, false));
-    const int u1_hint = lv_subject_get_int(profile.get_z_offset_tune_hint_subject());
+    REQUIRE(profile.set_printer_type("Test Toolchanger", true, false, false));
+    const int tool_hint = lv_subject_get_int(profile.get_z_offset_tune_hint_subject());
     profile.deinit_subjects();
 
     const std::map<std::string, int> expected = {
@@ -270,10 +281,10 @@ TEST_CASE("Print Tune shows exactly the label for the resolved z-offset tune hin
         const auto values = tune_hint_label_values(path);
         CHECK(values == expected);
 
-        // On the U1 the tool-change label is the only one left visible.
+        // On the test toolchanger the tool-change label is the only one left visible.
         std::vector<std::string> visible;
         for (const auto& [name, value] : values) {
-            if (value == u1_hint) {
+            if (value == tool_hint) {
                 visible.push_back(name);
             }
         }

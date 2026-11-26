@@ -15,6 +15,7 @@
 #include "../test_helpers/moonraker_manager_test_access.h"
 #include "../test_helpers/planted_gcode.h"
 #include "../test_helpers/preprint_config_scope.h"
+#include "../test_helpers/preprint_database_fixture.h"
 #include "../test_helpers/print_preparation_manager_test_access.h"
 #include "../test_helpers/print_start_collector_test_access.h"
 #include "../test_helpers/printer_state_test_access.h"
@@ -95,6 +96,7 @@ std::string line_containing(const std::vector<std::string>& lines, const std::st
 
 TEST_CASE("PrintPreparationManager: has_macro_analysis when no analysis available",
           "[print_preparation][macro]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrintPreparationManager manager;
     REQUIRE(manager.has_macro_analysis() == false);
 }
@@ -105,6 +107,7 @@ TEST_CASE("PrintPreparationManager: has_macro_analysis when no analysis availabl
 
 TEST_CASE("PrintPreparationManager: scan cache state when no scan done",
           "[print_preparation][gcode]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrintPreparationManager manager;
 
     SECTION("has_scan_result_for returns false when no scan done") {
@@ -114,6 +117,7 @@ TEST_CASE("PrintPreparationManager: scan cache state when no scan done",
 }
 
 TEST_CASE("PrintPreparationManager: clear_scan_cache", "[print_preparation][gcode]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrintPreparationManager manager;
 
     SECTION("Can be called when no cache exists") {
@@ -129,6 +133,7 @@ TEST_CASE("PrintPreparationManager: clear_scan_cache", "[print_preparation][gcod
 
 TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: can_modify_gcode",
                  "[print_preparation][safety]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& printer_state = get_printer_state();
     PrinterStateTestAccess::reset(printer_state);
@@ -191,6 +196,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: dropped modifications name the device, not the plugin, "
                  "when the transport keeps no copy",
                  "[print_preparation][safety]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     MockPrinter mock_printer;
     PrintPreparationManager manager;
@@ -230,6 +236,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: rewrite-gated macro rows do not show the options card "
                  "on a transport without local copies",
                  "[print_preparation][safety]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     MockPrinter mock_printer;
     PrinterState& state = mock_printer.state;
@@ -280,6 +287,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a queued plugin change after the API is freed reads "
                  "nothing of it",
                  "[print_preparation][preparation][lifecycle]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& state = get_printer_state();
     PrinterStateTestAccess::reset(state);
@@ -306,6 +314,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 }
 
 TEST_CASE("PrintPreparationManager: get_temp_directory", "[print_preparation][safety]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrintPreparationManager manager;
 
     SECTION("Returns usable temp directory path") {
@@ -380,6 +389,7 @@ const OptionField kOptionFields[] = {
 
 TEST_CASE("PrintPreparationManager: the option-state provider decides each option's state",
           "[print_preparation][options]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // No printer DB is attached, so nothing falls back to a database default.
     lv_init_safe();
     PrintPreparationManager manager;
@@ -454,6 +464,7 @@ TEST_CASE("PrintPreparationManager: the option-state provider decides each optio
 // ============================================================================
 
 TEST_CASE("PrintPreparationManager: is_print_in_progress", "[print_preparation][lifecycle]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrintPreparationManager manager;
 
     SECTION("Not in progress by default (no printer state)") {
@@ -485,6 +496,7 @@ TEST_CASE("PrintPreparationManager: is_print_in_progress", "[print_preparation][
  */
 TEST_CASE("PrintPreparationManager: option ids match category_to_string",
           "[print_preparation][capabilities][bug]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // This test verifies that pre_print_options ids align with category_to_string()
     // The database uses "bed_mesh", not "bed_leveling"
 
@@ -494,7 +506,7 @@ TEST_CASE("PrintPreparationManager: option ids match category_to_string",
         REQUIRE(expected_key == "bed_mesh");
 
         // Get AD5M Pro options (known to have bed_mesh option)
-        auto caps = PrinterDetector::get_pre_print_option_set("FlashForge Adventurer 5M Pro");
+        auto caps = PrinterDetector::get_pre_print_option_set("Test Macro Printer Pro");
         REQUIRE_FALSE(caps.empty());
 
         // The database uses "bed_mesh" as the id
@@ -545,8 +557,9 @@ TEST_CASE("PrintPreparationManager: option ids match category_to_string",
  */
 TEST_CASE("PrintPreparationManager: collect_macro_skip_params uses correct option ids",
           "[print_preparation][capabilities]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // Get options for a known printer
-    auto caps = PrinterDetector::get_pre_print_option_set("FlashForge Adventurer 5M Pro");
+    auto caps = PrinterDetector::get_pre_print_option_set("Test Macro Printer Pro");
     REQUIRE_FALSE(caps.empty());
 
     SECTION("bed_mesh id is used (not bed_leveling)") {
@@ -600,6 +613,7 @@ TEST_CASE("PrintPreparationManager: collect_macro_skip_params uses correct optio
  */
 TEST_CASE("PrintPreparationManager: macro analysis in-progress tracking",
           "[print_preparation][macro][progress]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrintPreparationManager manager;
 
     SECTION("is_macro_analysis_in_progress returns false initially") {
@@ -645,6 +659,7 @@ TEST_CASE("PrintPreparationManager: macro analysis in-progress tracking",
  */
 TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: capabilities come from PrinterState",
                  "[print_preparation][capabilities][lt1]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // Initialize LVGL for PrinterState subjects
     lv_init_safe();
 
@@ -659,7 +674,7 @@ TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: capabilities come f
 
     SECTION("Manager uses PrinterState options for known printer") {
         // Set printer type on PrinterState (sync version for testing)
-        printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+        printer_state.set_printer_type_sync("Test Macro Printer Pro");
 
         // Verify PrinterState has the option set
         const auto& state_caps = printer_state.profile_state().pre_print_option_set();
@@ -742,6 +757,7 @@ int sum_of_default_phases() {
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: optional estimate uses measured cold and warm starts",
                  "[print_preparation][estimate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& ps = get_printer_state();
     PrinterStateTestAccess::reset(ps);
@@ -778,6 +794,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: capabilities update when PrinterState type changes",
                  "[print_preparation][capabilities][lt1]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // Initialize LVGL for PrinterState subjects
     lv_init_safe();
 
@@ -792,7 +809,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 
     SECTION("Capabilities change when switching between known printers") {
         // Set to AD5M Pro first
-        printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+        printer_state.set_printer_type_sync("Test Macro Printer Pro");
 
         // Verify AD5M Pro options
         const auto& caps_v1 = printer_state.profile_state().pre_print_option_set();
@@ -801,7 +818,7 @@ TEST_CASE_METHOD(HelixTestFixture,
         size_t v1_option_count = caps_v1.options.size();
 
         // Now switch to AD5M (non-Pro)
-        printer_state.set_printer_type_sync("FlashForge Adventurer 5M");
+        printer_state.set_printer_type_sync("Test Macro Printer");
 
         // Verify options updated
         const auto& caps_v2 = printer_state.profile_state().pre_print_option_set();
@@ -815,7 +832,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 
     SECTION("Capabilities become empty when switching to unknown printer") {
         // Start with known printer
-        printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+        printer_state.set_printer_type_sync("Test Macro Printer Pro");
 
         const auto& caps_known = printer_state.profile_state().pre_print_option_set();
         REQUIRE_FALSE(caps_known.empty());
@@ -831,7 +848,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 
     SECTION("Capabilities become empty when clearing printer type") {
         // Start with known printer
-        printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+        printer_state.set_printer_type_sync("Test Macro Printer Pro");
 
         const auto& caps_before = printer_state.profile_state().pre_print_option_set();
         REQUIRE_FALSE(caps_before.empty());
@@ -846,20 +863,20 @@ TEST_CASE_METHOD(HelixTestFixture,
 
     SECTION("No stale cache when rapidly switching printer types") {
         // Rapidly switch between multiple printer types
-        printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+        printer_state.set_printer_type_sync("Test Macro Printer Pro");
         REQUIRE_FALSE(printer_state.profile_state().pre_print_option_set().empty());
 
         printer_state.set_printer_type_sync("Unknown Printer 1");
         REQUIRE(printer_state.profile_state().pre_print_option_set().empty());
 
-        printer_state.set_printer_type_sync("FlashForge Adventurer 5M");
+        printer_state.set_printer_type_sync("Test Macro Printer");
         REQUIRE_FALSE(printer_state.profile_state().pre_print_option_set().empty());
 
         printer_state.set_printer_type_sync("");
         REQUIRE(printer_state.profile_state().pre_print_option_set().empty());
 
         // Final state: set back to known printer
-        printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+        printer_state.set_printer_type_sync("Test Macro Printer Pro");
         const auto& final_caps = printer_state.profile_state().pre_print_option_set();
         REQUIRE_FALSE(final_caps.empty());
         REQUIRE(final_caps.find("bed_mesh") != nullptr);
@@ -879,9 +896,10 @@ TEST_CASE_METHOD(HelixTestFixture,
  */
 TEST_CASE("PrintPreparationManager: pre-print options cache behavior",
           "[print_preparation][capabilities][cache]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     SECTION("get_cached_options returns options for known printer types") {
         // Verify PrinterDetector returns different options for different printers
-        auto ad5m_caps = PrinterDetector::get_pre_print_option_set("FlashForge Adventurer 5M Pro");
+        auto ad5m_caps = PrinterDetector::get_pre_print_option_set("Test Macro Printer Pro");
         auto voron_caps = PrinterDetector::get_pre_print_option_set("Voron 2.4");
 
         // AD5M Pro should have bed_mesh option
@@ -897,8 +915,8 @@ TEST_CASE("PrintPreparationManager: pre-print options cache behavior",
 
     SECTION("Different printer types return different option sets") {
         // This verifies the database contains distinct entries
-        auto ad5m_caps = PrinterDetector::get_pre_print_option_set("FlashForge Adventurer 5M Pro");
-        auto ad5m_std_caps = PrinterDetector::get_pre_print_option_set("FlashForge Adventurer 5M");
+        auto ad5m_caps = PrinterDetector::get_pre_print_option_set("Test Macro Printer Pro");
+        auto ad5m_std_caps = PrinterDetector::get_pre_print_option_set("Test Macro Printer");
 
         // Both should exist (AD5M and AD5M Pro are separate entries)
         REQUIRE_FALSE(ad5m_caps.empty());
@@ -920,8 +938,8 @@ TEST_CASE("PrintPreparationManager: pre-print options cache behavior",
 
     SECTION("Option lookup is idempotent") {
         // Multiple lookups for same printer should return identical results
-        auto caps1 = PrinterDetector::get_pre_print_option_set("FlashForge Adventurer 5M Pro");
-        auto caps2 = PrinterDetector::get_pre_print_option_set("FlashForge Adventurer 5M Pro");
+        auto caps1 = PrinterDetector::get_pre_print_option_set("Test Macro Printer Pro");
+        auto caps2 = PrinterDetector::get_pre_print_option_set("Test Macro Printer Pro");
 
         REQUIRE(caps1.macro_name == caps2.macro_name);
         REQUIRE(caps1.options.size() == caps2.options.size());
@@ -952,12 +970,13 @@ TEST_CASE("PrintPreparationManager: pre-print options cache behavior",
  */
 TEST_CASE("PrintPreparationManager: option id keys are consistent",
           "[print_preparation][option_keys]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     REQUIRE(std::string(category_to_string(PrintStartOpCategory::BED_MESH)) == "bed_mesh");
     REQUIRE(std::string(category_to_string(PrintStartOpCategory::QGL)) == "qgl");
     REQUIRE(std::string(category_to_string(PrintStartOpCategory::Z_TILT)) == "z_tilt");
     REQUIRE(std::string(category_to_string(PrintStartOpCategory::NOZZLE_CLEAN)) == "nozzle_clean");
 
-    auto caps = PrinterDetector::get_pre_print_option_set("FlashForge Adventurer 5M Pro");
+    auto caps = PrinterDetector::get_pre_print_option_set("Test Macro Printer Pro");
     if (!caps.empty()) {
         REQUIRE(caps.find("bed_mesh") != nullptr);
         REQUIRE(caps.find("bed_leveling") == nullptr);
@@ -982,12 +1001,13 @@ TEST_CASE("PrintPreparationManager: option id keys are consistent",
  */
 TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: a U1 start sends no SHAPER_CALIBRATE",
                  "[print_preparation][pre_print_options][snapmaker_u1]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
 
     PrinterState& printer_state = get_printer_state();
     PrinterStateTestAccess::reset(printer_state);
     printer_state.init_subjects(false);
-    printer_state.set_printer_type_sync("Snapmaker U1");
+    printer_state.set_printer_type_sync("Test Preference Printer");
 
     REQUIRE(printer_state.profile_state().pre_print_option_set().find("shaper_calibrate") ==
             nullptr);
@@ -1006,12 +1026,13 @@ TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: a U1 start sends no
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: U1 flow calibration needs every used slot's material",
                  "[print_preparation][pre_print_options][snapmaker_u1][preflight]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
 
     PrinterState& printer_state = get_printer_state();
     PrinterStateTestAccess::reset(printer_state);
     printer_state.init_subjects(false);
-    printer_state.set_printer_type_sync("Snapmaker U1");
+    printer_state.set_printer_type_sync("Test Preference Printer");
     const PrePrintOption* flow =
         printer_state.profile_state().pre_print_option_set().find("flow_calibrate");
     REQUIRE(flow != nullptr);
@@ -1052,6 +1073,7 @@ TEST_CASE_METHOD(HelixTestFixture,
  */
 TEST_CASE("PrintPreparationManager: build_pre_start_gcode_block (join contract)",
           "[print_preparation][pre_print_options][gcode_join]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     SECTION("emit_setup=true with one option line: setup precedes line, '\\n' separator") {
         REQUIRE(PrintPreparationManagerTestAccess::build_pre_start_gcode_block(
                     "PRINT_PREPARED", {"LOAD_AI_RUN SWITCH=1"}, true) ==
@@ -1367,6 +1389,7 @@ bool MacroAnalysisRetryFixture::queue_initialized = false;
 TEST_CASE_METHOD(MacroAnalysisRetryFixture,
                  "PrintPreparationManager: macro analysis retry - first attempt succeeds",
                  "[print_preparation][retry][eventloop][slow]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     SECTION("Success on first attempt - no retries needed") {
         // Configure server to succeed immediately with empty file list
         // (Results in "no macro found" but analysis completes successfully)
@@ -1418,6 +1441,7 @@ TEST_CASE_METHOD(MacroAnalysisRetryFixture,
 TEST_CASE_METHOD(MacroAnalysisRetryFixture,
                  "PrintPreparationManager: macro analysis retry - first fails, second succeeds",
                  "[print_preparation][retry][eventloop][slow]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     SECTION("Retry succeeds on second attempt") {
         // Configure server to fail once, then succeed with empty list
         set_list_files_failures(1, {}); // Fail once, then return empty list
@@ -1447,6 +1471,7 @@ TEST_CASE_METHOD(MacroAnalysisRetryFixture,
 TEST_CASE_METHOD(MacroAnalysisRetryFixture,
                  "PrintPreparationManager: macro analysis retry - all retries exhausted",
                  "[print_preparation][retry][eventloop][slow]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     SECTION("Callback invoked with found=false after 3 failed attempts") {
         // Configure server to always fail
         set_list_files_always_fail();
@@ -1477,6 +1502,7 @@ TEST_CASE_METHOD(MacroAnalysisRetryFixture,
                  "PrintPreparationManager: a failed analysis is reported unless the login was "
                  "refused",
                  "[print_preparation][retry][eventloop][slow][api-key]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     const bool refused = GENERATE(false, true);
     if (refused) {
         helix::moonraker_auth::set_credential({"printer.lan", 7125, ""});
@@ -1514,6 +1540,7 @@ TEST_CASE_METHOD(MacroAnalysisRetryFixture,
 TEST_CASE_METHOD(MacroAnalysisRetryFixture,
                  "PrintPreparationManager: a failed analysis runs again on reconnect",
                  "[print_preparation][retry][eventloop][slow][1233]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     set_list_files_always_fail();
     std::atomic<bool> landed{false};
     manager_.set_macro_analysis_callback(
@@ -1539,6 +1566,7 @@ TEST_CASE_METHOD(MacroAnalysisRetryFixture,
 TEST_CASE_METHOD(MacroAnalysisRetryFixture,
                  "PrintPreparationManager: macro analysis retry counter resets on new request",
                  "[print_preparation][retry][eventloop][slow]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     SECTION("New analysis request after cache clears uses fresh retry counter") {
         // First analysis: succeed immediately
         set_list_files_success_empty();
@@ -1577,6 +1605,7 @@ TEST_CASE_METHOD(MacroAnalysisRetryFixture,
 TEST_CASE_METHOD(MacroAnalysisRetryFixture,
                  "PrintPreparationManager: in-progress flag stays true during retries",
                  "[print_preparation][retry][eventloop][slow]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     SECTION("is_macro_analysis_in_progress remains true during retry delay") {
         // Configure server to fail first call
         set_list_files_failures(1, {});
@@ -1614,6 +1643,7 @@ TEST_CASE_METHOD(MacroAnalysisRetryFixture,
 TEST_CASE_METHOD(MacroAnalysisRetryFixture,
                  "PrintPreparationManager: retry timing follows exponential backoff",
                  "[print_preparation][retry][timing][eventloop][slow]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     SECTION("Backoff delays: ~1s, ~2s between retries") {
         // Configure server to always fail so we can measure all retry timings
         set_list_files_always_fail();
@@ -1670,6 +1700,7 @@ TEST_CASE_METHOD(MacroAnalysisRetryFixture,
 
 TEST_CASE("PrintPreparationManager: hidden options don't produce macro skip params",
           "[print_preparation][p1][subjects]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // Bug regression: when an option is hidden (provider returns -1, NOT_APPLICABLE),
     // collect_macro_skip_params() must NOT emit a skip param for it. The old
     // visibility=0 + unchecked combination was misclassified as "user disabled"
@@ -1726,6 +1757,7 @@ TEST_CASE("PrintPreparationManager: hidden options don't produce macro skip para
 
 TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: build_capability_matrix",
                  "[print_preparation][p3]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrintPreparationManager manager;
 
@@ -1741,7 +1773,7 @@ TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: build_capability_ma
         PrinterState& printer_state = get_printer_state();
         PrinterStateTestAccess::reset(printer_state);
         printer_state.init_subjects(false); // No XML registration for tests
-        printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+        printer_state.set_printer_type_sync("Test Macro Printer Pro");
 
         manager.set_dependencies(nullptr, &printer_state);
 
@@ -1821,6 +1853,7 @@ TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: build_capability_ma
 
 TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: capability priority ordering",
                  "[print_preparation][p3]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrintPreparationManager manager;
 
@@ -1829,7 +1862,7 @@ TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: capability priority
         PrinterState& printer_state = get_printer_state();
         PrinterStateTestAccess::reset(printer_state);
         printer_state.init_subjects(false);
-        printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+        printer_state.set_printer_type_sync("Test Macro Printer Pro");
         manager.set_dependencies(nullptr, &printer_state);
 
         // Also add a macro analysis for the same operation (BED_MESH)
@@ -1909,6 +1942,7 @@ TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: capability priority
 
 TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: collect_macro_skip_params with matrix",
                  "[print_preparation][p3]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrintPreparationManager manager;
     MockOptionState state;
@@ -1919,7 +1953,7 @@ TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: collect_macro_skip_
         PrinterState& printer_state = get_printer_state();
         PrinterStateTestAccess::reset(printer_state);
         printer_state.init_subjects(false);
-        printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+        printer_state.set_printer_type_sync("Test Macro Printer Pro");
         manager.set_dependencies(nullptr, &printer_state);
 
         // User unchecks bed_mesh.
@@ -2008,6 +2042,7 @@ TEST_CASE_METHOD(HelixTestFixture, "PrintPreparationManager: collect_macro_skip_
  */
 TEST_CASE("PrintPreparationManager: get_option_state(id) asks the provider once, for that id",
           "[print_preparation][option_state][p3]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrintPreparationManager manager;
 
@@ -2027,6 +2062,7 @@ TEST_CASE("PrintPreparationManager: get_option_state(id) asks the provider once,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: get_option_state(id) falls back to DB default_enabled",
                  "[print_preparation][option_state][p3]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // When no provider returns 0/1 for an id, get_option_state(id) falls
     // through to the cached PrePrintOptionSet's default_enabled flag — used
     // by headless callers (macro analysis) that don't have a panel attached.
@@ -2035,7 +2071,7 @@ TEST_CASE_METHOD(HelixTestFixture,
     PrinterState& printer_state = get_printer_state();
     PrinterStateTestAccess::reset(printer_state);
     printer_state.init_subjects(false);
-    printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+    printer_state.set_printer_type_sync("Test Macro Printer Pro");
 
     PrintPreparationManager manager;
     manager.set_dependencies(nullptr, &printer_state);
@@ -2059,12 +2095,13 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: collect_macro_skip_params drives off provider when set",
                  "[print_preparation][option_state][p3]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     // Use AD5M Pro DB entry — has bed_mesh as MacroParam.
     PrinterState& printer_state = get_printer_state();
     PrinterStateTestAccess::reset(printer_state);
     printer_state.init_subjects(false);
-    printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+    printer_state.set_printer_type_sync("Test Macro Printer Pro");
 
     PrintPreparationManager manager;
     manager.set_dependencies(nullptr, &printer_state);
@@ -2107,6 +2144,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 
 TEST_CASE("PrepManager: the operation registry lists every controllable operation once",
           "[print_preparation][p5]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     const OperationCategory controllable[] = {
         OperationCategory::BED_MESH, OperationCategory::QGL, OperationCategory::Z_TILT,
         OperationCategory::NOZZLE_CLEAN, OperationCategory::PURGE_LINE};
@@ -2212,6 +2250,7 @@ TEST_CASE("PrepManager: the operation registry lists every controllable operatio
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: timelapse option synthesized when plugin available",
                  "[print_preparation][timelapse][p4]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // When the moonraker-timelapse plugin is reported available via
     // PrinterState::set_timelapse_available(true), the cached
     // PrePrintOptionSet should grow a synthesized "timelapse" option (id,
@@ -2222,7 +2261,7 @@ TEST_CASE_METHOD(HelixTestFixture,
     PrinterState& printer_state = get_printer_state();
     PrinterStateTestAccess::reset(printer_state);
     printer_state.init_subjects(false);
-    printer_state.set_printer_type_sync("Creality K2 Plus");
+    printer_state.set_printer_type_sync("Test Gcode Printer");
 
     SECTION("Without timelapse: option set has NO timelapse entry") {
         const auto& set = printer_state.profile_state().pre_print_option_set();
@@ -2276,11 +2315,12 @@ TEST_CASE_METHOD(
     HelixTestFixture,
     "PrintPreparationManager: collect_pre_start_gcode_lines emits ai_detect for K2 Plus",
     "[print_preparation][ai_detect][p4]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& printer_state = get_printer_state();
     PrinterStateTestAccess::reset(printer_state);
     printer_state.init_subjects(false);
-    printer_state.set_printer_type_sync("Creality K2 Plus");
+    printer_state.set_printer_type_sync("Test Gcode Printer");
 
     // ai_detect is gated by requires_macro=LOAD_AI_RUN. Mark the macro as
     // registered so this K2 Plus test fixture exercises the macro-present path.
@@ -2333,12 +2373,13 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: collect_pre_start_gcode_lines empty for printer w/o "
                  "PreStartGcode options",
                  "[print_preparation][ai_detect][p4]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     // AD5M Pro only has MacroParam options — no PreStartGcode.
     PrinterState& printer_state = get_printer_state();
     PrinterStateTestAccess::reset(printer_state);
     printer_state.init_subjects(false);
-    printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+    printer_state.set_printer_type_sync("Test Macro Printer Pro");
 
     PrintPreparationManager manager;
     manager.set_dependencies(nullptr, &printer_state);
@@ -2349,6 +2390,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 
 TEST_CASE("PrintPreparationManager: collect_pre_start_gcode_lines empty when no printer state set",
           "[print_preparation][ai_detect][p4]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrintPreparationManager manager;
     // No printer_state -> get_cached_options() returns the empty static set.
@@ -2363,6 +2405,7 @@ TEST_CASE("PrintPreparationManager: collect_pre_start_gcode_lines empty when no 
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: collect_ops_to_disable returns ops user disabled",
                  "[print_preparation][gcode][framework]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // T1: Verifies the post-Phase-3.5 path where collect_ops_to_disable()
     // resolves user intent through get_option_state() (provider-driven) for
     // the embedded-op skip set.
@@ -2370,7 +2413,7 @@ TEST_CASE_METHOD(HelixTestFixture,
     PrinterState& printer_state = get_printer_state();
     PrinterStateTestAccess::reset(printer_state);
     printer_state.init_subjects(false);
-    printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+    printer_state.set_printer_type_sync("Test Macro Printer Pro");
 
     PrintPreparationManager manager;
     manager.set_dependencies(nullptr, &printer_state);
@@ -2419,6 +2462,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: K2 bed_mesh runs the mesh macro only when enabled",
                  "[print_preparation][framework][k2_plus]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // The K2's mesh lives in BED_MESH_CALIBRATE_START_PRINT, which START_PRINT
     // never calls. The option used to map to a PREPARE param that the pipeline
     // deliberately never sends (it is only a visibility sentinel), so the
@@ -2431,7 +2475,7 @@ TEST_CASE_METHOD(HelixTestFixture,
     PrinterState& printer_state = get_printer_state();
     PrinterStateTestAccess::reset(printer_state);
     printer_state.init_subjects(false);
-    printer_state.set_printer_type_sync("Creality K2 Plus");
+    printer_state.set_printer_type_sync("Test Gcode Printer");
 
     PrintPreparationManager manager;
     manager.set_dependencies(nullptr, &printer_state);
@@ -2564,6 +2608,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: collect_pre_start_gcode_lines skips NOT_APPLICABLE",
                  "[print_preparation][framework][ai_detect]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // T5: K2 Plus has ai_detect (PreStartGcode strategy). When the provider
     // returns -1 (not bound) AND the option's default_enabled is false, the
     // option resolves to DISABLED — emitting SWITCH=0. To get NOT_APPLICABLE,
@@ -2574,7 +2619,7 @@ TEST_CASE_METHOD(HelixTestFixture,
     PrinterState& printer_state = get_printer_state();
     PrinterStateTestAccess::reset(printer_state);
     printer_state.init_subjects(false);
-    printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+    printer_state.set_printer_type_sync("Test Macro Printer Pro");
 
     PrintPreparationManager manager;
     manager.set_dependencies(nullptr, &printer_state);
@@ -2680,6 +2725,7 @@ TEST_CASE_METHOD(
     HelixTestFixture,
     "disabling_option_requires_plugin: K2 regression — MacroParam + setup_gcode stays visible",
     "[print_preparation][preprint][plugin_gate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // MOST IMPORTANT case. K2 Plus bed_mesh is a MacroParam (PREPARE-style)
     // option and the printer ships setup_gcode (PRINT_PREPARED). Disabling it
     // is honored by the native macro, NOT the plugin -> must NOT be hidden.
@@ -2706,6 +2752,7 @@ TEST_CASE_METHOD(
     HelixTestFixture,
     "disabling_option_requires_plugin: Voron — MacroParam, no pre-start mechanism, hidden",
     "[print_preparation][preprint][plugin_gate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // MacroParam bed_mesh with no setup_gcode and no PreStartGcode siblings:
     // disabling it means rewriting the START_PRINT call in the file, which
     // needs the plugin for clean history -> hidden when plugin absent.
@@ -2726,6 +2773,7 @@ TEST_CASE_METHOD(
 
 TEST_CASE_METHOD(HelixTestFixture, "disabling_option_requires_plugin: file-embedded term isolated",
                  "[print_preparation][preprint][plugin_gate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // Use a (synthetic) RuntimeCommand strategy on a file-embeddable id so the
     // MacroParam term is off and no pre-start line is emitted — this isolates
     // the "file has the op embedded" contribution to the predicate.
@@ -2749,6 +2797,7 @@ TEST_CASE_METHOD(
     "disabling_option_requires_plugin: MacroParam disable dropped when a PreStartGcode "
     "sibling short-circuits",
     "[print_preparation][preprint][plugin_gate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // No setup_gcode, but a PreStartGcode sibling emits a line -> start_print()
     // takes the pre-start path and never reaches the capability check. The
     // MacroParam skip is silently dropped (a pre-existing quirk), but crucially
@@ -2766,6 +2815,7 @@ TEST_CASE_METHOD(
     HelixTestFixture,
     "disabling_option_requires_plugin: PreStartGcode and RuntimeCommand never require plugin",
     "[print_preparation][preprint][plugin_gate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     SECTION("PreStartGcode option (with setup_gcode present — must not matter)") {
         PrePrintOptionSet set;
         set.macro_name = "START_PRINT";
@@ -2788,6 +2838,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "disabling_option_requires_plugin: embedded strip needs the plugin on the "
                  "pre-start path too",
                  "[print_preparation][preprint][plugin_gate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrePrintOptionSet set;
     set.macro_name = "START_PRINT";
     set.options.push_back(make_runtime_command_opt("bed_mesh"));
@@ -2805,7 +2856,8 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "disabling_option_requires_plugin: PreStartGcode option with an embedded op "
                  "stays visible",
                  "[print_preparation][preprint][plugin_gate]") {
-    // Snapmaker U1 shape: bed_mesh writes a firmware preference. The strip of
+    helix::test::PreprintDatabaseFixture preprint_database;
+    // Test Preference Printer shape: bed_mesh writes a firmware preference. The strip of
     // the file's own mesh needs the plugin, the preference does not.
     PrePrintOptionSet set;
     set.macro_name = "START_PRINT";
@@ -2820,6 +2872,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "disabling_option_requires_plugin: a firmware-held option never needs it",
                  "[print_preparation][preprint][plugin_gate][firmware_seeded]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // RuntimeCommand isolates the file-embedded term (see the case above).
     PrePrintOptionSet set;
     set.macro_name = "START_PRINT";
@@ -2843,6 +2896,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 
 TEST_CASE_METHOD(HelixTestFixture, "collect_ops_to_disable: a firmware-held option strips nothing",
                  "[print_preparation][preprint][firmware_seeded]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrePrintOptionSet set;
     set.macro_name = "START_PRINT";
     set.options.push_back(make_pre_start_gcode_opt("bed_mesh"));
@@ -2893,6 +2947,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "collect_ops_to_disable: a printer switched to keeps none of the last one's "
                  "stored settings",
                  "[print_preparation][preprint][firmware_seeded]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     GateFixture fx(PrePrintOptionSet{});
     auto hardware = [](const std::vector<std::string>& names) {
         PrinterDiscovery hw;
@@ -2901,13 +2956,13 @@ TEST_CASE_METHOD(HelixTestFixture,
     };
 
     // A U1 whose firmware stores bed_mesh off.
-    fx.ps.set_printer_type_sync("Snapmaker U1");
+    fx.ps.set_printer_type_sync("Test Preference Printer");
     fx.ps.set_hardware(hardware({"print_task_config", "bed_mesh"}));
     PrinterStateTestAccess::merge_firmware_option_defaults(fx.ps, {{"bed_mesh", false}});
     helix::ui::UpdateQueue::instance().drain();
 
     // Switch to a printer that stores nothing, type first as a rediscovery does.
-    fx.ps.set_printer_type_sync("FlashForge Adventurer 5M");
+    fx.ps.set_printer_type_sync("Test Macro Printer");
     fx.ps.set_hardware(hardware({"bed_mesh"}));
     helix::ui::UpdateQueue::instance().drain();
 
@@ -2928,6 +2983,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "collect_ops_to_disable: a stored setting read off the previous printer does "
                  "not land on the next",
                  "[print_preparation][preprint][firmware_seeded]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     GateFixture fx(PrePrintOptionSet{});
     auto hardware = [](const std::vector<std::string>& names) {
         PrinterDiscovery hw;
@@ -2935,14 +2991,14 @@ TEST_CASE_METHOD(HelixTestFixture,
         return hw;
     };
 
-    fx.ps.set_printer_type_sync("Snapmaker U1");
+    fx.ps.set_printer_type_sync("Test Preference Printer");
     fx.ps.set_hardware(hardware({"print_task_config", "bed_mesh"}));
     helix::ui::UpdateQueue::instance().drain();
 
     // The U1's last frame is read, and its merge is still queued when the
     // switch to a printer that stores nothing replaces the hardware.
     PrinterStateTestAccess::merge_firmware_option_defaults(fx.ps, {{"bed_mesh", false}});
-    fx.ps.set_printer_type_sync("FlashForge Adventurer 5M");
+    fx.ps.set_printer_type_sync("Test Macro Printer");
     fx.ps.set_hardware(hardware({"bed_mesh"}));
     helix::ui::UpdateQueue::instance().drain();
 
@@ -2955,11 +3011,12 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "collect_ops_to_disable: new hardware starts from no stored settings",
                  "[print_preparation][preprint][firmware_seeded]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     GateFixture fx(PrePrintOptionSet{});
     PrinterDiscovery u1;
     u1.parse_objects(nlohmann::json(std::vector<std::string>{"print_task_config", "bed_mesh"}));
 
-    fx.ps.set_printer_type_sync("Snapmaker U1");
+    fx.ps.set_printer_type_sync("Test Preference Printer");
     fx.ps.set_hardware(u1);
     PrinterStateTestAccess::merge_firmware_option_defaults(fx.ps, {{"bed_mesh", false}});
     helix::ui::UpdateQueue::instance().drain();
@@ -2990,6 +3047,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a start that dies inside the manager retires the "
                  "preparing job",
                  "[print_preparation][lifecycle][preparing]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     helix::PrinterState state;
     state.init_subjects(false);
 
@@ -3028,6 +3086,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: the scan-result guard retires the preparing job too",
                  "[print_preparation][lifecycle][preparing]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // The sibling exit, reached with a live api_ and no cached scan. Separate
     // case because a single test can only ever prove the FIRST guard it hits.
     MockPrinter mock_printer;
@@ -3094,6 +3153,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a remap uploads the rewritten bytes and starts the "
                  "print under the original name",
                  "[print_preparation][remap]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     // The success path stamps the identity override on the GLOBAL state so the
     // status panel shows the original name rather than the temp copy's.
@@ -3147,6 +3207,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a remap cancelled during the transfer never starts",
                  "[print_preparation][remap][preparing_cancel]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterStateTestAccess::reset(get_printer_state());
     get_printer_state().init_subjects(false);
@@ -3200,6 +3261,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a plugin fallback for a cancelled job never starts",
                  "[print_preparation][remap][plugin_server_edits][preparing_cancel]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // The fallback rewrites on the screen, minutes after the job was armed. It
     // must stay bound to that job rather than adopt "no job" and print.
     lv_init_safe();
@@ -3255,6 +3317,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a staged start that loses its answer stays preparing",
                  "[print_preparation][remap][preparing_cancel][1898]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // A timeout means Klipper is busy running the start: the job stays
     // preparing, Stop or no Stop, and the copy it is printing is not deleted.
     lv_init_safe();
@@ -3307,6 +3370,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a remap on a transport without local copies is refused",
                  "[print_preparation][remap]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     MockPrinter mock_printer;
     auto& state = mock_printer.state;
@@ -3333,6 +3397,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a remap travels to the plugin as an edit list when "
                  "server_edits is ready",
                  "[print_preparation][remap][plugin_server_edits]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterStateTestAccess::reset(get_printer_state());
     get_printer_state().init_subjects(false);
@@ -3383,6 +3448,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a print_edited refused for space says so",
                  "[print_preparation][remap][plugin_server_edits][plugin_storage]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterStateTestAccess::reset(get_printer_state());
     get_printer_state().init_subjects(false);
@@ -3426,6 +3492,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a failed print_edited falls back only when the "
                  "plugin cannot do the edit",
                  "[print_preparation][remap][plugin_server_edits]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterStateTestAccess::reset(get_printer_state());
     get_printer_state().init_subjects(false);
@@ -3505,6 +3572,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a staged copy names the original's whole path",
                  "[print_preparation][remap][reprint]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterStateTestAccess::reset(get_printer_state());
     get_printer_state().init_subjects(false);
@@ -3538,6 +3606,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a printer that cannot print from a dot-directory "
                  "gets its copies staged in the visible directory",
                  "[print_preparation][remap][staging]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterStateTestAccess::reset(get_printer_state());
     get_printer_state().init_subjects(false);
@@ -3552,9 +3621,8 @@ TEST_CASE_METHOD(HelixTestFixture,
     const bool forgex = GENERATE(true, false);
     const std::string route = GENERATE(std::string("remap"), std::string("modify"));
     CAPTURE(forgex, route);
-    REQUIRE(state.profile_state().set_printer_type(forgex ? "FlashForge Adventurer 5M (ForgeX)"
-                                                          : "FlashForge Adventurer 5M",
-                                                   true, false, false));
+    REQUIRE(state.profile_state().set_printer_type(
+        forgex ? "Test Visible Staging Printer" : "Test Macro Printer", true, false, false));
     const std::string root = forgex ? "helix_staging/modified_" : ".helix_temp/modified_";
     if (route == "remap") {
         manager.modify_and_print_with_remap(kRemapFixture, {{1, 2}}, nullptr);
@@ -3573,6 +3641,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a remap that changes nothing prints the original",
                  "[print_preparation][remap]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     MockPrinter mock_printer;
     auto& state = mock_printer.state;
@@ -3603,6 +3672,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a failed download hides the busy overlay after the "
                  "manager is destroyed",
                  "[print_preparation][remap][lifetime]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     MockPrinter mock_printer;
     auto& state = mock_printer.state;
@@ -3624,6 +3694,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a failed remap start answers its completion",
                  "[print_preparation][remap]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // The completion is how the caller learns to re-enable Print: a remap that
     // dies on the way must answer it, once, as a failure.
     lv_init_safe();
@@ -3652,6 +3723,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: the remap download lands where the sweeper reaps it",
                  "[print_preparation][remap]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // A crash between the download and its delete leaves a full copy of the job
     // behind. GCodeFileModifier::cleanup_temp_files() is the only sweeper, and
     // it matches on the mod_ prefix inside the gcode_mod cache, so the download
@@ -3690,6 +3762,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: every remap failure retires the preparing job",
                  "[print_preparation][remap][preparing]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     MockPrinter mock_printer;
     auto& state = mock_printer.state;
@@ -3814,6 +3887,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(MacroAnalysisRetryFixture,
                  "PrintPreparationManager: stale pre-start ack does not relaunch a print",
                  "[preparation][stale]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // K1C capture 2026-08-20: klippy's gcode response path backed up behind
     // the prep chain, so the pre-start ack arrived 370s after the send - at
     // cancel time - and the success continuation relaunched the print the
@@ -3861,6 +3935,7 @@ TEST_CASE_METHOD(MacroAnalysisRetryFixture,
 TEST_CASE_METHOD(MacroAnalysisRetryFixture,
                  "PrintPreparationManager: a slow pre-start still starts when nothing retired it",
                  "[preparation][stale][preprint]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     std::atomic<int> starts{0};
     server_->clear_handlers();
     server_->on_method("printer.print.start", [&](const json&) -> json {
@@ -3901,6 +3976,7 @@ TEST_CASE_METHOD(MacroAnalysisRetryFixture,
 TEST_CASE_METHOD(MacroAnalysisRetryFixture,
                  "PrintPreparationManager: a retired job drops its pre-start ack however fresh",
                  "[preparation][stale][preprint]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // The other half of the same rule, and the one the old bound was protecting:
     // intent is gone, so the ack must not start anything — and crucially this
     // holds with NO time having passed, which a staleness bound could never see.
@@ -3939,6 +4015,7 @@ TEST_CASE_METHOD(MacroAnalysisRetryFixture,
 TEST_CASE_METHOD(MacroAnalysisRetryFixture,
                  "PrintPreparationManager: a superseding job drops the previous pre-start ack",
                  "[preparation][stale][preprint]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // Retire-then-rearm is the case has_preparing_job() alone cannot see: a job
     // IS armed at ack time, just not the one this block was sent for.
     std::atomic<int> starts{0};
@@ -4000,6 +4077,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: displayed_options fills rows from the macro "
                  "when the database declares none",
                  "[print_preparation][macro_rows]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& printer_state = get_printer_state();
     PrinterStateTestAccess::reset(printer_state);
@@ -4046,7 +4124,7 @@ TEST_CASE_METHOD(HelixTestFixture,
     }
 
     SECTION("a database set wins") {
-        printer_state.set_printer_type_sync("FlashForge Adventurer 5M Pro");
+        printer_state.set_printer_type_sync("Test Macro Printer Pro");
         manager.set_macro_analysis(analysis_with_qgl("SKIP_QGL", ParameterSemantic::OPT_OUT));
 
         const auto rows = manager.displayed_options();
@@ -4137,6 +4215,7 @@ struct ObjectScanFixture : public LVGLTestFixture {
 TEST_CASE_METHOD(ObjectScanFixture,
                  "The file scan collects EXCLUDE_OBJECT_DEFINE objects in file order",
                  "[print_preparation][pre_start_exclude]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     helix::PlantedGcode file("scan_objects.gcode", "",
                              "; HEADER\n"
                              "EXCLUDE_OBJECT_DEFINE NAME=Cone_id_0 CENTER=25.5,-4.1 "
@@ -4157,6 +4236,7 @@ TEST_CASE_METHOD(ObjectScanFixture,
 
 TEST_CASE_METHOD(ObjectScanFixture, "Definitions past the scan window are not in the scan",
                  "[print_preparation][pre_start_exclude]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     std::string content = "; HEADER\n";
     content += std::string(helix::kPrinterStopScanBytes, ';') + "\n";
     content += "EXCLUDE_OBJECT_DEFINE NAME=Late_A CENTER=1,1\n";
@@ -4174,6 +4254,7 @@ TEST_CASE_METHOD(ObjectScanFixture, "Definitions past the scan window are not in
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a plugin-modified start sends the picks it was handed",
                  "[print_preparation][pre_start_exclude]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterStateTestAccess::reset(get_printer_state());
     get_printer_state().init_subjects(false);
@@ -4209,6 +4290,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: estimate reads the history window the start will run in",
                  "[print_preparation][estimate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // The pre-start line exists only once the extruder temperature is known,
     // which for this file only its scanned START_PRINT call states. A start
     // sends it, so the collector measures the host-pre-start window.
@@ -4246,6 +4328,7 @@ TEST_CASE_METHOD(HelixTestFixture,
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a start records the phases its toggles turned off",
                  "[print_preparation][estimate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& printer_state = get_printer_state();
     PrinterStateTestAccess::reset(printer_state);
@@ -4270,6 +4353,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: starting a print hands its phase toggles to the "
                  "collector",
                  "[print_preparation][estimate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     MoonrakerManager moonraker;
     MoonrakerManagerTestAccess::install_client(
@@ -4311,6 +4395,7 @@ TEST_CASE_METHOD(HelixTestFixture,
                  "PrintPreparationManager: a macro analysis reaches the collector's checklist "
                  "order when the file has no start block",
                  "[print_preparation][collector]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     MoonrakerManager moonraker;
     MoonrakerManagerTestAccess::install_client(

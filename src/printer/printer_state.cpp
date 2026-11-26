@@ -29,7 +29,6 @@
 #include "lvgl_debug_invalidate.h"
 #include "macro_manager.h"
 #include "plr_backend.h"
-#include "pre_print_preferences.h"
 #include "printer_cache_registry.h"
 #include "probe_sensor_manager.h"
 #include "runtime_config.h"
@@ -336,12 +335,6 @@ void PrinterState::update_from_status(const json& state, double eventtime,
                      helix::zoffset::persistence_provider_name(discovery_));
         clear_z_offset_external_persistence_internal();
     }
-
-    // Some firmwares keep pre-print option settings across prints and gate the
-    // sliced gcode on what they hold, which makes them the authority on what
-    // the toggles show. Silent on printers that store none.
-    merge_firmware_option_defaults(
-        helix::preprint_prefs::read_persisted_defaults(discovery_, state));
 
     // A removable enclosure top can come and go while connected; a frame that
     // does not mention it keeps the last report.

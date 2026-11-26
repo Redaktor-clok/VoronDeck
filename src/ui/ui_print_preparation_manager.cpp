@@ -1305,7 +1305,7 @@ bool file_runs_command(const gcode::ScanResult& scan, const std::string& option_
 
 // Whether turning this option off may strip its op out of the sliced file. Not
 // when a self-storing firmware holds the option's value (supplied through
-// preprint_prefs::read_persisted_defaults()): that firmware skips the file's
+// the option defaults): that firmware skips the file's
 // own command when its setting is off, so the option only drives its
 // pre-start line. Nor for a leveling-skip toggle: its wrapper intercepts the
 // file's own command too. Every other option may.

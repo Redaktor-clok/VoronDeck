@@ -17,7 +17,7 @@
  *     the first tile row fully visible whenever the width/3 floor did not
  *     clamp the card.
  *
- * The option set is the real Snapmaker U1 database entry (three options, two
+ * The option set is the real Test Preference Printer database entry (three options, two
  * tile rows), injected into the global PrinterState the view reads.
  */
 
@@ -26,6 +26,7 @@
 #include "ui_update_queue.h"
 
 #include "../lvgl_ui_test_fixture.h"
+#include "../test_helpers/preprint_database_fixture.h"
 #include "../test_helpers/printer_state_test_access.h"
 #include "ams_backend_mock.h"
 #include "ams_state.h"
@@ -160,9 +161,10 @@ TEST_CASE_METHOD(LVGLUITestFixture,
                  "print file detail keeps its buttons on screen and its tiles intact at five "
                  "canvases",
                  "[print_select][detail][geometry][print_detail_geometry]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrinterState& ps = get_printer_state();
     PrinterStateTestAccess::set_option_set(
-        ps, PrinterDetector::get_pre_print_option_set("Snapmaker U1"));
+        ps, PrinterDetector::get_pre_print_option_set("Test Preference Printer"));
     PrinterStateTestAccess::refresh_option_visibility(ps);
     // Setup reached the branch: three options make has_any_preprint_options 1,
     // so the options card (and its tiles) exist to measure.
@@ -329,6 +331,7 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "an empty option set hides the options card, not the Print button",
                  "[print_select][detail][geometry][print_detail_geometry]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrinterState& ps = get_printer_state();
     PrinterStateTestAccess::set_option_set(ps, PrePrintOptionSet{});
     PrinterStateTestAccess::refresh_option_visibility(ps);
@@ -372,9 +375,10 @@ int count_named(lv_obj_t* obj, const char* name) {
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "print file detail placeholders and cards share their neighbours' boxes",
                  "[print_select][detail][geometry][print_detail_geometry]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrinterState& ps = get_printer_state();
     PrinterStateTestAccess::set_option_set(
-        ps, PrinterDetector::get_pre_print_option_set("Snapmaker U1"));
+        ps, PrinterDetector::get_pre_print_option_set("Test Preference Printer"));
     PrinterStateTestAccess::refresh_option_visibility(ps);
     REQUIRE(lv_subject_get_int(lv_xml_get_subject(nullptr, "has_any_preprint_options")) == 1);
 
@@ -440,9 +444,10 @@ TEST_CASE_METHOD(LVGLUITestFixture,
 TEST_CASE_METHOD(LVGLUITestFixture,
                  "small portrait shrinks the preview to show every option when the floor allows",
                  "[print_select][detail][geometry][print_detail_geometry]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     PrinterState& ps = get_printer_state();
     PrinterStateTestAccess::set_option_set(
-        ps, PrinterDetector::get_pre_print_option_set("Snapmaker U1"));
+        ps, PrinterDetector::get_pre_print_option_set("Test Preference Printer"));
     PrinterStateTestAccess::refresh_option_visibility(ps);
     REQUIRE(lv_subject_get_int(lv_xml_get_subject(nullptr, "has_any_preprint_options")) == 1);
 

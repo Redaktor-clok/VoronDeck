@@ -345,47 +345,6 @@ TEST_CASE_METHOD(HelixTestFixture,
 // apply_dynamic_options drives adaptive_active end to end
 // ============================================================================
 
-TEST_CASE("PrePrint adaptive: AD5M database entry forwards ADAPTIVE", "[adaptive][preprint]") {
-    // The shipped FlashForge AD5M entry must carry adaptive_param on its
-    // bed_mesh option (this is the demo printer + the load_cell_probe printer).
-    auto caps = PrinterDetector::get_pre_print_option_set("FlashForge Adventurer 5M");
-    REQUIRE_FALSE(caps.empty());
-
-    const PrePrintOption* bed = caps.find("bed_mesh");
-    REQUIRE(bed != nullptr);
-    const auto* mp = std::get_if<PrePrintStrategyMacroParam>(&bed->strategy);
-    REQUIRE(mp != nullptr);
-    REQUIRE(mp->adaptive_param == "ADAPTIVE");
-    REQUIRE(mp->adaptive_value == "1");
-}
-
-// Full-chain regression guard: the AD5M mock's reported identity (hostname) must
-// resolve, via PrinterDetector, to a DB entry whose bed_mesh option carries a
-// resolvable adaptive_param. Guards against silently shipping a demo that shows
-// no options (the mock previously reported a generic hostname that matched
-// nothing, leaving the printer type empty and the options card bare).
-TEST_CASE("PrePrint adaptive: AD5M mock identity resolves to adaptive-capable options",
-          "[adaptive][preprint]") {
-    // EXACT hostname the FLASHFORGE_AD5M mock reports from printer.info
-    // (src/api/moonraker_client_mock_server.cpp). If that string changes, this
-    // test must be updated in lockstep — that coupling is the point.
-    PrinterHardwareData hardware{};
-    hardware.heaters = {"extruder", "heater_bed"};
-    hardware.hostname = "ad5m-mock";
-
-    auto result = PrinterDetector::detect(hardware);
-    REQUIRE(result.detected());
-    REQUIRE(result.type_name == "FlashForge Adventurer 5M");
-
-    auto caps = PrinterDetector::get_pre_print_option_set(result.type_name);
-    REQUIRE_FALSE(caps.empty());
-    const PrePrintOption* bed = caps.find("bed_mesh");
-    REQUIRE(bed != nullptr);
-    const auto* mp = std::get_if<PrePrintStrategyMacroParam>(&bed->strategy);
-    REQUIRE(mp != nullptr);
-    REQUIRE(mp->adaptive_param == "ADAPTIVE");
-}
-
 TEST_CASE_METHOD(HelixTestFixture,
                  "PrePrint adaptive: a leveling-skip toggle line delivers no params",
                  "[adaptive][preprint][skip_wrappers]") {

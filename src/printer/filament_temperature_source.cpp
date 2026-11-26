@@ -3,7 +3,6 @@
 #include "filament_temperature_source.h"
 
 #include "http_request_epoch.h"
-#include "i_moonraker_sub_apis.h"
 #include "printer_discovery.h"
 #include "text_io.h"
 
@@ -11,8 +10,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <iterator>
-#include <memory>
 #include <mutex>
 #include <utility>
 
@@ -20,41 +17,6 @@
 
 namespace helix::filament_temps {
 namespace {
-
-/// One firmware that keeps its own per-filament temperature table in files.
-struct Provider {
-    const char* name;          ///< For logs.
-    const char* detect_object; ///< Klipper object whose presence identifies it.
-    const char* root;          ///< Moonraker file root the files live under.
-    const char* const* files;  ///< Paths under root, in merge order.
-    size_t file_count;
-};
-
-// The U1's `filament_parameters` module writes one file per nozzle config into
-// its snapmaker config dir once Klipper is ready, so they match what it holds
-// in memory. The stock 0.4 nozzle's file leads the merge.
-constexpr const char* kU1TableFiles[] = {
-    "snapmaker/filament_para_standard_04.json",  "snapmaker/filament_para_standard_02.json",
-    "snapmaker/filament_para_standard_06.json",  "snapmaker/filament_para_standard_08.json",
-    "snapmaker/filament_para_high_flow_04.json",
-};
-
-constexpr Provider kProviders[] = {
-    {"Snapmaker U1", "filament_parameters", "config", kU1TableFiles, std::size(kU1TableFiles)},
-};
-
-const Provider* match(const PrinterDiscovery& hw) {
-    if (!hw.objects_reported()) {
-        return nullptr;
-    }
-    const auto& objects = hw.printer_objects();
-    for (const Provider& p : kProviders) {
-        if (std::find(objects.begin(), objects.end(), p.detect_object) != objects.end()) {
-            return &p;
-        }
-    }
-    return nullptr;
-}
 
 bool ends_with(const std::string& s, const char* suffix) {
     const size_t slen = std::strlen(suffix);
@@ -90,21 +52,16 @@ void store_table(const std::map<FilamentKey, FilamentTemperatures>& table, uint6
 
 } // namespace
 
-bool firmware_publishes_filament_temperatures(const PrinterDiscovery& hw) {
-    return match(hw) != nullptr;
+bool firmware_publishes_filament_temperatures(const PrinterDiscovery&) {
+    return false;
 }
 
-std::string filament_temperature_root(const PrinterDiscovery& hw) {
-    const Provider* p = match(hw);
-    return p ? std::string(p->root) : std::string();
+std::string filament_temperature_root(const PrinterDiscovery&) {
+    return {};
 }
 
-std::vector<std::string> filament_temperature_files(const PrinterDiscovery& hw) {
-    const Provider* p = match(hw);
-    if (!p) {
-        return {};
-    }
-    return std::vector<std::string>(p->files, p->files + p->file_count);
+std::vector<std::string> filament_temperature_files(const PrinterDiscovery&) {
+    return {};
 }
 
 std::map<FilamentKey, FilamentTemperatures>
@@ -208,70 +165,8 @@ std::optional<FilamentTemperatures> lookup_filament_temperatures(const SlotInfo&
     return at("generic", "generic");
 }
 
-void capture_on_connect(ITransfersAPI& transfers, const PrinterDiscovery& hw) {
+void capture_on_connect(ITransfersAPI&, const PrinterDiscovery&) {
     clear_filament_temperatures();
-    const Provider* p = match(hw);
-    if (!p) {
-        return;
-    }
-    const std::string root = filament_temperature_root(hw);
-    const std::vector<std::string> files = filament_temperature_files(hw);
-    spdlog::info("[FilamentTemps] {} keeps per-filament temperatures; reading {} files", p->name,
-                 files.size());
-
-    // Replies arrive on transfer threads in any order; each file keeps its own
-    // slot so the merge runs in the provider's order once the last one settles.
-    struct Capture {
-        std::mutex mutex;
-        std::vector<std::map<FilamentKey, FilamentTemperatures>> parts;
-        size_t pending = 0;
-        uint64_t epoch = 0;
-    };
-    auto capture = std::make_shared<Capture>();
-    capture->parts.resize(files.size());
-    capture->pending = files.size();
-    capture->epoch = helix::http_epoch::current();
-
-    auto settle = [capture](size_t index, std::map<FilamentKey, FilamentTemperatures> part) {
-        std::map<FilamentKey, FilamentTemperatures> table;
-        {
-            std::lock_guard<std::mutex> lock(capture->mutex);
-            capture->parts[index] = std::move(part);
-            if (--capture->pending != 0) {
-                return;
-            }
-            for (const auto& each : capture->parts) {
-                merge_filament_temperatures(table, each);
-            }
-        }
-        if (helix::http_epoch::current() != capture->epoch) {
-            spdlog::debug("[FilamentTemps] Dropping a table read from a previous printer");
-            return;
-        }
-        if (table.empty()) {
-            spdlog::warn("[FilamentTemps] No readable temperature table files");
-            return;
-        }
-        store_table(table, capture->epoch);
-        spdlog::info("[FilamentTemps] Published {} per-filament temperature leaves", table.size());
-    };
-
-    for (size_t i = 0; i < files.size(); ++i) {
-        const std::string& path = files[i];
-        transfers.download_file(
-            root, path,
-            [settle, i, path](const std::string& content) {
-                auto part = parse_filament_temperatures(content);
-                if (part.empty()) {
-                    spdlog::debug("[FilamentTemps] {} carries no temperature table", path);
-                }
-                settle(i, std::move(part));
-            },
-            [settle, i, path](const MoonrakerError& err) {
-                spdlog::debug("[FilamentTemps] {} unreadable: {}", path, err.message);
-                settle(i, {});
-            });
-    }
 }
 
 } // namespace helix::filament_temps

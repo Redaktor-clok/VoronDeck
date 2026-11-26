@@ -353,7 +353,7 @@ TEST_CASE_METHOD(StepFixture, "a migrated preset sensor block takes effect in th
     CHECK(cc1_sensor_is_runout());
 }
 
-TEST_CASE_METHOD(StepFixture, "the filament_temperatures step publishes the firmware's table",
+TEST_CASE_METHOD(StepFixture, "the filament_temperatures step ignores retired firmware tables",
                  "[discovery_steps][filament-temps]") {
     helix::filament_temps::clear_filament_temperatures();
     api.set_config_files({
@@ -380,9 +380,7 @@ TEST_CASE_METHOD(StepFixture, "the filament_temperatures step publishes the firm
     pla.brand = "Generic";
     pla.material = "PLA";
     auto t = helix::filament_temps::lookup_filament_temperatures(pla);
-    REQUIRE(t.has_value());
-    CHECK(t->load_c.value() == 250);
-    CHECK(t->unload_c.value() == 245);
+    REQUIRE_FALSE(t.has_value());
     helix::filament_temps::clear_filament_temperatures();
 }
 

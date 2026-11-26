@@ -1235,8 +1235,8 @@ static void rebuild_spools(AmsMiniStatusData* data) {
                     lv_text_get_size(&size, lv_label_get_text(label),
                                      lv_obj_get_style_text_font(label, LV_PART_MAIN), 0, 0,
                                      LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-                    lv_obj_set_size(badge, std::max(spool_size * 2 / 5, size.x + 4),
-                                    std::max(spool_size * 2 / 5, size.y + 2));
+                    lv_obj_set_size(badge, std::max<int32_t>(spool_size * 2 / 5, size.x + 4),
+                                    std::max<int32_t>(spool_size * 2 / 5, size.y + 2));
                 }
             }
             continue;

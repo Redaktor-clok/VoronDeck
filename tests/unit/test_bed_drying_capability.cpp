@@ -20,14 +20,13 @@
 using namespace helix;
 using bed_drying::EnclosureStyle;
 
-TEST_CASE("the printer database marks factory-enclosed printers", "[bed_drying][1730]") {
-    CHECK(PrinterDetector::is_enclosed("Creality K1"));
-    CHECK(PrinterDetector::is_enclosed("Snapmaker U1"));
+TEST_CASE("the printer database marks known enclosed printers", "[bed_drying][1730]") {
     CHECK(PrinterDetector::is_enclosed("Voron 2.4"));
+    CHECK(PrinterDetector::is_enclosed("Voron Trident"));
     CHECK(PrinterDetector::is_enclosed("FLSUN S1 / S1 Pro"));
     CHECK(PrinterDetector::is_enclosed("FLSUN T1 Pro"));
     CHECK_FALSE(PrinterDetector::is_enclosed("FLSUN V400"));
-    CHECK_FALSE(PrinterDetector::is_enclosed("Creality Ender 3"));
+    CHECK_FALSE(PrinterDetector::is_enclosed("Generic Open Printer"));
     CHECK_FALSE(PrinterDetector::is_enclosed("FlashForge Adventurer 5X"));
     CHECK_FALSE(PrinterDetector::is_enclosed(""));
 }
@@ -71,7 +70,7 @@ struct CapabilityFixture : public LVGLTestFixture {
 
 TEST_CASE_METHOD(CapabilityFixture, "an enclosed printer with a heated bed can dry on the bed",
                  "[bed_drying][1730]") {
-    state.set_printer_type_sync("Creality K1");
+    state.set_printer_type_sync("Voron 2.4");
     CHECK(enclosed() == 1);
     CHECK(can_dry() == 1);
 
@@ -89,7 +88,7 @@ TEST_CASE_METHOD(CapabilityFixture, "an enclosed printer with a heated bed can d
 
 TEST_CASE_METHOD(CapabilityFixture, "an open printer never offers it unless marked enclosed",
                  "[bed_drying][1730]") {
-    state.set_printer_type_sync("Creality Ender 3");
+    state.set_printer_type_sync("Generic Open Printer");
     CHECK(enclosed() == 0);
     CHECK(can_dry() == 0);
 

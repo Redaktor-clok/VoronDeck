@@ -60,10 +60,6 @@ const char* kStandard02 = R"({"version": "1.0.0",
     "generic_PLA_generic_load_temp": 230,
     "generic_PETG-HF_generic_load_temp": 260, "generic_PETG-HF_generic_unload_temp": 260})";
 
-/// The high-flow nozzle's table: one material only it lists.
-const char* kHighFlow04 = R"({"version": "1.0.0",
-    "generic_PLA_HF_load_temp": 240, "generic_PLA_HF_unload_temp": 235})";
-
 /// Wipes both the published firmware table and any staged user override, so a
 /// case never reads what a previous case stored. Same pattern as
 /// test_active_material_provider.cpp's OverrideFixture.
@@ -289,238 +285,12 @@ TEST_CASE("filament-temps lookup: no published table answers nullopt",
 // Capability questions over PrinterDiscovery
 // ============================================================================
 
-TEST_CASE("filament-temps capability: keyed on the filament_parameters object",
-          "[snapmaker][filament-temps]") {
+TEST_CASE("filament-temps capability: retired firmware has no table provider", "[filament-temps]") {
     PrinterDiscovery hw;
+    hw.parse_objects(nlohmann::json::array({"extruder", "filament_parameters"}));
     CHECK_FALSE(filament_temps::firmware_publishes_filament_temperatures(hw));
     CHECK(filament_temps::filament_temperature_root(hw).empty());
     CHECK(filament_temps::filament_temperature_files(hw).empty());
-
-    hw.parse_objects(nlohmann::json::array({"extruder", "filament_parameters"}));
-    CHECK(filament_temps::firmware_publishes_filament_temperatures(hw));
-    CHECK(filament_temps::filament_temperature_root(hw) == "config");
-    CHECK(filament_temps::filament_temperature_files(hw) ==
-          std::vector<std::string>{"snapmaker/filament_para_standard_04.json",
-                                   "snapmaker/filament_para_standard_02.json",
-                                   "snapmaker/filament_para_standard_06.json",
-                                   "snapmaker/filament_para_standard_08.json",
-                                   "snapmaker/filament_para_high_flow_04.json"});
-
-    PrinterDiscovery other;
-    other.parse_objects(nlohmann::json::array({"extruder", "heater_bed"}));
-    CHECK_FALSE(filament_temps::firmware_publishes_filament_temperatures(other));
-    CHECK(filament_temps::filament_temperature_files(other).empty());
-}
-
-// ============================================================================
-// capture_on_connect(): the table files, read over the file API
-// ============================================================================
-
-namespace {
-
-PrinterDiscovery u1_hardware() {
-    PrinterDiscovery hw;
-    hw.parse_objects(nlohmann::json::array({"extruder", "filament_parameters"}));
-    return hw;
-}
-
-/// Records every download and serves the injected config root.
-class RecordingTransfers : public MoonrakerFileTransferAPIMock {
-  public:
-    using MoonrakerFileTransferAPIMock::MoonrakerFileTransferAPIMock;
-
-    void download_file(const std::string& root, const std::string& path, StringCallback on_success,
-                       ErrorCallback on_error) override {
-        requests.push_back(root + ":" + path);
-        MoonrakerFileTransferAPIMock::download_file(root, path, std::move(on_success),
-                                                    std::move(on_error));
-    }
-
-    std::vector<std::string> requests;
-};
-
-struct CaptureFixture : FilamentTempsFixture {
-    MoonrakerClientMock client;
-    RecordingTransfers transfers{client, "http://mock:7125"};
-};
-
-} // namespace
-
-TEST_CASE_METHOD(CaptureFixture, "filament-temps capture: every table file merges in file order",
-                 "[snapmaker][filament-temps][capture]") {
-    transfers.set_config_files({
-        {"snapmaker/filament_para_standard_04.json", kStandard04},
-        {"snapmaker/filament_para_standard_02.json", kStandard02},
-        {"snapmaker/filament_para_standard_06.json", R"({"version": "1.0.0"})"},
-        {"snapmaker/filament_para_standard_08.json", R"({"version": "1.0.0"})"},
-        {"snapmaker/filament_para_high_flow_04.json", kHighFlow04},
-    });
-    filament_temps::capture_on_connect(transfers, u1_hardware());
-
-    CHECK(transfers.requests ==
-          std::vector<std::string>{"config:snapmaker/filament_para_standard_04.json",
-                                   "config:snapmaker/filament_para_standard_02.json",
-                                   "config:snapmaker/filament_para_standard_06.json",
-                                   "config:snapmaker/filament_para_standard_08.json",
-                                   "config:snapmaker/filament_para_high_flow_04.json"});
-
-    // The 0.4 file leads: its PLA load temp wins over the 0.2 file's 230.
-    auto pla = filament_temps::lookup_filament_temperatures(slot("Generic", "PLA", "generic"));
-    REQUIRE(pla.has_value());
-    CHECK(pla->load_c.value() == 250);
-    CHECK(pla->unload_c.value() == 250);
-    // Leaves only a later file carries still publish.
-    auto petg_hf = filament_temps::lookup_filament_temperatures(slot("Generic", "PETG-HF", "x"));
-    REQUIRE(petg_hf.has_value());
-    CHECK(petg_hf->load_c.value() == 260);
-    auto pla_hf = filament_temps::lookup_filament_temperatures(slot("Generic", "PLA", "HF"));
-    REQUIRE(pla_hf.has_value());
-    CHECK(pla_hf->load_c.value() == 240);
-    CHECK(pla_hf->unload_c.value() == 235);
-}
-
-TEST_CASE_METHOD(CaptureFixture,
-                 "filament-temps capture: a missing or invalid file leaves the others published",
-                 "[snapmaker][filament-temps][capture]") {
-    // 0.4 is unparseable, 0.2 is absent, 0.6 is not an object: the high-flow
-    // and 0.8 files still publish.
-    transfers.set_config_files({
-        {"snapmaker/filament_para_standard_04.json", R"({"generic_PLA_generic_load_temp": )"},
-        {"snapmaker/filament_para_standard_06.json", "[]"},
-        {"snapmaker/filament_para_standard_08.json", kStandard02},
-        {"snapmaker/filament_para_high_flow_04.json", kHighFlow04},
-    });
-    filament_temps::capture_on_connect(transfers, u1_hardware());
-    REQUIRE(transfers.requests.size() == 5);
-
-    auto pla = filament_temps::lookup_filament_temperatures(slot("Generic", "PLA", "generic"));
-    REQUIRE(pla.has_value());
-    CHECK(pla->load_c.value() == 230); // from the 0.8 slot's kStandard02
-    CHECK_FALSE(pla->unload_c.has_value());
-    auto pla_hf = filament_temps::lookup_filament_temperatures(slot("Generic", "PLA", "HF"));
-    REQUIRE(pla_hf.has_value());
-    CHECK(pla_hf->load_c.value() == 240);
-}
-
-TEST_CASE_METHOD(CaptureFixture,
-                 "filament-temps capture: no readable file publishes nothing and keeps the DB",
-                 "[snapmaker][filament-temps][capture]") {
-    // A table from an earlier connection must not survive this one.
-    store_captured_table();
-    // A config root holding none of the table files.
-    transfers.set_config_files({{"printer.cfg", "[extruder]\n"}});
-    filament_temps::capture_on_connect(transfers, u1_hardware());
-
-    REQUIRE(transfers.requests.size() == 5);
-    CHECK_FALSE(filament_temps::lookup_filament_temperatures(slot("Generic", "PLA", "generic"))
-                    .has_value());
-    const auto db = filament::find_material("PLA");
-    REQUIRE(db.has_value());
-    SlotInfo pla_lane = slot("Snapmaker", "PLA", "SnapSpeed");
-    auto t = helix::ui::resolve_load_preheat_material(0, &pla_lane, nullptr);
-    REQUIRE(t.has_value());
-    CHECK(t->temp_c == db->nozzle_recommended());
-}
-
-TEST_CASE_METHOD(CaptureFixture,
-                 "filament-temps capture: a printer without the table reads no files",
-                 "[snapmaker][filament-temps][capture]") {
-    store_captured_table();
-    transfers.set_config_files({{"snapmaker/filament_para_standard_04.json", kStandard04}});
-    PrinterDiscovery voron;
-    voron.parse_objects(nlohmann::json::array({"extruder", "heater_bed"}));
-    filament_temps::capture_on_connect(transfers, voron);
-
-    CHECK(transfers.requests.empty());
-    // The previous printer's table is gone.
-    CHECK_FALSE(filament_temps::lookup_filament_temperatures(slot("Generic", "PLA", "generic"))
-                    .has_value());
-}
-
-namespace {
-
-/// Holds every download until the test answers it, so replies can arrive in any
-/// order and after the REST epoch moves.
-class HeldTransfers : public MoonrakerFileTransferAPIMock {
-  public:
-    using MoonrakerFileTransferAPIMock::MoonrakerFileTransferAPIMock;
-
-    struct Held {
-        std::string path;
-        StringCallback on_success;
-        ErrorCallback on_error;
-    };
-
-    void download_file(const std::string&, const std::string& path, StringCallback on_success,
-                       ErrorCallback on_error) override {
-        held.push_back({path, std::move(on_success), std::move(on_error)});
-    }
-
-    /// Answer every held request in reverse order of arrival.
-    void answer_in_reverse(const std::map<std::string, std::string>& files) {
-        for (auto it = held.rbegin(); it != held.rend(); ++it) {
-            auto file = files.find(it->path);
-            if (file != files.end()) {
-                it->on_success(file->second);
-            } else {
-                it->on_error(MoonrakerError::file_not_found("download_file", it->path));
-            }
-        }
-        held.clear();
-    }
-
-    std::vector<Held> held;
-};
-
-struct HeldCaptureFixture : FilamentTempsFixture {
-    MoonrakerClientMock client;
-    HeldTransfers transfers{client, "http://mock:7125"};
-    const std::map<std::string, std::string> files = {
-        {"snapmaker/filament_para_standard_04.json", kStandard04},
-        {"snapmaker/filament_para_standard_02.json", kStandard02},
-        {"snapmaker/filament_para_high_flow_04.json", kHighFlow04},
-    };
-};
-
-} // namespace
-
-TEST_CASE_METHOD(HeldCaptureFixture,
-                 "filament-temps capture: replies out of order still merge in file order",
-                 "[snapmaker][filament-temps][capture]") {
-    filament_temps::capture_on_connect(transfers, u1_hardware());
-    REQUIRE(transfers.held.size() == 5);
-    // Nothing publishes until the last reply settles.
-    CHECK_FALSE(filament_temps::lookup_filament_temperatures(slot("Generic", "PLA", "generic"))
-                    .has_value());
-
-    transfers.answer_in_reverse(files);
-
-    // standard_04 answers last but still leads: its PLA 250 beats standard_02's 230.
-    auto pla = filament_temps::lookup_filament_temperatures(slot("Generic", "PLA", "generic"));
-    REQUIRE(pla.has_value());
-    CHECK(pla->load_c.value() == 250);
-    auto pla_hf = filament_temps::lookup_filament_temperatures(slot("Generic", "PLA", "HF"));
-    REQUIRE(pla_hf.has_value());
-    CHECK(pla_hf->load_c.value() == 240);
-}
-
-TEST_CASE_METHOD(
-    HeldCaptureFixture,
-    "filament-temps capture: replies landing after REST moved leave the next table alone",
-    "[snapmaker][filament-temps][capture]") {
-    filament_temps::capture_on_connect(transfers, u1_hardware());
-    REQUIRE(transfers.held.size() == 5);
-
-    // REST moves to the next printer, whose own table is already published.
-    helix::http_epoch::advance();
-    store_captured_table();
-    transfers.answer_in_reverse(files);
-
-    // The late replies neither replace the next printer's table nor add to it:
-    // PLA HF falls through to the next table's generic PLA, not the stale 240.
-    auto pla_hf = filament_temps::lookup_filament_temperatures(slot("Generic", "PLA", "HF"));
-    REQUIRE(pla_hf.has_value());
-    CHECK(pla_hf->load_c.value() == 250);
 }
 
 TEST_CASE_METHOD(FilamentTempsFixture,
@@ -585,7 +355,7 @@ TEST_CASE("filament-temps capture: discovering a U1 sends nothing to its console
     client.set_klippy_state(MoonrakerClientMock::KlippyState::READY);
     REQUIRE(client.discover_real());
 
-    REQUIRE(filament_temps::firmware_publishes_filament_temperatures(client.hardware()));
+    REQUIRE_FALSE(filament_temps::firmware_publishes_filament_temperatures(client.hardware()));
     for (const std::string& script : client.scripts) {
         CHECK(script.find("FILAMENT_PARA") == std::string::npos);
     }

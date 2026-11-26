@@ -1,5 +1,6 @@
 // Copyright (C) 2025-2026 356C LLC
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "../test_helpers/printer_database_fixture.h"
 #include "detect_printer_cmd.h"
 #include "printer_detector.h"
 #include "printer_discovery.h"
@@ -133,24 +134,23 @@ TEST_CASE("populate_discovery: the raw object list reaches detection", "[detect_
 
 TEST_CASE("populate_discovery: a macro_exclude heuristic actually excludes",
           "[detect_cmd][objects]") {
-    // flashforge_ad5m_pro carries `macro_exclude SUPPORT_FORGE_X`; the ForgeX
-    // sibling carries `macro_match SUPPORT_FORGE_X` at 99. A rig running ForgeX
-    // must therefore land on the ForgeX entry, and the stock entry must be ruled
-    // out entirely. With the object list dropped, neither heuristic can fire and
-    // the stock entry wins by default - which is what our own AD5M did.
-    nlohmann::json info = {{"hostname", "ad5m-pro"}};
+    helix::test::PrinterDatabaseFixture database(R"({"printers":[
+        {"id":"test_standard", "name":"Test Standard", "manufacturer":"Test", "heuristics":[
+            {"type":"hostname_match", "field":"hostname", "pattern":"test-exclude", "confidence":95},
+            {"type":"macro_exclude", "field":"macros", "pattern":"TEST_ALTERNATIVE", "confidence":0}]},
+        {"id":"test_alternative", "name":"Test Alternative", "manufacturer":"Test", "heuristics":[
+            {"type":"macro_match", "field":"macros", "pattern":"TEST_ALTERNATIVE", "confidence":99}]}
+    ]})");
+    nlohmann::json info = {{"hostname", "test-exclude"}};
     nlohmann::json cfg = {
         {"configfile", {{"settings", {{"printer", {{"kinematics", "corexy"}}}}}}}};
-    nlohmann::json objects =
-        nlohmann::json::array({"extruder", "heater_bed", "mod_params",
-                               "gcode_macro SUPPORT_FORGE_X", "led chamber_light"});
-
+    nlohmann::json objects = nlohmann::json::array({"extruder", "heater_bed"});
     helix::PrinterDiscovery disc;
     helix::detect::populate_discovery(disc, objects, info, cfg);
-
-    auto result = PrinterDetector::auto_detect(disc);
-    INFO("detected " << result.type_name << " @" << result.confidence << " runner-up "
-                     << result.runner_up_type_name);
-    REQUIRE(result.type_name == "FlashForge Adventurer 5M Pro (ForgeX)");
-    REQUIRE(result.type_name != "FlashForge Adventurer 5M Pro");
+    REQUIRE(PrinterDetector::auto_detect(disc).type_name == "Test Standard");
+    objects.push_back("gcode_macro TEST_ALTERNATIVE");
+    helix::detect::populate_discovery(disc, objects, info, cfg);
+    const auto result = PrinterDetector::auto_detect(disc);
+    REQUIRE(result.type_name == "Test Alternative");
+    REQUIRE(result.runner_up_type_name != "Test Standard");
 }

@@ -120,7 +120,7 @@ std::string PrePrintOptionsRenderer::default_icon_for(const std::string& id) {
     if (id == "flow_calibrate") {
         return "gauge";
     }
-    if (id == "timelapse" || id == "u1_timelapse") {
+    if (id == "timelapse") {
         return "camera_timer";
     }
     if (id == "ai_detect") {

@@ -33,67 +33,14 @@ PrinterDiscovery discover(const json& objects) {
 const json kU1Objects = json::array({"extruder", "extruder1", "extruder2", "extruder3",
                                      "heater_bed", "filament_detect", "toolhead"});
 
-struct ToolStateFixture : public LVGLTestFixture {
-    ToolStateFixture() {
-        helix::ToolState::instance().init_subjects(/*register_xml=*/false);
-    }
-    ~ToolStateFixture() override {
-        helix::ToolState::instance().deinit_subjects();
-    }
-};
-
 } // namespace
 
-TEST_CASE("fixed_toolheads gives the U1 four heads and everyone else none", "[tool]") {
-    SECTION("the U1's four heads") {
-        const auto heads = topology::fixed_toolheads(discover(kU1Objects));
-        REQUIRE(heads.size() == 4);
-        const std::vector<std::string> fans = {"fan", "fan_generic e1_fan", "fan_generic e2_fan",
-                                               "fan_generic e3_fan"};
-        const std::vector<std::string> extruders = {"extruder", "extruder1", "extruder2",
-                                                    "extruder3"};
-        for (size_t i = 0; i < heads.size(); ++i) {
-            CAPTURE(i);
-            CHECK(heads[i].extruder == extruders[i]);
-            CHECK(heads[i].heater == extruders[i]);
-            CHECK(heads[i].fan == fans[i]);
-        }
-        CHECK(std::string(topology::provider_name(discover(kU1Objects))) != "none");
-    }
-
-    SECTION("a klipper-toolchanger printer has none") {
-        const PrinterDiscovery hw = discover(json::array(
-            {"toolchanger", "tool T0", "tool T1", "extruder", "extruder1", "heater_bed"}));
+TEST_CASE("fixed_toolheads never infers a proprietary topology", "[tool]") {
+    for (const auto& objects :
+         {kU1Objects, json::array({"extruder", "heater_bed"}),
+          json::array({"toolchanger", "tool T0", "tool T1", "extruder", "extruder1"})}) {
+        const auto hw = discover(objects);
         CHECK(topology::fixed_toolheads(hw).empty());
         CHECK(std::string(topology::provider_name(hw)) == "none");
-    }
-
-    SECTION("a plain printer has none") {
-        const PrinterDiscovery hw = discover(json::array({"extruder", "heater_bed", "fan"}));
-        CHECK(topology::fixed_toolheads(hw).empty());
-        CHECK(std::string(topology::provider_name(hw)) == "none");
-    }
-}
-
-TEST_CASE_METHOD(ToolStateFixture, "ToolState builds the U1 heads from the fixed topology",
-                 "[tool]") {
-    auto& ts = helix::ToolState::instance();
-    ts.init_tools(discover(kU1Objects));
-    helix::ui::UpdateQueue::instance().drain();
-
-    REQUIRE(ts.tool_count() == 4);
-    const std::vector<std::string> fans = {"fan", "fan_generic e1_fan", "fan_generic e2_fan",
-                                           "fan_generic e3_fan"};
-    const std::vector<std::string> extruders = {"extruder", "extruder1", "extruder2", "extruder3"};
-    for (int i = 0; i < 4; ++i) {
-        CAPTURE(i);
-        const auto& tool = ts.tools()[static_cast<size_t>(i)];
-        CHECK(tool.index == i);
-        REQUIRE(tool.extruder_name.has_value());
-        CHECK(*tool.extruder_name == extruders[static_cast<size_t>(i)]);
-        REQUIRE(tool.heater_name.has_value());
-        CHECK(*tool.heater_name == extruders[static_cast<size_t>(i)]);
-        REQUIRE(tool.fan_name.has_value());
-        CHECK(*tool.fan_name == fans[static_cast<size_t>(i)]);
     }
 }

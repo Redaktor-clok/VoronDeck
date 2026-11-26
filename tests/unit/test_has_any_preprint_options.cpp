@@ -21,6 +21,7 @@
 
 #include "ui_update_queue.h"
 
+#include "../test_helpers/preprint_database_fixture.h"
 #include "../test_helpers/printer_state_test_access.h"
 #include "../test_helpers/update_queue_test_access.h"
 #include "../ui_test_utils.h"
@@ -76,6 +77,7 @@ PrinterState& fresh_state() {
 
 TEST_CASE("has_any_preprint_options: empty inputs → 0",
           "[printer_state][composite_visibility][aggregate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& state = fresh_state();
 
@@ -88,6 +90,7 @@ TEST_CASE("has_any_preprint_options: empty inputs → 0",
 
 TEST_CASE("has_any_preprint_options: leveling hardware alone shows no card",
           "[printer_state][composite_visibility][aggregate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // A Voron with the plugin, bed_mesh and QGL, whose PRINT_START runs both
     // unconditionally: nothing could skip either, so there is no row to show.
     lv_init_safe();
@@ -102,6 +105,7 @@ TEST_CASE("has_any_preprint_options: leveling hardware alone shows no card",
 
 TEST_CASE("has_any_preprint_options: macro rows show the card only with the plugin",
           "[printer_state][composite_visibility][aggregate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& state = fresh_state();
     state.set_hardware(hardware_with(true, true, false, false, false));
@@ -129,6 +133,7 @@ TEST_CASE("has_any_preprint_options: macro rows show the card only with the plug
 
 TEST_CASE("has_any_preprint_options: timelapse bypasses the plugin gate",
           "[printer_state][composite_visibility][aggregate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& state = fresh_state();
 
@@ -143,6 +148,7 @@ TEST_CASE("has_any_preprint_options: timelapse bypasses the plugin gate",
 
 TEST_CASE("has_any_preprint_options: framework option count drives card alone",
           "[printer_state][composite_visibility][aggregate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& state = fresh_state();
 
@@ -153,7 +159,7 @@ TEST_CASE("has_any_preprint_options: framework option count drives card alone",
     state.set_hardware(hardware_with(false, false, false, false, false));
     REQUIRE(read_aggregate(state) == 0);
 
-    state.set_printer_type_sync("Creality K2 Plus");
+    state.set_printer_type_sync("Test Gcode Printer");
     REQUIRE(read_aggregate(state) == 1);
 }
 
@@ -171,6 +177,7 @@ const PrePrintOption* find_timelapse_option(PrinterState& state) {
 
 TEST_CASE("timelapse pre-print default reflects global enabled=true (#1094)",
           "[printer_state][preprint][timelapse]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& state = fresh_state();
 
@@ -184,6 +191,7 @@ TEST_CASE("timelapse pre-print default reflects global enabled=true (#1094)",
 
 TEST_CASE("timelapse pre-print default reflects global enabled=false (#1094)",
           "[printer_state][preprint][timelapse]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& state = fresh_state();
 
@@ -197,6 +205,7 @@ TEST_CASE("timelapse pre-print default reflects global enabled=false (#1094)",
 
 TEST_CASE("timelapse pre-print label is English text, not a semantic i18n key",
           "[printer_state][preprint][timelapse][i18n]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // English registers no translation pack (translation_loader.cpp skips
     // kIdentityLocale), so lv_tr(key) returns the key itself in the English
     // UI. A label_key like "pre_print_option.timelapse.label" therefore
@@ -221,17 +230,18 @@ TEST_CASE("timelapse pre-print label is English text, not a semantic i18n key",
 
 TEST_CASE("a database option owning the timelapse capability suppresses the synthesized row",
           "[printer_state][preprint][timelapse][capability]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& state = fresh_state();
 
-    state.set_printer_type_sync("Snapmaker U1");
+    state.set_printer_type_sync("Test Preference Printer");
     state.set_timelapse_available(true);
     state.set_timelapse_default_enabled(true);
     UpdateQueueTestAccess::drain(UpdateQueue::instance());
 
     const PrePrintOptionSet& set = state.profile_state().pre_print_option_set();
     REQUIRE(set.declares_capability("timelapse"));
-    REQUIRE(set.find("u1_timelapse") != nullptr);
+    REQUIRE(set.find("test_timelapse") != nullptr);
     REQUIRE(set.find("timelapse") == nullptr);
 
     const int timelapse_rows = static_cast<int>(
@@ -242,6 +252,7 @@ TEST_CASE("a database option owning the timelapse capability suppresses the synt
 
 TEST_CASE("a printer with no database timelapse option still gets the synthesized row",
           "[printer_state][preprint][timelapse][capability]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     // The control for the case above: suppression must key on the database
     // declaring the capability, not on the plugin being available.
     lv_init_safe();
@@ -257,7 +268,7 @@ TEST_CASE("a printer with no database timelapse option still gets the synthesize
     // provides it, and that there is still exactly one.
     const PrePrintOptionSet& set = state.profile_state().pre_print_option_set();
     REQUIRE(set.find("timelapse") != nullptr);
-    REQUIRE(set.find("u1_timelapse") == nullptr);
+    REQUIRE(set.find("test_timelapse") == nullptr);
 
     const int timelapse_rows = static_cast<int>(
         std::count_if(set.options.begin(), set.options.end(),
@@ -267,6 +278,7 @@ TEST_CASE("a printer with no database timelapse option still gets the synthesize
 
 TEST_CASE("helix_plugin_installed keeps unknown (-1) apart from not installed (0)",
           "[printer_state][plugin][tristate]") {
+    helix::test::PreprintDatabaseFixture preprint_database;
     lv_init_safe();
     PrinterState& state = fresh_state();
     lv_subject_t* installed = state.plugin_status_state().get_helix_plugin_installed_subject();

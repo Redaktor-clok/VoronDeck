@@ -35,7 +35,6 @@
 #include "platform_info.h"
 #include "plr_backend.h"
 #include "power_device_state.h"
-#include "pre_print_preferences.h"
 #include "print_start_profile.h"
 #include "printer_detector.h"
 #include "printer_state.h"
@@ -1397,13 +1396,6 @@ json MoonrakerDiscoverySequence::build_subscription_objects(const PrinterDiscove
     // printed to the console again, so without this subscription it stays
     // invisible. See include/firmware_fault_codes.h.
     for (const auto& obj : helix::faultcodes::required_status_objects(hw)) {
-        subscription_objects[obj] = nullptr;
-    }
-
-    // Firmware that keeps pre-print option settings itself holds them in its
-    // own status object; they seed the print dialog's toggles. A key another
-    // block also subscribes is one entry. See include/pre_print_preferences.h.
-    for (const auto& obj : helix::preprint_prefs::required_status_objects(hw)) {
         subscription_objects[obj] = nullptr;
     }
 

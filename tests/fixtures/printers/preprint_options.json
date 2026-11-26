@@ -1,0 +1,164 @@
+{
+  "printers": [
+    {
+      "id": "test_0",
+      "name": "Test Macro Printer",
+      "manufacturer": "Test",
+      "pre_print_options": {
+        "macro_name": "START_PRINT",
+        "options": [
+          {
+            "id": "bed_mesh",
+            "category": "mechanical",
+            "order": 10,
+            "default_enabled": true,
+            "strategy": "macro_param",
+            "param_name": "SKIP_LEVELING",
+            "enable_value": "0",
+            "skip_value": "1",
+            "default_value": "0",
+            "adaptive_param": "ADAPTIVE",
+            "adaptive_value": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "test_1",
+      "name": "Test Visible Staging Printer",
+      "manufacturer": "Test",
+      "pre_print_options": {
+        "macro_name": "START_PRINT",
+        "options": [
+          {
+            "id": "bed_mesh",
+            "category": "mechanical",
+            "order": 10,
+            "default_enabled": true,
+            "strategy": "macro_param",
+            "param_name": "SKIP_LEVELING",
+            "enable_value": "0",
+            "skip_value": "1",
+            "default_value": "0",
+            "adaptive_param": "ADAPTIVE",
+            "adaptive_value": "1"
+          }
+        ]
+      },
+      "klipper_hides_dot_dirs": true
+    },
+    {
+      "id": "test_2",
+      "name": "Test Macro Printer Pro",
+      "manufacturer": "Test",
+      "pre_print_options": {
+        "macro_name": "START_PRINT",
+        "options": [
+          {
+            "id": "bed_mesh",
+            "category": "mechanical",
+            "order": 10,
+            "default_enabled": true,
+            "strategy": "macro_param",
+            "param_name": "SKIP_LEVELING",
+            "enable_value": "0",
+            "skip_value": "1",
+            "default_value": "0",
+            "adaptive_param": "ADAPTIVE",
+            "adaptive_value": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "test_3",
+      "name": "Test Gcode Printer",
+      "manufacturer": "Test",
+      "pre_print_options": {
+        "macro_name": "START_PRINT",
+        "setup_gcode": "PRINT_PREPARED",
+        "options": [
+          {
+            "id": "bed_mesh",
+            "category": "mechanical",
+            "order": 10,
+            "default_enabled": true,
+            "strategy": "pre_start_gcode",
+            "gcode_template": "BED_MESH_CALIBRATE_START_PRINT GCODE_FILE='{file}' BED_TEMP={bed_temp} EXTRUDER_TEMP={extruder_temp}",
+            "emit_when_disabled": false
+          },
+          {
+            "id": "ai_detect",
+            "category": "monitoring",
+            "order": 10,
+            "default_enabled": false,
+            "label_key": "AI detection",
+            "description_key": "Monitor for print abnormalities (K2 Plus camera-based)",
+            "strategy": "pre_start_gcode",
+            "gcode_template": "LOAD_AI_RUN SWITCH={value}",
+            "requires_macro": "LOAD_AI_RUN"
+          }
+        ]
+      }
+    },
+    {
+      "id": "test_4",
+      "name": "Test Multi Command Printer",
+      "manufacturer": "Test",
+      "pre_print_options": {
+        "macro_name": "START_PRINT",
+        "options": [
+          {
+            "id": "bed_mesh",
+            "category": "mechanical",
+            "order": 10,
+            "default_enabled": true,
+            "strategy": "pre_start_gcode",
+            "gcode_template": "CX_ROUGH_G28{?ext} EXTRUDER_TEMP={extruder_temp}{/?} BED_TEMP={bed_temp}\nCX_NOZZLE_CLEAR\nACCURATE_G28\nBED_MESH_CALIBRATE\nPRINT_PREPARED",
+            "emit_when_disabled": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "test_5",
+      "name": "Test Preference Printer",
+      "manufacturer": "Test",
+      "pre_print_options": {
+        "options": [
+          {
+            "id": "bed_mesh",
+            "category": "mechanical",
+            "order": 10,
+            "default_enabled": true,
+            "strategy": "pre_start_gcode",
+            "gcode_template": "SET_PRINT_PREFERENCES BED_LEVEL={value}",
+            "emit_when_disabled": true
+          },
+          {
+            "id": "flow_calibrate",
+            "category": "quality",
+            "order": 10,
+            "default_enabled": false,
+            "label_key": "Pressure Advance Calibration",
+            "needs_material": true,
+            "strategy": "pre_start_gcode",
+            "gcode_template": "SET_PRINT_PREFERENCES FLOW_CALIBRATE={value}",
+            "emit_when_disabled": true
+          },
+          {
+            "id": "test_timelapse",
+            "capability": "timelapse",
+            "category": "monitoring",
+            "order": 10,
+            "default_enabled": false,
+            "label_key": "Record Timelapse",
+            "strategy": "pre_start_gcode",
+            "gcode_template": "SET_PRINT_PREFERENCES TIME_LAPSE_CAMERA={value}",
+            "emit_when_disabled": true
+          }
+        ]
+      }
+    }
+  ]
+}

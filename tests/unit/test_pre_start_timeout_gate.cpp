@@ -18,6 +18,7 @@
 #include "ui_test_utils.h"
 #include "ui_update_queue.h"
 
+#include "../test_helpers/preprint_database_fixture.h"
 #include "../test_helpers/print_preparation_manager_test_access.h"
 #include "app_globals.h"
 #include "lvgl_test_fixture.h"
@@ -100,7 +101,7 @@ class PreStartGateFixture : public LVGLTestFixture {
     PreStartGateFixture()
         : mock_client(MoonrakerClientMock::PrinterType::VORON_24), jobs(mock_client) {
         state.init_subjects(false);
-        state.set_printer_type_sync("Creality K2 Plus");
+        state.set_printer_type_sync("Test Gcode Printer");
         mock_client.connect("ws://mock/websocket", []() {}, []() {});
         api = std::make_unique<PreStartGateAPI>(mock_client, state, jobs);
 
@@ -124,6 +125,7 @@ class PreStartGateFixture : public LVGLTestFixture {
                            busy ? 1 : 0);
     }
 
+    helix::test::PreprintDatabaseFixture preprint_database;
     MoonrakerClientMock mock_client;
     RecordingJobAPI jobs;
     helix::PrinterState state;
