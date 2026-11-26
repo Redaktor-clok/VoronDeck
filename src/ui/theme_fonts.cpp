@@ -13,6 +13,7 @@
 
 #include "display_metrics.h"
 #include "helix-xml/src/xml/lv_xml.h"
+#include "helix_psram_attr.h"
 #include "lvgl/lvgl.h"
 #include "nemesis_fonts.h"
 #include "theme_manager.h"
@@ -34,11 +35,10 @@ namespace {
 struct ThemeFontFace {
     lv_font_t* registered;
     const lv_font_t* orbitron;
-    lv_font_t original{};
 };
 
 // Same tier guards as the registration and CJK tables: never reference a pruned face.
-ThemeFontFace theme_font_faces[] = {
+const ThemeFontFace theme_font_faces[] = {
     {&noto_sans_8, &orbitron_8},
     {&noto_sans_10, &orbitron_10},
     {&noto_sans_11, &orbitron_11},
@@ -86,6 +86,9 @@ ThemeFontFace theme_font_faces[] = {
 #endif
 #endif
 };
+// Only the saved descriptors mutate; keep them out of ESP32's WiFi DRAM heap.
+HELIX_PSRAM_BSS lv_font_t
+    theme_font_originals[sizeof(theme_font_faces) / sizeof(theme_font_faces[0])]{};
 bool nemesis_fonts_active = false;
 } // namespace
 
@@ -93,16 +96,17 @@ void theme_manager_apply_font_family(bool nemesis) {
     if (nemesis == nemesis_fonts_active)
         return;
 
-    for (auto& face : theme_font_faces) {
+    for (const auto& face : theme_font_faces) {
+        auto& original = theme_font_originals[&face - theme_font_faces];
         if (nemesis) {
-            face.original = *face.registered;
+            original = *face.registered;
             *face.registered = *face.orbitron;
             // Preserve the established line box and baseline for mixed Latin/Cyrillic text.
-            face.registered->line_height = face.original.line_height;
-            face.registered->base_line = face.original.base_line;
-            face.registered->fallback = &face.original;
+            face.registered->line_height = original.line_height;
+            face.registered->base_line = original.base_line;
+            face.registered->fallback = &original;
         } else {
-            *face.registered = face.original;
+            *face.registered = original;
         }
     }
     nemesis_fonts_active = nemesis;
@@ -113,10 +117,10 @@ void theme_manager_apply_font_family(bool nemesis) {
 }
 
 void helix::ui::set_text_font_fallback(lv_font_t* font, const lv_font_t* fallback) {
-    for (auto& face : theme_font_faces) {
+    for (const auto& face : theme_font_faces) {
         if (face.registered == font) {
             // Navigation can retain this face until its next theme refresh.
-            face.original.fallback = fallback;
+            theme_font_originals[&face - theme_font_faces].fallback = fallback;
             if (nemesis_fonts_active)
                 return;
             break;
@@ -129,7 +133,7 @@ const lv_font_t* helix::ui::original_text_font(const lv_font_t* font) {
     if (nemesis_fonts_active) {
         for (const auto& face : theme_font_faces) {
             if (face.registered == font)
-                return &face.original;
+                return &theme_font_originals[&face - theme_font_faces];
         }
     }
     return font;
@@ -353,8 +357,8 @@ bool is_icon_font(const lv_font_t* font) {
     if (font == &mdi_icons_14 || font == &mdi_icons_16 || font == &mdi_icons_24 ||
         font == &mdi_icons_32 || font == &mdi_icons_48 || font == &mdi_icons_64)
         return true;
-        // Faces above 64px are linked only where mk/fonts.mk puts them, so
-        // taking the address of one unconditionally fails to link other builds.
+    // Faces above 64px are linked only where mk/fonts.mk puts them, so
+    // taking the address of one unconditionally fails to link other builds.
 #if HELIX_HAS_MDI_ICONS_80
     if (font == &mdi_icons_80)
         return true;
