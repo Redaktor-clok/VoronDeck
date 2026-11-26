@@ -16,10 +16,10 @@ bad=0
 if command -v sha256sum &>/dev/null; then sha_cmd="sha256sum"; else sha_cmd="shasum -a 256"; fi
 
 declare -A have=()
-for f in "$dir"/helixscreen-esp32-*-v*.zip; do
+for f in "$dir"/VoronDeck-esp32-*-v*.zip; do
     [[ -f "$f" ]] || continue
     base=$(basename "$f")
-    [[ "$base" =~ ^helixscreen-(esp32-.+)-v([0-9][0-9A-Za-z.+-]*)\.zip$ ]] || continue
+    [[ "$base" =~ ^VoronDeck-(esp32-.+)-v([0-9][0-9A-Za-z.+-]*)\.zip$ ]] || continue
     key="${BASH_REMATCH[1]}"
     have["$key"]=1
     want=$($sha_cmd "$f" | awk '{print $1}')
