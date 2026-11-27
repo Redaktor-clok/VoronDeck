@@ -69,6 +69,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <set>
@@ -286,7 +287,10 @@ class StandInWidget : public helix::PanelWidget {
   public:
     StandInWidget(std::string id, const char* component)
         : id_(std::move(id)), component_(component) {}
-    void attach(lv_obj_t* /*widget_obj*/, lv_obj_t* /*parent_screen*/) override {}
+    void attach(lv_obj_t* /*widget_obj*/, lv_obj_t* /*parent_screen*/) override {
+        static uint64_t next_generation = 0;
+        generation = ++next_generation;
+    }
     void detach() override {}
     const char* id() const override {
         return id_.c_str();
@@ -299,6 +303,8 @@ class StandInWidget : public helix::PanelWidget {
         last_rowspan = rowspan;
     }
 
+    // Allocation may reuse an old tile address; this identifies each attachment.
+    uint64_t generation = 0;
     /// The span the last on_size_changed() carried.
     int last_colspan = 0;
     int last_rowspan = 0;
@@ -682,6 +688,12 @@ class EditHomeFixture : public LVGLTestFixture {
         INFO("widget '" << id << "' on page " << index);
         REQUIRE(obj != nullptr);
         return obj;
+    }
+
+    uint64_t widget_generation(int index, const char* id) {
+        auto* stand_in = static_cast<StandInWidget*>(lv_obj_get_user_data(widget_on(index, id)));
+        REQUIRE(stand_in != nullptr);
+        return stand_in->generation;
     }
 
     /// Populate every page again from the config, as the panel does after a
@@ -1190,7 +1202,8 @@ TEST_CASE_METHOD(EditHomeFixture,
     CHECK(slot_in_reach());
 }
 
-TEST_CASE_METHOD(EditHomeFixture, "portrait viewport releases scrolling only after the tile gesture",
+TEST_CASE_METHOD(EditHomeFixture,
+                 "portrait viewport releases scrolling only after the tile gesture",
                  "[edit-swipe][home][grid_edit]") {
     auto* display = lv_display_get_default();
     const int old_w = lv_display_get_horizontal_resolution(display);
@@ -1701,6 +1714,7 @@ TEST_CASE_METHOD(EditHomeFixture,
     build_home();
     HomePanelTestAccess::register_config_rebuild_callback(panel());
     lv_obj_t* widget = widget_on(0, "temperature");
+    const auto original_generation = widget_generation(0, "temperature");
     enter_edit_mode();
     select_by_tap("temperature");
     const auto before = config().page_entries(0);
@@ -1710,11 +1724,12 @@ TEST_CASE_METHOD(EditHomeFixture,
     config().set_widget_config("temperature", {{"mode", "carousel"}});
     config().save();
     helix::PanelWidgetManager::instance().notify_config_changed("home");
-    helix::PanelWidgetManager::instance().notify_config_changed("home"); // same-tick choices coalesce
+    helix::PanelWidgetManager::instance().notify_config_changed(
+        "home");                                    // same-tick choices coalesce
     REQUIRE(widget_on(0, "temperature") == widget); // no teardown inside the picker dispatch
     settle();
     auto* preview = widget_on(0, "temperature");
-    REQUIRE(preview != widget);
+    REQUIRE(widget_generation(0, "temperature") != original_generation);
     CHECK(HomePanelTestAccess::edit_mode_active(panel()));
     CHECK(grid().selected_widget() == preview);
     CHECK_FALSE(is_clickable(preview)); // editor still owns tile input
@@ -1725,13 +1740,11 @@ TEST_CASE_METHOD(EditHomeFixture,
     // to the widget id, not its index in the serialized vector.
     for (const auto& original : before) {
         CAPTURE(original.id);
-        const auto current = std::find_if(after.begin(), after.end(), [&](const auto& entry) {
-            return entry.id == original.id;
-        });
+        const auto current = std::find_if(
+            after.begin(), after.end(), [&](const auto& entry) { return entry.id == original.id; });
         REQUIRE(current != after.end());
-        CHECK(std::count_if(after.begin(), after.end(), [&](const auto& entry) {
-            return entry.id == original.id;
-        }) == 1);
+        CHECK(std::count_if(after.begin(), after.end(),
+                            [&](const auto& entry) { return entry.id == original.id; }) == 1);
         CHECK(current->enabled == original.enabled);
         CHECK(current->col == original.col);
         CHECK(current->row == original.row);
@@ -1741,16 +1754,18 @@ TEST_CASE_METHOD(EditHomeFixture,
 
     panel().exit_grid_edit_mode();
     settle();
-    CHECK(widget_on(0, "temperature") != widget);
+    CHECK(widget_generation(0, "temperature") != original_generation);
 }
 
-TEST_CASE_METHOD(EditHomeFixture, "a saved preview waits out an armed gesture without losing config",
+TEST_CASE_METHOD(EditHomeFixture,
+                 "a saved preview waits out an armed gesture without losing config",
                  "[edit-swipe][home][grid_edit][config-preview]") {
     build_home();
     HomePanelTestAccess::register_config_rebuild_callback(panel());
     enter_edit_mode();
     select_by_tap("temperature");
     auto* widget = widget_on(0, "temperature");
+    const auto original_generation = widget_generation(0, "temperature");
     const auto point = center_of(widget);
     indev.press(point.x, point.y);
     REQUIRE(GridEditModeTestAccess::press_armed(grid()));
@@ -1763,7 +1778,7 @@ TEST_CASE_METHOD(EditHomeFixture, "a saved preview waits out an armed gesture wi
     indev.release(point.x, point.y);
     panel().exit_grid_edit_mode();
     settle();
-    CHECK(widget_on(0, "temperature") != widget);
+    CHECK(widget_generation(0, "temperature") != original_generation);
     CHECK(config().get_widget_config("temperature").value("mode", "") == "carousel");
 }
 
@@ -1773,14 +1788,14 @@ TEST_CASE_METHOD(EditHomeFixture, "Done immediately after a saved choice still a
     HomePanelTestAccess::register_config_rebuild_callback(panel());
     enter_edit_mode();
     select_by_tap("temperature");
-    auto* widget = widget_on(0, "temperature");
+    const auto original_generation = widget_generation(0, "temperature");
     config().set_widget_config("temperature", {{"mode", "carousel"}});
     config().save();
     helix::PanelWidgetManager::instance().notify_config_changed("home");
     panel().exit_grid_edit_mode(); // before the preview's queued tick
     settle();
     CHECK_FALSE(HomePanelTestAccess::edit_mode_active(panel()));
-    CHECK(widget_on(0, "temperature") != widget);
+    CHECK(widget_generation(0, "temperature") != original_generation);
     CHECK(config().get_widget_config("temperature").value("mode", "") == "carousel");
 }
 
@@ -2246,7 +2261,8 @@ TEST_CASE_METHOD(EditHomeFixture,
     CHECK(grid().selected_widget() == fan);
 }
 
-TEST_CASE_METHOD(EditHomeFixture, "a tile gesture keeps its initial selection while crossing another",
+TEST_CASE_METHOD(EditHomeFixture,
+                 "a tile gesture keeps its initial selection while crossing another",
                  "[1638][edit-swipe][home][grid_edit]") {
     build_home();
     // 'fan' one cell below 'temperature' on page 0: a finger sliding between
@@ -3466,7 +3482,8 @@ TEST_CASE_METHOD(EditHomeFixture, "an edge long-press resize owns the gesture, n
         enter_edit_mode();
         REQUIRE(grid().selected_widget() == nullptr);
         const helix::CellMetrics m = page_metrics(0);
-        const int edge_x = wa.x1 +
+        const int edge_x =
+            wa.x1 +
             GridEditModeTestAccess::edge_hit_band_for_cell(std::min(m.cell_w, m.cell_h)) / 2;
         indev.press(edge_x, mid_y);
         REQUIRE(grid().selected_widget() == widget);
