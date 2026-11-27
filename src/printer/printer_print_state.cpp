@@ -107,6 +107,7 @@ void PrinterPrintState::init_subjects(bool register_xml) {
                      register_xml);
     INIT_SUBJECT_INT(print_start_chamber_wait, 0, subjects_, register_xml);
     INIT_SUBJECT_INT(print_lifecycle, static_cast<int>(PrintState::Idle), subjects_, register_xml);
+    job_active_.store(false);
     INIT_SUBJECT_INT(job_holds_machine, 0, subjects_, register_xml);
     INIT_SUBJECT_INT(machine_motion_blocked, spool_latch_active_.load() ? 1 : 0, subjects_,
                      register_xml);
@@ -1719,6 +1720,7 @@ void PrinterPrintState::publish_lifecycle_state() {
     // in the other direction because job_holds_machine has only XML consumers
     // (bind_state_if_eq), none of which reads print_lifecycle back.
     const int holds = job_holds_machine(static_cast<PrintState>(derived)) ? 1 : 0;
+    job_active_.store(holds != 0);
     lv_subject_set_int(&job_holds_machine_, holds);
     publish_machine_motion_blocked();
 

@@ -10,7 +10,9 @@
 
 #include "../lvgl_test_fixture.h"
 #include "../test_helpers/moonraker_client_test_access.h"
+#include "../test_helpers/print_state_test_drivers.h"
 #include "../test_helpers/update_queue_test_access.h"
+#include "app_globals.h"
 #include "helix_plugin_features.h"
 #include "http_executor.h"
 #include "klipper_config_editor.h"
@@ -610,4 +612,24 @@ TEST_CASE_METHOD(LVGLTestFixture,
     REQUIRE(copies.size() == 1);
     CHECK(copies[0]["source"] == "config/printer.cfg");
     CHECK(copies[0]["dest"] == "config/.helix_backups/printer.cfg.helix_backup");
+}
+
+TEST_CASE_METHOD(LVGLTestFixture, "Config editor refuses a change while a print owns the printer",
+                 "[config][editor][job-guard]") {
+    auto& state = get_printer_state();
+    state.init_subjects(false);
+    MoonrakerClientMock client;
+    MoonrakerAPIMock api(client, state);
+    KlipperConfigEditor editor;
+    const auto job = GENERATE(PrintJobState::PRINTING, PrintJobState::PAUSED);
+    test::set_wire_state(state, job);
+    std::string error;
+    editor.safe_multi_edit(
+        api, "input_shaper", {{ConfigEdit::Type::ADD_KEY, "shaper_type_x", "mzv"}},
+        [] { FAIL("Edit succeeded during print"); },
+        [&](const std::string& reason) { error = reason; });
+    CHECK(error.find("print is running") != std::string::npos);
+    CHECK_FALSE(api.get_uploaded_config("printer.cfg").has_value());
+    test::set_wire_state(state, PrintJobState::STANDBY);
+    CHECK_FALSE(state.print_state().job_active());
 }

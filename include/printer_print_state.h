@@ -613,6 +613,10 @@ class PrinterPrintState {
         return &job_holds_machine_;
     }
 
+    bool job_active() const {
+        return job_active_.load();
+    }
+
     /**
      * @brief Whether anything may move the toolhead: a job holds the machine,
      *        or spools lie on the bed (prestonbrown/helixscreen#1730)
@@ -1272,6 +1276,7 @@ class PrinterPrintState {
 
     // Print start progress subjects
     lv_subject_t print_start_phase_{};      // Integer: PrintStartPhase enum
+    std::atomic<bool> job_active_{false};   // Also read by asynchronous config callbacks.
     lv_subject_t print_lifecycle_{};        // Integer: PrintState enum (derived)
     lv_subject_t print_lifecycle_prev_{};   // Integer: PrintState enum, value before the current
     lv_subject_t job_holds_machine_{};      // Integer 0/1: job_holds_machine(print_lifecycle)

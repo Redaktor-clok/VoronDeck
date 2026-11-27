@@ -25,6 +25,21 @@
 
 namespace helix::system {
 
+namespace {
+// Moonraker transfer and restart callbacks may run off the LVGL thread.
+constexpr char kJobActiveError[] = "Can't change the printer config while a print is running.";
+
+bool refuse_active_job(const KlipperConfigEditor::ErrorCallback& on_error) {
+    if (!get_printer_state().print_state().job_active()) {
+        return false;
+    }
+    if (on_error) {
+        on_error(kJobActiveError);
+    }
+    return true;
+}
+} // namespace
+
 std::optional<ConfigKey> ConfigStructure::find_key(const std::string& section,
                                                    const std::string& key) const {
     auto it = sections.find(section);
@@ -601,6 +616,9 @@ void KlipperConfigEditor::backup_file(IMoonrakerAPI& api, const std::string& fil
 void KlipperConfigEditor::edit_value(IMoonrakerAPI& api, const std::string& section,
                                      const std::string& key, const std::string& new_value,
                                      SuccessCallback on_success, ErrorCallback on_error) {
+    if (refuse_active_job(on_error)) {
+        return;
+    }
     // Look up section in cached section map
     std::string file_path;
     {
@@ -642,6 +660,9 @@ void KlipperConfigEditor::edit_value(IMoonrakerAPI& api, const std::string& sect
                     return;
                 }
 
+                if (refuse_active_job(on_error)) {
+                    return;
+                }
                 // Step 4: Upload modified content
                 api.transfers().upload_file(
                     "config", file_path, *modified,
@@ -1065,6 +1086,9 @@ void KlipperConfigEditor::safe_multi_edit(IMoonrakerAPI& api, const std::string&
                                           const std::vector<ConfigEdit>& edits,
                                           SuccessCallback on_success, ErrorCallback on_error,
                                           int restart_timeout_ms) {
+    if (refuse_active_job(on_error)) {
+        return;
+    }
     spdlog::info("[ConfigEditor] Starting safe multi-edit on [{}] ({} edits)", section,
                  edits.size());
     if (route() == ConfigEditRoute::Plugin) {
@@ -1097,6 +1121,9 @@ void KlipperConfigEditor::plugin_multi_edit(IMoonrakerAPI& api, const std::strin
                 spdlog::error("[ConfigEditor] {}", plan.error);
                 if (on_error)
                     on_error(plan.error);
+                return;
+            }
+            if (refuse_active_job(on_error)) {
                 return;
             }
             api.get_client().send_jsonrpc(
@@ -1184,6 +1211,9 @@ void KlipperConfigEditor::file_api_multi_edit(IMoonrakerAPI& api, const std::str
             backup_file(
                 api, file_path,
                 [this, &api, file_path, modified, on_success, on_error, restart_timeout_ms]() {
+                    if (refuse_active_job(on_error)) {
+                        return;
+                    }
                     // Step 6: Upload modified content
                     api.transfers().upload_file(
                         "config", file_path, *modified,
@@ -1257,6 +1287,17 @@ void KlipperConfigEditor::restore_plugin_backups(
 void KlipperConfigEditor::restart_and_monitor(IMoonrakerAPI& api, RestartRecovery recovery,
                                               SuccessCallback on_success, ErrorCallback on_error,
                                               int restart_timeout_ms) {
+    // If a job started during the upload, restore the original file without restarting.
+    if (get_printer_state().print_state().job_active()) {
+        recovery.restore(
+            api,
+            [on_error]() {
+                if (on_error)
+                    on_error(kJobActiveError);
+            },
+            on_error);
+        return;
+    }
     api.restart_firmware(
         [this, &api, recovery, on_success, on_error, restart_timeout_ms,
          poll_interval = restart_poll_interval_]() {
@@ -1335,6 +1376,9 @@ void KlipperConfigEditor::restart_and_monitor(IMoonrakerAPI& api, RestartRecover
                     recovery.restore(
                         api,
                         [&api, on_error]() {
+                            if (refuse_active_job(on_error)) {
+                                return;
+                            }
                             // Backups restored, try another FIRMWARE_RESTART to recover
                             spdlog::info("[ConfigEditor] Backups restored, sending "
                                          "recovery FIRMWARE_RESTART");
@@ -1375,6 +1419,9 @@ void KlipperConfigEditor::safe_edit_value(IMoonrakerAPI& api, const std::string&
                                           const std::string& key, const std::string& new_value,
                                           SuccessCallback on_success, ErrorCallback on_error,
                                           int restart_timeout_ms) {
+    if (refuse_active_job(on_error)) {
+        return;
+    }
     spdlog::info("[ConfigEditor] Starting safe edit: [{}] {} = {}", section, key, new_value);
     if (route() == ConfigEditRoute::Plugin) {
         plugin_multi_edit(api, section, {{ConfigEdit::Type::SET_VALUE, key, new_value}},
