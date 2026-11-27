@@ -21,6 +21,7 @@
 #include "panel_widget.h"
 #include "panel_widget_config.h"
 #include "panel_widget_manager.h"
+#include "theme_loader.h"
 #include "theme_manager.h"
 
 #include "../catch_amalgamated.hpp"
@@ -53,6 +54,21 @@ lv_obj_t* icon_label_of(lv_obj_t* pill) {
 
 TEST_CASE_METHOD(XMLTestFixture, "edit-mode chrome icons clear WCAG AA on their composited pills",
                  "[grid_edit][edit-chrome]") {
+    struct RestoreTheme {
+        ThemeData theme = theme_manager_get_active_theme();
+        bool dark = theme_manager_is_dark_mode();
+        ~RestoreTheme() {
+            theme_manager_apply_theme(theme, dark);
+        }
+    } restore;
+    const auto theme_name = GENERATE("voron-graphite", "nemesis-530", "nord");
+    const bool dark = GENERATE(false, true);
+    const auto theme =
+        load_theme_from_file(get_default_themes_directory() + "/" + theme_name + ".json");
+    REQUIRE(theme.is_valid());
+    CAPTURE(theme_name, dark);
+    theme_manager_apply_theme(theme, dark);
+
     const int gutter = helix::GridLayout::gutter_px();
     REQUIRE(gutter > 0);
 

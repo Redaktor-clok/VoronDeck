@@ -1010,11 +1010,8 @@ TEST_CASE("no two leaders cross", "[printer_image][callout_layout]") {
     REQUIRE(f.good());
     const auto all = parse_image_regions(std::string((std::istreambuf_iterator<char>(f)), {}));
     int lined_layouts = 0;
-    for (const char* name : {"voron-v2", "flashforge-adventurer-5m", "creality-k2-plus-cfs",
-                             "snapmaker-u1", "elegoo-centauri-carbon", "qidi-q2"}) {
-        const auto it = all.find(name);
-        REQUIRE(it != all.end());
-        const auto& r = it->second;
+    REQUIRE_FALSE(all.empty());
+    for (const auto& [name, r] : all) {
         auto in = bands();
         in.image_w = r.src_w;
         in.image_h = r.src_h;
